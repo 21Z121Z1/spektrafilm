@@ -46,7 +46,7 @@ def compute_aces_conversion_matrix(sensitivity, illuminant):
     return aces_to_raw_conversion_matrix
 
 def rgb_to_raw_aces_idt(RGB, illuminant, sensitivity, midgray_rgb=[[[0.184,0.184,0.184]]],
-                        color_space='sRGB', apply_cctf_decoding=True, aces_conversion_matrix=[]):
+                        color_space='sRGB', apply_cctf_decoding=True, aces_conversion_matrix=[]):  # color_space default is legacy; callers pass explicitly.
     """
     Converts RGB values to raw values using ACES IDT (Input Device Transform).
 

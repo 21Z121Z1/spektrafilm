@@ -125,6 +125,7 @@ class SimulationState:
     exposure_compensation_ev: float
     auto_exposure: bool
     auto_exposure_method: str
+    compute_backend: str
     print_paper: str
     print_illuminant: str
     print_exposure: float
@@ -153,6 +154,7 @@ class SimulationState:
     saving_cctf_encoding: bool
     auto_preview: bool
     scan_film: bool
+    hdr_exr_output: bool = False
 
 
 @dataclass(slots=True)
@@ -299,6 +301,7 @@ def gui_state_from_params(
             exposure_compensation_ev=params.camera.exposure_compensation_ev,
             auto_exposure=params.camera.auto_exposure,
             auto_exposure_method=params.camera.auto_exposure_method,
+            compute_backend=params.settings.compute_backend,
             print_paper=print_paper,
             print_illuminant=params.enlarger.illuminant,
             print_exposure=params.enlarger.print_exposure,
@@ -327,6 +330,8 @@ def gui_state_from_params(
             saving_cctf_encoding=params.io.output_cctf_encoding,
             auto_preview=True,
             scan_film=params.io.scan_film,
+            hdr_exr_output=not bool(params.io.output_cctf_encoding)
+            and not bool(getattr(params.io, "output_clip_max", True)),
         ),
         display=DisplayState(
             use_display_transform=True,

@@ -1,5 +1,10 @@
 import numpy as np
-from spektrafilm.utils.fast_interp_lut import apply_lut_3d, apply_lut_cubic_2d
+from spektrafilm.utils.fast_interp_lut import (
+    apply_lut_3d,
+    apply_lut_cubic_2d,
+    apply_lut_pchip_3d_prepared,
+    prepare_lut_pchip_3d,
+)
 
 def _as_channel_bounds(bounds):
     bounds_array = np.asarray(bounds, dtype=np.float64)
@@ -30,19 +35,54 @@ def _create_lut_3d(function, xmin=(0.0, 0.0, 0.0), xmax=(1.0, 1.0, 1.0), steps=3
 #     lut = np.reshape(function(X), (steps, steps, 3))
 #     return lut
 
-def compute_with_lut(data, function, xmin=(0.0, 0.0, 0.0), xmax=(1.0, 1.0, 1.0), steps=32, lut=None):
-    # Computes the function on the data using a 3D LUT for acceleration.
-    # The data is assumed to be in the range [xmin, xmax] and will be normalized for LUT indexing.
-    # The lut is created on the fly in the range [xmin, xmax] with the specified number of steps.
-    # Note: apply_lut_3d expects the data to be normalized to [0, 1] for proper indexing into the LUT.
+def compute_with_lut(
+    data,
+    function,
+    xmin=(0.0, 0.0, 0.0),
+    xmax=(1.0, 1.0, 1.0),
+    steps=32,
+    lut=None,
+    *,
+    prepared_lut=None,
+    method='pchip',
+    return_prepared=False,
+    gpu_backend=None,
+):
+    """Compute *function* on *data* using a 3D LUT for acceleration.
+
+    Parameters
+    ----------
+    gpu_backend : optional
+        When set to a GPU-capable ``ArrayBackend`` and *method* is
+        ``'gpu_trilinear'``, the trilinear GPU kernel is used instead of the
+        CPU path.  The LUT is still built on CPU; only sampling runs on GPU.
+    """
     xmin = _as_channel_bounds(xmin)
     xmax = _as_channel_bounds(xmax)
     if np.any(xmax <= xmin):
         raise ValueError('xmax must be greater than xmin')
+    if method not in ('pchip', 'mitchell', 'gpu_trilinear'):
+        raise ValueError("method must be 'pchip', 'mitchell' or 'gpu_trilinear'")
+    if prepared_lut is not None:
+        lut = prepared_lut[0]
     if lut is None:
         lut = _create_lut_3d(function, xmin, xmax, steps)
+    if return_prepared and method == 'pchip' and prepared_lut is None:
+        prepared_lut = prepare_lut_pchip_3d(lut)
     data_normalized = (data - xmin) / (xmax - xmin)
-    return apply_lut_3d(lut, data_normalized), lut
+    if method == 'gpu_trilinear' and gpu_backend is not None and gpu_backend.supports_gpu:
+        from spektrafilm.gpu.kernels.lut import apply_lut_trilinear_3d_mlx
+        output = apply_lut_trilinear_3d_mlx(lut, data_normalized, mx=gpu_backend.mx)
+        gpu_backend.eval(output)
+        output = gpu_backend.to_numpy(output)
+    elif method == 'pchip' and prepared_lut is not None:
+        output = apply_lut_pchip_3d_prepared(prepared_lut, data_normalized)
+    else:
+        effective_method = 'pchip' if method == 'gpu_trilinear' else method
+        output = apply_lut_3d(lut, data_normalized, method=effective_method)
+    if return_prepared:
+        return output, lut, prepared_lut
+    return output, lut
 
 def warmup_luts():
     """

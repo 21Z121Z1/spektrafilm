@@ -5,6 +5,7 @@ from time import perf_counter
 
 import numpy as np
 
+from spektrafilm.color_management import output_encoding_from_io
 from spektrafilm.runtime.services import (
     EnlargerService,
     ResizingService,
@@ -12,6 +13,7 @@ from spektrafilm.runtime.services import (
     ColorReferenceService,
 )
 from spektrafilm.runtime.stages import FilmingStage, PrintingStage, ScanningStage
+from spektrafilm.gpu.backend import backend_summary, select_backend
 from spektrafilm.utils.timings import format_timings
 
 
@@ -32,19 +34,27 @@ class SimulationPipeline:
         self.io = self._params.io
         self.debug = self._params.debug
         self.settings = self._params.settings
+        self._array_backend = select_backend(
+            self.settings.compute_backend,
+            precision=self.settings.gpu_precision,
+        )
 
         self.timings = {}
         self._last_elapsed_time = None
 
         self._resize_service = ResizingService(self.io, self.camera.film_format_mm)
         if not update_params:
-            self._lut_service = SpectralLUTService(self.settings.lut_resolution)
+            self._lut_service = SpectralLUTService(
+                self.settings.lut_resolution,
+                gpu_backend=self._array_backend,
+            )
         self._enlarger_service = EnlargerService(self.enlarger)
+        self._output_encoding = output_encoding_from_io(self.io)
         self._color_reference_service = ColorReferenceService(self.film, self.film_render,
                                                               self.print, self.print_render,
                                                               self.scanner.black_correction, self.scanner.white_correction,
                                                               self.scanner.black_level, self.scanner.white_level,
-                                                              self.io)
+                                                              self.io, output_encoding=self._output_encoding)
 
         
         self._filming_stage = FilmingStage(
@@ -57,6 +67,7 @@ class SimulationPipeline:
             self._resize_service, # to get pixel size um for blurs
             self._enlarger_service, # to compute and save density spectral midgray to balance print
             self._color_reference_service,
+            backend=self._array_backend,
         )
         self._printing_stage = PrintingStage(
             self.film,
@@ -69,6 +80,7 @@ class SimulationPipeline:
             self._enlarger_service,
             self._resize_service, # to get pixel size um for diffusion filter
             self._color_reference_service,
+            backend=self._array_backend,
         )
         self._scanning_stage = ScanningStage(
             self.film,
@@ -80,6 +92,7 @@ class SimulationPipeline:
             self.settings,
             self._lut_service,
             self._color_reference_service,
+            backend=self._array_backend,
         )
         
         # timing communication
@@ -97,7 +110,7 @@ class SimulationPipeline:
                 image = self._pipeline(image)
             else:
                 image = self._pipeline_debug(image)
-            return image
+            return self._array_backend.to_numpy(image)
         finally:
             self._last_elapsed_time = perf_counter() - start
 
@@ -111,6 +124,7 @@ class SimulationPipeline:
         return format_timings(
             self.get_timings(),
             total_elapsed_time=self.get_total_elapsed_time(),
+            header=f"Simulation timings (backend: {backend_summary(self._array_backend)})",
         )
 
     def print_timings(self):
@@ -170,7 +184,7 @@ class SimulationPipeline:
     def _pipeline_scan_film(self, rgb_image):
         log_raw_film = self._filming_stage.expose(rgb_image)
         cmy_film = self._filming_stage.develop(log_raw_film)
-        rgb_scan = self._scanning_stage.scan(cmy_film)
+        rgb_scan = self._scanning_stage.scan(cmy_film, output_encoding=self._output_encoding)
         return rgb_scan
     
     def _pipeline_print(self, rgb_image):
@@ -178,7 +192,7 @@ class SimulationPipeline:
         cmy_film = self._filming_stage.develop(log_raw_film)
         log_raw_print = self._printing_stage.expose(cmy_film)
         cmy_print = self._printing_stage.develop(log_raw_print)
-        rgb_scan = self._scanning_stage.scan(cmy_print)
+        rgb_scan = self._scanning_stage.scan(cmy_print, output_encoding=self._output_encoding)
         return rgb_scan
     
 ################################################################################
@@ -207,7 +221,7 @@ class SimulationPipeline:
         if self.debug.output_print_density_cmy:
             return cmy_print
         
-        rgb_scan = self._scanning_stage.scan(cmy_print)
+        rgb_scan = self._scanning_stage.scan(cmy_print, output_encoding=self._output_encoding)
         return rgb_scan
     
     def _debug_inject_pipeline(self, cmy_film):
@@ -215,6 +229,5 @@ class SimulationPipeline:
         if self.debug.inject_film_density_cmy:
             log_raw_print = self._printing_stage.expose(cmy_film)
             cmy_print = self._printing_stage.develop(log_raw_print)
-            rgb_scan = self._scanning_stage.scan(cmy_print)
+            rgb_scan = self._scanning_stage.scan(cmy_print, output_encoding=self._output_encoding)
             return rgb_scan
-

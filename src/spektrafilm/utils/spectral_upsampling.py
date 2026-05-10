@@ -196,6 +196,84 @@ def rgb_to_raw_hanatos2025(rgb, sensitivity,
     # note that sensitivities are already normalized in balancing such that raw_midgray is 1, so no need to normalize here
     return raw
 
+
+# ---------------------------------------------------------------------------
+# Backend-aware variant: precompute CPU constants, execute per-pixel on GPU
+# ---------------------------------------------------------------------------
+
+def precompute_hanatos2025_constants(color_space, apply_cctf_decoding, reference_illuminant):
+    """CPU-only: return (M_rgb_to_xyz, cctf_decode_fn_or_None, illu_xy).
+
+    ``M_rgb_to_xyz`` already includes the CAT02 adaptation to
+    *reference_illuminant*.  If *apply_cctf_decoding* the caller must decode
+    the CCTF first (on the backend) before multiplying; this helper records
+    a callable for that purpose.
+    """
+    from spektrafilm.gpu.kernels.color import precompute_rgb_to_xyz_matrix as _pre_m
+    illu_xy = _illuminant_to_xy(reference_illuminant)
+    M = _pre_m(color_space, illuminant_xy=illu_xy, cat='CAT02')
+
+    # CCTF decoding: if needed, we stash the colour-science function handle
+    # for now.  Phase 2 calls it on CPU (small cost for preview; Phase 3+
+    # can move it to a backend kernel).
+    cctf_decode = None
+    if apply_cctf_decoding:
+        cs = colour.RGB_COLOURSPACES[color_space]
+        cctf_decode = cs.cctf_decoding
+    return M, cctf_decode, illu_xy
+
+
+def rgb_to_raw_hanatos2025_backend(
+    rgb, sensitivity,
+    color_space, apply_cctf_decoding, reference_illuminant,
+    tc_lut=None,
+    *,
+    backend=None,
+    precomputed=None,
+):
+    """Backend-aware variant of ``rgb_to_raw_hanatos2025``.
+
+    *precomputed* is the tuple returned by
+    ``precompute_hanatos2025_constants`` — when provided, no ``colour``
+    calls happen in the hot path.  When *backend* is ``None`` the
+    function is functionally identical to the original.
+    """
+    if backend is None or not backend.supports_gpu:
+        # Original CPU path — no change.
+        return rgb_to_raw_hanatos2025(
+            rgb, sensitivity, color_space, apply_cctf_decoding,
+            reference_illuminant, tc_lut=tc_lut,
+        )
+
+    # Precomputed constants
+    if precomputed is None:
+        precomputed = precompute_hanatos2025_constants(
+            color_space, apply_cctf_decoding, reference_illuminant,
+        )
+    M_rgb_to_xyz, cctf_decode, _illu_xy = precomputed
+
+    # 1. CCTF decode (still CPU for now — images are NumPy at this point)
+    rgb_np = np.asarray(rgb, dtype=np.float64)
+    if cctf_decode is not None:
+        rgb_np = cctf_decode(rgb_np)
+
+    # 2. RGB → XYZ using precomputed matrix (CPU, float64)
+    xyz = rgb_np @ M_rgb_to_xyz.T
+
+    # 3. XYZ → xy chromaticity → triangular coordinates
+    b = np.sum(xyz, axis=-1)
+    xy = xyz[..., 0:2] / np.fmax(b[..., None], 1e-10)
+    xy = np.clip(xy, 0, 1)
+    tc = _tri2quad(xy)
+    b = np.nan_to_num(b)
+
+    # 4. LUT sampling — stays CPU cubic because the tc_lut is a 2D cubic interp
+    if tc_lut is None:
+        tc_lut = compute_hanatos2025_tc_lut(sensitivity)
+    raw = apply_lut_cubic_2d(tc_lut, tc)
+    raw *= b[..., None]
+    return raw
+
 def rgb_to_smooth_spectrum(rgb, color_space, apply_cctf_decoding, reference_illuminant):
     # direct interpolation of the spectra lut, to be used only for smooth spectra close to white
     tc_w, b_w = _rgb_to_tc_b(

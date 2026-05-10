@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from spektrafilm.gpu.kernels.color import boost_highlights_backend
 from spektrafilm.model.color_filters import compute_band_pass_filter
 from spektrafilm.model.diffusion import apply_diffusion_filter_um, apply_gaussian_blur_um, apply_halation_um, boost_highlights
 from spektrafilm.model.emulsion import compute_density_spectral, develop, develop_simple
@@ -12,7 +13,8 @@ from spektrafilm.utils.timings import timeit
 
 class FilmingStage:
     def __init__(self, film, film_render_params, camera_params, io_params, settings_params,
-                 lut_service, resize_service, enlarger_service, color_reference_service):
+                 lut_service, resize_service, enlarger_service, color_reference_service,
+                 backend=None):
         self._film = film
         self._film_render = film_render_params
         self._camera = camera_params
@@ -21,6 +23,7 @@ class FilmingStage:
         self._lut_service = lut_service
         self._resize_service = resize_service
         self._enlarger_service = enlarger_service
+        self._backend = backend
         self._enlarger_service.density_spectral_midgray, self._enlarger_service.density_spectral_midgray_comp = self._compute_density_spectral_midgray_to_balance_print()
         self._color_reference_service = color_reference_service
 
@@ -47,18 +50,41 @@ class FilmingStage:
             apply_cctf_decoding=self._io.input_cctf_decoding,
         )
         raw *= 2 ** self._camera.exposure_compensation_ev
-        boost_highlights(raw, self._film_render.halation.boost_ev,
-                         self._film_render.halation.boost_range,
-                         self._film_render.halation.protect_ev, out=raw)
+        if self._backend is not None and self._backend.supports_gpu:
+            raw = boost_highlights_backend(
+                raw,
+                self._film_render.halation.boost_ev,
+                self._film_render.halation.boost_range,
+                self._film_render.halation.protect_ev,
+                self._backend,
+            )
+        else:
+            boost_highlights(raw, self._film_render.halation.boost_ev,
+                             self._film_render.halation.boost_range,
+                             self._film_render.halation.protect_ev, out=raw)
         raw = apply_diffusion_filter_um(
             raw,
             self._camera.diffusion_filter,
             pixel_size_um=self._resize_service.pixel_size_um,
+            backend=self._backend,
         )
-        raw = apply_gaussian_blur_um(raw, self._camera.lens_blur_um, self._resize_service.pixel_size_um)
-        raw = apply_halation_um(raw, self._film_render.halation, self._resize_service.pixel_size_um)
+        raw = apply_gaussian_blur_um(
+            raw,
+            self._camera.lens_blur_um,
+            self._resize_service.pixel_size_um,
+            backend=self._backend,
+        )
+        raw = apply_halation_um(
+            raw,
+            self._film_render.halation,
+            self._resize_service.pixel_size_um,
+            backend=self._backend,
+        )
         raw *= self._color_reference_service.black_white_filming_exposure_correction()
-        log_raw = np.log10(np.fmax(raw, 0.0) + 1e-10)
+        if self._backend is not None and self._backend.supports_gpu:
+            log_raw = self._backend.log10(self._backend.fmax(raw, 0.0) + 1e-10)
+        else:
+            log_raw = np.log10(np.fmax(raw, 0.0) + 1e-10)
         return log_raw
 
     @timeit("develop")
@@ -74,6 +100,7 @@ class FilmingStage:
             self._film.info.type,
             gamma_factor=self._film_render.density_curve_gamma,
             use_fast_stats=self._settings.use_fast_stats,
+            backend=self._backend,
         )
 
     # private methods
@@ -82,7 +109,7 @@ class FilmingStage:
         self,
         rgb: np.ndarray,
         *,
-        color_space: str = "sRGB",
+        color_space: str = "sRGB",  # Legacy default — all runtime callers pass io.input_color_space explicitly.
         apply_cctf_decoding: bool = False,
     ) -> np.ndarray:
         sensitivity = 10 ** self._film.data.log_sensitivity
@@ -129,7 +156,11 @@ class FilmingStage:
         return density_spectral_midgray, density_spectral_midgray_comp
 
     def _simple_rgb_to_density_spectral(self, rgb: np.ndarray) -> np.ndarray:
-        raw = self._rgb_to_film_raw(rgb) 
+        raw = self._rgb_to_film_raw(
+            rgb,
+            color_space=self._io.input_color_space,
+            apply_cctf_decoding=self._io.input_cctf_decoding,
+        )
         log_raw = np.log10(raw + 1e-10)
         density_cmy = develop_simple(
             log_raw,

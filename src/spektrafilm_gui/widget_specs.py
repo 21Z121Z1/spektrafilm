@@ -5,6 +5,7 @@ from enum import Enum
 
 from spektrafilm_gui.options import (
     AutoExposureMethods,
+    ComputeBackends,
     DiffusionFilterFamilies,
     NapariInterpolationModes,
     RGBColorSpaces,
@@ -46,6 +47,7 @@ GUI_SECTION_ENUMS: dict[str, dict[str, type[Enum]]] = {
     "simulation": {
         "film_stock": FilmStocks,
         "auto_exposure_method": AutoExposureMethods,
+        "compute_backend": ComputeBackends,
         "camera_diffusion_filter_family": DiffusionFilterFamilies,
         "print_paper": PrintPapers,
         "print_illuminant": Illuminants,
@@ -73,6 +75,10 @@ GUI_WIDGET_SPECS = {
         "film_format_mm": WidgetSpec(
             label="Film format mm",
             tooltip="Long edge of the film format in millimeters, e.g. 35mm or 60mm",
+        ),
+        "compute_backend": WidgetSpec(
+            label="Compute backend",
+            tooltip="Select CPU, automatic fallback, or the optional Apple GPU/MLX backend.",
         ),
         "camera_lens_blur_um": WidgetSpec(
             label="Camera lens blur um",
@@ -283,6 +289,10 @@ GUI_WIDGET_SPECS = {
         "saving_cctf_encoding": WidgetSpec(
             label="Saving CCTF encoding",
             tooltip="Add or not the CCTF to the saved image file",
+        ),
+        "hdr_exr_output": WidgetSpec(
+            label="HDR EXR output",
+            tooltip="Keep runtime output scene-linear for EXR saving; disables output CCTF and highlight clipping. Preview remains SDR.",
         ),
         "auto_preview": WidgetSpec(label="Auto preview", tooltip="trigger the preview after every change of gui parameters, use mouse scrollwheel on parameters field, read preview tooltip for details"),
         "scan_film": WidgetSpec(label="Scan film", tooltip="Show a scan of the negative instead of the print"),

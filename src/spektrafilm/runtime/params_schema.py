@@ -162,6 +162,8 @@ class IOParams:
     input_cctf_decoding: bool = False
     output_color_space: str = "sRGB"
     output_cctf_encoding: bool = True
+    output_clip_min: bool = True
+    output_clip_max: bool = True
     crop: bool = False
     crop_center: tuple[float, float] = (0.5, 0.5)
     crop_size: tuple[float, float] = (0.1, 0.1)
@@ -192,6 +194,9 @@ class DebugParams:
 
 @dataclass
 class SettingsParams:
+    compute_backend: str = "auto"
+    gpu_precision: str = "float32"
+    gpu_validate: bool = False
     rgb_to_raw_method: str = "hanatos2025"
     bandpass_hanatos2025: bool = True
     use_enlarger_lut: bool = False

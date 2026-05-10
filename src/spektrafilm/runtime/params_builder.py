@@ -147,15 +147,10 @@ def _apply_film_specifics(params: RuntimePhotoParams) -> RuntimePhotoParams:
 
     # stock specifics overrides
     if params.film.info.stock == "fujifilm_velvia_100":
-        params.film_render.dir_couplers.gamma_samelayer_rgb = (0.108, 0.072, 0.054)
-        params.film_render.dir_couplers.gamma_interlayer_r_to_gb = (0.108, 0.054)
-        params.film_render.dir_couplers.gamma_interlayer_g_to_rb = (0.072, 0.054)
-        params.film_render.dir_couplers.gamma_interlayer_b_to_rg = (0.054, 0.054)
+        params.film_render.dir_couplers.amount *= 0.9
     if params.film.info.stock == "fujifilm_provia_100f":
-        params.film_render.dir_couplers.gamma_samelayer_rgb = (0.156, 0.104, 0.078)
-        params.film_render.dir_couplers.gamma_interlayer_r_to_gb = (0.156, 0.078)
-        params.film_render.dir_couplers.gamma_interlayer_g_to_rb = (0.104, 0.078)
-        params.film_render.dir_couplers.gamma_interlayer_b_to_rg = (0.078, 0.078)
+        params.film_render.dir_couplers.amount *= 1.3
+        
         
     # if params.film.info.stock == "kodak_portra_400":
     #     params.film_render.halation.scatter_core_um = (3.5, 2.2, 1.9)

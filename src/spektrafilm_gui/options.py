@@ -30,6 +30,12 @@ class AutoExposureMethods(Enum):
     center_weighted = "center_weighted"
 
 
+class ComputeBackends(Enum):
+    auto = "auto"
+    cpu = "cpu"
+    mlx = "mlx"
+
+
 class NapariInterpolationModes(Enum):
     nearest = "nearest"
     linear = "linear"

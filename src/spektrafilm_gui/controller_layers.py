@@ -222,15 +222,18 @@ def set_output_layer_metadata(
     float_image: np.ndarray,
     output_color_space: str,
     output_cctf_encoding: bool,
+    output_encoding: object,
     use_display_transform: bool,
     output_float_data_key: str,
     output_color_space_key: str,
     output_cctf_encoding_key: str,
+    output_color_encoding_key: str,
     output_display_transform_key: str,
 ) -> None:
     layer.metadata[output_float_data_key] = np.asarray(float_image, dtype=np.float32)
     layer.metadata[output_color_space_key] = output_color_space
     layer.metadata[output_cctf_encoding_key] = output_cctf_encoding
+    layer.metadata[output_color_encoding_key] = output_encoding
     layer.metadata[output_display_transform_key] = use_display_transform
 
 
@@ -266,6 +269,7 @@ class ViewerLayerService:
     output_float_data_key: str
     output_color_space_key: str
     output_cctf_encoding_key: str
+    output_color_encoding_key: str
     output_display_transform_key: str
     _output_animations: dict[int, _LayerAnimationHandle] = field(default_factory=dict, init=False, repr=False)
 
@@ -362,6 +366,7 @@ class ViewerLayerService:
         float_image: np.ndarray,
         output_color_space: str,
         output_cctf_encoding: bool,
+        output_encoding: object,
         use_display_transform: bool,
         output_interpolation_mode: str = 'spline36',
     ) -> None:
@@ -400,10 +405,12 @@ class ViewerLayerService:
             float_image=float_image,
             output_color_space=output_color_space,
             output_cctf_encoding=output_cctf_encoding,
+            output_encoding=output_encoding,
             use_display_transform=use_display_transform,
             output_float_data_key=self.output_float_data_key,
             output_color_space_key=self.output_color_space_key,
             output_cctf_encoding_key=self.output_cctf_encoding_key,
+            output_color_encoding_key=self.output_color_encoding_key,
             output_display_transform_key=self.output_display_transform_key,
         )
         set_output_layer_interpolation(layer, output_interpolation_mode)
@@ -640,3 +647,13 @@ class ViewerLayerService:
         color_space = output_layer.metadata.get(self.output_color_space_key, default_color_space)
         cctf_encoding = output_layer.metadata.get(self.output_cctf_encoding_key, default_cctf_encoding)
         return str(color_space), bool(cctf_encoding)
+
+    def output_layer_encoding(self, *, default_encoding: object | None = None) -> object | None:
+        """Return the ColorEncoding stored in the output layer metadata, or the default."""
+        output_layer = self.output_layer()
+        if output_layer is None:
+            return default_encoding
+        encoding = output_layer.metadata.get(self.output_color_encoding_key)
+        if encoding is not None:
+            return encoding
+        return default_encoding
