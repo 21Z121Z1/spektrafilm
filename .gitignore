@@ -193,3 +193,15 @@ uv.lock
 
 # claude
 .claude
+
+# 项目文档和测试（不提交）
+docs/
+tests/
+ISSUE_color_space_metadata.md
+archive/
+artifacts/
+
+# 缓存
+.pytest_cache/
+spektrafilm.egg-info/
+*.egg-info/
