@@ -9,6 +9,7 @@ follow.
 """
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Any
 
 import numpy as np
@@ -107,6 +108,89 @@ def xyz_to_rgb(xyz: Any, matrix_3x3: Any, backend) -> Any:
 
 
 # ---------------------------------------------------------------------------
+# CCTF encoding
+# ---------------------------------------------------------------------------
+
+@lru_cache(maxsize=None)
+def _precompute_same_space_rgb_to_rgb_matrix(color_space: str) -> np.ndarray:
+    """Matrix used by ``colour.RGB_to_RGB(cs, cs)`` before CCTF encoding."""
+    return np.asarray(
+        colour.matrix_RGB_to_RGB(
+            color_space,
+            color_space,
+            chromatic_adaptation_transform="CAT02",
+        ),
+        dtype=np.float64,
+    )
+
+
+def _signed_power(x: Any, exponent: float, backend) -> Any:
+    """Colour-science ``spow`` equivalent for backend arrays."""
+    magnitude = backend.pow(backend.abs(x), exponent)
+    return backend.where(x < 0, -magnitude, magnitude)
+
+
+def _cctf_encoding_srgb_like(rgb: Any, backend) -> Any:
+    nonlinear = 1.055 * _signed_power(rgb, 1.0 / 2.4, backend) - 0.055
+    return backend.where(rgb <= 0.0031308, rgb * 12.92, nonlinear)
+
+
+def _cctf_encoding_romm_rgb(rgb: Any, backend) -> Any:
+    threshold = 16.0 ** (1.8 / (1.0 - 1.8))
+    nonlinear = _signed_power(rgb, 1.0 / 1.8, backend)
+    return backend.where(rgb < threshold, rgb * 16.0, nonlinear)
+
+
+def _cctf_encoding_bt2020(rgb: Any, backend) -> Any:
+    alpha = 1.099
+    beta = 0.018
+    nonlinear = alpha * _signed_power(rgb, 0.45, backend) - (alpha - 1.0)
+    return backend.where(rgb < beta, rgb * 4.5, nonlinear)
+
+
+def _cctf_encoding_adobe_rgb_1998(rgb: Any, backend) -> Any:
+    # colour-science uses gamma_function(..., negative_number_handling="Indeterminate")
+    # for Adobe RGB (1998), so negative fractional powers intentionally
+    # produce NaN, matching the CPU reference.
+    return backend.pow(rgb, 0.4547069271758437)
+
+
+def cctf_encoding_backend(rgb: Any, color_space: str, backend) -> Any:
+    """Apply the output colour-space CCTF without leaving the array backend.
+
+    The supported spaces cover the runtime/GUI choices currently exposed by
+    SpektraFilm.  Their formulas mirror the corresponding colour-science
+    transfer functions used by ``colour.RGB_to_RGB(..., apply_cctf_encoding=True)``.
+    """
+    if backend is None or not getattr(backend, "supports_gpu", False):
+        return colour.RGB_to_RGB(
+            rgb,
+            color_space,
+            color_space,
+            apply_cctf_decoding=False,
+            apply_cctf_encoding=True,
+        )
+
+    matrix = backend.asarray(_precompute_same_space_rgb_to_rgb_matrix(color_space))
+    rgb = rgb_to_xyz(rgb, matrix, backend)
+
+    if color_space in {"sRGB", "Display P3"}:
+        return _cctf_encoding_srgb_like(rgb, backend)
+    if color_space == "ProPhoto RGB":
+        return _cctf_encoding_romm_rgb(rgb, backend)
+    if color_space == "ITU-R BT.2020":
+        return _cctf_encoding_bt2020(rgb, backend)
+    if color_space == "Adobe RGB (1998)":
+        return _cctf_encoding_adobe_rgb_1998(rgb, backend)
+    if color_space == "ACES2065-1":
+        return rgb
+
+    raise NotImplementedError(
+        f"Backend CCTF encoding is not implemented for color space {color_space!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Highlight boost (replaces Numba ``_boost_curve_kernel``)
 # ---------------------------------------------------------------------------
 
@@ -134,9 +218,8 @@ def boost_highlights_backend(
     if boost_ev <= 0:
         return x
 
-    # Scalar reduction — negligible cost, works on any backend.
-    x_np = backend.to_numpy(x)
-    x_max = float(np.max(x_np))
+    # Scalar synchronization only; the image itself remains resident.
+    x_max = backend.max(x)
     if x_max == 0.0:
         return x
 

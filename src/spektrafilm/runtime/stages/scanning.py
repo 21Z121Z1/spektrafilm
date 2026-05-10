@@ -7,6 +7,7 @@ from spektrafilm.color_management import ColorEncoding, output_encoding_from_io
 from opt_einsum import contract
 
 from spektrafilm.config import STANDARD_OBSERVER_CMFS
+from spektrafilm.gpu.kernels.color import cctf_encoding_backend
 from spektrafilm.gpu.kernels.color import precompute_xyz_to_rgb_matrix
 from spektrafilm.gpu.kernels.color import xyz_to_rgb
 from spektrafilm.gpu.kernels.density import cmy_to_log_xyz_backend
@@ -199,22 +200,16 @@ class ScanningStage:
 
     def _apply_cctf_encoding_and_clip(self, rgb: np.ndarray, encoding: ColorEncoding) -> np.ndarray:
         backend = getattr(self, "_backend", None)
-        if backend is not None and backend.supports_gpu and encoding.is_cctf_encoded:
-            rgb = backend.to_numpy(rgb)
-        if encoding.is_cctf_encoded:
-            rgb = colour.RGB_to_RGB(
-                rgb,
-                encoding.color_space,
-                encoding.color_space,
-                apply_cctf_decoding=False,
-                apply_cctf_encoding=True,
-            )
-        if backend is not None and backend.supports_gpu and not encoding.is_cctf_encoded:
+        if backend is not None and backend.supports_gpu:
+            if encoding.is_cctf_encoded:
+                rgb = cctf_encoding_backend(rgb, encoding.color_space, backend)
             if encoding.clip_negatives:
                 rgb = backend.maximum(rgb, 0.0)
             if encoding.clip_highlights:
                 rgb = backend.clip(rgb, -np.inf, 1.0)
             return rgb
+        if encoding.is_cctf_encoded:
+            rgb = cctf_encoding_backend(rgb, encoding.color_space, backend)
         if encoding.clip_negatives:
             rgb = np.maximum(rgb, 0.0)
         if encoding.clip_highlights:

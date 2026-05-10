@@ -54,7 +54,7 @@ class SpectralLUTService:
     def _lut_input(self, cmy_data):
         if self._gpu_backend is None or not self._gpu_backend.supports_gpu:
             return cmy_data
-        return self._gpu_backend.to_numpy(cmy_data)
+        return cmy_data
 
     @timeit("spectral_compute_enlarger")
     def spectral_compute_enlarger(self,
@@ -113,12 +113,6 @@ class SpectralLUTService:
 
         if data_out is None:
             raise RuntimeError('LUT computation did not produce an output')
-        if (
-            self._gpu_backend is not None
-            and self._gpu_backend.supports_gpu
-            and method == 'gpu_trilinear'
-        ):
-            data_out = self._gpu_backend.asarray(data_out)
         return data_out
 
     @timeit("spectral_compute_scanner")
@@ -178,12 +172,6 @@ class SpectralLUTService:
 
         if data_out is None:
             raise RuntimeError('LUT computation did not produce an output')
-        if (
-            self._gpu_backend is not None
-            and self._gpu_backend.supports_gpu
-            and method == 'gpu_trilinear'
-        ):
-            data_out = self._gpu_backend.asarray(data_out)
         return data_out
 
     @timeit("get_filming_tc_lut")

@@ -6,6 +6,7 @@ import numpy as np
 
 from spektrafilm.utils.fast_gaussian_filter import (
     _gaussian_kernel_1d,
+    _yvv_coeffs,
     fast_exponential_filter,
     fast_gaussian_filter,
     fast_gaussian_filter_small,
@@ -13,6 +14,8 @@ from spektrafilm.utils.fast_gaussian_filter import (
 
 
 _GAUSSIAN_FIR_KERNEL = None
+_GAUSSIAN_IIR_HORIZONTAL_KERNEL = None
+_GAUSSIAN_IIR_VERTICAL_KERNEL = None
 _REFLECT_PAD_HW_KERNEL = None
 
 
@@ -92,6 +95,124 @@ def _get_gaussian_fir_kernel(mx):
         source=source,
     )
     return _GAUSSIAN_FIR_KERNEL
+
+
+def _get_gaussian_iir_horizontal_kernel(mx):
+    """Return the cached MLX/Metal horizontal YVV Gaussian kernel."""
+    global _GAUSSIAN_IIR_HORIZONTAL_KERNEL
+    if _GAUSSIAN_IIR_HORIZONTAL_KERNEL is not None:
+        return _GAUSSIAN_IIR_HORIZONTAL_KERNEL
+
+    source = """
+        uint elem = thread_position_in_grid.x;
+        int H = image_shape[0];
+        int W = image_shape[1];
+        int C = image_shape[2];
+        uint total = H * C;
+        if (elem >= total) {
+            return;
+        }
+
+        int c = elem % C;
+        int y = elem / C;
+        float b = B[c];
+        float b1 = B1[c];
+        float b2 = B2[c];
+        float b3 = B3[c];
+
+        uint first = ((uint)y * W) * C + (uint)c;
+        float x0 = float(image[first]);
+        float w1 = x0;
+        float w2 = x0;
+        float w3 = x0;
+        for (int x = 0; x < W; ++x) {
+            uint idx = ((uint)y * W + (uint)x) * C + (uint)c;
+            float w = b * float(image[idx]) + b1 * w1 + b2 * w2 + b3 * w3;
+            tmp[idx] = T(w);
+            w3 = w2;
+            w2 = w1;
+            w1 = w;
+        }
+
+        uint last = ((uint)y * W + (uint)(W - 1)) * C + (uint)c;
+        float y1 = float(tmp[last]);
+        float y2 = y1;
+        float y3 = y1;
+        for (int x = W - 1; x >= 0; --x) {
+            uint idx = ((uint)y * W + (uint)x) * C + (uint)c;
+            float out_v = b * float(tmp[idx]) + b1 * y1 + b2 * y2 + b3 * y3;
+            tmp[idx] = T(out_v);
+            y3 = y2;
+            y2 = y1;
+            y1 = out_v;
+        }
+    """
+    _GAUSSIAN_IIR_HORIZONTAL_KERNEL = mx.fast.metal_kernel(
+        name="spektrafilm_gaussian_iir_horizontal",
+        input_names=["image", "B", "B1", "B2", "B3"],
+        output_names=["tmp"],
+        source=source,
+    )
+    return _GAUSSIAN_IIR_HORIZONTAL_KERNEL
+
+
+def _get_gaussian_iir_vertical_kernel(mx):
+    """Return the cached MLX/Metal vertical YVV Gaussian kernel."""
+    global _GAUSSIAN_IIR_VERTICAL_KERNEL
+    if _GAUSSIAN_IIR_VERTICAL_KERNEL is not None:
+        return _GAUSSIAN_IIR_VERTICAL_KERNEL
+
+    source = """
+        uint elem = thread_position_in_grid.x;
+        int H = tmp_shape[0];
+        int W = tmp_shape[1];
+        int C = tmp_shape[2];
+        uint total = W * C;
+        if (elem >= total) {
+            return;
+        }
+
+        int c = elem % C;
+        int x = elem / C;
+        float b = B[c];
+        float b1 = B1[c];
+        float b2 = B2[c];
+        float b3 = B3[c];
+
+        uint first = ((uint)0 * W + (uint)x) * C + (uint)c;
+        float x0 = float(tmp[first]);
+        float w1 = x0;
+        float w2 = x0;
+        float w3 = x0;
+        for (int y = 0; y < H; ++y) {
+            uint idx = ((uint)y * W + (uint)x) * C + (uint)c;
+            float w = b * float(tmp[idx]) + b1 * w1 + b2 * w2 + b3 * w3;
+            out[idx] = T(w);
+            w3 = w2;
+            w2 = w1;
+            w1 = w;
+        }
+
+        uint last = ((uint)(H - 1) * W + (uint)x) * C + (uint)c;
+        float y1 = float(out[last]);
+        float y2 = y1;
+        float y3 = y1;
+        for (int y = H - 1; y >= 0; --y) {
+            uint idx = ((uint)y * W + (uint)x) * C + (uint)c;
+            float out_v = b * float(out[idx]) + b1 * y1 + b2 * y2 + b3 * y3;
+            out[idx] = T(out_v);
+            y3 = y2;
+            y2 = y1;
+            y1 = out_v;
+        }
+    """
+    _GAUSSIAN_IIR_VERTICAL_KERNEL = mx.fast.metal_kernel(
+        name="spektrafilm_gaussian_iir_vertical",
+        input_names=["tmp", "B", "B1", "B2", "B3"],
+        output_names=["out"],
+        source=source,
+    )
+    return _GAUSSIAN_IIR_VERTICAL_KERNEL
 
 
 def _get_reflect_pad_hw_kernel(mx):
@@ -222,6 +343,49 @@ def gaussian_filter_small_backend(
     return out[..., 0] if squeeze else out
 
 
+def gaussian_filter_large_backend(
+    image: Any,
+    sigma: Any,
+    backend=None,
+) -> Any:
+    """Large-sigma YVV Gaussian matching ``fast_gaussian_filter`` dispatch."""
+    if not _backend_supports_gpu(backend):
+        return fast_gaussian_filter(image, sigma)
+
+    image_3d, squeeze = _promote_image_to_3d(backend.asarray(image))
+    channels = int(image_3d.shape[-1])
+    sigmas = _normalize_sigma_for_channels(sigma, channels)
+    if np.any(sigmas < 3.0):
+        raise ValueError("gaussian_filter_large_backend expects all sigmas >= 3")
+
+    coeffs = np.asarray([_yvv_coeffs(float(sigma_ch)) for sigma_ch in sigmas], dtype=np.float32)
+    mx = backend.mx
+    B = mx.array(coeffs[:, 0], dtype=mx.float32)
+    B1 = mx.array(coeffs[:, 1], dtype=mx.float32)
+    B2 = mx.array(coeffs[:, 2], dtype=mx.float32)
+    B3 = mx.array(coeffs[:, 3], dtype=mx.float32)
+
+    horizontal = _get_gaussian_iir_horizontal_kernel(mx)
+    tmp = horizontal(
+        inputs=[image_3d, B, B1, B2, B3],
+        template=[("T", image_3d.dtype)],
+        grid=(int(image_3d.shape[0]) * channels, 1, 1),
+        threadgroup=(64, 1, 1),
+        output_shapes=[image_3d.shape],
+        output_dtypes=[image_3d.dtype],
+    )[0]
+    vertical = _get_gaussian_iir_vertical_kernel(mx)
+    out = vertical(
+        inputs=[tmp, B, B1, B2, B3],
+        template=[("T", image_3d.dtype)],
+        grid=(int(image_3d.shape[1]) * channels, 1, 1),
+        threadgroup=(64, 1, 1),
+        output_shapes=[image_3d.shape],
+        output_dtypes=[image_3d.dtype],
+    )[0]
+    return out[..., 0] if squeeze else out
+
+
 def reflect_pad_hw_backend(image: Any, pad: int, backend=None) -> Any:
     """Pad the first two dimensions using NumPy ``mode='reflect'`` semantics."""
     pad = int(pad)
@@ -259,15 +423,18 @@ def gaussian_filter_backend(
 ) -> Any:
     """Backend-aware Gaussian blur.
 
-    The GPU path uses the exact small-sigma FIR kernel for sigma < 3 px and
-    intentionally falls back to the existing CPU IIR path for larger sigmas
-    until a high-confidence FFT/MPS large-sigma replacement is available.
+    The GPU path uses the small-sigma FIR kernel for sigma < 3 px and the
+    same Young-van Vliet IIR approximation as the CPU path when every channel
+    is in the large-sigma regime. Mixed small/large per-channel sigma arrays
+    still fall back to the CPU reference to avoid changing channel semantics.
     """
     if not _backend_supports_gpu(backend):
         return fast_gaussian_filter(image, sigma, truncate=truncate)
 
     channels = int(image.shape[-1]) if len(tuple(image.shape)) == 3 else 1
     sigmas = _normalize_sigma_for_channels(sigma, channels)
+    if np.min(sigmas) >= 3.0:
+        return gaussian_filter_large_backend(image, sigmas, backend)
     if np.max(sigmas) >= 3.0:
         return backend.asarray(fast_gaussian_filter(backend.to_numpy(image), sigma, truncate=truncate))
     return gaussian_filter_small_backend(image, sigmas, backend, truncate=truncate)

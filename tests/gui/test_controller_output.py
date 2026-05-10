@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from spektrafilm.color_management import ColorEncoding
 from spektrafilm_gui import controller as controller_module
 from spektrafilm_gui.controller import (
     GuiController,
@@ -53,8 +54,9 @@ def _configure_save_output(monkeypatch, controller: GuiController, output_layer:
 
 
 def _capture_saved_output(monkeypatch, captured: dict[str, object]) -> None:
-    def fake_save_image_oiio(filepath, image_data) -> None:
+    def fake_save_image_oiio(filepath, image_data, **kwargs) -> None:
         captured.setdefault('saved', (filepath, image_data.copy()))
+        captured.setdefault('save_kwargs', kwargs)
 
     monkeypatch.setattr(
         controller_module,
@@ -224,6 +226,8 @@ def test_save_output_layer_respects_recorded_render_metadata(
     saved_path, saved_image = captured['saved']
     assert saved_path == 'output.png'
     np.testing.assert_allclose(saved_image, captured['float_image'] + expected_saved_delta)
+    assert captured['save_kwargs']['encoding'].color_space == saving_color_space
+    assert captured['save_kwargs']['encoding'].is_cctf_encoded is saving_cctf_encoding
 
 
 @pytest.mark.parametrize(
@@ -257,7 +261,7 @@ def test_prepare_output_display_image_without_transform(
 
     preview, status = controller._prepare_output_display_image(
         image_data,
-        output_color_space='sRGB',
+        output_encoding=ColorEncoding(color_space='sRGB', transfer='cctf', role='display'),
         use_display_transform=False,
         padding_pixels=padding_pixels,
     )
@@ -285,6 +289,7 @@ def test_prepare_output_display_image_uses_imagecms_transform(monkeypatch) -> No
     monkeypatch.setattr(controller_module.ImageCms, 'getProfileName', lambda profile: 'Studio Display ICC\x00')
     monkeypatch.setattr(controller_module.colour, 'RGB_to_RGB', lambda *args, **kwargs: np.full((1, 1, 3), 0.5, dtype=np.float32))
     monkeypatch.setattr(controller_module.ImageCms, 'createProfile', lambda name: f'profile:{name}')
+    monkeypatch.setattr(controller_module.ImageCms, 'ImageCmsProfile', lambda stream: 'profile:icc')
     monkeypatch.setattr(
         controller_module.PILImage,
         'fromarray',
@@ -304,15 +309,18 @@ def test_prepare_output_display_image_uses_imagecms_transform(monkeypatch) -> No
 
     preview, status = controller._prepare_output_display_image(
         image_data,
-        output_color_space='Display P3',
+        output_encoding=ColorEncoding(color_space='Display P3', transfer='cctf', role='display'),
         use_display_transform=True,
     )
 
     np.testing.assert_array_equal(preview, np.full((1, 1, 3), 64, dtype=np.uint8))
     assert status == 'Display transform: active (Studio Display ICC)'
-    assert captured['profile_to_profile']['source_profile'] == 'profile:sRGB'
+    assert captured['profile_to_profile']['source_profile'] == 'profile:icc'
     assert captured['profile_to_profile']['output_mode'] == 'RGB'
-    np.testing.assert_array_equal(captured['profile_to_profile']['image_data'], np.full((1, 1, 3), 127, dtype=np.uint8))
+    np.testing.assert_array_equal(
+        captured['profile_to_profile']['image_data'],
+        np.array([[[51, 102, 153]]], dtype=np.uint8),
+    )
 
 
 def test_prepare_output_display_image_reports_missing_display_profile(monkeypatch) -> None:
@@ -323,7 +331,7 @@ def test_prepare_output_display_image_reports_missing_display_profile(monkeypatc
 
     preview, status = controller._prepare_output_display_image(
         image_data,
-        output_color_space='Display P3',
+        output_encoding=ColorEncoding(color_space='Display P3', transfer='cctf', role='display'),
         use_display_transform=True,
     )
 
@@ -346,7 +354,7 @@ def test_prepare_output_display_image_reports_transform_failure(monkeypatch) -> 
 
     preview, status = controller._prepare_output_display_image(
         image_data,
-        output_color_space='Display P3',
+        output_encoding=ColorEncoding(color_space='Display P3', transfer='cctf', role='display'),
         use_display_transform=True,
     )
 

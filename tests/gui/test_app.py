@@ -203,6 +203,8 @@ def test_warmup_full_gui_runs_preview_pipeline(monkeypatch) -> None:
     fake_io_module = object()
     fake_preview_module = object()
     fake_raw_module = object()
+    fake_output_encoding = SimpleNamespace(color_space='Display P3')
+    raw_params = SimpleNamespace(io=object())
 
     def fake_prepare_input_color_preview_image(image, **kwargs):
         captured['input_preview'] = (np.asarray(image), kwargs)
@@ -214,7 +216,7 @@ def test_warmup_full_gui_runs_preview_pipeline(monkeypatch) -> None:
 
     def fake_build_params_from_state(state):
         captured['params_state'] = state
-        return 'raw-params'
+        return raw_params
 
     class FakeSimulator:
         def __init__(self, params) -> None:
@@ -236,12 +238,14 @@ def test_warmup_full_gui_runs_preview_pipeline(monkeypatch) -> None:
         prepare_input_color_preview_image=fake_prepare_input_color_preview_image,
         prepare_output_display_image=fake_prepare_output_display_image,
     )
+    fake_color_management = SimpleNamespace(output_encoding_from_io=lambda io: fake_output_encoding)
     fake_params_mapper = SimpleNamespace(build_params_from_state=fake_build_params_from_state)
     module_map = {
         'colour': fake_colour_module,
         'PIL.Image': fake_pil_image_module,
         'PIL.ImageCms': fake_imagecms_module,
         'spektrafilm_gui.controller_runtime': fake_controller_runtime,
+        'spektrafilm.color_management': fake_color_management,
         'spektrafilm_gui.params_mapper': fake_params_mapper,
         'spektrafilm.runtime.api': fake_runtime_api,
         'spektrafilm.utils.io': fake_io_module,
@@ -257,7 +261,7 @@ def test_warmup_full_gui_runs_preview_pipeline(monkeypatch) -> None:
 
     assert captured['numba_warmup'] is True
     assert captured['params_state'] is fake_state
-    assert captured['digested_params'] == 'raw-params'
+    assert captured['digested_params'] is raw_params
     assert captured['simulator_params'] == 'digested-params'
     process_image = captured['process_image']
     assert process_image.shape == app_module.WARMUP_IMAGE_SHAPE
@@ -269,7 +273,7 @@ def test_warmup_full_gui_runs_preview_pipeline(monkeypatch) -> None:
     assert input_preview_kwargs['colour_module'] is fake_colour_module
     output_preview_image, output_preview_kwargs = captured['output_preview']
     assert output_preview_image.shape == app_module.WARMUP_IMAGE_SHAPE
-    assert output_preview_kwargs['output_color_space'] == 'Display P3'
+    assert output_preview_kwargs['output_encoding'] is fake_output_encoding
     assert output_preview_kwargs['use_display_transform'] is True
     assert output_preview_kwargs['imagecms_module'] is fake_imagecms_module
     assert output_preview_kwargs['colour_module'] is fake_colour_module

@@ -44,6 +44,28 @@ def test_get_save_file_name_uses_filename_when_no_dir(monkeypatch) -> None:
     assert captured['initial'] == 'output.png'
 
 
+def test_get_save_file_name_passes_requested_format_filter(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+    file_filter = 'Images (*.jpg *.jpeg *.png *.exr)'
+
+    monkeypatch.setattr(controller_module, 'load_dialog_dir', lambda key: '')
+    monkeypatch.setattr(controller_module, 'save_dialog_dir', lambda key, directory: None)
+    monkeypatch.setattr(
+        controller_module.QFileDialog,
+        'getSaveFileName',
+        staticmethod(
+            lambda parent, title, initial, fmt:
+            captured.update({'format_filter': fmt}) or ('output.exr', 'Images (*.exr)')
+        ),
+    )
+
+    path, selected_filter = _DirMemoryDialog('k').get_save_file_name(None, '', 'output.exr', file_filter)
+
+    assert path == 'output.exr'
+    assert selected_filter == 'Images (*.exr)'
+    assert captured['format_filter'] == file_filter
+
+
 def test_get_save_file_name_stores_parent_dir(monkeypatch) -> None:
     captured: dict[str, object] = {}
 

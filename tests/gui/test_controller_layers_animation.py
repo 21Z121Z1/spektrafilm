@@ -3,8 +3,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from spektrafilm.color_management import ColorEncoding
 from spektrafilm_gui import controller_layers as controller_layers_module
 from spektrafilm_gui.controller_layers import ViewerLayerService
+
+
+OUTPUT_ENCODING = ColorEncoding(color_space='ACES2065-1', transfer='cctf', role='display')
 
 
 class _FakeSignal:
@@ -109,6 +113,7 @@ def _make_service() -> ViewerLayerService:
         output_float_data_key='float',
         output_color_space_key='color',
         output_cctf_encoding_key='cctf',
+        output_color_encoding_key='encoding',
         output_display_transform_key='display',
     )
 
@@ -139,6 +144,7 @@ def test_first_output_preview_runs_polaroid_frame_sequence(monkeypatch) -> None:
         float_image=np.full((4, 4, 3), 0.5, dtype=np.float32),
         output_color_space='ACES2065-1',
         output_cctf_encoding=True,
+        output_encoding=OUTPUT_ENCODING,
         use_display_transform=False,
     )
 
@@ -187,6 +193,7 @@ def test_visible_output_updates_crossfade_without_restarting_polaroid_animation(
         float_image=np.full((4, 4, 3), 0.5, dtype=np.float32),
         output_color_space='ACES2065-1',
         output_cctf_encoding=True,
+        output_encoding=OUTPUT_ENCODING,
         use_display_transform=False,
     )
     output_layer = service.output_layer()
@@ -198,6 +205,7 @@ def test_visible_output_updates_crossfade_without_restarting_polaroid_animation(
         float_image=np.full((4, 4, 3), 0.6, dtype=np.float32),
         output_color_space='ACES2065-1',
         output_cctf_encoding=True,
+        output_encoding=OUTPUT_ENCODING,
         use_display_transform=False,
     )
 
@@ -224,6 +232,7 @@ def test_preview_to_scan_shape_change_recreates_output_layer_without_restarting_
         float_image=np.full((4, 4, 3), 0.5, dtype=np.float32),
         output_color_space='ACES2065-1',
         output_cctf_encoding=True,
+        output_encoding=OUTPUT_ENCODING,
         use_display_transform=False,
     )
 
@@ -235,6 +244,7 @@ def test_preview_to_scan_shape_change_recreates_output_layer_without_restarting_
         float_image=np.full((8, 8, 3), 0.6, dtype=np.float32),
         output_color_space='ACES2065-1',
         output_cctf_encoding=True,
+        output_encoding=OUTPUT_ENCODING,
         use_display_transform=False,
     )
 
@@ -259,6 +269,7 @@ def test_large_output_skips_polaroid_animation(monkeypatch) -> None:
         float_image=np.full((3, 2, 3), 0.5, dtype=np.float32),
         output_color_space='ACES2065-1',
         output_cctf_encoding=True,
+        output_encoding=OUTPUT_ENCODING,
         use_display_transform=False,
     )
 

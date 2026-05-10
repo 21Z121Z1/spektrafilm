@@ -200,6 +200,7 @@ class GuiController:
         gui_state = collect_gui_state(widgets=self._widgets)
         set_status(self._viewer, "Loading raw...", timeout_ms=0)
         lens_info: dict[str, str] = {}
+        raw_output_should_be_cctf_encoded = gui_state.input_image.apply_cctf_decoding
         try:
             image = load_and_process_raw_file(
                 path,
@@ -208,7 +209,7 @@ class GuiController:
                 tint=gui_state.load_raw.tint,
                 lens_correction=gui_state.load_raw.lens_correction,
                 output_colorspace=gui_state.input_image.input_color_space,
-                output_cctf_encoding=gui_state.input_image.apply_cctf_decoding,
+                output_cctf_encoding=raw_output_should_be_cctf_encoded,
                 lens_info_out=lens_info,
             )
         except (OSError, ValueError) as exc:

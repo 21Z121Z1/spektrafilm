@@ -65,6 +65,11 @@ class MlxBackend:
     def maximum(self, x: Any, y: Any):
         return self.mx.maximum(x, y)
 
+    def max(self, x: Any) -> float:
+        value = self.mx.max(x)
+        self.eval(value)
+        return float(np.asarray(value))
+
     def clip(self, x: Any, lo: float, hi: float):
         return self.mx.clip(x, lo, hi)
 
@@ -79,8 +84,20 @@ class MlxBackend:
         import math
         return self.mx.exp(x * math.log(base))
 
+    def pow(self, x: Any, exponent: float):
+        power = getattr(self.mx, "power", None)
+        if power is not None:
+            return power(x, exponent)
+        return x ** exponent
+
     def fmax(self, x: Any, y: float):
         return self.mx.maximum(x, y)
 
     def nan_to_num(self, x: Any, nan: float = 0.0):
         return self.mx.where(self.mx.isnan(x), nan, x)
+
+    def where(self, condition: Any, x: Any, y: Any):
+        return self.mx.where(condition, x, y)
+
+    def abs(self, x: Any):
+        return self.mx.abs(x)

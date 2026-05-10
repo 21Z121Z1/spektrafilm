@@ -69,8 +69,8 @@ class PrintingStage:
             raw = self._backend.power(10.0, log_raw_print)
         else:
             raw = 10**log_raw_print
-        raw *= self._enlarger.print_exposure
-        raw *= self._color_reference_service.black_white_printing_exposure_correction()
+        raw = raw * self._enlarger.print_exposure
+        raw = raw * self._color_reference_service.black_white_printing_exposure_correction()
         raw = apply_diffusion_filter_um(
             raw,
             self._enlarger.diffusion_filter,
@@ -130,8 +130,8 @@ class PrintingStage:
         if self._backend is not None and self._backend.supports_gpu:
             exposure_factor = self._backend.asarray(exposure_factor)
             raw_preflash = self._backend.asarray(raw_preflash)
-        raw *= exposure_factor
-        raw += raw_preflash
+        raw = raw * exposure_factor
+        raw = raw + raw_preflash
         if self._backend is not None and self._backend.supports_gpu:
             return self._backend.log10(self._backend.fmax(raw, 0.0) + 1e-10)
         return np.log10(np.fmax(raw, 0.0) + 1e-10)

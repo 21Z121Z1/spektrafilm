@@ -36,6 +36,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest"]
+gpu-apple = ["mlx>=0.31"]
 
 [project.scripts]
 spektrafilm = "spektrafilm_gui.app:main"
@@ -64,4 +65,3 @@ spektrafilm_gui = [
 spektrafilm_profile_creator = [
     "data/**/*",
 ]
-

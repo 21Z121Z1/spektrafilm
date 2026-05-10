@@ -49,7 +49,9 @@ class FilmingStage:
             color_space=self._io.input_color_space,
             apply_cctf_decoding=self._io.input_cctf_decoding,
         )
-        raw *= 2 ** self._camera.exposure_compensation_ev
+        raw = raw * (2 ** self._camera.exposure_compensation_ev)
+        if self._backend is not None and self._backend.supports_gpu:
+            raw = self._backend.asarray(raw)
         if self._backend is not None and self._backend.supports_gpu:
             raw = boost_highlights_backend(
                 raw,
@@ -80,7 +82,7 @@ class FilmingStage:
             self._resize_service.pixel_size_um,
             backend=self._backend,
         )
-        raw *= self._color_reference_service.black_white_filming_exposure_correction()
+        raw = raw * self._color_reference_service.black_white_filming_exposure_correction()
         if self._backend is not None and self._backend.supports_gpu:
             log_raw = self._backend.log10(self._backend.fmax(raw, 0.0) + 1e-10)
         else:

@@ -1,14 +1,129 @@
-import numpy as np
-import struct
-import colour
-import scipy
 import importlib.resources
+import struct
+import warnings
+from dataclasses import dataclass
+from typing import Literal
+
+import colour
+import numpy as np
+import scipy
 from opt_einsum import contract
 import scipy.interpolate
 
 from spektrafilm.utils.fast_interp_lut import apply_lut_cubic_2d
 from spektrafilm.config import SPECTRAL_SHAPE, STANDARD_OBSERVER_CMFS
 from spektrafilm.model.illuminants import standard_illuminant
+
+
+NegativeRGBPolicy = Literal["clip", "warn", "error", "compress"]
+XYOutOfBoundsPolicy = Literal["clip", "warn", "error"]
+
+
+@dataclass(frozen=True, slots=True)
+class SpectralInputPolicy:
+    """Preflight policy for RGB values entering spectral upsampling."""
+
+    negative_rgb: NegativeRGBPolicy = "clip"
+    xy_out_of_bounds: XYOutOfBoundsPolicy = "clip"
+    report_stats: bool = True
+
+
+DEFAULT_SPECTRAL_INPUT_POLICY = SpectralInputPolicy()
+
+
+def _resolve_input_policy(policy: SpectralInputPolicy | None) -> SpectralInputPolicy:
+    if policy is None:
+        return DEFAULT_SPECTRAL_INPUT_POLICY
+    return policy
+
+
+def _policy_message(
+    values: np.ndarray,
+    mask: np.ndarray,
+    *,
+    context: str,
+    issue: str,
+    report_stats: bool,
+) -> str:
+    if not report_stats:
+        return f"{context}: {issue}."
+
+    invalid_values = np.asarray(values)[mask]
+    component_count = int(np.count_nonzero(mask))
+    total_components = int(mask.size)
+    if mask.ndim >= 1:
+        pixel_mask = np.any(mask, axis=-1)
+        pixel_count = int(np.count_nonzero(pixel_mask))
+        total_pixels = int(pixel_mask.size)
+    else:
+        pixel_count = component_count
+        total_pixels = total_components
+
+    if invalid_values.size:
+        min_value = float(np.nanmin(invalid_values))
+        max_value = float(np.nanmax(invalid_values))
+    else:
+        min_value = float("nan")
+        max_value = float("nan")
+
+    return (
+        f"{context}: {issue}; affected {pixel_count}/{total_pixels} pixels "
+        f"({component_count}/{total_components} components), "
+        f"invalid range [{min_value:.6g}, {max_value:.6g}]."
+    )
+
+
+def _handle_negative_rgb(
+    values: np.ndarray,
+    policy: SpectralInputPolicy,
+    *,
+    context: str,
+) -> np.ndarray:
+    rgb = np.asarray(values)
+    negative_mask = rgb < 0.0
+    if not np.any(negative_mask):
+        return rgb
+
+    message = _policy_message(
+        rgb,
+        negative_mask,
+        context=context,
+        issue="negative RGB values encountered",
+        report_stats=policy.report_stats,
+    )
+    if policy.negative_rgb == "error":
+        raise ValueError(message)
+    if policy.negative_rgb == "warn":
+        warnings.warn(message, RuntimeWarning, stacklevel=3)
+    if policy.negative_rgb == "compress":
+        min_channel = np.minimum(np.nanmin(rgb, axis=-1, keepdims=True), 0.0)
+        return rgb - min_channel
+    return np.maximum(rgb, 0.0)
+
+
+def _handle_xy_out_of_bounds(
+    xy: np.ndarray,
+    policy: SpectralInputPolicy,
+    *,
+    context: str,
+) -> np.ndarray:
+    xy = np.asarray(xy)
+    out_of_bounds_mask = (xy < 0.0) | (xy > 1.0)
+    if not np.any(out_of_bounds_mask):
+        return xy
+
+    message = _policy_message(
+        xy,
+        out_of_bounds_mask,
+        context=context,
+        issue="xy chromaticities outside [0, 1] encountered",
+        report_stats=policy.report_stats,
+    )
+    if policy.xy_out_of_bounds == "error":
+        raise ValueError(message)
+    if policy.xy_out_of_bounds == "warn":
+        warnings.warn(message, RuntimeWarning, stacklevel=3)
+    return np.clip(xy, 0.0, 1.0)
 
 ################################################################################
 # LUT generatation of irradiance spectra for any xy chromaticity
@@ -111,7 +226,19 @@ def _illuminant_to_xy(illuminant_label):
     xy = xyz[0:2] / np.sum(xyz)
     return xy
 
-def _rgb_to_tc_b(rgb, color_space='ITU-R BT.2020', apply_cctf_decoding=False, reference_illuminant='D55'):
+def _rgb_to_tc_b(
+    rgb,
+    color_space='ITU-R BT.2020',
+    apply_cctf_decoding=False,
+    reference_illuminant='D55',
+    input_policy: SpectralInputPolicy | None = None,
+):
+    input_policy = _resolve_input_policy(input_policy)
+    rgb = _handle_negative_rgb(
+        np.asarray(rgb),
+        input_policy,
+        context="Hanatos spectral upsampling RGB input",
+    )
     # source_cs = colour.RGB_COLOURSPACES[color_space]
     # target_cs = source_cs.copy()
     # target_cs.whitepoint = ILLUMINANTS['CIE 1931 2 Degree Standard Observer']['D65']
@@ -126,7 +253,11 @@ def _rgb_to_tc_b(rgb, color_space='ITU-R BT.2020', apply_cctf_decoding=False, re
                             chromatic_adaptation_transform='CAT02')
     b = np.sum(xyz, axis=-1)
     xy = xyz[...,0:2] / np.fmax(b[...,None], 1e-10)
-    xy = np.clip(xy,0,1)
+    xy = _handle_xy_out_of_bounds(
+        xy,
+        input_policy,
+        context="Hanatos spectral upsampling xy chromaticity",
+    )
     tc = _tri2quad(xy)
     b = np.nan_to_num(b)
     return tc, b
@@ -137,7 +268,8 @@ def _rgb_to_tc_b(rgb, color_space='ITU-R BT.2020', apply_cctf_decoding=False, re
 MALLETT2019_BASIS = colour.recovery.MSDS_BASIS_FUNCTIONS_sRGB_MALLETT2019.copy().align(SPECTRAL_SHAPE)
 def rgb_to_raw_mallett2019(RGB, sensitivity,
                            color_space='sRGB', apply_cctf_decoding=True,
-                           reference_illuminant='D65'):
+                           reference_illuminant='D65',
+                           input_policy: SpectralInputPolicy | None = None):
     """
     Converts an RGB color to a raw sensor response using the method described in Mallett et al. (2019).
 
@@ -159,12 +291,17 @@ def rgb_to_raw_mallett2019(RGB, sensitivity,
     raw : ndarray
         Raw sensor response.
     """
+    input_policy = _resolve_input_policy(input_policy)
     illuminant = standard_illuminant(reference_illuminant)[:]
     basis_set_with_illuminant = np.array(MALLETT2019_BASIS[:])*np.array(illuminant)[:, None]
     lrgb = colour.RGB_to_RGB(RGB, color_space, 'sRGB',
                     apply_cctf_decoding=apply_cctf_decoding,
                     apply_cctf_encoding=False)
-    lrgb = np.clip(lrgb, 0, None)
+    lrgb = _handle_negative_rgb(
+        lrgb,
+        input_policy,
+        context="Mallett2019 linear sRGB",
+    )
     raw  = contract('ijk,lk,lm->ijm', lrgb, basis_set_with_illuminant, sensitivity)
     raw = np.nan_to_num(raw)
     raw = np.ascontiguousarray(raw)
@@ -182,12 +319,14 @@ def compute_hanatos2025_tc_lut(sensitivity, spectra_lut=HANATOS2025_SPECTRA_LUT)
     return raw_lut
 
 def rgb_to_raw_hanatos2025(rgb, sensitivity,
-                           color_space, apply_cctf_decoding, reference_illuminant, tc_lut=None):
+                           color_space, apply_cctf_decoding, reference_illuminant, tc_lut=None,
+                           input_policy: SpectralInputPolicy | None = None):
     tc_raw, b = _rgb_to_tc_b(
         rgb,
         color_space=color_space,
         apply_cctf_decoding=apply_cctf_decoding,
         reference_illuminant=reference_illuminant,
+        input_policy=input_policy,
     )
     if tc_lut is None:
         tc_lut  = compute_hanatos2025_tc_lut(sensitivity)
@@ -230,6 +369,7 @@ def rgb_to_raw_hanatos2025_backend(
     *,
     backend=None,
     precomputed=None,
+    input_policy: SpectralInputPolicy | None = None,
 ):
     """Backend-aware variant of ``rgb_to_raw_hanatos2025``.
 
@@ -242,7 +382,7 @@ def rgb_to_raw_hanatos2025_backend(
         # Original CPU path — no change.
         return rgb_to_raw_hanatos2025(
             rgb, sensitivity, color_space, apply_cctf_decoding,
-            reference_illuminant, tc_lut=tc_lut,
+            reference_illuminant, tc_lut=tc_lut, input_policy=input_policy,
         )
 
     # Precomputed constants
@@ -256,6 +396,12 @@ def rgb_to_raw_hanatos2025_backend(
     rgb_np = np.asarray(rgb, dtype=np.float64)
     if cctf_decode is not None:
         rgb_np = cctf_decode(rgb_np)
+    input_policy = _resolve_input_policy(input_policy)
+    rgb_np = _handle_negative_rgb(
+        rgb_np,
+        input_policy,
+        context="Hanatos backend spectral upsampling RGB input",
+    )
 
     # 2. RGB → XYZ using precomputed matrix (CPU, float64)
     xyz = rgb_np @ M_rgb_to_xyz.T
@@ -263,7 +409,11 @@ def rgb_to_raw_hanatos2025_backend(
     # 3. XYZ → xy chromaticity → triangular coordinates
     b = np.sum(xyz, axis=-1)
     xy = xyz[..., 0:2] / np.fmax(b[..., None], 1e-10)
-    xy = np.clip(xy, 0, 1)
+    xy = _handle_xy_out_of_bounds(
+        xy,
+        input_policy,
+        context="Hanatos backend spectral upsampling xy chromaticity",
+    )
     tc = _tri2quad(xy)
     b = np.nan_to_num(b)
 
@@ -274,13 +424,20 @@ def rgb_to_raw_hanatos2025_backend(
     raw *= b[..., None]
     return raw
 
-def rgb_to_smooth_spectrum(rgb, color_space, apply_cctf_decoding, reference_illuminant):
+def rgb_to_smooth_spectrum(
+    rgb,
+    color_space,
+    apply_cctf_decoding,
+    reference_illuminant,
+    input_policy: SpectralInputPolicy | None = None,
+):
     # direct interpolation of the spectra lut, to be used only for smooth spectra close to white
     tc_w, b_w = _rgb_to_tc_b(
         rgb,
         color_space=color_space,
         apply_cctf_decoding=apply_cctf_decoding,
         reference_illuminant=reference_illuminant,
+        input_policy=input_policy,
     )
     v = np.linspace(0, 1, HANATOS2025_SPECTRA_LUT.shape[0])
     spectrum_w = scipy.interpolate.RegularGridInterpolator((v,v), HANATOS2025_SPECTRA_LUT)(tc_w)

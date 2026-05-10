@@ -35,6 +35,9 @@ class NumpyBackend:
     def maximum(self, x: Any, y: Any) -> np.ndarray:
         return np.maximum(x, y)
 
+    def max(self, x: Any) -> float:
+        return float(np.max(x))
+
     def clip(self, x: Any, lo: float, hi: float) -> np.ndarray:
         return np.clip(x, lo, hi)
 
@@ -47,8 +50,17 @@ class NumpyBackend:
     def power(self, base: float, x: Any) -> np.ndarray:
         return np.power(base, x)
 
+    def pow(self, x: Any, exponent: float) -> np.ndarray:
+        return np.power(x, exponent)
+
     def fmax(self, x: Any, y: float) -> np.ndarray:
         return np.fmax(x, y)
 
     def nan_to_num(self, x: Any, nan: float = 0.0) -> np.ndarray:
         return np.nan_to_num(x, nan=nan)
+
+    def where(self, condition: Any, x: Any, y: Any) -> np.ndarray:
+        return np.where(condition, x, y)
+
+    def abs(self, x: Any) -> np.ndarray:
+        return np.abs(x)

@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
+from spektrafilm.color_management import ColorEncoding
 from spektrafilm_gui import controller_runtime as runtime_module
 
 
@@ -20,7 +21,7 @@ def test_execute_simulation_request_uses_runtime_runner_without_padding() -> Non
         mode_label='Preview',
         image=np.full((2, 2, 3), 0.25, dtype=np.float32),
         params=object(),
-        output_color_space='ACES2065-1',
+        output_encoding=ColorEncoding(color_space='ACES2065-1', transfer='linear'),
         use_display_transform=True,
     )
     captured: dict[str, object] = {}
@@ -42,7 +43,7 @@ def test_simulation_worker_emits_failure_message() -> None:
         mode_label='Preview',
         image=np.zeros((1, 1, 3), dtype=np.float32),
         params=object(),
-        output_color_space='sRGB',
+        output_encoding=ColorEncoding(color_space='sRGB', transfer='cctf'),
         use_display_transform=False,
     )
     worker = runtime_module.SimulationWorker(
