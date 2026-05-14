@@ -342,7 +342,7 @@ class GuiController:
             dialog_parent(self._viewer),
             'Save output image',
             'output.jpg',
-            'Images (*.jpg *.jpeg *.png *.exr)',
+            'Images (*.jpg *.jpeg *.png *.tif *.tiff *.exr)',
         )
         if not filepath:
             return
@@ -405,11 +405,15 @@ class GuiController:
             return
 
         metadata_write_error = None
-        if source_metadata is not None:
-            try:
-                write_image_metadata(filepath, source_metadata)
-            except Exception as exc:
-                metadata_write_error = exc
+        try:
+            write_image_metadata(
+                filepath,
+                source_metadata,
+                saving_color_space=saving_color_space,
+                saving_cctf_encoding=saving_cctf_encoding,
+            )
+        except Exception as exc:
+            metadata_write_error = exc
 
         if metadata_write_error is not None:
             set_status(

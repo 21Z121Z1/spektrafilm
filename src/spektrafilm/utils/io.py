@@ -67,18 +67,35 @@ def read_image_metadata(filename: str) -> ImageMetadata | None:
     )
 
 
-def write_image_metadata(filename: str, source_metadata: ImageMetadata) -> None:
+def write_image_metadata(
+    filename: str,
+    source_metadata: ImageMetadata | None = None,
+    *,
+    saving_color_space: str | None = None,
+    saving_cctf_encoding: bool = True,
+) -> None:
     """Write metadata to an image file after pixel data has been saved.
 
-    Copies all source EXIF, IPTC and XMP tags, then sets overridden tags
-    (Orientation, DateTime, Software, pixel dimensions).
+    Copies any source EXIF, IPTC and XMP tags, then sets overridden tags
+    (Orientation, DateTime, Software, pixel dimensions). When
+    ``saving_color_space`` is given, also tags the file with the EXIF
+    ColorSpace / Interoperability fields that match the saved color space and
+    records the human-readable profile name in ``Xmp.photoshop.ICCProfile``.
 
     Parameters
     ----------
     filename : str
         Path to the output image file (must already exist on disk).
-    source_metadata : ImageMetadata
-        Metadata returned by ``read_image_metadata``.
+    source_metadata : ImageMetadata, optional
+        Metadata returned by ``read_image_metadata`` to copy from the original
+        file. Pass ``None`` when there is no source file.
+    saving_color_space : str, optional
+        Human-readable name of the color space the pixels were encoded in
+        (e.g. ``"sRGB"``, ``"Adobe RGB (1998)"``, ``"Display P3"``).
+    saving_cctf_encoding : bool, default True
+        Whether the saved pixels carry the color space's encoding transfer
+        function. ``False`` (linear data) is appended to the recorded profile
+        name so downstream tools can flag it.
     """
     ext = filename.rsplit(".", 1)[-1].lower()
 
@@ -97,9 +114,10 @@ def write_image_metadata(filename: str, source_metadata: ImageMetadata) -> None:
     destination = exiv2.ImageFactory.open(filename)
     destination.readMetadata()
 
-    destination.setExifData(source_metadata.exif)
-    destination.setIptcData(source_metadata.iptc)
-    destination.setXmpData(source_metadata.xmp)
+    if source_metadata is not None:
+        destination.setExifData(source_metadata.exif)
+        destination.setIptcData(source_metadata.iptc)
+        destination.setXmpData(source_metadata.xmp)
 
     destination_exif = destination.exifData()
 
@@ -108,6 +126,14 @@ def write_image_metadata(filename: str, source_metadata: ImageMetadata) -> None:
     destination_exif["Exif.Image.Software"] = "spektrafilm"
     destination_exif["Exif.Photo.PixelXDimension"] = spec.width
     destination_exif["Exif.Photo.PixelYDimension"] = spec.height
+
+    if saving_color_space is not None:
+        _set_color_space_tags(
+            destination_exif,
+            destination.xmpData(),
+            saving_color_space,
+            saving_cctf_encoding,
+        )
 
     if icc_before is not None:
         destination.setIccProfile(DataBuf(icc_before))
@@ -118,6 +144,64 @@ def write_image_metadata(filename: str, source_metadata: ImageMetadata) -> None:
         icc_after = _icc_profile_bytes_from_file(filename)
         if icc_after != icc_before:
             raise RuntimeError("metadata copy did not preserve the output ICC profile")
+
+
+# EXIF Photo.ColorSpace values per EXIF 2.32 spec.
+_EXIF_COLORSPACE_SRGB = 1
+_EXIF_COLORSPACE_UNCALIBRATED = 65535
+
+
+# Maps (color_space_name, cctf_encoded) -> path inside spektrafilm/data/icc/.
+# Filenames preserve the upstream names so they stay traceable to the source
+# repos (see data/icc/README.md). Missing entries / files are silently skipped.
+_ICC_FILENAMES: dict[tuple[str, bool], str] = {
+    # Elle Stone — established RGB working spaces, V2 for broad compatibility.
+    ("sRGB", True): "ellelstone/sRGB-elle-V2-srgbtrc.icc",
+    ("sRGB", False): "ellelstone/sRGB-elle-V2-g10.icc",
+    ("Adobe RGB (1998)", True): "ellelstone/ClayRGB-elle-V2-g22.icc",
+    ("Adobe RGB (1998)", False): "ellelstone/ClayRGB-elle-V2-g10.icc",
+    ("ProPhoto RGB", True): "ellelstone/LargeRGB-elle-V2-g18.icc",
+    ("ProPhoto RGB", False): "ellelstone/LargeRGB-elle-V2-g10.icc",
+    ("ITU-R BT.2020", True): "ellelstone/Rec2020-elle-V2-rec709.icc",
+    ("ITU-R BT.2020", False): "ellelstone/Rec2020-elle-V2-g10.icc",
+    # ACES2065-1 is scene-linear; both flags map to the linear ACES (AP0) file.
+    ("ACES2065-1", True): "ellelstone/ACES-elle-V2-g10.icc",
+    ("ACES2065-1", False): "ellelstone/ACES-elle-V2-g10.icc",
+    # Saucecontrol — P3 variants Elle Stone's set doesn't cover.
+    # No compact linear P3 ICC ships upstream; linear variants fall through.
+    ("Display P3", True): "saucecontrol/DisplayP3-v2-micro.icc",
+    ("DCI-P3", True): "saucecontrol/DCI-P3-v4.icc",
+}
+
+
+def _load_icc_profile(color_space: str, cctf_encoding: bool) -> bytes | None:
+    relative_path = _ICC_FILENAMES.get((color_space, cctf_encoding))
+    if relative_path is None:
+        return None
+    resource = pkg_resources.files("spektrafilm.data.icc").joinpath(*relative_path.split("/"))
+    try:
+        return resource.read_bytes()
+    except (FileNotFoundError, OSError):
+        return None
+
+
+def _set_color_space_tags(
+    exif_data: "exiv2.ExifData",
+    xmp_data: "exiv2.XmpData",
+    saving_color_space: str,
+    saving_cctf_encoding: bool,
+) -> None:
+    if saving_color_space == "sRGB" and saving_cctf_encoding:
+        exif_data["Exif.Photo.ColorSpace"] = _EXIF_COLORSPACE_SRGB
+        exif_data["Exif.Iop.InteroperabilityIndex"] = "R98"
+    elif saving_color_space == "Adobe RGB (1998)" and saving_cctf_encoding:
+        exif_data["Exif.Photo.ColorSpace"] = _EXIF_COLORSPACE_UNCALIBRATED
+        exif_data["Exif.Iop.InteroperabilityIndex"] = "R03"
+    else:
+        exif_data["Exif.Photo.ColorSpace"] = _EXIF_COLORSPACE_UNCALIBRATED
+
+    profile_name = saving_color_space if saving_cctf_encoding else f"{saving_color_space} (linear)"
+    xmp_data["Xmp.photoshop.ICCProfile"] = profile_name
 
 
 ################################################################################
@@ -135,8 +219,12 @@ _ICC_PROFILES = {
 }
 
 
-def resolve_icc_profile_bytes(color_space: str) -> bytes | None:
+def resolve_icc_profile_bytes(color_space: str, cctf_encoding: bool = True) -> bytes | None:
     """Return ICC profile bytes for a named RGB colour-space, or ``None``."""
+
+    profile_bytes = _load_icc_profile(color_space, cctf_encoding)
+    if profile_bytes is not None:
+        return profile_bytes
 
     profile_filename = _ICC_PROFILES.get(color_space)
     if profile_filename is not None:
@@ -378,29 +466,68 @@ def load_image_oiio(filename):
 def save_image_oiio(
     filename,
     image_data,
-    bit_depth=32,
+    bit_depth: int | None = None,
     *,
     color_space: str | None = None,
+    cctf_encoding: bool = True,
     encoding: ColorEncoding | None = None,
     white_luminance: float | None = None,
 ):
-    """
-    Save a floating-point image with 3 channels.
-    For PNG/JPEG files, the image data is clipped to SDR [0, 1]. PNG can be saved
-    as 16-bit integer data by passing ``bit_depth=16``; JPEG is always 8-bit.
-    For EXR files, the image data is preserved as 16-bit half or 32-bit float linear HDR.
+    """Save a 3-channel image to disk via OpenImageIO.
 
-    Parameters:
-            filename (str): The output file name (e.g., "saved_image.png", "saved_image.jpg", or "saved_image.exr")
-      image_data (np.ndarray): The input image data as a NumPy array with shape (height, width, 3).
-      color_space (str or None): Backwards-compatible colour-space name. When provided without
-          ``encoding``, PNG/JPEG output is treated as CCTF-encoded display data and EXR output
-          is treated as scene-linear data.
-      encoding (ColorEncoding or None): Full colour encoding contract for the file output.
-      white_luminance (float or None): Optional EXR whiteLuminance metadata, in cd/m².
+    Pixel format per extension:
+
+    - ``.jpg`` / ``.jpeg``: clipped to [0, 1] and written as uint8.
+      ``bit_depth`` is ignored.
+    - ``.png``: clipped to [0, 1] and written as uint16 by default.
+      Pass ``bit_depth=8`` for uint8.
+    - ``.tif`` / ``.tiff``: ``bit_depth`` selects the encoding —
+      8 → uint8 (clipped, scaled to [0, 255]),
+      16 → uint16 (clipped, scaled to [0, 65535]),
+      32 → float32 (raw, no clip/scale). Written with ZIP/deflate
+      compression.
+    - ``.exr``: ``bit_depth`` selects the encoding —
+      16 → half (float16), 32 → float32. Always raw, no clip/scale.
+
+    With the default ``bit_depth=None`` this gives float32 EXR and uint16
+    PNG/TIFF. Pass ``bit_depth=16`` for half EXR, ``bit_depth=32`` for
+    float32 TIFF, or ``bit_depth=8`` for uint8 TIFF.
+
+    When ``color_space`` is provided and a matching ICC profile exists in
+    ``spektrafilm/data/icc/`` (see the table in ``_ICC_FILENAMES``), the
+    profile bytes are embedded into the file's native ICC slot:
+    JPEG APP2 marker, PNG iCCP chunk, or TIFF ICCProfile tag. EXR carries
+    its own color metadata so ICC embedding is skipped there. Missing
+    profiles fall back to no embedding — the EXIF/XMP color-space tagging
+    written by ``write_image_metadata`` still labels the file.
+
+    Parameters
+    ----------
+    filename : str
+        Output path; the extension selects the file format.
+    image_data : np.ndarray
+        Image data with shape ``(height, width, 3)``. Floating-point input
+        is assumed to be in [0, 1] for integer-encoded formats.
+    bit_depth : int, optional
+        Precision selector for TIFF and EXR (see above). Ignored for JPEG.
+        Defaults to 16 for PNG/TIFF and 32 for EXR, preserving float HDR by
+        default while keeping compact integer output for display formats.
+    color_space : str, optional
+        Name of the color space the pixels are encoded in (e.g. ``"sRGB"``,
+        ``"Display P3"``). Used to look up the ICC profile to embed.
+    cctf_encoding : bool, default True
+        Whether the pixels carry the color space's encoding transfer
+        function. Affects which ICC variant is embedded (encoded vs linear).
+    encoding : ColorEncoding, optional
+        Full colour encoding contract for the file output. Takes precedence
+        over ``color_space`` and ``cctf_encoding``.
+    white_luminance : float, optional
+        Optional EXR whiteLuminance metadata, in cd/m².
     """
     # Determine file type based on extension before deriving the default encoding.
     ext = filename.split('.')[-1].lower()
+    if bit_depth is None:
+        bit_depth = 32 if ext == "exr" else 16
 
     if encoding is None and color_space is not None:
         if ext == "exr":
@@ -411,10 +538,15 @@ def save_image_oiio(
                 clip_highlights=False,
             )
         else:
-            encoding = ColorEncoding(color_space=color_space, transfer="cctf", role="display")
+            encoding = ColorEncoding(
+                color_space=color_space,
+                transfer="cctf" if cctf_encoding else "linear",
+                role="display" if cctf_encoding else "scene",
+            )
 
     if encoding is not None:
         color_space = encoding.color_space
+        cctf_encoding = encoding.is_cctf_encoded
 
     # Extract image dimensions and number of channels
     height, width, nchannels = image_data.shape
@@ -427,7 +559,7 @@ def save_image_oiio(
 
         save_kwargs: dict[str, object] = {}
         if color_space is not None:
-            icc_bytes = resolve_icc_profile_bytes(color_space)
+            icc_bytes = _load_icc_profile(color_space, cctf_encoding)
             if icc_bytes is not None:
                 save_kwargs["icc_profile"] = icc_bytes
 
@@ -448,7 +580,7 @@ def save_image_oiio(
         raise ValueError(f"EXR export requires linear data; CCTF-encoded {encoding.color_space} should be saved as PNG/JPEG.")
 
     # Create an ImageSpec with the proper data type
-    if ext=="exr" and bit_depth==16:
+    if ext == "exr" and bit_depth == 16:
         # Convert the image data to 16-bit half precision.
         # Note: numpy's float16 is used here; OpenImageIO accepts "half" for 16-bit floats.
         img_half = image_data.astype(np.float16)
@@ -456,9 +588,26 @@ def save_image_oiio(
         data_to_write = img_half
     elif ext=='exr' and bit_depth==32:
         # Convert the image data to 32-bit float precision.
+        # Note: numpy's float32 is used here; OpenImageIO accepts "float" for 32-bit floats.
         img_float = image_data.astype(np.float32)
         spec = oiio.ImageSpec(width, height, nchannels, oiio.TypeDesc("float"))
         data_to_write = img_float
+    elif ext in {"tif", "tiff"}:
+        if bit_depth == 8:
+            img = (np.clip(image_data, 0, 1) * 255.0).astype(np.uint8)
+            spec = oiio.ImageSpec(width, height, nchannels, oiio.TypeDesc("uint8"))
+        elif bit_depth == 16:
+            img = (np.clip(image_data, 0, 1) * 65535.0).astype(np.uint16)
+            spec = oiio.ImageSpec(width, height, nchannels, oiio.TypeDesc("uint16"))
+        elif bit_depth == 32:
+            img = image_data.astype(np.float32)
+            spec = oiio.ImageSpec(width, height, nchannels, oiio.TypeDesc("float"))
+        else:
+            raise ValueError(f"Unsupported bit_depth for TIFF: {bit_depth}")
+        # ZIP/deflate is lossless and works for all bit depths (LZW is faster but
+        # integer-only); a TIFF of a 4K float image is ~100 MB uncompressed.
+        spec.attribute("Compression", "zip")
+        data_to_write = img
     else:
         raise ValueError("Unsupported file extension: " + ext)
 
@@ -470,6 +619,16 @@ def save_image_oiio(
         spec.attribute("oiio:ColorSpace", color_space)
     if white_luminance is not None:
         spec.attribute("whiteLuminance", float(white_luminance))
+
+    if color_space is not None and ext != "exr":
+        icc_bytes = _load_icc_profile(color_space, cctf_encoding)
+        if icc_bytes is not None:
+            icc_array = np.frombuffer(icc_bytes, dtype=np.uint8)
+            spec.attribute(
+                "ICCProfile",
+                oiio.TypeDesc(f"uint8[{icc_array.size}]"),
+                icc_array,
+            )
 
     # Create an ImageOutput for writing the file
     out = oiio.ImageOutput.create(filename)

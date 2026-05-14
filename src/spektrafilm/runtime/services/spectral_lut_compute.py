@@ -4,7 +4,7 @@ from typing import Callable
 import numpy as np
 
 from spektrafilm.utils.lut import compute_with_lut
-from spektrafilm.utils.spectral_upsampling import compute_hanatos2025_tc_lut
+from spektrafilm.utils.spectral_upsampling import compute_hanatos2025_tc_lut, compute_hanatos2025_adaptation_tc_lut
 from spektrafilm.utils.timings import timeit
 
 # Sentinel object used when the GPU trilinear path does not produce PCHIP
@@ -26,6 +26,7 @@ class SpectralLUTService:
         self.scanner_lut_prepared_memory = None # prepared PCHIP data for scanner lut
         self._scanner_lut_bounds_memory = None # normalized input bounds used for scanner lut
         self._film_sensitivity = None # to track if tc_lut needs to be recomputed when film sensitivity changes
+        self._film_tc_lut_key = None # adaptation/reference settings for the tc_lut cache
         self._enlarger_test_results_memory = None # to test if enlarger LUTs are identical for same input
         self._scanner_test_results_memory = None # to test if scanner LUTs are identical for same input
         
@@ -175,17 +176,35 @@ class SpectralLUTService:
         return data_out
 
     @timeit("get_filming_tc_lut")
-    def get_filming_tc_lut(self, sensitivity):
+    def get_filming_tc_lut(self, sensitivity,
+                           sensitivity_adaptation=False,
+                           bandpass_params=None,
+                           surface_params=None,
+                           reference_illuminant='D55'):
         sensitivity = np.asarray(sensitivity)
+        cache_key = (
+            bool(sensitivity_adaptation),
+            reference_illuminant,
+            _cache_array(bandpass_params),
+            _cache_array(surface_params),
+        )
         if (
             self.filming_tc_lut_memory is not None
             and self._film_sensitivity is not None
             and np.array_equal(self._film_sensitivity, sensitivity)
+            and _filming_tc_lut_keys_equal(self._film_tc_lut_key, cache_key)
         ):
             return self.filming_tc_lut_memory
 
         self._film_sensitivity = np.array(sensitivity, copy=True)
-        self.filming_tc_lut_memory = compute_hanatos2025_tc_lut(sensitivity)
+        self._film_tc_lut_key = cache_key
+        if sensitivity_adaptation:
+            self.filming_tc_lut_memory = compute_hanatos2025_adaptation_tc_lut(sensitivity,
+                                                                    bandpass_params,
+                                                                    surface_params,
+                                                                    reference_illuminant)
+        else:
+            self.filming_tc_lut_memory = compute_hanatos2025_tc_lut(sensitivity)
         return self.filming_tc_lut_memory
 
 
@@ -200,3 +219,26 @@ def _bounds_equal(left, right) -> bool:
     if left is None or right is None:
         return False
     return np.array_equal(left[0], right[0]) and np.array_equal(left[1], right[1])
+
+
+def _cache_array(value):
+    if value is None:
+        return None
+    return np.asarray(value).copy()
+
+
+def _optional_array_equal(left, right) -> bool:
+    if left is None or right is None:
+        return left is right
+    return np.array_equal(left, right)
+
+
+def _filming_tc_lut_keys_equal(left, right) -> bool:
+    if left is None or right is None:
+        return False
+    return (
+        left[0] == right[0]
+        and left[1] == right[1]
+        and _optional_array_equal(left[2], right[2])
+        and _optional_array_equal(left[3], right[3])
+    )

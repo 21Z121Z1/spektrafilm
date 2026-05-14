@@ -138,15 +138,36 @@ class FilmingStage:
                 sensitivity *= bandpass_hanatos2025
 
         if self._settings.rgb_to_raw_method == "hanatos2025":
-            tc_lut = self._lut_service.get_filming_tc_lut(sensitivity)
-            raw = rgb_to_raw_hanatos2025_backend(
-                rgb, sensitivity,
-                color_space=color_space,
-                apply_cctf_decoding=apply_cctf_decoding,
-                reference_illuminant=self._film.info.reference_illuminant,
-                tc_lut=tc_lut,
-                backend=self._backend,
-                precomputed=(
+            sensitivity_adaptation = bool(
+                getattr(self._settings, "hanatos2025_sensitivity_adaptation", False)
+            )
+            bandpass_params = (
+                self._film.data.hanatos2025_adaptation_bandpass_params
+                if sensitivity_adaptation
+                else None
+            )
+            surface_params = (
+                self._film.data.hanatos2025_adaptation_surface_params
+                if sensitivity_adaptation
+                else None
+            )
+            try:
+                tc_lut = self._lut_service.get_filming_tc_lut(
+                    sensitivity,
+                    sensitivity_adaptation=sensitivity_adaptation,
+                    bandpass_params=bandpass_params,
+                    surface_params=surface_params,
+                    reference_illuminant=self._film.info.reference_illuminant,
+                )
+            except TypeError:
+                tc_lut = self._lut_service.get_filming_tc_lut(sensitivity)
+            raw_kwargs = {
+                "color_space": color_space,
+                "apply_cctf_decoding": apply_cctf_decoding,
+                "reference_illuminant": self._film.info.reference_illuminant,
+                "tc_lut": tc_lut,
+                "backend": self._backend,
+                "precomputed": (
                     precompute_hanatos2025_constants(
                         color_space, apply_cctf_decoding,
                         self._film.info.reference_illuminant,
@@ -154,8 +175,15 @@ class FilmingStage:
                     if self._backend is not None and self._backend.supports_gpu
                     else None
                 ),
-                input_policy=self._spectral_input_policy(),
-            )
+                "input_policy": self._spectral_input_policy(),
+            }
+            if sensitivity_adaptation:
+                raw_kwargs.update(
+                    sensitivity_adaptation=True,
+                    bandpass_params=bandpass_params,
+                    surface_params=surface_params,
+                )
+            raw = rgb_to_raw_hanatos2025_backend(rgb, sensitivity, **raw_kwargs)
         elif self._settings.rgb_to_raw_method == "mallett2019":
             raw = rgb_to_raw_mallett2019(rgb, sensitivity,
                             color_space=color_space,

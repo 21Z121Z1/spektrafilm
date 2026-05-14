@@ -58,10 +58,22 @@ def _capture_saved_output(monkeypatch, captured: dict[str, object]) -> None:
         captured.setdefault('saved', (filepath, image_data.copy()))
         captured.setdefault('save_kwargs', kwargs)
 
+    def fake_write_image_metadata(filepath, source_metadata=None, **kwargs) -> None:
+        captured.setdefault('metadata', {
+            'filepath': filepath,
+            'source_metadata': source_metadata,
+            **kwargs,
+        })
+
     monkeypatch.setattr(
         controller_module,
         'save_image_oiio',
         fake_save_image_oiio,
+    )
+    monkeypatch.setattr(
+        controller_module,
+        'write_image_metadata',
+        fake_write_image_metadata,
     )
 
 
@@ -261,6 +273,11 @@ def test_save_output_layer_falls_back_to_hdr_state_when_cctf_metadata_missing(mo
     assert saved_path == 'output.png'
     np.testing.assert_allclose(saved_image, float_image)
     assert captured['save_kwargs']['encoding'].is_cctf_encoded is False
+
+    metadata_call = captured['metadata']
+    assert metadata_call['filepath'] == 'output.png'
+    assert metadata_call['saving_color_space'] == 'ACES2065-1'
+    assert metadata_call['saving_cctf_encoding'] is False
 
 
 @pytest.mark.parametrize(

@@ -3,6 +3,7 @@ import os
 
 import exiv2
 import numpy as np
+import pytest
 
 from spektrafilm.utils import io as io_module
 from spektrafilm.utils.io import ImageMetadata, read_image_metadata, save_image_oiio, write_image_metadata
@@ -85,3 +86,136 @@ def test_save_without_metadata_has_no_exif(tmp_path):
     result = read_image_metadata(str(destination_path))
 
     assert "Exif.Image.Software" not in _read_tags(result.exif)
+
+
+@pytest.mark.parametrize(
+    ("saving_color_space", "saving_cctf_encoding", "expected_colorspace", "expected_iop", "expected_profile_name"),
+    [
+        ("sRGB", True, "1", "R98", "sRGB"),
+        ("Adobe RGB (1998)", True, "65535", "R03", "Adobe RGB (1998)"),
+        ("Display P3", True, "65535", None, "Display P3"),
+        ("ProPhoto RGB", False, "65535", None, "ProPhoto RGB (linear)"),
+        ("sRGB", False, "65535", None, "sRGB (linear)"),
+    ],
+)
+def test_write_metadata_records_saving_color_space(
+    tmp_path,
+    saving_color_space,
+    saving_cctf_encoding,
+    expected_colorspace,
+    expected_iop,
+    expected_profile_name,
+):
+    destination_path = tmp_path / "tagged.jpg"
+
+    save_image_oiio(str(destination_path), np.random.rand(8, 8, 3))
+    write_image_metadata(
+        str(destination_path),
+        saving_color_space=saving_color_space,
+        saving_cctf_encoding=saving_cctf_encoding,
+    )
+
+    result = read_image_metadata(str(destination_path))
+    exif = _read_tags(result.exif)
+    xmp = _read_tags(result.xmp)
+
+    assert exif["Exif.Photo.ColorSpace"] == expected_colorspace
+    if expected_iop is None:
+        assert "Exif.Iop.InteroperabilityIndex" not in exif
+    else:
+        assert exif["Exif.Iop.InteroperabilityIndex"] == expected_iop
+    assert xmp["Xmp.photoshop.ICCProfile"] == expected_profile_name
+
+
+@pytest.mark.parametrize(
+    ("bit_depth", "expected_format"),
+    [
+        (8, "uint8"),
+        (16, "uint16"),
+        (32, "float"),
+    ],
+)
+def test_save_image_oiio_tiff_bit_depths_roundtrip(tmp_path, bit_depth, expected_format):
+    import OpenImageIO as oiio
+
+    destination_path = tmp_path / f"out_{bit_depth}.tif"
+    image_data = np.random.rand(8, 8, 3).astype(np.float32)
+
+    save_image_oiio(str(destination_path), image_data, bit_depth=bit_depth)
+
+    in_img = oiio.ImageInput.open(str(destination_path))
+    try:
+        spec = in_img.spec()
+        assert str(spec.format) == expected_format
+        assert spec.width == 8
+        assert spec.height == 8
+        assert spec.nchannels == 3
+        assert spec.getattribute("Compression") == "zip"
+    finally:
+        in_img.close()
+
+
+@pytest.mark.parametrize("ext", ["jpg", "png", "tif"])
+def test_save_image_oiio_embeds_icc_profile_when_available(tmp_path, monkeypatch, ext):
+    import OpenImageIO as oiio
+    from PIL import ImageCms
+
+    # A real (small) ICC profile so libpng's validation accepts it.
+    real_icc_bytes = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    monkeypatch.setattr(
+        io_module,
+        "_load_icc_profile",
+        lambda color_space, cctf_encoding: real_icc_bytes,
+    )
+
+    destination_path = tmp_path / f"with_icc.{ext}"
+    save_image_oiio(
+        str(destination_path),
+        np.random.rand(8, 8, 3),
+        color_space="Display P3",
+        cctf_encoding=True,
+    )
+
+    in_img = oiio.ImageInput.open(str(destination_path))
+    try:
+        embedded = in_img.spec().getattribute("ICCProfile")
+    finally:
+        in_img.close()
+
+    assert embedded is not None
+    assert bytes(embedded) == real_icc_bytes
+
+
+def test_save_image_oiio_skips_icc_when_profile_missing(tmp_path, monkeypatch):
+    import OpenImageIO as oiio
+
+    monkeypatch.setattr(io_module, "_load_icc_profile", lambda color_space, cctf_encoding: None)
+
+    destination_path = tmp_path / "no_icc.jpg"
+    save_image_oiio(
+        str(destination_path),
+        np.random.rand(8, 8, 3),
+        color_space="ProPhoto RGB",
+        cctf_encoding=True,
+    )
+
+    in_img = oiio.ImageInput.open(str(destination_path))
+    try:
+        embedded = in_img.spec().getattribute("ICCProfile")
+    finally:
+        in_img.close()
+
+    assert embedded is None
+
+
+def test_write_metadata_without_source_still_writes_overrides(tmp_path):
+    destination_path = tmp_path / "no_source.jpg"
+
+    save_image_oiio(str(destination_path), np.random.rand(4, 4, 3))
+    write_image_metadata(str(destination_path), saving_color_space="sRGB")
+
+    result = read_image_metadata(str(destination_path))
+    exif = _read_tags(result.exif)
+
+    assert exif["Exif.Image.Software"] == "spektrafilm"
+    assert exif["Exif.Photo.ColorSpace"] == "1"
