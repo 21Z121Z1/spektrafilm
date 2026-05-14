@@ -12,10 +12,15 @@ import numpy as np
 
 
 _INTERP_DENSITY_CURVES_KERNEL = None
+_INTERP_DENSITY_LAYERS_KERNEL = None
 
 
 def _backend_supports_gpu(backend) -> bool:
-    return backend is not None and bool(getattr(backend, "supports_gpu", False))
+    return (
+        backend is not None
+        and bool(getattr(backend, "supports_gpu", False))
+        and hasattr(backend, "mx")
+    )
 
 
 def _get_interp_density_curves_kernel(mx):
@@ -76,6 +81,70 @@ def _get_interp_density_curves_kernel(mx):
     return _INTERP_DENSITY_CURVES_KERNEL
 
 
+def _get_interp_density_layers_kernel(mx):
+    """Return the cached MLX/Metal layer-density interpolation kernel."""
+    global _INTERP_DENSITY_LAYERS_KERNEL
+    if _INTERP_DENSITY_LAYERS_KERNEL is not None:
+        return _INTERP_DENSITY_LAYERS_KERNEL
+
+    source = """
+        uint elem = thread_position_in_grid.x;
+        uint height = values_shape[0];
+        uint width = values_shape[1];
+        uint channels = values_shape[2];
+        uint layers = y_vals_shape[1];
+        uint total = height * width * layers * channels;
+        if (elem >= total) {
+            return;
+        }
+
+        uint c = elem % channels;
+        uint layer = (elem / channels) % layers;
+        uint pixel = elem / (layers * channels);
+        int K = x_axis_shape[0];
+        float x = float(values[pixel * channels + c]);
+
+        float x_first = x_axis[c];
+        float x_last = x_axis[(K - 1) * channels + c];
+        if (x <= x_first) {
+            out[elem] = T(y_vals[layer * channels + c]);
+            return;
+        }
+        if (x >= x_last) {
+            out[elem] = T(y_vals[((K - 1) * layers + layer) * channels + c]);
+            return;
+        }
+
+        int lo = 0;
+        int hi = K;
+        while (lo < hi) {
+            int mid = (lo + hi) / 2;
+            float xm = x_axis[mid * channels + c];
+            if (x < xm) {
+                hi = mid;
+            } else {
+                lo = mid + 1;
+            }
+        }
+
+        int low = max(lo - 1, 0);
+        float x0 = x_axis[low * channels + c];
+        float x1 = x_axis[(low + 1) * channels + c];
+        float y0 = y_vals[(low * layers + layer) * channels + c];
+        float y1 = y_vals[((low + 1) * layers + layer) * channels + c];
+        float inv_dx = x1 != x0 ? 1.0f / (x1 - x0) : 0.0f;
+        float t = (x - x0) * inv_dx;
+        out[elem] = T(y0 + t * (y1 - y0));
+    """
+    _INTERP_DENSITY_LAYERS_KERNEL = mx.fast.metal_kernel(
+        name="spektrafilm_interp_density_layers",
+        input_names=["values", "x_axis", "y_vals"],
+        output_names=["out"],
+        source=source,
+    )
+    return _INTERP_DENSITY_LAYERS_KERNEL
+
+
 def _as_channel_gamma(gamma_factor: Any) -> np.ndarray:
     gamma = np.asarray(gamma_factor, dtype=np.float64)
     if gamma.ndim == 0 or gamma.size == 1:
@@ -128,6 +197,58 @@ def interpolate_exposure_to_density_backend(
         grid=(int(np.prod(values.shape)), 1, 1),
         threadgroup=(256, 1, 1),
         output_shapes=[values.shape],
+        output_dtypes=[values.dtype],
+    )
+    return outputs[0]
+
+
+def interpolate_density_cmy_layers_backend(
+    density_cmy: Any,
+    density_curves: Any,
+    density_curves_layers: Any,
+    *,
+    positive_film: bool = False,
+    backend=None,
+) -> Any:
+    """Backend-aware equivalent of ``interp_density_cmy_layers``."""
+    if not _backend_supports_gpu(backend):
+        from spektrafilm.model.density_curves import _interp_density_cmy_layers_cpu
+
+        return _interp_density_cmy_layers_cpu(
+            density_cmy,
+            np.asarray(density_curves),
+            np.asarray(density_curves_layers),
+            positive_film=positive_film,
+        )
+
+    density_curves_np = np.asarray(density_curves, dtype=np.float32)
+    density_curves_layers_np = np.asarray(density_curves_layers, dtype=np.float32)
+    if density_curves_np.ndim != 2 or density_curves_np.shape[1] != 3:
+        raise ValueError("density_curves must have shape Kx3")
+    if density_curves_layers_np.ndim != 3 or density_curves_layers_np.shape[1:] != (3, 3):
+        raise ValueError("density_curves_layers must have shape Kx3x3")
+    if density_curves_layers_np.shape[0] != density_curves_np.shape[0]:
+        raise ValueError("density_curves and density_curves_layers must have the same length")
+    if density_cmy.shape[-1] != 3:
+        raise ValueError("density_cmy must have 3 channels in the last dimension")
+
+    mx = backend.mx
+    values = backend.asarray(density_cmy)
+    x_axis = density_curves_np
+    if positive_film:
+        values = -values
+        x_axis = -x_axis
+
+    x_axis_mx = mx.array(x_axis, dtype=mx.float32)
+    y_vals_mx = mx.array(density_curves_layers_np, dtype=mx.float32)
+    output_shape = density_cmy.shape[:-1] + density_curves_layers_np.shape[1:]
+    kernel = _get_interp_density_layers_kernel(mx)
+    outputs = kernel(
+        inputs=[values, x_axis_mx, y_vals_mx],
+        template=[("T", values.dtype)],
+        grid=(int(np.prod(output_shape)), 1, 1),
+        threadgroup=(256, 1, 1),
+        output_shapes=[output_shape],
         output_dtypes=[values.dtype],
     )
     return outputs[0]

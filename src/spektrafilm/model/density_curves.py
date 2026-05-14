@@ -32,7 +32,7 @@ def interpolate_exposure_to_density(log_exposure_rgb, density_curves, log_exposu
     return density_cmy
 
 
-def interp_density_cmy_layers(density_cmy, density_curves, density_curves_layers, positive_film=False):
+def _interp_density_cmy_layers_cpu(density_cmy, density_curves, density_curves_layers, positive_film=False):
     density_cmy_layers = np.zeros((density_cmy.shape[0], density_cmy.shape[1], 3, 3)) # x,y,layer,rgb
     if positive_film:
         for ch in np.arange(3):
@@ -43,6 +43,31 @@ def interp_density_cmy_layers(density_cmy, density_curves, density_curves_layers
             density_cmy_layers[:,:,:,ch] = fast_interp(np.repeat(density_cmy[:,:,ch,np.newaxis], 3, -1),
                                                        density_curves[:,ch], density_curves_layers[:,:,ch])
     return density_cmy_layers
+
+
+def interp_density_cmy_layers(
+    density_cmy,
+    density_curves,
+    density_curves_layers,
+    positive_film=False,
+    backend=None,
+):
+    if backend is not None and getattr(backend, "supports_gpu", False):
+        from spektrafilm.gpu.kernels.density import interpolate_density_cmy_layers_backend
+
+        return interpolate_density_cmy_layers_backend(
+            density_cmy,
+            density_curves,
+            density_curves_layers,
+            positive_film=positive_film,
+            backend=backend,
+        )
+    return _interp_density_cmy_layers_cpu(
+        density_cmy,
+        density_curves,
+        density_curves_layers,
+        positive_film=positive_film,
+    )
     
 # This method was used for multilayer grain, but it is not used anymore
 # def interpolate_layers(self, exposure_rgb):

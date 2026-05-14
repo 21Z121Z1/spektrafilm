@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 from qtpy import QtCore, QtWidgets
 
-from spektrafilm.color_management import output_encoding_from_io
+from spektrafilm.color_management import ColorEncoding, output_encoding_from_io
 
 from spektrafilm_gui import controller_persistence as persistence_actions
 from spektrafilm_gui import controller_profile_sync as profile_sync
@@ -356,7 +356,7 @@ class GuiController:
 
         source_color_space, source_cctf_encoding = self._output_layer_render_settings(
             default_color_space=gui_state.simulation.output_color_space,
-            default_cctf_encoding=True,
+            default_cctf_encoding=not bool(getattr(gui_state.simulation, 'hdr_exr_output', False)),
         )
         saving_color_space = gui_state.simulation.saving_color_space
         saving_cctf_encoding = gui_state.simulation.saving_cctf_encoding
@@ -621,7 +621,12 @@ class GuiController:
         if output_layer is None:
             return default_color_space, default_cctf_encoding
         color_space = output_layer.metadata.get(OUTPUT_COLOR_SPACE_KEY, default_color_space)
-        cctf_encoding = output_layer.metadata.get(OUTPUT_CCTF_ENCODING_KEY, default_cctf_encoding)
+        output_encoding = output_layer.metadata.get(OUTPUT_COLOR_ENCODING_KEY)
+        if isinstance(output_encoding, ColorEncoding):
+            color_space = output_layer.metadata.get(OUTPUT_COLOR_SPACE_KEY, output_encoding.color_space)
+            cctf_encoding = output_layer.metadata.get(OUTPUT_CCTF_ENCODING_KEY, output_encoding.is_cctf_encoded)
+        else:
+            cctf_encoding = output_layer.metadata.get(OUTPUT_CCTF_ENCODING_KEY, default_cctf_encoding)
         return str(color_space), bool(cctf_encoding)
 
     def _output_interpolation_mode(self) -> str:

@@ -230,6 +230,39 @@ def test_save_output_layer_respects_recorded_render_metadata(
     assert captured['save_kwargs']['encoding'].is_cctf_encoded is saving_cctf_encoding
 
 
+def test_save_output_layer_falls_back_to_hdr_state_when_cctf_metadata_missing(monkeypatch) -> None:
+    float_image = np.full((2, 2, 3), 1.25, dtype=np.float32)
+    output_layer = FakeLayer(
+        np.uint8(np.clip(float_image, 0.0, 1.0) * 255),
+        metadata={
+            OUTPUT_FLOAT_DATA_KEY: float_image,
+            OUTPUT_COLOR_SPACE_KEY: 'ACES2065-1',
+        },
+    )
+    controller = GuiController(viewer=object(), widgets=object())
+    captured: dict[str, object] = {}
+    gui_state = make_test_controller_gui_state()
+    gui_state.simulation.output_color_space = 'ACES2065-1'
+    gui_state.simulation.saving_color_space = 'ACES2065-1'
+    gui_state.simulation.saving_cctf_encoding = False
+    gui_state.simulation.hdr_exr_output = True
+
+    _configure_save_output(monkeypatch, controller, output_layer, gui_state, captured)
+    _capture_saved_output(monkeypatch, captured)
+
+    def fail_rgb_to_rgb(*args, **kwargs):
+        raise AssertionError('linear HDR output should not be decoded as CCTF when layer metadata is missing')
+
+    monkeypatch.setattr(controller_module.colour, 'RGB_to_RGB', fail_rgb_to_rgb)
+
+    controller.save_output_layer()
+
+    saved_path, saved_image = captured['saved']
+    assert saved_path == 'output.png'
+    np.testing.assert_allclose(saved_image, float_image)
+    assert captured['save_kwargs']['encoding'].is_cctf_encoded is False
+
+
 @pytest.mark.parametrize(
     ('image_data', 'padding_pixels', 'expected_shape', 'expected_center', 'expected_corner'),
     [

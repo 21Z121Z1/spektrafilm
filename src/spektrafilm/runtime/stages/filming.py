@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import numpy as np
+import colour
 
 from spektrafilm.gpu.kernels.color import boost_highlights_backend
 from spektrafilm.model.color_filters import compute_band_pass_filter
 from spektrafilm.model.diffusion import apply_diffusion_filter_um, apply_gaussian_blur_um, apply_halation_um, boost_highlights
 from spektrafilm.model.emulsion import compute_density_spectral, develop, develop_simple
 from spektrafilm.utils.autoexposure import measure_autoexposure_ev
-from spektrafilm.utils.spectral_upsampling import rgb_to_raw_hanatos2025, rgb_to_raw_mallett2019
+from spektrafilm.utils.spectral_upsampling import (
+    SpectralInputPolicy,
+    precompute_hanatos2025_constants,
+    rgb_to_raw_hanatos2025_backend,
+    rgb_to_raw_mallett2019,
+)
 from spektrafilm.utils.timings import timeit
 
 
@@ -132,30 +138,62 @@ class FilmingStage:
                 sensitivity *= bandpass_hanatos2025
 
         if self._settings.rgb_to_raw_method == "hanatos2025":
-            raw = rgb_to_raw_hanatos2025(rgb, sensitivity,
-                            color_space=color_space, 
-                            apply_cctf_decoding=apply_cctf_decoding, 
-                            reference_illuminant=self._film.info.reference_illuminant,
-                            tc_lut=self._lut_service.get_filming_tc_lut(sensitivity))
+            tc_lut = self._lut_service.get_filming_tc_lut(sensitivity)
+            raw = rgb_to_raw_hanatos2025_backend(
+                rgb, sensitivity,
+                color_space=color_space,
+                apply_cctf_decoding=apply_cctf_decoding,
+                reference_illuminant=self._film.info.reference_illuminant,
+                tc_lut=tc_lut,
+                backend=self._backend,
+                precomputed=(
+                    precompute_hanatos2025_constants(
+                        color_space, apply_cctf_decoding,
+                        self._film.info.reference_illuminant,
+                    )
+                    if self._backend is not None and self._backend.supports_gpu
+                    else None
+                ),
+                input_policy=self._spectral_input_policy(),
+            )
         elif self._settings.rgb_to_raw_method == "mallett2019":
             raw = rgb_to_raw_mallett2019(rgb, sensitivity,
                             color_space=color_space,
                             apply_cctf_decoding=apply_cctf_decoding,
-                            reference_illuminant=self._film.info.reference_illuminant)
+                            reference_illuminant=self._film.info.reference_illuminant,
+                            input_policy=self._spectral_input_policy())
         else:
             raise ValueError(f"Unsupported rgb_to_raw method: {self._settings.rgb_to_raw_method}")
         return raw
+
+    def _spectral_input_policy(self) -> SpectralInputPolicy:
+        negative_rgb = getattr(self._settings, "spectral_negative_rgb", "clip")
+        xy_out_of_bounds = getattr(self._settings, "spectral_xy_out_of_bounds", "clip")
+        report_stats = bool(getattr(self._settings, "spectral_report_stats", True))
+        return SpectralInputPolicy(
+            negative_rgb=negative_rgb,
+            xy_out_of_bounds=xy_out_of_bounds,
+            report_stats=report_stats,
+        )
     
     def _compute_density_spectral_midgray_to_balance_print(self):
-        rgb_midgray = np.array([[[0.184] * 3]])
+        rgb_midgray = self._input_reference_rgb(0.184)
         density_spectral_midgray = self._simple_rgb_to_density_spectral(rgb_midgray)
         if self._enlarger_service.print_exposure_compensation:
             neg_exp_comp_ev = self._camera.exposure_compensation_ev
-            rgb_midgray_comp = np.array([[[0.184] * 3]]) * 2 ** neg_exp_comp_ev
+            rgb_midgray_comp = self._input_reference_rgb(0.184 * 2 ** neg_exp_comp_ev)
             density_spectral_midgray_comp = self._simple_rgb_to_density_spectral(rgb_midgray_comp)
         else:
             density_spectral_midgray_comp = None
         return density_spectral_midgray, density_spectral_midgray_comp
+
+    def _input_reference_rgb(self, linear_value: float) -> np.ndarray:
+        linear_rgb = np.full((1, 1, 3), float(linear_value), dtype=float)
+        if not self._io.input_cctf_decoding:
+            return linear_rgb
+
+        color_space = colour.RGB_COLOURSPACES[self._io.input_color_space]
+        return np.asarray(color_space.cctf_encoding(linear_rgb), dtype=float)
 
     def _simple_rgb_to_density_spectral(self, rgb: np.ndarray) -> np.ndarray:
         raw = self._rgb_to_film_raw(

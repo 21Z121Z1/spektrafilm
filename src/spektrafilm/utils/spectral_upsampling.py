@@ -2,6 +2,7 @@ import importlib.resources
 import struct
 import warnings
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Literal
 
 import colour
@@ -26,6 +27,12 @@ class SpectralInputPolicy:
     negative_rgb: NegativeRGBPolicy = "clip"
     xy_out_of_bounds: XYOutOfBoundsPolicy = "clip"
     report_stats: bool = True
+
+    def __post_init__(self) -> None:
+        if self.negative_rgb not in ("clip", "warn", "error", "compress"):
+            raise ValueError(f"Unsupported negative RGB policy: {self.negative_rgb!r}.")
+        if self.xy_out_of_bounds not in ("clip", "warn", "error"):
+            raise ValueError(f"Unsupported xy out-of-bounds policy: {self.xy_out_of_bounds!r}.")
 
 
 DEFAULT_SPECTRAL_INPUT_POLICY = SpectralInputPolicy()
@@ -340,6 +347,7 @@ def rgb_to_raw_hanatos2025(rgb, sensitivity,
 # Backend-aware variant: precompute CPU constants, execute per-pixel on GPU
 # ---------------------------------------------------------------------------
 
+@lru_cache(maxsize=None)
 def precompute_hanatos2025_constants(color_space, apply_cctf_decoding, reference_illuminant):
     """CPU-only: return (M_rgb_to_xyz, cctf_decode_fn_or_None, illu_xy).
 
@@ -352,9 +360,6 @@ def precompute_hanatos2025_constants(color_space, apply_cctf_decoding, reference
     illu_xy = _illuminant_to_xy(reference_illuminant)
     M = _pre_m(color_space, illuminant_xy=illu_xy, cat='CAT02')
 
-    # CCTF decoding: if needed, we stash the colour-science function handle
-    # for now.  Phase 2 calls it on CPU (small cost for preview; Phase 3+
-    # can move it to a backend kernel).
     cctf_decode = None
     if apply_cctf_decoding:
         cs = colour.RGB_COLOURSPACES[color_space]
@@ -385,44 +390,60 @@ def rgb_to_raw_hanatos2025_backend(
             reference_illuminant, tc_lut=tc_lut, input_policy=input_policy,
         )
 
-    # Precomputed constants
+    if not hasattr(backend, "mx"):
+        return rgb_to_raw_hanatos2025(
+            rgb, sensitivity, color_space, apply_cctf_decoding,
+            reference_illuminant, tc_lut=tc_lut, input_policy=input_policy,
+        )
+
+    input_policy = _resolve_input_policy(input_policy)
+    if input_policy != DEFAULT_SPECTRAL_INPUT_POLICY:
+        return rgb_to_raw_hanatos2025(
+            rgb, sensitivity, color_space, apply_cctf_decoding,
+            reference_illuminant, tc_lut=tc_lut, input_policy=input_policy,
+        )
+
     if precomputed is None:
         precomputed = precompute_hanatos2025_constants(
             color_space, apply_cctf_decoding, reference_illuminant,
         )
-    M_rgb_to_xyz, cctf_decode, _illu_xy = precomputed
+    M_rgb_to_xyz, _cctf_decode, _illu_xy = precomputed
 
-    # 1. CCTF decode (still CPU for now — images are NumPy at this point)
-    rgb_np = np.asarray(rgb, dtype=np.float64)
-    if cctf_decode is not None:
-        rgb_np = cctf_decode(rgb_np)
-    input_policy = _resolve_input_policy(input_policy)
-    rgb_np = _handle_negative_rgb(
-        rgb_np,
-        input_policy,
-        context="Hanatos backend spectral upsampling RGB input",
-    )
+    try:
+        from spektrafilm.gpu.kernels.color import cctf_decoding_transfer_backend, rgb_to_xyz
+        from spektrafilm.gpu.kernels.lut import apply_lut_cubic_2d_mlx
 
-    # 2. RGB → XYZ using precomputed matrix (CPU, float64)
-    xyz = rgb_np @ M_rgb_to_xyz.T
+        mx = backend.mx
+        rgb_b = backend.asarray(rgb)
+        if apply_cctf_decoding:
+            rgb_b = cctf_decoding_transfer_backend(rgb_b, color_space, backend)
+        rgb_b = backend.fmax(rgb_b, 0.0)
 
-    # 3. XYZ → xy chromaticity → triangular coordinates
-    b = np.sum(xyz, axis=-1)
-    xy = xyz[..., 0:2] / np.fmax(b[..., None], 1e-10)
-    xy = _handle_xy_out_of_bounds(
-        xy,
-        input_policy,
-        context="Hanatos backend spectral upsampling xy chromaticity",
-    )
-    tc = _tri2quad(xy)
-    b = np.nan_to_num(b)
+        xyz = rgb_to_xyz(rgb_b, backend.asarray(M_rgb_to_xyz), backend)
+        b = xyz[..., 0] + xyz[..., 1] + xyz[..., 2]
+        b_safe = backend.nan_to_num(b)
+        xy_denominator = backend.fmax(b, 1e-10)
+        xy_x = backend.clip(xyz[..., 0] / xy_denominator, 0.0, 1.0)
+        xy_y = backend.clip(xyz[..., 1] / xy_denominator, 0.0, 1.0)
 
-    # 4. LUT sampling — stays CPU cubic because the tc_lut is a 2D cubic interp
+        one_minus_x = 1.0 - xy_x
+        tc_x = backend.clip(one_minus_x * one_minus_x, 0.0, 1.0)
+        tc_y = backend.clip(xy_y / backend.fmax(one_minus_x, 1e-10), 0.0, 1.0)
+        tc = mx.stack([tc_x, tc_y], axis=-1)
+
+        if tc_lut is None:
+            tc_lut = compute_hanatos2025_tc_lut(sensitivity)
+        raw = apply_lut_cubic_2d_mlx(tc_lut, tc, mx=mx)
+        return raw * b_safe[..., None]
+    except NotImplementedError:
+        pass
+
     if tc_lut is None:
         tc_lut = compute_hanatos2025_tc_lut(sensitivity)
-    raw = apply_lut_cubic_2d(tc_lut, tc)
-    raw *= b[..., None]
-    return raw
+    return rgb_to_raw_hanatos2025(
+        rgb, sensitivity, color_space, apply_cctf_decoding,
+        reference_illuminant, tc_lut=tc_lut, input_policy=input_policy,
+    )
 
 def rgb_to_smooth_spectrum(
     rgb,

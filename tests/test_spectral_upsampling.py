@@ -149,6 +149,14 @@ def test_spectral_input_policy_errors_on_xy_out_of_bounds(monkeypatch):
         )
 
 
+def test_spectral_input_policy_rejects_unknown_modes():
+    with pytest.raises(ValueError, match="Unsupported negative RGB policy"):
+        SpectralInputPolicy(negative_rgb="ignore")
+
+    with pytest.raises(ValueError, match="Unsupported xy out-of-bounds policy"):
+        SpectralInputPolicy(xy_out_of_bounds="compress")
+
+
 def test_mallett2019_policy_checks_negative_converted_linear_srgb(monkeypatch):
     def fake_rgb_to_rgb(*_args, **_kwargs):
         return np.array([[[-0.01, 0.2, 0.3]]], dtype=np.float64)

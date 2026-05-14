@@ -155,6 +155,73 @@ def _cctf_encoding_adobe_rgb_1998(rgb: Any, backend) -> Any:
     return backend.pow(rgb, 0.4547069271758437)
 
 
+def _cctf_decoding_srgb_like(rgb: Any, backend) -> Any:
+    linear = rgb / 12.92
+    nonlinear = _signed_power((rgb + 0.055) / 1.055, 2.4, backend)
+    return backend.where(rgb <= 0.04045, linear, nonlinear)
+
+
+def _cctf_decoding_romm_rgb(rgb: Any, backend) -> Any:
+    linear_threshold = 16.0 ** (1.8 / (1.0 - 1.8))
+    encoded_threshold = linear_threshold * 16.0
+    nonlinear = _signed_power(rgb, 1.8, backend)
+    return backend.where(rgb < encoded_threshold, rgb / 16.0, nonlinear)
+
+
+def _cctf_decoding_bt2020(rgb: Any, backend) -> Any:
+    alpha = 1.099
+    beta = 0.018
+    nonlinear = _signed_power((rgb + (alpha - 1.0)) / alpha, 1.0 / 0.45, backend)
+    return backend.where(rgb <= 0.081, rgb / 4.5, nonlinear)
+
+
+def _cctf_decoding_adobe_rgb_1998(rgb: Any, backend) -> Any:
+    return backend.pow(rgb, 1.0 / 0.4547069271758437)
+
+
+def _cctf_decoding_dci_p3(rgb: Any, backend) -> Any:
+    return backend.pow(rgb, 2.6)
+
+
+def cctf_decoding_transfer_backend(rgb: Any, color_space: str, backend) -> Any:
+    """Apply only the colour-space transfer decoding without matrix adaptation."""
+    if backend is None or not getattr(backend, "supports_gpu", False):
+        return colour.RGB_COLOURSPACES[color_space].cctf_decoding(rgb)
+
+    if color_space in {"sRGB", "Display P3"}:
+        return _cctf_decoding_srgb_like(rgb, backend)
+    if color_space == "ProPhoto RGB":
+        return _cctf_decoding_romm_rgb(rgb, backend)
+    if color_space == "ITU-R BT.2020":
+        return _cctf_decoding_bt2020(rgb, backend)
+    if color_space == "Adobe RGB (1998)":
+        return _cctf_decoding_adobe_rgb_1998(rgb, backend)
+    if color_space == "DCI-P3":
+        return _cctf_decoding_dci_p3(rgb, backend)
+    if color_space == "ACES2065-1":
+        return rgb
+
+    raise NotImplementedError(
+        f"Backend CCTF decoding is not implemented for color space {color_space!r}"
+    )
+
+
+def cctf_decoding_backend(rgb: Any, color_space: str, backend) -> Any:
+    """Apply same-colour-space CCTF decoding without leaving the backend."""
+    if backend is None or not getattr(backend, "supports_gpu", False):
+        return colour.RGB_to_RGB(
+            rgb,
+            color_space,
+            color_space,
+            apply_cctf_decoding=True,
+            apply_cctf_encoding=False,
+        )
+
+    decoded = cctf_decoding_transfer_backend(rgb, color_space, backend)
+    matrix = backend.asarray(_precompute_same_space_rgb_to_rgb_matrix(color_space))
+    return rgb_to_xyz(decoded, matrix, backend)
+
+
 def cctf_encoding_backend(rgb: Any, color_space: str, backend) -> Any:
     """Apply the output colour-space CCTF without leaving the array backend.
 

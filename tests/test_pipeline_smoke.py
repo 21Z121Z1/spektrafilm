@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import colour
 
 from .conftest import make_fast_test_params
 
@@ -82,6 +83,24 @@ def test_uniform_gray_output_is_stable_and_artifact_free(default_params) -> None
     for row in range(1, 6):
         for col in range(1, 6):
             np.testing.assert_allclose(result_1[row, col, :], center_pixel, atol=1e-6)
+
+
+def test_cctf_encoded_midgray_matches_linear_midgray() -> None:
+    linear_params = make_fast_test_params()
+    linear_params.io.input_color_space = 'sRGB'
+    linear_params.io.input_cctf_decoding = False
+
+    cctf_params = make_fast_test_params()
+    cctf_params.io.input_color_space = 'sRGB'
+    cctf_params.io.input_cctf_decoding = True
+
+    linear_gray = _tile_rgb((0.184, 0.184, 0.184), 4)
+    encoded_gray = colour.RGB_COLOURSPACES['sRGB'].cctf_encoding(linear_gray)
+
+    linear_result = simulate(linear_gray, linear_params)
+    cctf_result = simulate(encoded_gray, cctf_params)
+
+    np.testing.assert_allclose(cctf_result, linear_result, rtol=1e-5, atol=1e-5)
 
 
 def test_exposure_controls_behave_consistently(default_params) -> None:

@@ -1,10 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Literal, TYPE_CHECKING
 
 Transfer = Literal["linear", "cctf"]
 ColorRole = Literal["scene", "display", "interchange"]
+
+
+@lru_cache(maxsize=1)
+def _known_rgb_colourspaces() -> frozenset[str]:
+    import colour
+
+    return frozenset(str(name) for name in colour.RGB_COLOURSPACES.keys())
 
 
 @dataclass(frozen=True, slots=True)
@@ -14,6 +22,17 @@ class ColorEncoding:
     role: ColorRole = "scene"
     clip_negatives: bool = True
     clip_highlights: bool = True
+
+    def __post_init__(self) -> None:
+        if self.color_space not in _known_rgb_colourspaces():
+            common = ("sRGB", "Display P3", "DCI-P3", "Adobe RGB (1998)", "ITU-R BT.2020", "ProPhoto RGB", "ACES2065-1")
+            raise ValueError(
+                f"Unknown RGB colourspace {self.color_space!r}; common valid names include: {', '.join(common)}."
+            )
+        if self.transfer not in ("linear", "cctf"):
+            raise ValueError(f"Unsupported transfer {self.transfer!r}; expected 'linear' or 'cctf'.")
+        if self.role not in ("scene", "display", "interchange"):
+            raise ValueError(f"Unsupported color role {self.role!r}.")
 
     @property
     def is_linear(self) -> bool:

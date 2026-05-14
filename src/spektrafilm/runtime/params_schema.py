@@ -198,6 +198,9 @@ class SettingsParams:
     gpu_precision: str = "float32"
     gpu_validate: bool = False
     rgb_to_raw_method: str = "hanatos2025"
+    spectral_negative_rgb: str = "clip"
+    spectral_xy_out_of_bounds: str = "clip"
+    spectral_report_stats: bool = True
     bandpass_hanatos2025: bool = True
     use_enlarger_lut: bool = False
     use_scanner_lut: bool = False

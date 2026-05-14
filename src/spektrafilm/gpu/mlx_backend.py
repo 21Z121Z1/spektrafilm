@@ -40,6 +40,10 @@ class MlxBackend:
         return type(value).__module__.startswith("mlx.")
 
     def asarray(self, value: Any, dtype: Any | None = None):
+        if self._is_mlx_array(value):
+            if dtype is None or value.dtype == dtype:
+                return value
+            return value.astype(dtype)
         return self.mx.array(value, dtype=dtype or self.default_dtype)
 
     def to_numpy(self, value: Any) -> np.ndarray:

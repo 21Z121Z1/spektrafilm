@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import binascii
 import datetime
 import importlib.resources as pkg_resources
 import json
+import struct
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 
 import colour
 import exiv2
+from exiv2.types import DataBuf
 import numpy as np
 import OpenImageIO as oiio
 import PIL.Image
@@ -87,6 +91,7 @@ def write_image_metadata(filename: str, source_metadata: ImageMetadata) -> None:
 
     try:
         spec = image_input.spec()
+        icc_before = _icc_profile_bytes_from_spec(spec)
     finally:
         image_input.close()
     destination = exiv2.ImageFactory.open(filename)
@@ -104,7 +109,15 @@ def write_image_metadata(filename: str, source_metadata: ImageMetadata) -> None:
     destination_exif["Exif.Photo.PixelXDimension"] = spec.width
     destination_exif["Exif.Photo.PixelYDimension"] = spec.height
 
+    if icc_before is not None:
+        destination.setIccProfile(DataBuf(icc_before))
+
     destination.writeMetadata()
+
+    if icc_before is not None:
+        icc_after = _icc_profile_bytes_from_file(filename)
+        if icc_after != icc_before:
+            raise RuntimeError("metadata copy did not preserve the output ICC profile")
 
 
 ################################################################################
@@ -176,6 +189,10 @@ _ICC_PROFILE_DESCRIPTION_ALIASES = {
     "bt.2020": "ITU-R BT.2020",
     "rec.2020": "ITU-R BT.2020",
 }
+
+_CHROMATICITY_PRIMARY_ERROR_THRESHOLD = 2e-4
+_CHROMATICITY_WHITEPOINT_ERROR_THRESHOLD = 5e-4
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
 def read_image_color_encoding(filename: str) -> ColorEncoding | None:
@@ -272,6 +289,16 @@ def _icc_profile_bytes_from_spec(spec) -> bytes | None:
         return None
 
 
+def _icc_profile_bytes_from_file(filename: str) -> bytes | None:
+    image_input = oiio.ImageInput.open(filename)
+    if image_input is None:
+        return None
+    try:
+        return _icc_profile_bytes_from_spec(image_input.spec())
+    finally:
+        image_input.close()
+
+
 def _known_color_space_from_chromaticities(spec) -> str | None:
     try:
         chromaticities = spec.getattribute("chromaticities")
@@ -284,16 +311,26 @@ def _known_color_space_from_chromaticities(spec) -> str | None:
         return None
 
     best_color_space: str | None = None
-    best_error = float("inf")
+    best_primary_error = float("inf")
+    best_whitepoint_error = float("inf")
     for color_space in (*_ICC_PROFILES.keys(), "ACES2065-1"):
         reference = colorspace_chromaticities(color_space)
         if reference is None:
             continue
-        error = float(np.max(np.abs(chromaticities_array - np.asarray(reference, dtype=float))))
-        if error < best_error:
-            best_error = error
+        reference_array = np.asarray(reference, dtype=float)
+        primary_error = float(np.max(np.abs(chromaticities_array[:6] - reference_array[:6])))
+        whitepoint_error = float(np.max(np.abs(chromaticities_array[6:8] - reference_array[6:8])))
+        if (primary_error, whitepoint_error) < (best_primary_error, best_whitepoint_error):
+            best_primary_error = primary_error
+            best_whitepoint_error = whitepoint_error
             best_color_space = color_space
-    return best_color_space if best_error <= 5e-4 else None
+    if (
+        best_color_space is not None
+        and best_primary_error <= _CHROMATICITY_PRIMARY_ERROR_THRESHOLD
+        and best_whitepoint_error <= _CHROMATICITY_WHITEPOINT_ERROR_THRESHOLD
+    ):
+        return best_color_space
+    return None
 
 
 def load_image_oiio(filename):
@@ -345,10 +382,12 @@ def save_image_oiio(
     *,
     color_space: str | None = None,
     encoding: ColorEncoding | None = None,
+    white_luminance: float | None = None,
 ):
     """
     Save a floating-point image with 3 channels.
-    For PNG/JPEG files, the image data is clipped to SDR [0, 1] and saved as uint8.
+    For PNG/JPEG files, the image data is clipped to SDR [0, 1]. PNG can be saved
+    as 16-bit integer data by passing ``bit_depth=16``; JPEG is always 8-bit.
     For EXR files, the image data is preserved as 16-bit half or 32-bit float linear HDR.
 
     Parameters:
@@ -358,6 +397,7 @@ def save_image_oiio(
           ``encoding``, PNG/JPEG output is treated as CCTF-encoded display data and EXR output
           is treated as scene-linear data.
       encoding (ColorEncoding or None): Full colour encoding contract for the file output.
+      white_luminance (float or None): Optional EXR whiteLuminance metadata, in cd/m².
     """
     # Determine file type based on extension before deriving the default encoding.
     ext = filename.split('.')[-1].lower()
@@ -385,20 +425,23 @@ def save_image_oiio(
                 f"{ext.upper()} export requires CCTF-encoded data; linear {encoding.color_space} should be saved as EXR."
             )
 
-        img_uint8 = np.clip(image_data, 0, 1) * 255.0
-        img_uint8 = img_uint8.astype(np.uint8)
-        pil_image = PIL.Image.fromarray(img_uint8, mode="RGB")
-
         save_kwargs: dict[str, object] = {}
         if color_space is not None:
             icc_bytes = resolve_icc_profile_bytes(color_space)
             if icc_bytes is not None:
                 save_kwargs["icc_profile"] = icc_bytes
 
-        if ext == "png":
-            pil_image.save(filename, **save_kwargs)
+        if ext == "png" and bit_depth >= 16:
+            img_uint16 = np.rint(np.clip(image_data, 0, 1) * 65535.0).astype(np.uint16)
+            _write_png_rgb16(filename, img_uint16, icc_profile=save_kwargs.get("icc_profile"))
         else:
-            pil_image.save(filename, quality=95, **save_kwargs)
+            img_uint8 = np.clip(image_data, 0, 1) * 255.0
+            img_uint8 = img_uint8.astype(np.uint8)
+            pil_image = PIL.Image.fromarray(img_uint8, mode="RGB")
+            if ext == "png":
+                pil_image.save(filename, **save_kwargs)
+            else:
+                pil_image.save(filename, quality=95, **save_kwargs)
         return
 
     if ext == "exr" and encoding is not None and encoding.is_cctf_encoded:
@@ -425,6 +468,8 @@ def save_image_oiio(
             spec.attribute("chromaticities", oiio.TypeDesc("float[8]"), chromaticities)
         spec.attribute("colorInteropID", color_space)
         spec.attribute("oiio:ColorSpace", color_space)
+    if white_luminance is not None:
+        spec.attribute("whiteLuminance", float(white_luminance))
 
     # Create an ImageOutput for writing the file
     out = oiio.ImageOutput.create(filename)
@@ -437,6 +482,37 @@ def save_image_oiio(
         out.write_image(data_to_write)
     finally:
         out.close()
+
+
+def _png_chunk(chunk_type: bytes, data: bytes) -> bytes:
+    return (
+        struct.pack(">I", len(data))
+        + chunk_type
+        + data
+        + struct.pack(">I", binascii.crc32(chunk_type + data) & 0xFFFFFFFF)
+    )
+
+
+def _write_png_rgb16(filename: str, image_data: np.ndarray, *, icc_profile: bytes | None) -> None:
+    image = np.asarray(image_data)
+    if image.ndim != 3 or image.shape[2] != 3:
+        raise ValueError("16-bit PNG export requires an RGB image with shape (height, width, 3).")
+
+    height, width = image.shape[:2]
+    if height <= 0 or width <= 0:
+        raise ValueError("Cannot save an empty PNG image.")
+
+    image_be = image.astype(">u2", copy=False)
+    raw_scanlines = b"".join(b"\x00" + image_be[row].tobytes() for row in range(height))
+    ihdr = struct.pack(">IIBBBBB", width, height, 16, 2, 0, 0, 0)
+
+    chunks = [_png_chunk(b"IHDR", ihdr)]
+    if icc_profile is not None:
+        chunks.append(_png_chunk(b"iCCP", b"ICC profile\x00\x00" + zlib.compress(icc_profile)))
+    chunks.append(_png_chunk(b"IDAT", zlib.compress(raw_scanlines)))
+    chunks.append(_png_chunk(b"IEND", b""))
+
+    Path(filename).write_bytes(_PNG_SIGNATURE + b"".join(chunks))
 
 ################################################################################
 # Neutral filter values

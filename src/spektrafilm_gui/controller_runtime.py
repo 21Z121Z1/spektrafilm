@@ -177,6 +177,7 @@ def apply_display_transform(
         return np.uint8(np.clip(fallback_pixels, 0.0, 1.0) * 255), 'Display transform: no display profile, using raw preview'
 
     source_profile = _imagecms_profile_for_color_space(output_encoding.color_space, imagecms_module=imagecms_module)
+    fallback_status = None
     if source_profile is None:
         source_pixels = colour_module.RGB_to_RGB(
             image_data,
@@ -186,6 +187,16 @@ def apply_display_transform(
             apply_cctf_encoding=True,
         )
         source_profile = imagecms_module.createProfile(DISPLAY_PREVIEW_COLOR_SPACE)
+        if output_encoding.is_linear:
+            fallback_status = (
+                f'Display transform: active ({profile_name}); {output_encoding.color_space} has no ICC profile, '
+                'using colorimetric sRGB preview without a scene-linear view transform'
+            )
+        else:
+            fallback_status = (
+                f'Display transform: active ({profile_name}); {output_encoding.color_space} has no ICC profile, '
+                'using sRGB preview fallback'
+            )
     else:
         source_pixels = _encode_pixels_for_output_profile(
             image_data,
@@ -196,7 +207,7 @@ def apply_display_transform(
     source_uint8 = np.uint8(np.clip(source_pixels, 0.0, 1.0) * 255)
     source_image = pil_image_module.fromarray(source_uint8, mode='RGB')
     transformed_image = imagecms_module.profileToProfile(source_image, source_profile, display_profile, outputMode='RGB')
-    return np.asarray(transformed_image, dtype=np.uint8), f'Display transform: active ({profile_name})'
+    return np.asarray(transformed_image, dtype=np.uint8), fallback_status or f'Display transform: active ({profile_name})'
 
 
 def _imagecms_profile_for_color_space(color_space: str, *, imagecms_module: Any) -> object | None:

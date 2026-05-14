@@ -78,8 +78,6 @@ def develop(
     )
     if backend is not None and backend.supports_gpu and (not grain.active or bypass_grain):
         return density_cmy
-    if backend is not None and backend.supports_gpu:
-        density_cmy = backend.to_numpy(density_cmy)
     return apply_grain(
         density_cmy,
         pixel_size_um,
@@ -89,6 +87,7 @@ def develop(
         profile_type,
         bypass_grain=bypass_grain,
         use_fast_stats=use_fast_stats,
+        backend=backend,
     )
 
 # Some future work notes:

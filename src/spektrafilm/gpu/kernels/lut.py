@@ -6,6 +6,217 @@ import numpy as np
 
 
 # ---------------------------------------------------------------------------
+# 2D LUT Mitchell-Netravali cubic interpolation
+# ---------------------------------------------------------------------------
+
+_LUT_CUBIC_2D_KERNEL = None
+
+
+def _get_lut_cubic_2d_kernel(mx):
+    global _LUT_CUBIC_2D_KERNEL
+    if _LUT_CUBIC_2D_KERNEL is not None:
+        return _LUT_CUBIC_2D_KERNEL
+
+    source = """
+        uint elem = thread_position_in_grid.x;
+        uint size = lut_shape[0];
+        uint channels = lut_shape[2];
+        uint total = image_shape[0] * image_shape[1] * channels;
+        if (elem >= total) {
+            return;
+        }
+
+        uint c = elem % channels;
+        uint pixel = elem / channels;
+        if (size == 1) {
+            out[elem] = lut[c];
+            return;
+        }
+
+        float upper = float(size - 1);
+        float x = float(image[pixel * 2]) * upper;
+        float y = float(image[pixel * 2 + 1]) * upper;
+
+        if (x <= 0.0f) {
+            x = 0.0f;
+        } else if (x >= upper) {
+            x = upper;
+        }
+        if (y <= 0.0f) {
+            y = 0.0f;
+        } else if (y >= upper) {
+            y = upper;
+        }
+
+        int x_base;
+        float x_frac;
+        if (x >= upper) {
+            x_base = int(size) - 2;
+            x_frac = 1.0f;
+        } else {
+            x_base = int(floor(x));
+            x_frac = x - float(x_base);
+        }
+
+        int y_base;
+        float y_frac;
+        if (y >= upper) {
+            y_base = int(size) - 2;
+            y_frac = 1.0f;
+        } else {
+            y_base = int(floor(y));
+            y_frac = y - float(y_base);
+        }
+
+        float wx[4];
+        float wy[4];
+
+        float tx0 = fabs(x_frac + 1.0f);
+        if (tx0 < 1.0f) {
+            wx[0] = (1.0f / 6.0f) * ((7.0f) * tx0 * tx0 * tx0 + (-12.0f) * tx0 * tx0 + (16.0f / 3.0f));
+        } else if (tx0 < 2.0f) {
+            wx[0] = (1.0f / 6.0f) * ((-7.0f / 3.0f) * tx0 * tx0 * tx0 + 12.0f * tx0 * tx0 - 20.0f * tx0 + (32.0f / 3.0f));
+        } else {
+            wx[0] = 0.0f;
+        }
+
+        float tx1 = fabs(x_frac);
+        if (tx1 < 1.0f) {
+            wx[1] = (1.0f / 6.0f) * ((7.0f) * tx1 * tx1 * tx1 + (-12.0f) * tx1 * tx1 + (16.0f / 3.0f));
+        } else if (tx1 < 2.0f) {
+            wx[1] = (1.0f / 6.0f) * ((-7.0f / 3.0f) * tx1 * tx1 * tx1 + 12.0f * tx1 * tx1 - 20.0f * tx1 + (32.0f / 3.0f));
+        } else {
+            wx[1] = 0.0f;
+        }
+
+        float tx2 = fabs(x_frac - 1.0f);
+        if (tx2 < 1.0f) {
+            wx[2] = (1.0f / 6.0f) * ((7.0f) * tx2 * tx2 * tx2 + (-12.0f) * tx2 * tx2 + (16.0f / 3.0f));
+        } else if (tx2 < 2.0f) {
+            wx[2] = (1.0f / 6.0f) * ((-7.0f / 3.0f) * tx2 * tx2 * tx2 + 12.0f * tx2 * tx2 - 20.0f * tx2 + (32.0f / 3.0f));
+        } else {
+            wx[2] = 0.0f;
+        }
+
+        float tx3 = fabs(x_frac - 2.0f);
+        if (tx3 < 1.0f) {
+            wx[3] = (1.0f / 6.0f) * ((7.0f) * tx3 * tx3 * tx3 + (-12.0f) * tx3 * tx3 + (16.0f / 3.0f));
+        } else if (tx3 < 2.0f) {
+            wx[3] = (1.0f / 6.0f) * ((-7.0f / 3.0f) * tx3 * tx3 * tx3 + 12.0f * tx3 * tx3 - 20.0f * tx3 + (32.0f / 3.0f));
+        } else {
+            wx[3] = 0.0f;
+        }
+
+        float ty0 = fabs(y_frac + 1.0f);
+        if (ty0 < 1.0f) {
+            wy[0] = (1.0f / 6.0f) * ((7.0f) * ty0 * ty0 * ty0 + (-12.0f) * ty0 * ty0 + (16.0f / 3.0f));
+        } else if (ty0 < 2.0f) {
+            wy[0] = (1.0f / 6.0f) * ((-7.0f / 3.0f) * ty0 * ty0 * ty0 + 12.0f * ty0 * ty0 - 20.0f * ty0 + (32.0f / 3.0f));
+        } else {
+            wy[0] = 0.0f;
+        }
+
+        float ty1 = fabs(y_frac);
+        if (ty1 < 1.0f) {
+            wy[1] = (1.0f / 6.0f) * ((7.0f) * ty1 * ty1 * ty1 + (-12.0f) * ty1 * ty1 + (16.0f / 3.0f));
+        } else if (ty1 < 2.0f) {
+            wy[1] = (1.0f / 6.0f) * ((-7.0f / 3.0f) * ty1 * ty1 * ty1 + 12.0f * ty1 * ty1 - 20.0f * ty1 + (32.0f / 3.0f));
+        } else {
+            wy[1] = 0.0f;
+        }
+
+        float ty2 = fabs(y_frac - 1.0f);
+        if (ty2 < 1.0f) {
+            wy[2] = (1.0f / 6.0f) * ((7.0f) * ty2 * ty2 * ty2 + (-12.0f) * ty2 * ty2 + (16.0f / 3.0f));
+        } else if (ty2 < 2.0f) {
+            wy[2] = (1.0f / 6.0f) * ((-7.0f / 3.0f) * ty2 * ty2 * ty2 + 12.0f * ty2 * ty2 - 20.0f * ty2 + (32.0f / 3.0f));
+        } else {
+            wy[2] = 0.0f;
+        }
+
+        float ty3 = fabs(y_frac - 2.0f);
+        if (ty3 < 1.0f) {
+            wy[3] = (1.0f / 6.0f) * ((7.0f) * ty3 * ty3 * ty3 + (-12.0f) * ty3 * ty3 + (16.0f / 3.0f));
+        } else if (ty3 < 2.0f) {
+            wy[3] = (1.0f / 6.0f) * ((-7.0f / 3.0f) * ty3 * ty3 * ty3 + 12.0f * ty3 * ty3 - 20.0f * ty3 + (32.0f / 3.0f));
+        } else {
+            wy[3] = 0.0f;
+        }
+
+        float acc = 0.0f;
+        float weight_sum = 0.0f;
+        for (int i = 0; i < 4; ++i) {
+            int xi = x_base - 1 + i;
+            if (xi < 0) {
+                xi = -xi;
+            } else if (xi >= int(size)) {
+                xi = 2 * (int(size) - 1) - xi;
+            }
+            for (int j = 0; j < 4; ++j) {
+                int yj = y_base - 1 + j;
+                if (yj < 0) {
+                    yj = -yj;
+                } else if (yj >= int(size)) {
+                    yj = 2 * (int(size) - 1) - yj;
+                }
+                float weight = wx[i] * wy[j];
+                weight_sum += weight;
+                uint lut_index = (uint(xi) * size + uint(yj)) * channels + c;
+                acc += weight * float(lut[lut_index]);
+            }
+        }
+        if (weight_sum != 0.0f) {
+            acc /= weight_sum;
+        }
+        out[elem] = acc;
+    """
+    _LUT_CUBIC_2D_KERNEL = mx.fast.metal_kernel(
+        name="spektrafilm_lut_cubic_2d",
+        input_names=["lut", "image"],
+        output_names=["out"],
+        source=source,
+    )
+    return _LUT_CUBIC_2D_KERNEL
+
+
+def apply_lut_cubic_2d_mlx(lut: Any, image: Any, *, mx=None):
+    """Apply a normalized 2D LUT with Mitchell-Netravali cubic interpolation."""
+    if mx is None:
+        import mlx.core as mx
+
+    lut = mx.array(lut, dtype=mx.float32)
+    image = mx.array(image, dtype=mx.float32)
+    size = int(lut.shape[0])
+    if lut.ndim != 3:
+        raise ValueError("2D LUT must have shape LxLxC")
+    if size == 0 or lut.shape[1] != size:
+        raise ValueError("2D LUT must have equal non-empty dimensions")
+    if image.ndim != 3 or image.shape[-1] != 2:
+        raise ValueError("2D LUT coordinates must have shape HxWx2")
+
+    channels = int(lut.shape[2])
+    kernel = _get_lut_cubic_2d_kernel(mx)
+    outputs = kernel(
+        inputs=[lut, image],
+        grid=(int(np.prod(image.shape[:-1]) * channels), 1, 1),
+        threadgroup=(256, 1, 1),
+        output_shapes=[image.shape[:-1] + (channels,)],
+        output_dtypes=[mx.float32],
+    )
+    return outputs[0]
+
+
+def apply_lut_cubic_2d_numpy(lut: np.ndarray, image: np.ndarray) -> np.ndarray:
+    """NumPy/Numba reference for the MLX Mitchell 2D LUT kernel."""
+    from spektrafilm.utils.fast_interp_lut import apply_lut_cubic_2d
+
+    return apply_lut_cubic_2d(
+        np.ascontiguousarray(lut, dtype=np.float64),
+        np.ascontiguousarray(image, dtype=np.float64),
+    )
+
+
+# ---------------------------------------------------------------------------
 # 3D LUT trilinear interpolation
 # ---------------------------------------------------------------------------
 
