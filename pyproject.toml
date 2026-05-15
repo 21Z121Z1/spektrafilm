@@ -50,6 +50,8 @@ include = [
     "spektrafilm.*",
     "spektrafilm_gui",
     "spektrafilm_gui.*",
+    "spektrafilm_lut_creator",
+    "spektrafilm_lut_creator.*",
 ]
 
 [tool.setuptools.package-data]

@@ -1,0 +1,189 @@
+"""Tests for the curated color-space registry.
+
+Three test families per n040 §9:
+1. Resolves: each entry's primaries / cctf keys exist in colour-science.
+2. Round-trip: from_xyz(to_xyz(rgb)) ≈ rgb across a representative grid.
+3. Mid-gray sanity: encode(decode(x)) ≈ x for x = 0.18.
+"""
+from __future__ import annotations
+
+import colour
+import numpy as np
+import pytest
+
+from spektrafilm_lut_creator import color_spaces as cs
+from spektrafilm_lut_creator.color_spaces import ColorSpaceEntry
+
+
+# Some camera-log curves in colour-science emit a RuntimeWarning when their
+# piecewise branches evaluate log() on a negative intermediate (the result is
+# masked / replaced downstream). BT.2100 PQ/HLG emit a ColourUsageWarning
+# noting that EOTF and OETF directions are exposed under separate APIs (our
+# cctf_encoding/decoding pair handles both directions correctly). Both
+# warnings are informational; round-trip values are accurate within our
+# tolerances.
+pytestmark = [
+    pytest.mark.filterwarnings("ignore::RuntimeWarning"),
+    pytest.mark.filterwarnings("ignore::colour.utilities.ColourUsageWarning"),
+]
+
+
+_ALL_NAMES = sorted(cs._REGISTRY)
+_LINEAR_NAMES = [n for n, e in cs._REGISTRY.items() if e.kind == "linear"]
+_ENCODED_SDR_NAMES = [n for n, e in cs._REGISTRY.items() if e.kind == "encoded_sdr"]
+_LOG_NAMES = [n for n, e in cs._REGISTRY.items() if e.kind == "log"]
+
+
+def _round_trip_tolerance(kind: str) -> dict[str, float]:
+    """Per-kind atol/rtol pair for RGB→XYZ→RGB round-trip assertions.
+
+    Colour-science stores RGB↔XYZ matrices with finite precision; for some
+    colourspaces (sRGB, ProPhoto) the forward and inverse matrices are not
+    perfect inverses, so the linear round-trip costs ~1e-4. The CCTF /
+    log encodings themselves round-trip to machine precision; the matrix
+    step dominates. We size tolerances to what the backend delivers, not
+    what the math would in principle allow.
+    """
+    if kind == "linear":
+        return dict(atol=1e-3, rtol=1e-3)
+    if kind == "encoded_sdr":
+        return dict(atol=1e-3, rtol=1e-3)
+    if kind == "log":
+        return dict(atol=2e-3, rtol=2e-3)
+    raise AssertionError(f"unknown kind {kind!r}")
+
+
+class TestRegistryShape:
+    def test_registry_is_non_empty(self):
+        assert len(cs._REGISTRY) > 0
+
+    def test_output_spaces_are_display_referred(self):
+        """Output spaces must be display-referred (encoded SDR or log/HDR);
+        scene-linear spaces must not appear on the output side."""
+        for name in cs.list_output_spaces():
+            entry = cs.get(name)
+            assert entry.kind != "linear", (
+                f"{name!r}: linear (scene-referred) spaces cannot be output"
+            )
+
+    def test_get_unknown_raises(self):
+        with pytest.raises(KeyError, match="Unknown color space"):
+            cs.get("Not A Real Space")
+
+
+class TestRegistration:
+    def test_rejects_unknown_kind(self):
+        with pytest.raises(ValueError, match="kind must be"):
+            cs.register(ColorSpaceEntry(
+                name="_test_bad_kind", primaries="sRGB", cctf=None,
+                kind="bogus", role=("input",),
+            ))
+
+    def test_rejects_unknown_role(self):
+        with pytest.raises(ValueError, match="role entries must be"):
+            cs.register(ColorSpaceEntry(
+                name="_test_bad_role", primaries="sRGB", cctf=None,
+                kind="linear", role=("flapjack",),
+            ))
+
+    def test_rejects_unknown_primaries(self):
+        with pytest.raises(KeyError, match="primaries"):
+            cs.register(ColorSpaceEntry(
+                name="_test_bad_primaries", primaries="Not A Gamut", cctf=None,
+                kind="linear", role=("input",),
+            ))
+
+    def test_rejects_unknown_cctf(self):
+        with pytest.raises(KeyError, match="cctf"):
+            cs.register(ColorSpaceEntry(
+                name="_test_bad_cctf", primaries="sRGB", cctf="Not A CCTF",
+                kind="encoded_sdr", role=("input",),
+            ))
+
+    def test_linear_must_have_none_cctf(self):
+        with pytest.raises(ValueError, match="linear spaces must have cctf=None"):
+            cs.register(ColorSpaceEntry(
+                name="_test_linear_with_cctf", primaries="sRGB", cctf="sRGB",
+                kind="linear", role=("input",),
+            ))
+
+    def test_non_linear_must_have_cctf(self):
+        with pytest.raises(ValueError, match="requires a cctf"):
+            cs.register(ColorSpaceEntry(
+                name="_test_nonlinear_no_cctf", primaries="sRGB", cctf=None,
+                kind="encoded_sdr", role=("input",),
+            ))
+
+
+@pytest.mark.parametrize("name", _ALL_NAMES)
+class TestEntryResolves:
+    """Every registered entry resolves in colour-science."""
+
+    def test_primaries_resolves(self, name):
+        entry = cs.get(name)
+        assert entry.primaries in colour.RGB_COLOURSPACES
+
+    def test_cctf_resolves(self, name):
+        entry = cs.get(name)
+        if entry.cctf is None:
+            assert entry.kind == "linear"
+        else:
+            assert entry.cctf in colour.CCTF_ENCODINGS
+
+
+@pytest.mark.parametrize("name", _ALL_NAMES)
+class TestRoundTrip:
+    """from_xyz(to_xyz(rgb)) ≈ rgb across a representative grid."""
+
+    def test_round_trip_grid(self, name):
+        entry = cs.get(name)
+        # Sample within [0.05, 0.95] to avoid extreme log-curve behavior.
+        rng = np.random.default_rng(0)
+        rgb = rng.uniform(0.05, 0.95, size=(64, 3))
+        xyz = cs.to_xyz(rgb, name)
+        rgb_back = cs.from_xyz(xyz, name)
+        np.testing.assert_allclose(rgb_back, rgb, **_round_trip_tolerance(entry.kind))
+
+
+@pytest.mark.parametrize("name", _ALL_NAMES)
+class TestMidGrayCctfRoundTrip:
+    """encode(decode(x)) ≈ x at mid-gray for every kind.
+
+    Only the CCTF step is exercised here (no matrix), so tolerances are
+    tight; CCTF curves round-trip to machine precision in colour-science.
+    """
+
+    def test_midgray_cctf_round_trip(self, name):
+        rgb = np.full((3,), 0.18)
+        linear = cs.decode_cctf(rgb, name)
+        back = cs.encode_cctf(linear, name)
+        np.testing.assert_allclose(back, rgb, atol=1e-9)
+
+
+@pytest.mark.parametrize("name", _LINEAR_NAMES)
+class TestLinearCctfIsIdentity:
+    def test_decode_is_identity(self, name):
+        rgb = np.array([[0.1, 0.5, 0.9], [0.0, 0.18, 1.0]])
+        out = cs.decode_cctf(rgb, name)
+        np.testing.assert_array_equal(out, rgb)
+
+    def test_encode_is_identity(self, name):
+        rgb = np.array([[0.1, 0.5, 0.9], [0.0, 0.18, 1.0]])
+        out = cs.encode_cctf(rgb, name)
+        np.testing.assert_array_equal(out, rgb)
+
+
+class TestCanonicalXYZ:
+    """Sanity check: sRGB white maps to ≈ D65 XYZ."""
+
+    def test_srgb_white_is_near_d65(self):
+        xyz = cs.to_xyz(np.array([1.0, 1.0, 1.0]), "sRGB")
+        # D65 reference XYZ in colour-science conventions (Y=1).
+        np.testing.assert_allclose(xyz, [0.95046, 1.0, 1.08906], atol=1e-3)
+
+    def test_aces_white_is_near_aces_whitepoint(self):
+        xyz = cs.to_xyz(np.array([1.0, 1.0, 1.0]), "ACEScg")
+        # ACES uses ~D60-ish whitepoint; Y must be ~1 and X, Z near 0.95 / 1.0.
+        assert 0.94 < xyz[0] < 1.0
+        assert 0.99 < xyz[1] < 1.01
+        assert 0.95 < xyz[2] < 1.05
