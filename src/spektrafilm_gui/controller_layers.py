@@ -21,6 +21,7 @@ QTimer = getattr(QtCore, 'QTimer')
 class _LayerAnimationHandle:
     timer: Any
     final_image: np.ndarray
+    generation: int
 
 
 INPUT_LAYER_NAME = 'input'
@@ -272,6 +273,7 @@ class ViewerLayerService:
     output_color_encoding_key: str
     output_display_transform_key: str
     _output_animations: dict[int, _LayerAnimationHandle] = field(default_factory=dict, init=False, repr=False)
+    _output_animation_generation: int = field(default=0, init=False, repr=False)
 
     def image_layer(self, layer_name: str) -> NapariImageLayer | None:
         return next(
@@ -378,9 +380,9 @@ class ViewerLayerService:
         use_crossfade = False
         replace_layer = False
         if existing_layer is not None:
+            self._stop_output_layer_animation(existing_layer)
             existing_data = np.asarray(existing_layer.data)
             existing_shape = tuple(int(dimension) for dimension in existing_data.shape)
-            self._stop_output_layer_animation(existing_layer, restore_final=False)
             if animate_on_show:
                 replace_layer = existing_shape != output_shape
             else:
@@ -528,24 +530,28 @@ class ViewerLayerService:
             return
 
         current_index = 0
+        generation = self._next_output_animation_generation()
 
         def _tick() -> None:
             nonlocal current_index
+            if not self._is_current_output_animation(layer, generation):
+                return
             current_index += 1
             if current_index >= len(frame_times):
-                self._stop_output_layer_animation(layer)
+                self._stop_output_layer_animation(layer, generation=generation)
                 return
             _set_layer_data(layer, _coerce_output_animation_frame(
                 render_polaroid_frame(state, float(frame_times[current_index])),
                 reference_image=output_image,
             ))
             if current_index >= len(frame_times) - 1:
-                self._stop_output_layer_animation(layer)
+                self._stop_output_layer_animation(layer, generation=generation)
 
         connect(_tick)
         self._output_animations[id(layer)] = _LayerAnimationHandle(
             timer=timer,
             final_image=output_image,
+            generation=generation,
         )
         _set_layer_data(layer, _coerce_output_animation_frame(
             render_polaroid_frame(state, float(frame_times[0])),
@@ -587,12 +593,15 @@ class ViewerLayerService:
         current_step = 0
         source_frame = np.array(source_image, copy=True)
         final_image = np.array(target_image, copy=True)
+        generation = self._next_output_animation_generation()
 
         def _tick() -> None:
             nonlocal current_step
+            if not self._is_current_output_animation(layer, generation):
+                return
             current_step += 1
             if current_step >= safe_frame_count:
-                self._stop_output_layer_animation(layer)
+                self._stop_output_layer_animation(layer, generation=generation)
                 return
             _set_layer_data(layer, _blend_output_animation_frame(
                 source_frame,
@@ -604,18 +613,32 @@ class ViewerLayerService:
         self._output_animations[id(layer)] = _LayerAnimationHandle(
             timer=timer,
             final_image=final_image,
+            generation=generation,
         )
         start()
+
+    def _next_output_animation_generation(self) -> int:
+        self._output_animation_generation += 1
+        return self._output_animation_generation
+
+    def _is_current_output_animation(self, layer: NapariImageLayer, generation: int) -> bool:
+        handle = self._output_animations.get(id(layer))
+        return handle is not None and handle.generation == generation
 
     def _stop_output_layer_animation(
         self,
         layer: NapariImageLayer,
         *,
         restore_final: bool = True,
+        generation: int | None = None,
     ) -> None:
-        handle = self._output_animations.pop(id(layer), None)
+        layer_id = id(layer)
+        handle = self._output_animations.get(layer_id)
         if handle is None:
             return
+        if generation is not None and handle.generation != generation:
+            return
+        self._output_animations.pop(layer_id, None)
         timer = handle.timer
         stop = getattr(timer, 'stop', None)
         if callable(stop):

@@ -447,6 +447,7 @@ class SpecialSection(DataclassSection):
             state_cls=SpecialState,
             section_name='special',
             title='Experimental',
+            enum_fields=GUI_SECTION_ENUMS['special'],
             collapsed_by_default=True,
             hidden_fields={
                 'film_gamma_factor',

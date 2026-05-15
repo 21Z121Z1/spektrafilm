@@ -56,6 +56,34 @@ class _FakeTimer:
         self.deleted = True
 
 
+class _ManualTimer:
+    created: list['_ManualTimer'] = []
+
+    def __init__(self) -> None:
+        self.timeout = _FakeSignal()
+        self.interval = None
+        self.single_shot = None
+        self.started = False
+        self.stopped = False
+        self.deleted = False
+        _ManualTimer.created.append(self)
+
+    def setInterval(self, interval: int) -> None:  # noqa: N802 - Qt API name
+        self.interval = interval
+
+    def setSingleShot(self, value: bool) -> None:  # noqa: N802 - Qt API name
+        self.single_shot = value
+
+    def start(self) -> None:
+        self.started = True
+
+    def stop(self) -> None:
+        self.stopped = True
+
+    def deleteLater(self) -> None:  # noqa: N802 - Qt API name
+        self.deleted = True
+
+
 class _FakeLayer:
     def __init__(self, data: np.ndarray | None = None, *, name: str = 'layer', visible: bool = True) -> None:
         self.name = name
@@ -217,6 +245,83 @@ def test_visible_output_updates_crossfade_without_restarting_polaroid_animation(
     assert len(new_frames) >= controller_layers_module.OUTPUT_LAYER_CROSSFADE_FRAMES
     assert not np.array_equal(new_frames[0], second_image)
     np.testing.assert_array_equal(new_frames[-1], second_image)
+
+
+def test_visible_output_update_uses_previous_final_frame_when_animation_is_interrupted(monkeypatch) -> None:
+    _ManualTimer.created.clear()
+    monkeypatch.setattr(controller_layers_module, 'QTimer', _ManualTimer)
+    service = _make_service()
+    service.set_or_add_input_preview_layer(np.full((2, 1, 3), 0.75, dtype=np.float32), white_padding=0.1)
+    first_image = np.full((4, 4, 3), 20, dtype=np.uint8)
+    second_image = np.full((4, 4, 3), 220, dtype=np.uint8)
+
+    service.set_or_add_output_layer(
+        first_image,
+        float_image=np.full((4, 4, 3), 0.5, dtype=np.float32),
+        output_color_space='ACES2065-1',
+        output_cctf_encoding=True,
+        output_encoding=OUTPUT_ENCODING,
+        use_display_transform=False,
+    )
+    output_layer = service.output_layer()
+    assert output_layer is not None
+    assert len(_ManualTimer.created) == 1
+    assert not np.array_equal(output_layer.data, first_image)
+
+    service.set_or_add_output_layer(
+        second_image,
+        float_image=np.full((4, 4, 3), 0.6, dtype=np.float32),
+        output_color_space='ACES2065-1',
+        output_cctf_encoding=True,
+        output_encoding=OUTPUT_ENCODING,
+        use_display_transform=False,
+    )
+    assert len(_ManualTimer.created) == 2
+    assert _ManualTimer.created[0].stopped is True
+
+    _ManualTimer.created[1].timeout.emit()
+
+    expected = controller_layers_module._blend_output_animation_frame(
+        first_image,
+        second_image,
+        alpha=1.0 / controller_layers_module.OUTPUT_LAYER_CROSSFADE_FRAMES,
+    )
+    np.testing.assert_array_equal(output_layer.data, expected)
+
+
+def test_stale_output_animation_tick_cannot_overwrite_new_animation(monkeypatch) -> None:
+    _ManualTimer.created.clear()
+    monkeypatch.setattr(controller_layers_module, 'QTimer', _ManualTimer)
+    service = _make_service()
+    service.set_or_add_input_preview_layer(np.full((2, 1, 3), 0.75, dtype=np.float32), white_padding=0.1)
+    first_image = np.full((4, 4, 3), 20, dtype=np.uint8)
+    second_image = np.full((4, 4, 3), 220, dtype=np.uint8)
+
+    service.set_or_add_output_layer(
+        first_image,
+        float_image=np.full((4, 4, 3), 0.5, dtype=np.float32),
+        output_color_space='ACES2065-1',
+        output_cctf_encoding=True,
+        output_encoding=OUTPUT_ENCODING,
+        use_display_transform=False,
+    )
+    service.set_or_add_output_layer(
+        second_image,
+        float_image=np.full((4, 4, 3), 0.6, dtype=np.float32),
+        output_color_space='ACES2065-1',
+        output_cctf_encoding=True,
+        output_encoding=OUTPUT_ENCODING,
+        use_display_transform=False,
+    )
+    output_layer = service.output_layer()
+    assert output_layer is not None
+    assert len(_ManualTimer.created) == 2
+
+    _ManualTimer.created[1].timeout.emit()
+    current_frame = np.array(output_layer.data, copy=True)
+    _ManualTimer.created[0].timeout.emit()
+
+    np.testing.assert_array_equal(output_layer.data, current_frame)
 
 
 def test_preview_to_scan_shape_change_recreates_output_layer_without_restarting_animation(monkeypatch) -> None:

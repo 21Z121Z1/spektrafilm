@@ -230,8 +230,8 @@ def connect_auto_preview_signals(controller: GuiController, widgets: WidgetBundl
 def connect_controller_signals(controller: GuiController, widgets: WidgetBundle) -> None:
     widgets.filepicker.load_requested.connect(controller.load_input_image)
     widgets.load_raw.load_requested.connect(controller.load_raw_image)
-    widgets.simulation.film_stock.textActivated.connect(controller.apply_profile_defaults)
-    widgets.simulation.print_paper.textActivated.connect(controller.apply_profile_defaults)
+    widgets.simulation.film_stock.textActivated.connect(controller.apply_film_profile_defaults)
+    widgets.simulation.print_paper.textActivated.connect(controller.apply_print_profile_defaults)
     widgets.gui_config.save_current_as_default_requested.connect(controller.save_current_as_default)
     widgets.gui_config.save_current_to_file_requested.connect(controller.save_current_state_to_file)
     widgets.gui_config.load_from_file_requested.connect(controller.load_state_from_file)

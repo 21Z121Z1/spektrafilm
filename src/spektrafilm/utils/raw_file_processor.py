@@ -67,7 +67,7 @@ def _apply_white_balance_adaptation(
         colourspace=_ACES_COLOURSPACE,
         chromatic_adaptation_transform=None,
         apply_cctf_encoding=False,
-    ).astype(np.float32)
+    ).astype(np.asarray(rgb).dtype, copy=False)
 
 
 def _apply_tint_adjustment(rgb: np.ndarray, tint: float | None) -> np.ndarray:
@@ -76,8 +76,9 @@ def _apply_tint_adjustment(rgb: np.ndarray, tint: float | None) -> np.ndarray:
     if tint is None or np.isclose(tint, 1.0):
         return rgb
 
-    tint_scale = np.array([1.0, float(tint), 1.0], dtype=np.float32)
-    return (rgb * tint_scale).astype(np.float32)
+    rgb = np.asarray(rgb)
+    tint_scale = np.array([1.0, float(tint), 1.0], dtype=rgb.dtype)
+    return (rgb * tint_scale).astype(rgb.dtype, copy=False)
 
 
 def _postprocess_params(
@@ -377,6 +378,7 @@ def load_and_process_raw_file(
     lens_correction: bool = False,
     output_colorspace: str = "ACES2065-1",
     output_cctf_encoding: bool = False,
+    output_dtype=np.float32,
     lens_info_out: dict[str, str] | None = None,
 ) -> np.ndarray:
     """Load a RAW file into linear RGB and optionally convert its colourspace.
@@ -408,16 +410,20 @@ def load_and_process_raw_file(
     output_cctf_encoding
         Whether to apply the output colourspace transfer function when a
         colourspace conversion is requested.
+    output_dtype
+        Floating point dtype for the returned image. Supported values are
+        ``np.float32`` and ``np.float64``.
 
     Returns
     -------
     numpy.ndarray
-        RGB image as ``float32`` in the requested output colourspace.
+        RGB image in the requested output colourspace and dtype.
     """
+    output_dtype = _runtime_raw_dtype(output_dtype)
 
     with rawpy.imread(str(raw_path)) as raw:
         params, postprocess_adaptation, tint_multiplier = _postprocess_params(white_balance, temperature, tint)
-        rgb = raw.postprocess(**params).astype(np.float32) / np.float32(65535.0)
+        rgb = np.asarray(raw.postprocess(**params), dtype=output_dtype) / output_dtype.type(65535.0)
 
     if lens_correction:
         exif_metadata = _read_exif_metadata(raw_path)
@@ -440,7 +446,14 @@ def load_and_process_raw_file(
             apply_cctf_encoding=output_cctf_encoding,
         )
 
-    return rgb
+    return np.asarray(rgb, dtype=output_dtype)
+
+
+def _runtime_raw_dtype(dtype) -> np.dtype:
+    dtype = np.dtype(dtype)
+    if dtype == np.dtype(np.float32) or dtype == np.dtype(np.float64):
+        return dtype
+    raise ValueError("raw output dtype must be float32 or float64")
 
 
 __all__ = ['load_and_process_raw_file']

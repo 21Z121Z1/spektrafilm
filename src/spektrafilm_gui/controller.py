@@ -141,6 +141,14 @@ PILImage = _LazyModuleProxy(_import_pil_image_module)
 ImageCms = _LazyModuleProxy(_import_imagecms_module)
 
 
+def runtime_float_dtype(precision: str):
+    if precision == "float64":
+        return np.float64
+    if precision == "float32":
+        return np.float32
+    raise ValueError("Runtime float precision must be float32 or float64")
+
+
 class GuiController:
     def __init__(self, *, viewer: napari.Viewer, widgets: WidgetBundle):
         self._viewer = viewer
@@ -186,7 +194,9 @@ class GuiController:
         self._home_input_stack()
 
     def load_input_image(self, path: str) -> None:
-        image = load_image_oiio(path)[..., :3]
+        gui_state = collect_gui_state(widgets=self._widgets)
+        image_dtype = runtime_float_dtype(gui_state.special.runtime_float_precision)
+        image = load_image_oiio(path, dtype=image_dtype)[..., :3]
         try:
             input_encoding = read_image_color_encoding(path)
         except (OSError, RuntimeError, TypeError, ValueError):
@@ -210,6 +220,7 @@ class GuiController:
                 lens_correction=gui_state.load_raw.lens_correction,
                 output_colorspace=gui_state.input_image.input_color_space,
                 output_cctf_encoding=raw_output_should_be_cctf_encoded,
+                output_dtype=runtime_float_dtype(gui_state.special.runtime_float_precision),
                 lens_info_out=lens_info,
             )
         except (OSError, ValueError) as exc:
@@ -262,21 +273,32 @@ class GuiController:
         self._request_auto_preview_if_enabled()
 
     def apply_profile_defaults(self, _selected_value: str) -> None:
+        self._apply_profile_defaults(scan_film_override=None)
+
+    def apply_film_profile_defaults(self, film_stock: str) -> None:
+        del film_stock
+        self._apply_profile_defaults(scan_film_override=None)
+
+    def apply_print_profile_defaults(self, print_paper: str) -> None:
+        del print_paper
+        self._apply_profile_defaults(scan_film_override=False)
+
+    def _apply_profile_defaults(self, *, scan_film_override: bool | None) -> None:
         state = collect_gui_state(widgets=self._widgets)
         if not state.simulation.film_stock or not state.simulation.print_paper:
             return
 
         params = build_params_from_state(state)
+        digested_params = digest_after_selection(params)
+        if scan_film_override is not None:
+            digested_params.io.scan_film = bool(scan_film_override)
         synced_state = gui_state_from_params(
-            digest_after_selection(params),
+            digested_params,
             film_stock=state.simulation.film_stock,
             print_paper=state.simulation.print_paper,
         )
         self._apply_profile_sync_state(synced_state)
         self._next_runtime_digest_applies_stock_specifics = True
-
-    def apply_film_profile_defaults(self, film_stock: str) -> None:
-        self.apply_profile_defaults(film_stock)
 
     def _apply_profile_sync_state(self, synced_state) -> None:
         profile_sync.apply_profile_sync_state(
@@ -338,10 +360,15 @@ class GuiController:
             QMessageBox.warning(dialog_parent(self._viewer), 'Save output', 'Run a simulation before saving the output layer.')
             return
 
+        if self._current_input_path is not None:
+            default_name = Path(self._current_input_path).stem + '.jpg'
+        else:
+            default_name = 'output.jpg'
+
         filepath, _ = _DirMemoryDialog('save_output').get_save_file_name(
             dialog_parent(self._viewer),
             'Save output image',
-            'output.jpg',
+            default_name,
             'Images (*.jpg *.jpeg *.png *.tif *.tiff *.exr)',
         )
         if not filepath:
@@ -760,7 +787,7 @@ class GuiController:
         )
         output_encoding = output_encoding_from_io(params.io)
 
-        image = np.double(image_data)
+        image = np.asarray(image_data, dtype=runtime_float_dtype(state.special.runtime_float_precision))
         request = SimulationRequest(
             mode_label=mode_label,
             image=image,
@@ -830,7 +857,7 @@ class GuiController:
         )
         output_encoding = output_encoding_from_io(params.io)
 
-        image = np.double(image_data)
+        image = np.asarray(image_data, dtype=runtime_float_dtype(state.special.runtime_float_precision))
         scan = self._process_image_with_runtime(image, params)
         scan_display, display_status = self._prepare_output_display_image(
             scan,

@@ -370,6 +370,8 @@ def test_connect_controller_signals_wires_all_widget_events() -> None:
         load_input_image=object(),
         load_raw_image=object(),
         apply_profile_defaults=object(),
+        apply_film_profile_defaults=object(),
+        apply_print_profile_defaults=object(),
         save_current_as_default=object(),
         save_current_state_to_file=object(),
         load_state_from_file=object(),
@@ -417,8 +419,8 @@ def test_connect_controller_signals_wires_all_widget_events() -> None:
 
     assert widgets.filepicker.load_requested.connected == [controller.load_input_image]
     assert widgets.load_raw.load_requested.connected == [controller.load_raw_image]
-    assert widgets.simulation.film_stock.textActivated.connected == [controller.apply_profile_defaults]
-    assert widgets.simulation.print_paper.textActivated.connected == [controller.apply_profile_defaults]
+    assert widgets.simulation.film_stock.textActivated.connected == [controller.apply_film_profile_defaults]
+    assert widgets.simulation.print_paper.textActivated.connected == [controller.apply_print_profile_defaults]
     assert widgets.gui_config.save_current_as_default_requested.connected == [controller.save_current_as_default]
     assert widgets.gui_config.save_current_to_file_requested.connected == [controller.save_current_state_to_file]
     assert widgets.gui_config.load_from_file_requested.connected == [controller.load_state_from_file]

@@ -115,7 +115,7 @@ def test_load_input_image_builds_preview_stack_and_homes_view(monkeypatch) -> No
     preview_display_image = np.full((2, 1, 3), 0.75, dtype=np.float32)
     captured: dict[str, object] = {}
 
-    monkeypatch.setattr(controller_module, 'load_image_oiio', lambda path: raw_image)
+    monkeypatch.setattr(controller_module, 'load_image_oiio', lambda path, *, dtype=np.float32: raw_image.astype(dtype))
     monkeypatch.setattr(controller_module, 'collect_gui_state', lambda *, widgets: gui_state)
     monkeypatch.setattr(controller_module, 'build_params_from_state', lambda state: (_ for _ in ()).throw(AssertionError('should not build params for image load preview cache')))
     monkeypatch.setattr(controller, '_resize_for_preview', lambda image, *, max_size: preview_image)
@@ -169,6 +169,7 @@ def test_show_startup_placeholder_builds_portrait_preview_stack_and_homes_view(m
 
 def test_load_input_image_requests_auto_preview_once_when_enabled(monkeypatch) -> None:
     controller = GuiController(viewer=object(), widgets=SimpleNamespace(simulation=SimpleNamespace(auto_preview_value=lambda: True)))
+    gui_state = make_test_controller_gui_state()
     raw_image = np.full((4, 2, 3), 0.25, dtype=np.float32)
     preview_image = np.full((2, 1, 3), 0.5, dtype=np.float32)
     captured: dict[str, object] = {}
@@ -177,7 +178,8 @@ def test_load_input_image_requests_auto_preview_once_when_enabled(monkeypatch) -
         captured['stack_image'] = image
         controller._current_preview_image = preview_image
 
-    monkeypatch.setattr(controller_module, 'load_image_oiio', lambda path: raw_image)
+    monkeypatch.setattr(controller_module, 'collect_gui_state', lambda *, widgets: gui_state)
+    monkeypatch.setattr(controller_module, 'load_image_oiio', lambda path, *, dtype=np.float32: raw_image.astype(dtype))
     monkeypatch.setattr(controller, '_set_or_add_input_stack', fake_set_or_add_input_stack)
     monkeypatch.setattr(controller, 'request_auto_preview', lambda: captured.setdefault('preview_requests', 0) or captured.__setitem__('preview_requests', captured.get('preview_requests', 0) + 1))
 
@@ -185,6 +187,23 @@ def test_load_input_image_requests_auto_preview_once_when_enabled(monkeypatch) -
 
     np.testing.assert_allclose(captured['stack_image'], raw_image)
     assert captured['preview_requests'] == 1
+
+
+def test_save_output_layer_preserves_input_filename_stem_for_default_name(monkeypatch) -> None:
+    controller = GuiController(viewer=object(), widgets=object())
+    controller._current_input_path = 'C:/tmp/example.raw'
+    controller._output_layer = lambda: object()
+    captured: dict[str, object] = {}
+
+    def fake_get_save_file_name(self, parent, title, initial, file_filter):
+        captured['initial'] = initial
+        return '', ''
+
+    monkeypatch.setattr(controller_module._DirMemoryDialog, 'get_save_file_name', fake_get_save_file_name)
+
+    controller.save_output_layer()
+
+    assert captured['initial'] == 'example.jpg'
 
 
 def test_rotate_input_image_clockwise_rebuilds_preview_hides_output_and_requests_auto_preview(monkeypatch) -> None:
@@ -282,10 +301,11 @@ def test_load_raw_image_uses_pipeline_input_settings_and_builds_preview_stack(mo
         'temperature': 3200.0,
         'tint': 0.85,
         'lens_correction': False,
-        'output_colorspace': 'Display P3',
-        'output_cctf_encoding': True,
-        'lens_info_out': {},
-    }
+            'output_colorspace': 'Display P3',
+            'output_cctf_encoding': True,
+            'output_dtype': np.float32,
+            'lens_info_out': {},
+        }
     assert len(viewer.layers) == 4
     assert [layer.name for layer in viewer.layers[-3:]] == [
         WHITE_BORDER_LAYER_NAME,
@@ -431,6 +451,38 @@ def test_apply_profile_defaults_routes_through_selection_digest(monkeypatch) -> 
 
     assert captured['digested_input'] is built_params
     assert captured['synced_args'] == (digested_params, gui_state.simulation.film_stock, gui_state.simulation.print_paper)
+    assert captured['applied_state'] is synced_state
+    assert controller._next_runtime_digest_applies_stock_specifics is True
+
+
+def test_apply_print_profile_defaults_forces_print_route_after_selection_digest(monkeypatch) -> None:
+    controller = GuiController(viewer=object(), widgets=object())
+    controller._next_runtime_digest_applies_stock_specifics = False
+    gui_state = make_test_controller_gui_state()
+    captured: dict[str, object] = {}
+    built_params = object()
+    digested_params = SimpleNamespace(io=SimpleNamespace(scan_film=True))
+    synced_state = object()
+
+    def fake_gui_state_from_params(params, *, film_stock, print_paper):
+        captured['synced_args'] = (params, film_stock, print_paper, params.io.scan_film)
+        return synced_state
+
+    monkeypatch.setattr(controller_module, 'collect_gui_state', lambda *, widgets: gui_state)
+    monkeypatch.setattr(controller_module, 'build_params_from_state', lambda state: built_params)
+    monkeypatch.setattr(controller_module, 'digest_after_selection', lambda params: digested_params)
+    monkeypatch.setattr(controller_module, 'gui_state_from_params', fake_gui_state_from_params)
+    monkeypatch.setattr(controller, '_apply_profile_sync_state', lambda state: captured.setdefault('applied_state', state))
+
+    controller.apply_print_profile_defaults('ignored-by-handler')
+
+    assert captured['synced_args'] == (
+        digested_params,
+        gui_state.simulation.film_stock,
+        gui_state.simulation.print_paper,
+        False,
+    )
+    assert digested_params.io.scan_film is False
     assert captured['applied_state'] is synced_state
     assert controller._next_runtime_digest_applies_stock_specifics is True
 

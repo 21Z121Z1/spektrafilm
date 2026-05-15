@@ -161,6 +161,7 @@ def _apply_settings(params: RuntimePhotoParams, state: GuiState) -> None:
     params.settings.rgb_to_raw_method = state.input_image.spectral_upsampling_method
     params.settings.preview_max_size = state.display.preview_max_size
     params.settings.compute_backend = state.simulation.compute_backend
+    params.settings.float_precision = state.special.runtime_float_precision
     params.settings.use_enlarger_lut = True
     params.settings.use_scanner_lut = True
     params.settings.lut_resolution = 17

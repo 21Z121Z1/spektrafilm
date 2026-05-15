@@ -11,6 +11,7 @@ from spektrafilm_gui.options import (
     RGBColorSpaces,
     RGBtoRAWMethod,
     RawWhiteBalance,
+    RuntimeFloatPrecisions,
 )
 from spektrafilm.model.illuminants import Illuminants
 from spektrafilm.model.stocks import FilmStocks, PrintPapers
@@ -54,6 +55,9 @@ GUI_SECTION_ENUMS: dict[str, dict[str, type[Enum]]] = {
         "output_color_space": RGBColorSpaces,
         "saving_color_space": RGBColorSpaces,
         "diffusion_filter_family": DiffusionFilterFamilies,
+    },
+    "special": {
+        "runtime_float_precision": RuntimeFloatPrecisions,
     },
 }
 
@@ -326,6 +330,10 @@ GUI_WIDGET_SPECS = {
         ),
     },
     "special": {
+        "runtime_float_precision": WidgetSpec(
+            label="Runtime float precision",
+            tooltip="Internal CPU precision for full-resolution processing. float32 uses about half the memory of float64; float64 requires the CPU backend.",
+        ),
         "film_gamma_factor": WidgetSpec(
             label="Film gamma factor",
             tooltip="Gamma factor of the density curves of the negative, < 1 reduce contrast, > 1 increase contrast",

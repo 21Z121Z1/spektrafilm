@@ -187,6 +187,7 @@ cython_debug/
 
 # temporary files
 .temp
+.DS_Store
 
 # uv
 uv.lock

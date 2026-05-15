@@ -36,6 +36,11 @@ class ComputeBackends(Enum):
     mlx = "mlx"
 
 
+class RuntimeFloatPrecisions(Enum):
+    float32 = "float32"
+    float64 = "float64"
+
+
 class NapariInterpolationModes(Enum):
     nearest = "nearest"
     linear = "linear"

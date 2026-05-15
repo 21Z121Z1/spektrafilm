@@ -149,6 +149,24 @@ class TestDigestParamsFilmDefaults:
         assert params.film_render.halation.halation_first_sigma_um == (50.0, 50.0, 50.0)
         assert params.film_render.halation.halation_strength == (0.015, 0.005, 0.0)
 
+    @mark.parametrize(
+        ('film_profile', 'expected_gamma'),
+        [
+            ('fujifilm_velvia_100', (0.108, 0.072, 0.054)),
+            ('fujifilm_provia_100f', (0.156, 0.104, 0.078)),
+        ],
+    )
+    def test_positive_fuji_coupler_gamma_defaults_are_idempotent(self, film_profile, expected_gamma):
+        params = init_params(film_profile=film_profile)
+
+        first = digest_params(params)
+        second = digest_params(params)
+
+        assert first.film_render.dir_couplers.gamma_samelayer_rgb == expected_gamma
+        assert second.film_render.dir_couplers.gamma_samelayer_rgb == expected_gamma
+        assert first.film_render.dir_couplers.amount == 1.0
+        assert second.film_render.dir_couplers.amount == 1.0
+
     def test_halation_preset_covers_cine_no_for_cinestill_like_stocks(self):
         # Cinestill = Vision3 with rem-jet removed. Base is still PET (cine sigma_h),
         # but the antihalation layer is gone (no strength).

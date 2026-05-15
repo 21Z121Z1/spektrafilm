@@ -147,9 +147,15 @@ def _apply_film_specifics(params: RuntimePhotoParams) -> RuntimePhotoParams:
 
     # stock specifics overrides
     if params.film.info.stock == "fujifilm_velvia_100":
-        params.film_render.dir_couplers.amount *= 0.9
+        params.film_render.dir_couplers.gamma_samelayer_rgb = (0.108, 0.072, 0.054)
+        params.film_render.dir_couplers.gamma_interlayer_r_to_gb = (0.108, 0.054)
+        params.film_render.dir_couplers.gamma_interlayer_g_to_rb = (0.072, 0.054)
+        params.film_render.dir_couplers.gamma_interlayer_b_to_rg = (0.054, 0.054)
     if params.film.info.stock == "fujifilm_provia_100f":
-        params.film_render.dir_couplers.amount *= 1.3
+        params.film_render.dir_couplers.gamma_samelayer_rgb = (0.156, 0.104, 0.078)
+        params.film_render.dir_couplers.gamma_interlayer_r_to_gb = (0.156, 0.078)
+        params.film_render.dir_couplers.gamma_interlayer_g_to_rb = (0.104, 0.078)
+        params.film_render.dir_couplers.gamma_interlayer_b_to_rg = (0.078, 0.078)
         
         
     # if params.film.info.stock == "kodak_portra_400":
@@ -180,7 +186,6 @@ _HALATION_PRESETS: dict[tuple[str, str], dict[str, tuple[float, float, float]]] 
     ('cine',  'weak'):   {'sigma_h': (50.0, 50.0, 50.0), 'strength': (0.08,  0.02,  0.0)},
     ('cine',  'no'):     {'sigma_h': (50.0, 50.0, 50.0), 'strength': (0.30,  0.10,  0.015)},
 }
-
 
 def _apply_halation_preset(params: RuntimePhotoParams) -> None:
     """Seed low-level halation parameters from the profile's use/antihalation tags."""

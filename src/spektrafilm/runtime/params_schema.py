@@ -197,6 +197,7 @@ class DebugParams:
 @dataclass
 class SettingsParams:
     compute_backend: str = "auto"
+    float_precision: str = "float32"
     gpu_precision: str = "float32"
     gpu_validate: bool = False
     rgb_to_raw_method: str = "hanatos2025"

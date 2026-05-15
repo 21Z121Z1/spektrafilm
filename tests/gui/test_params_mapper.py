@@ -97,6 +97,7 @@ def test_build_params_maps_runtime_strings() -> None:
     state.simulation.output_color_space = 'ACES2065-1'
     state.simulation.saving_cctf_encoding = False
     state.display.preview_max_size = 1024
+    state.special.runtime_float_precision = 'float64'
 
     params = build_params_from_state(state)
 
@@ -104,6 +105,7 @@ def test_build_params_maps_runtime_strings() -> None:
     assert params.io.input_color_space == 'Display P3'
     assert params.settings.rgb_to_raw_method == 'mallett2019'
     assert params.settings.preview_max_size == 1024
+    assert params.settings.float_precision == 'float64'
     assert params.io.output_color_space == 'ACES2065-1'
     assert params.io.output_cctf_encoding is True
 
@@ -196,6 +198,7 @@ def test_build_default_gui_state_uses_runtime_defaults() -> None:
     assert state.display.white_padding == 0.03
     assert state.display.preview_max_size == 640
     assert state.display.output_interpolation == 'spline36'
+    assert state.special.runtime_float_precision == 'float32'
 
 
 def test_build_default_gui_state_applies_selection_defaults(monkeypatch) -> None:
@@ -245,6 +248,37 @@ def test_digest_after_selection_sets_scan_film_from_film_type(monkeypatch) -> No
 
     assert positive_result.io.scan_film is True
     assert negative_result.io.scan_film is False
+
+
+def test_provia_profile_defaults_do_not_compound_when_print_profile_changes() -> None:
+    film_stock = FilmStocks.fujifilm_provia_100f.value
+    print_profiles = [
+        PrintPapers.fujifilm_crystal_archive_typeii.value,
+        PrintPapers.kodak_portra_endura.value,
+        PrintPapers.kodak_supra_endura.value,
+        PrintPapers.fujifilm_crystal_archive_typeii.value,
+    ]
+    gui_state = None
+    amounts = []
+    gammas = []
+
+    for print_paper in print_profiles:
+        if gui_state is None:
+            params = state_module.init_params(film_profile=film_stock, print_profile=print_paper)
+        else:
+            gui_state.simulation.print_paper = print_paper
+            params = build_params_from_state(gui_state)
+        digested_params = state_module.digest_after_selection(params)
+        gui_state = state_module.gui_state_from_params(
+            digested_params,
+            film_stock=film_stock,
+            print_paper=print_paper,
+        )
+        amounts.append(gui_state.couplers.amount)
+        gammas.append(gui_state.couplers.gamma_samelayer_rgb)
+
+    assert amounts == [1.0, 1.0, 1.0, 1.0]
+    assert gammas == [(0.156, 0.104, 0.078)] * 4
 
 
 def test_project_default_gui_state_matches_builder() -> None:

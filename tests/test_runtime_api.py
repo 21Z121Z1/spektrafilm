@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from types import SimpleNamespace
 import copy
 
@@ -19,6 +20,23 @@ class TestRuntimeApi:
         direct_result = Simulator(default_params).process(small_rgb_image)
 
         np.testing.assert_allclose(new_result, direct_result, atol=1e-12)
+
+    def test_runtime_float_precision_controls_cpu_output_dtype(self, small_rgb_image, default_params):
+        params = copy.deepcopy(default_params)
+        params.settings.compute_backend = 'cpu'
+        params.settings.float_precision = 'float64'
+
+        result = Simulator(params).process(small_rgb_image)
+
+        assert result.dtype == np.float64
+
+    def test_float64_runtime_precision_rejects_explicit_mlx_backend(self, default_params):
+        params = copy.deepcopy(default_params)
+        params.settings.compute_backend = 'mlx'
+        params.settings.float_precision = 'float64'
+
+        with pytest.raises(ValueError, match='float64 runtime precision'):
+            Simulator(params)
 
     def test_update_params_delegates_to_pipeline_without_public_state(self, monkeypatch):
         class FakePipeline:
@@ -45,6 +63,123 @@ class TestRuntimeApi:
         simulator.update_params(updated_params)
 
         assert simulator.process('frame') == 'processed-updated-frame'
+
+    def test_gpu_process_is_serialized_until_backend_synchronizes(self, monkeypatch):
+        events: list[str] = []
+
+        @contextmanager
+        def fake_serialized_metal_runtime():
+            events.append('lock-enter')
+            try:
+                yield
+            finally:
+                events.append('lock-exit')
+
+        class FakeBackend:
+            supports_gpu = True
+
+            def synchronize(self):
+                events.append('sync')
+
+        class FakePipeline:
+            def __init__(self, _params):
+                self._array_backend = FakeBackend()
+
+            def process(self, image):
+                events.append('process')
+                return f'processed-{image}'
+
+        monkeypatch.setattr(process_module, 'serialized_metal_runtime', fake_serialized_metal_runtime)
+        monkeypatch.setattr(process_module, 'SimulationPipeline', FakePipeline)
+        params = SimpleNamespace(
+            settings=SimpleNamespace(compute_backend='cpu', float_precision='float32'),
+        )
+
+        simulator = process_module.Simulator(params)
+        result = simulator.process('frame')
+
+        assert result == 'processed-frame'
+        assert events == ['lock-enter', 'process', 'sync', 'lock-exit']
+
+    def test_mlx_pipeline_tiles_large_images_on_gpu(self, monkeypatch):
+        pipeline = object.__new__(pipeline_module.SimulationPipeline)
+        pipeline.timings = {}
+        pipeline._last_elapsed_time = None
+        captured: dict[str, object] = {}
+
+        def fake_synchronize():
+            captured['syncs'] = int(captured.get('syncs', 0)) + 1
+
+        pipeline._array_backend = SimpleNamespace(
+            supports_gpu=True,
+            to_numpy=lambda value: value,
+            synchronize=fake_synchronize,
+        )
+        pipeline._runtime_dtype = np.dtype(np.float32)
+        pipeline.debug = SimpleNamespace(debug_mode='off')
+        image = np.arange(45, dtype=np.float32).reshape(5, 3, 3)
+
+        def fake_process_tile(tile):
+            captured.setdefault('tile_shapes', []).append(tile.shape)
+            return tile + 1.0
+
+        monkeypatch.setenv(pipeline_module.MLX_TILE_PIXELS_ENV, '6')
+        monkeypatch.setattr(pipeline, '_tile_overlap_pixels', lambda: 0)
+        monkeypatch.setattr(pipeline, '_preprocess_input_image', lambda frame: frame)
+        monkeypatch.setattr(pipeline, '_runtime_array', lambda frame: frame)
+        monkeypatch.setattr(
+            pipeline,
+            '_process_runtime_array',
+            fake_process_tile,
+        )
+        monkeypatch.setattr(
+            pipeline,
+            '_pipeline',
+            lambda _frame: (_ for _ in ()).throw(AssertionError('GPU path should not run')),
+        )
+
+        result = pipeline_module.SimulationPipeline.process(pipeline, image)
+
+        assert captured['tile_shapes'] == [(2, 3, 3), (2, 3, 3), (1, 3, 3)]
+        assert captured['syncs'] == 3
+        np.testing.assert_allclose(result, image + 1.0)
+        assert result.dtype == np.float32
+
+    @pytest.mark.parametrize(
+        ('grain_active', 'glare_active'),
+        [
+            (True, False),
+            (False, True),
+        ],
+        ids=['grain', 'glare'],
+    )
+    def test_mlx_tiling_is_disabled_for_stochastic_effects(self, monkeypatch, grain_active, glare_active):
+        pipeline = object.__new__(pipeline_module.SimulationPipeline)
+        pipeline.timings = {}
+        pipeline._last_elapsed_time = None
+        pipeline._array_backend = SimpleNamespace(
+            supports_gpu=True,
+            to_numpy=lambda value: value,
+            synchronize=lambda: None,
+        )
+        pipeline._runtime_dtype = np.dtype(np.float32)
+        pipeline.debug = SimpleNamespace(debug_mode='off')
+        pipeline.film_render = SimpleNamespace(grain=SimpleNamespace(active=grain_active))
+        pipeline.print_render = SimpleNamespace(glare=SimpleNamespace(active=glare_active))
+        image = np.arange(45, dtype=np.float32).reshape(5, 3, 3)
+
+        monkeypatch.setenv(pipeline_module.MLX_TILE_PIXELS_ENV, '6')
+        monkeypatch.setattr(
+            pipeline,
+            '_process_with_mlx_tiles',
+            lambda _frame: (_ for _ in ()).throw(AssertionError('tiled GPU path should be disabled')),
+        )
+        monkeypatch.setattr(pipeline, '_pipeline', lambda frame: frame + 1.0)
+
+        result = pipeline_module.SimulationPipeline.process(pipeline, image)
+
+        np.testing.assert_allclose(result, image + 1.0)
+        assert result.dtype == np.float32
 
     def test_soft_update_delegates_to_pipeline(self, monkeypatch):
         captured_kwargs = {}
