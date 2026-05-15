@@ -78,10 +78,10 @@ class TestInitParamsDefaults:
 
         assert params.debug.deactivate_spatial_effects is False
         assert params.debug.deactivate_stochastic_effects is False
-        assert params.debug.output_film_log_raw is False
-        assert params.debug.output_film_density_cmy is False
-        assert params.debug.output_print_density_cmy is False
+        assert params.debug.lut_mode is False
         assert params.debug.print_timings is False
+        assert params.taps.inject is None
+        assert params.taps.collect is None
 
         assert params.settings.rgb_to_raw_method == 'hanatos2025'
         assert params.settings.use_enlarger_lut is False
