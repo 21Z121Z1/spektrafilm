@@ -12,6 +12,11 @@ from spektrafilm.model.illuminants import standard_illuminant
 from spektrafilm.utils.conversions import density_to_light
 
 
+# Knee softness for the optional soft-clip on negative-channel out-of-gamut
+# colors. ~sqrt(eps) ~ 1e-2 is the half-width of the transition zone.
+_SOFT_CLIP_EPS = 1.0e-4
+
+
 class ScanningStage:
     def __init__(
         self,
@@ -77,7 +82,7 @@ class ScanningStage:
         xyz = add_glare(xyz, illuminant_xyz, glare)
         return colour.XYZ_to_RGB(
             xyz,
-            colourspace=self._io.output_color_space,
+            colourspace=self._io.output_primaries,
             apply_cctf_encoding=False,
             illuminant=illuminant_xy,
         )
@@ -113,11 +118,17 @@ class ScanningStage:
         return rgb
 
     def _apply_cctf_encoding_and_clip(self, rgb: np.ndarray) -> np.ndarray:
+        if self._io.gamut_clip == "soft":
+            # Smooth soft-plus on each channel: identity for x >> sqrt(eps),
+            # smoothly maps negatives to small positives. Removes the hard
+            # discontinuity at out-of-gamut chromaticities, which matters
+            # for downstream interpolation (e.g., 3D LUT export).
+            rgb = (rgb + np.sqrt(rgb * rgb + _SOFT_CLIP_EPS)) * 0.5
         if self._io.output_cctf_encoding:
             rgb = colour.RGB_to_RGB(
                 rgb,
-                self._io.output_color_space,
-                self._io.output_color_space,
+                self._io.output_primaries,
+                self._io.output_primaries,
                 apply_cctf_decoding=False,
                 apply_cctf_encoding=True,
             )

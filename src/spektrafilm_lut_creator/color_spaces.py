@@ -35,12 +35,16 @@ class ColorSpaceEntry:
     key supplying the curve, or ``None`` for scene-linear spaces. ``kind``
     is the grid-sampling distribution category (see n040 §5). ``role``
     declares which sides of the bundle this space may appear on.
+    ``short_tag`` is the camera-safe filename identifier (lowercase
+    alphanumeric, no brand names where avoidable) used when composing
+    LUT filenames.
     """
     name: str
     primaries: str
     cctf: str | None
     kind: str
     role: tuple[str, ...]
+    short_tag: str = ""
     notes: str = ""
 
 
@@ -72,7 +76,19 @@ def register(entry: ColorSpaceEntry) -> None:
         raise ValueError(f"{entry.name!r}: linear spaces must have cctf=None")
     if entry.kind != "linear" and entry.cctf is None:
         raise ValueError(f"{entry.name!r}: kind={entry.kind!r} requires a cctf")
+    if not entry.short_tag:
+        raise ValueError(f"{entry.name!r}: short_tag must be non-empty")
+    if not entry.short_tag.replace("_", "").isalnum() or not entry.short_tag.islower():
+        raise ValueError(
+            f"{entry.name!r}: short_tag {entry.short_tag!r} must be lowercase "
+            "alphanumeric (underscores allowed)"
+        )
     _REGISTRY[entry.name] = entry
+
+
+def short_tag(name: str) -> str:
+    """Return the camera-safe short tag for the registered color space."""
+    return get(name).short_tag
 
 
 def get(name: str) -> ColorSpaceEntry:
@@ -151,59 +167,84 @@ def from_xyz(xyz, name: str) -> np.ndarray:
 
 # Scene-linear (input only).
 register(ColorSpaceEntry("ACES2065-1",       "ACES2065-1",   None, "linear", ("input",),
+                         short_tag="aces20651",
                          notes="ACES interchange (AP0 primaries)."))
 register(ColorSpaceEntry("ACEScg",           "ACEScg",       None, "linear", ("input",),
+                         short_tag="acescg",
                          notes="AP1 primaries; VFX rendering workhorse."))
-register(ColorSpaceEntry("Rec.709 Linear",   "ITU-R BT.709", None, "linear", ("input",)))
-register(ColorSpaceEntry("Rec.2020 Linear",  "ITU-R BT.2020", None, "linear", ("input",)))
+register(ColorSpaceEntry("Rec.709 Linear",   "ITU-R BT.709", None, "linear", ("input",),
+                         short_tag="rec709lin"))
+register(ColorSpaceEntry("Rec.2020 Linear",  "ITU-R BT.2020", None, "linear", ("input",),
+                         short_tag="rec2020lin"))
 register(ColorSpaceEntry("ProPhoto Linear",  "ProPhoto RGB", None, "linear", ("input",),
+                         short_tag="prophotolin",
                          notes="Current spektrafilm default."))
 register(ColorSpaceEntry("sRGB Linear",      "sRGB",         None, "linear", ("input",),
+                         short_tag="srgblin",
                          notes="Same primaries as sRGB, no CCTF."))
 
 # Encoded SDR (input and output).
 register(ColorSpaceEntry("sRGB",        "sRGB",         "sRGB",          "encoded_sdr", ("input", "output"),
+                         short_tag="srgb",
                          notes="The web default."))
 register(ColorSpaceEntry("Rec.709",     "ITU-R BT.709", "ITU-R BT.1886", "encoded_sdr", ("input", "output"),
+                         short_tag="rec709",
                          notes="Broadcast; BT.1886 EOTF."))
 register(ColorSpaceEntry("Display P3",  "Display P3",   "sRGB",          "encoded_sdr", ("input", "output"),
+                         short_tag="displayp3",
                          notes="Apple devices."))
 register(ColorSpaceEntry("Rec.2020",    "ITU-R BT.2020", "ITU-R BT.1886","encoded_sdr", ("input", "output"),
+                         short_tag="rec2020",
                          notes="Wide-gamut SDR."))
 register(ColorSpaceEntry("DCI-P3",      "DCI-P3",       "Gamma 2.6",     "encoded_sdr", ("input", "output"),
+                         short_tag="dcip3",
                          notes="Theatrical (xenon white ~6300K, gamma 2.6)."))
 register(ColorSpaceEntry("Adobe RGB",   "Adobe RGB (1998)", "Gamma 2.2", "encoded_sdr", ("input", "output"),
+                         short_tag="adobergb",
                          notes="Standard inkjet/lab print delivery. Adobe's spec uses gamma 2.19921875; we approximate as 2.2 (error ~1e-4, below LUT precision)."))
 
 # Camera log (input only).
 register(ColorSpaceEntry("ACEScct",                  "ACEScct",            "ACEScct",
-                         "log", ("input",)))
+                         "log", ("input",),
+                         short_tag="acescct"))
 register(ColorSpaceEntry("ARRI LogC3 (EI800)",       "ARRI Wide Gamut 3",  "ARRI LogC3",
                          "log", ("input",),
+                         short_tag="logc3",
                          notes="EI800 is colour-science's default LogC3 curve."))
 register(ColorSpaceEntry("ARRI LogC4",               "ARRI Wide Gamut 4",  "ARRI LogC4",
-                         "log", ("input",)))
+                         "log", ("input",),
+                         short_tag="logc4"))
 register(ColorSpaceEntry("Sony S-Log3",              "S-Gamut3",           "S-Log3",
-                         "log", ("input",)))
+                         "log", ("input",),
+                         short_tag="slog3"))
 register(ColorSpaceEntry("Sony S-Log3 (S-Gamut3.Cine)", "S-Gamut3.Cine",   "S-Log3",
-                         "log", ("input",)))
+                         "log", ("input",),
+                         short_tag="slog3cine"))
 register(ColorSpaceEntry("Panasonic V-Log",          "V-Gamut",            "V-Log",
-                         "log", ("input",)))
+                         "log", ("input",),
+                         short_tag="vlog"))
 register(ColorSpaceEntry("Fujifilm F-Log",           "F-Gamut",            "F-Log",
-                         "log", ("input",)))
+                         "log", ("input",),
+                         short_tag="flog"))
 register(ColorSpaceEntry("Fujifilm F-Log2",          "F-Gamut",            "F-Log2",
-                         "log", ("input",)))
+                         "log", ("input",),
+                         short_tag="flog2"))
 register(ColorSpaceEntry("Canon Log 3",              "Cinema Gamut",       "Canon Log 3",
-                         "log", ("input",)))
+                         "log", ("input",),
+                         short_tag="canonlog3"))
 register(ColorSpaceEntry("RED Log3G10",              "REDWideGamutRGB",    "Log3G10",
-                         "log", ("input",)))
+                         "log", ("input",),
+                         short_tag="redlog3g10"))
 register(ColorSpaceEntry("DaVinci Intermediate",     "DaVinci Wide Gamut", "DaVinci Intermediate",
-                         "log", ("input",)))
+                         "log", ("input",),
+                         short_tag="davinciintermediate"))
 register(ColorSpaceEntry("Apple Log",                "ITU-R BT.2020",      "Apple Log Profile",
                          "log", ("input",),
+                         short_tag="applelog",
                          notes="iPhone 15+ Pro, iPhone 17 Pro, Vision Pro Immersive. Apple Log pairs with BT.2020 primaries per Apple's spec."))
 register(ColorSpaceEntry("Blackmagic Film Gen 5",    "Blackmagic Wide Gamut", "Blackmagic Film Generation 5",
                          "log", ("input",),
+                         short_tag="bmfilmgen5",
                          notes="Resolve-native. All current Blackmagic bodies (Pocket 4K/6K, URSA, Cine 12K, Pyxis)."))
 
 # HDR — Rec.2100 family. Both PQ and HLG are valid in both input and output roles:
@@ -212,6 +253,8 @@ register(ColorSpaceEntry("Blackmagic Film Gen 5",    "Blackmagic Wide Gamut", "B
 # See studies/a40_lut_system/n060_color_space_v2_research.md for film-LUT-in-HDR gotchas
 # (peak-nit assumption, never apply Rec.709 LUTs to PQ signal, etc.).
 register(ColorSpaceEntry("Rec.2100 PQ", "ITU-R BT.2020", "ITU-R BT.2100 PQ", "log", ("input", "output"),
+                         short_tag="rec2100pq",
                          notes="HDR streaming master (Netflix/Apple TV+/Disney+/Amazon/Max). ST.2084 transfer. Domain [0,1] = 0..10,000 nits; document per-LUT peak-luminance assumption."))
 register(ColorSpaceEntry("Rec.2100 HLG", "ITU-R BT.2020", "ITU-R BT.2100 HLG", "log", ("input", "output"),
+                         short_tag="rec2100hlg",
                          notes="HDR broadcast (BBC/NHK/EBU live, YouTube HDR). HLG bakes OOTF + nominal peak luminance; not portable across display peaks the way PQ is."))

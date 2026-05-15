@@ -56,7 +56,7 @@ def _warm_preview_runtime(
 ) -> tuple[Simulator, np.ndarray, np.ndarray]:
     controller_runtime.prepare_input_color_preview_image(
         preview_source,
-        input_color_space=state.input_image.input_color_space,
+        input_primaries=state.input_image.input_primaries,
         apply_cctf_decoding=state.input_image.apply_cctf_decoding,
         colour_module=colour,
     )
@@ -67,7 +67,7 @@ def _warm_preview_runtime(
     scan = np.asarray(simulator.process(preview_source), dtype=np.float32)
     output_display, _ = controller_runtime.prepare_output_display_image(
         scan,
-        output_color_space=state.simulation.output_color_space,
+        output_primaries=state.simulation.output_primaries,
         use_display_transform=use_display_transform,
         imagecms_module=ImageCms,
         colour_module=colour,
@@ -108,7 +108,7 @@ def benchmark_warm_import_path(
         start = time.perf_counter()
         controller_runtime.prepare_input_color_preview_image(
             preview_source,
-            input_color_space=state.input_image.input_color_space,
+            input_primaries=state.input_image.input_primaries,
             apply_cctf_decoding=state.input_image.apply_cctf_decoding,
             colour_module=colour,
         )
@@ -131,7 +131,7 @@ def benchmark_warm_import_path(
         start = time.perf_counter()
         output_display, _ = controller_runtime.prepare_output_display_image(
             scan,
-            output_color_space=state.simulation.output_color_space,
+            output_primaries=state.simulation.output_primaries,
             use_display_transform=use_display_transform,
             imagecms_module=ImageCms,
             colour_module=colour,
@@ -185,7 +185,7 @@ def benchmark_napari_layer_service(
     service = ViewerLayerService(
         viewer=viewer,
         output_float_data_key=OUTPUT_FLOAT_DATA_KEY,
-        output_color_space_key=OUTPUT_COLOR_SPACE_KEY,
+        output_primaries_key=OUTPUT_COLOR_SPACE_KEY,
         output_cctf_encoding_key=OUTPUT_CCTF_ENCODING_KEY,
         output_display_transform_key=OUTPUT_DISPLAY_TRANSFORM_KEY,
     )
@@ -206,7 +206,7 @@ def benchmark_napari_layer_service(
             service.set_or_add_output_layer(
                 output_display,
                 float_image=float_image,
-                output_color_space=state.simulation.output_color_space,
+                output_primaries=state.simulation.output_primaries,
                 output_cctf_encoding=True,
                 use_display_transform=False,
             )
@@ -219,7 +219,7 @@ def benchmark_napari_layer_service(
             service.set_or_add_output_layer(
                 output_display,
                 float_image=float_image,
-                output_color_space=state.simulation.output_color_space,
+                output_primaries=state.simulation.output_primaries,
                 output_cctf_encoding=True,
                 use_display_transform=False,
             )
@@ -229,7 +229,7 @@ def benchmark_napari_layer_service(
             service.set_or_add_output_layer(
                 output_display,
                 float_image=float_image,
-                output_color_space=state.simulation.output_color_space,
+                output_primaries=state.simulation.output_primaries,
                 output_cctf_encoding=True,
                 use_display_transform=False,
             )
@@ -337,13 +337,13 @@ def main() -> None:
     preview_source = resize_for_preview(image, state.display.preview_max_size)
     preview_display = controller_runtime.prepare_input_color_preview_image(
         preview_source,
-        input_color_space=state.input_image.input_color_space,
+        input_primaries=state.input_image.input_primaries,
         apply_cctf_decoding=state.input_image.apply_cctf_decoding,
         colour_module=colour,
     )
     output_display, _ = controller_runtime.prepare_output_display_image(
         np.asarray(preview_source, dtype=np.float32),
-        output_color_space=state.simulation.output_color_space,
+        output_primaries=state.simulation.output_primaries,
         use_display_transform=False,
         imagecms_module=ImageCms,
         colour_module=colour,

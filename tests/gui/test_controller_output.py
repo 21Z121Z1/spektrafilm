@@ -23,7 +23,7 @@ pytestmark = pytest.mark.integration
 def _make_output_layer(
     float_image: np.ndarray,
     *,
-    output_color_space: str,
+    output_primaries: str,
     output_cctf_encoding: bool,
     output_display_transform: bool = False,
 ) -> FakeLayer:
@@ -31,7 +31,7 @@ def _make_output_layer(
         np.uint8(float_image * 255),
         metadata={
             OUTPUT_FLOAT_DATA_KEY: float_image,
-            OUTPUT_COLOR_SPACE_KEY: output_color_space,
+            OUTPUT_COLOR_SPACE_KEY: output_primaries,
             OUTPUT_CCTF_ENCODING_KEY: output_cctf_encoding,
             OUTPUT_DISPLAY_TRANSFORM_KEY: output_display_transform,
         },
@@ -80,7 +80,7 @@ def _run_save_output_case(
     monkeypatch,
     *,
     float_value: float,
-    output_color_space: str,
+    output_primaries: str,
     output_cctf_encoding: bool,
     saving_color_space: str,
     saving_cctf_encoding: bool,
@@ -89,7 +89,7 @@ def _run_save_output_case(
     float_image = np.full((2, 2, 3), float_value, dtype=np.float32)
     output_layer = _make_output_layer(
         float_image,
-        output_color_space=output_color_space,
+        output_primaries=output_primaries,
         output_cctf_encoding=output_cctf_encoding,
     )
     controller = GuiController(viewer=object(), widgets=object())
@@ -110,11 +110,11 @@ def _run_save_output_case(
             fail_rgb_to_rgb,
         )
     else:
-        def fake_rgb_to_rgb(image_data, input_color_space, output_color_space, apply_cctf_decoding, apply_cctf_encoding):
+        def fake_rgb_to_rgb(image_data, input_primaries, output_primaries, apply_cctf_decoding, apply_cctf_encoding):
             captured['rgb_to_rgb'] = {
                 'image_data': image_data.copy(),
-                'input_color_space': input_color_space,
-                'output_color_space': output_color_space,
+                'input_primaries': input_primaries,
+                'output_primaries': output_primaries,
                 'apply_cctf_decoding': apply_cctf_decoding,
                 'apply_cctf_encoding': apply_cctf_encoding,
             }
@@ -186,7 +186,7 @@ def test_set_output_interpolation_mode_updates_visible_output_layer(monkeypatch)
 @pytest.mark.parametrize(
     (
         'float_value',
-        'output_color_space',
+        'output_primaries',
         'output_cctf_encoding',
         'saving_color_space',
         'saving_cctf_encoding',
@@ -205,7 +205,7 @@ def test_set_output_interpolation_mode_updates_visible_output_layer(monkeypatch)
 def test_save_output_layer_respects_recorded_render_metadata(
     monkeypatch,
     float_value: float,
-    output_color_space: str,
+    output_primaries: str,
     output_cctf_encoding: bool,
     saving_color_space: str,
     saving_cctf_encoding: bool,
@@ -217,7 +217,7 @@ def test_save_output_layer_respects_recorded_render_metadata(
     captured = _run_save_output_case(
         monkeypatch,
         float_value=float_value,
-        output_color_space=output_color_space,
+        output_primaries=output_primaries,
         output_cctf_encoding=output_cctf_encoding,
         saving_color_space=saving_color_space,
         saving_cctf_encoding=saving_cctf_encoding,
@@ -229,8 +229,8 @@ def test_save_output_layer_respects_recorded_render_metadata(
     else:
         rgb_to_rgb_call = captured['rgb_to_rgb']
         np.testing.assert_allclose(rgb_to_rgb_call['image_data'], captured['float_image'])
-        assert rgb_to_rgb_call['input_color_space'] == expected_input_space
-        assert rgb_to_rgb_call['output_color_space'] == expected_output_space
+        assert rgb_to_rgb_call['input_primaries'] == expected_input_space
+        assert rgb_to_rgb_call['output_primaries'] == expected_output_space
         assert rgb_to_rgb_call['apply_cctf_decoding'] is True
         assert rgb_to_rgb_call['apply_cctf_encoding'] is False
 
@@ -279,7 +279,7 @@ def test_prepare_output_display_image_without_transform(
 
     preview, status = controller._prepare_output_display_image(
         image_data,
-        output_color_space='sRGB',
+        output_primaries='sRGB',
         use_display_transform=False,
         padding_pixels=padding_pixels,
     )
@@ -326,7 +326,7 @@ def test_prepare_output_display_image_uses_imagecms_transform(monkeypatch) -> No
 
     preview, status = controller._prepare_output_display_image(
         image_data,
-        output_color_space='Display P3',
+        output_primaries='Display P3',
         use_display_transform=True,
     )
 
@@ -345,7 +345,7 @@ def test_prepare_output_display_image_reports_missing_display_profile(monkeypatc
 
     preview, status = controller._prepare_output_display_image(
         image_data,
-        output_color_space='Display P3',
+        output_primaries='Display P3',
         use_display_transform=True,
     )
 
@@ -368,7 +368,7 @@ def test_prepare_output_display_image_reports_transform_failure(monkeypatch) -> 
 
     preview, status = controller._prepare_output_display_image(
         image_data,
-        output_color_space='Display P3',
+        output_primaries='Display P3',
         use_display_transform=True,
     )
 

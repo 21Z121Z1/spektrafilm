@@ -63,7 +63,7 @@ def test_save_default_and_clear_saved_default(monkeypatch, tmp_path: Path) -> No
         lambda: default_path,
     )
     state = make_test_gui_state()
-    state.simulation.output_color_space = 'ACES2065-1'
+    state.simulation.output_primaries = 'ACES2065-1'
 
     saved_path = save_default_gui_state(state)
     loaded_state = load_default_gui_state()

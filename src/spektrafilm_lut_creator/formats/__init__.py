@@ -48,7 +48,7 @@ class LutFormat(Protocol):
     name: str
     extensions: tuple[str, ...]
 
-    def write(self, lut: Lut, path: Path) -> None: ...
+    def write(self, lut: Lut, path: Path, *, header_lines: list[str] | None = None) -> None: ...
     def read(self, path: Path) -> Lut: ...
 
 
@@ -72,3 +72,4 @@ def get_format(name: str) -> LutFormat:
 
 # Import side-effect: register the built-in plugins.
 from spektrafilm_lut_creator.formats import cube as _cube  # noqa: E402,F401
+from spektrafilm_lut_creator.formats import lumix as _lumix  # noqa: E402,F401

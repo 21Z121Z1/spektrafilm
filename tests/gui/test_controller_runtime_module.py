@@ -20,7 +20,7 @@ def test_execute_simulation_request_uses_runtime_runner_without_padding() -> Non
         mode_label='Preview',
         image=np.full((2, 2, 3), 0.25, dtype=np.float32),
         params=object(),
-        output_color_space='ACES2065-1',
+        output_primaries='ACES2065-1',
         use_display_transform=True,
     )
     captured: dict[str, object] = {}
@@ -42,7 +42,7 @@ def test_simulation_worker_emits_failure_message() -> None:
         mode_label='Preview',
         image=np.zeros((1, 1, 3), dtype=np.float32),
         params=object(),
-        output_color_space='sRGB',
+        output_primaries='sRGB',
         use_display_transform=False,
     )
     worker = runtime_module.SimulationWorker(
@@ -60,11 +60,11 @@ def test_simulation_worker_emits_failure_message() -> None:
 def test_prepare_input_color_preview_image_converts_to_srgb_float_preview() -> None:
     captured: dict[str, object] = {}
 
-    def fake_rgb_to_rgb(image, input_color_space, output_color_space, apply_cctf_decoding, apply_cctf_encoding):
+    def fake_rgb_to_rgb(image, input_primaries, output_primaries, apply_cctf_decoding, apply_cctf_encoding):
         captured['call'] = {
             'image': image.copy(),
-            'input_color_space': input_color_space,
-            'output_color_space': output_color_space,
+            'input_primaries': input_primaries,
+            'output_primaries': output_primaries,
             'apply_cctf_decoding': apply_cctf_decoding,
             'apply_cctf_encoding': apply_cctf_encoding,
         }
@@ -72,15 +72,15 @@ def test_prepare_input_color_preview_image_converts_to_srgb_float_preview() -> N
 
     preview = runtime_module.prepare_input_color_preview_image(
         np.full((1, 1, 3), 0.25, dtype=np.float32),
-        input_color_space='Display P3',
+        input_primaries='Display P3',
         apply_cctf_decoding=True,
         colour_module=SimpleNamespace(RGB_to_RGB=fake_rgb_to_rgb),
     )
 
     assert preview.dtype == np.float32
     np.testing.assert_allclose(preview, np.full((1, 1, 3), 0.5, dtype=np.float32))
-    assert captured['call']['input_color_space'] == 'Display P3'
-    assert captured['call']['output_color_space'] == runtime_module.DISPLAY_PREVIEW_COLOR_SPACE
+    assert captured['call']['input_primaries'] == 'Display P3'
+    assert captured['call']['output_primaries'] == runtime_module.DISPLAY_PREVIEW_COLOR_SPACE
     assert captured['call']['apply_cctf_decoding'] is True
     assert captured['call']['apply_cctf_encoding'] is True
 

@@ -45,7 +45,7 @@ def _patch(rgb: tuple[float, float, float], size: int = 4) -> np.ndarray:
 
 
 def _configure_params(params):
-    params.io.input_color_space = 'sRGB'
+    params.io.input_primaries = 'sRGB'
     params.io.input_cctf_decoding = False
     params.io.output_cctf_encoding = False
     params.io.full_image = True

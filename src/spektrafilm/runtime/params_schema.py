@@ -160,10 +160,21 @@ class PrintRenderingParams:
 
 @dataclass
 class IOParams:
-    input_color_space: str = "ProPhoto RGB"
+    input_primaries: str = "ProPhoto RGB"
     input_cctf_decoding: bool = False
-    output_color_space: str = "sRGB"
+    output_primaries: str = "sRGB"
     output_cctf_encoding: bool = True
+    # How to handle negative RGB values that emerge when the simulated
+    # chromaticity falls outside the output primaries' gamut triangle.
+    # The physical reflectance bound (Y <= 1) is upstream of this and is
+    # always satisfied; this knob only controls the per-channel response
+    # at the gamut boundary.
+    #   "hard": np.clip(rgb, 0, 1) — discontinuous at zero crossing.
+    #   "soft": (x + sqrt(x*x + eps)) / 2 — smooth soft-plus, near-identity
+    #           for positives, smoothly maps negatives to small positives.
+    #           Better for downstream interpolation (e.g., 3D LUT export);
+    #           may very slightly desaturate at the gamut boundary.
+    gamut_clip: str = "hard"
     crop: bool = False
     crop_center: tuple[float, float] = (0.5, 0.5)
     crop_size: tuple[float, float] = (0.1, 0.1)

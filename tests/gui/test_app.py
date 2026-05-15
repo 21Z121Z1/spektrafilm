@@ -154,7 +154,7 @@ def test_warmup_task_swallows_background_failures() -> None:
 def test_warmup_launch_input_path_primes_first_image_load(monkeypatch) -> None:
     captured: dict[str, object] = {}
     fake_state = SimpleNamespace(
-        input_image=SimpleNamespace(input_color_space='ACES2065-1', apply_cctf_decoding=False),
+        input_image=SimpleNamespace(input_primaries='ACES2065-1', apply_cctf_decoding=False),
     )
     fake_colour_module = object()
     fake_io_module = object()
@@ -180,7 +180,7 @@ def test_warmup_launch_input_path_primes_first_image_load(monkeypatch) -> None:
 
     input_preview_image, input_preview_kwargs = captured['input_preview']
     assert input_preview_image.shape == app_module.WARMUP_IMAGE_SHAPE
-    assert input_preview_kwargs['input_color_space'] == 'ACES2065-1'
+    assert input_preview_kwargs['input_primaries'] == 'ACES2065-1'
     assert input_preview_kwargs['apply_cctf_decoding'] is False
     assert input_preview_kwargs['colour_module'] is fake_colour_module
 
@@ -188,14 +188,14 @@ def test_warmup_launch_input_path_primes_first_image_load(monkeypatch) -> None:
 def test_warmup_launch_input_path_swallows_launch_failures(monkeypatch) -> None:
     monkeypatch.setattr(app_module, 'import_module', lambda name: (_ for _ in ()).throw(RuntimeError(name)))
 
-    app_module._warmup_launch_input_path(SimpleNamespace(input_image=SimpleNamespace(input_color_space='sRGB', apply_cctf_decoding=False)))
+    app_module._warmup_launch_input_path(SimpleNamespace(input_image=SimpleNamespace(input_primaries='sRGB', apply_cctf_decoding=False)))
 
 
 def test_warmup_full_gui_runs_preview_pipeline(monkeypatch) -> None:
     captured: dict[str, object] = {}
     fake_state = SimpleNamespace(
-        input_image=SimpleNamespace(input_color_space='ACES2065-1', apply_cctf_decoding=False),
-        simulation=SimpleNamespace(output_color_space='Display P3'),
+        input_image=SimpleNamespace(input_primaries='ACES2065-1', apply_cctf_decoding=False),
+        simulation=SimpleNamespace(output_primaries='Display P3'),
     )
     fake_colour_module = object()
     fake_pil_image_module = object()
@@ -264,12 +264,12 @@ def test_warmup_full_gui_runs_preview_pipeline(monkeypatch) -> None:
     assert process_image.dtype == np.float64
     input_preview_image, input_preview_kwargs = captured['input_preview']
     assert input_preview_image.shape == app_module.WARMUP_IMAGE_SHAPE
-    assert input_preview_kwargs['input_color_space'] == 'ACES2065-1'
+    assert input_preview_kwargs['input_primaries'] == 'ACES2065-1'
     assert input_preview_kwargs['apply_cctf_decoding'] is False
     assert input_preview_kwargs['colour_module'] is fake_colour_module
     output_preview_image, output_preview_kwargs = captured['output_preview']
     assert output_preview_image.shape == app_module.WARMUP_IMAGE_SHAPE
-    assert output_preview_kwargs['output_color_space'] == 'Display P3'
+    assert output_preview_kwargs['output_primaries'] == 'Display P3'
     assert output_preview_kwargs['use_display_transform'] is True
     assert output_preview_kwargs['imagecms_module'] is fake_imagecms_module
     assert output_preview_kwargs['colour_module'] is fake_colour_module
@@ -491,7 +491,7 @@ def test_connect_auto_preview_signals_covers_hidden_linked_controls_and_footer_t
                 'scan_unsharp_mask',
                 'auto_preview',
                 'scan_film',
-                'output_color_space',
+                'output_primaries',
                 'saving_color_space',
                 'saving_cctf_encoding',
             },
@@ -519,7 +519,7 @@ def test_connect_auto_preview_signals_covers_hidden_linked_controls_and_footer_t
     assert widgets.simulation.scan_unsharp_mask._editors[0].valueChanged.connected == [controller.request_auto_preview]
     assert widgets.display.output_interpolation.currentTextChanged.connected == []
     assert widgets.display.preview_max_size.valueChanged.connected == []
-    assert widgets.simulation.output_color_space.currentTextChanged.connected == [controller.request_auto_preview]
+    assert widgets.simulation.output_primaries.currentTextChanged.connected == [controller.request_auto_preview]
     assert widgets.simulation.bottom_auto_preview.toggled.connected == [controller.request_auto_preview]
     assert widgets.simulation.bottom_scan_film.toggled.connected == [controller.request_auto_preview]
     assert widgets.simulation.bottom_scan_for_print.toggled.connected == [controller.request_auto_preview]

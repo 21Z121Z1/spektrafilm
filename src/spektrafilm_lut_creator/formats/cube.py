@@ -21,10 +21,21 @@ class CubeFormat:
     name = "cube"
     extensions = (".cube",)
 
-    def write(self, lut: Lut, path: Path) -> None:
+    def write(
+        self,
+        lut: Lut,
+        path: Path,
+        *,
+        header_lines: list[str] | None = None,
+    ) -> None:
         n = lut.resolution
         flat = np.asarray(lut.table, dtype=float).reshape(n ** 3, 3)
         lines: list[str] = []
+        if header_lines:
+            for raw in header_lines:
+                # Allow callers to pass blank "section break" entries; format
+                # everything else as a comment so any parser ignores it.
+                lines.append(f"# {raw}" if raw else "#")
         if lut.title:
             lines.append(f'TITLE "{lut.title}"')
         lines.append("DOMAIN_MIN " + " ".join(_VALUE_FORMAT.format(v) for v in lut.domain_min))

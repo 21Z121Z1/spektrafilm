@@ -18,7 +18,7 @@ class ColorReferenceService:
         self._print = print_profile
         self._print_render = print_render
         self._scan_film = io_params.scan_film
-        self._output_color_space = io_params.output_color_space
+        self._output_primaries = io_params.output_primaries
         self._output_cctf_encoding = io_params.output_cctf_encoding
 
         self._black_correction = black_correction
