@@ -8,7 +8,6 @@ from spektrafilm.model.diffusion import apply_diffusion_filter_um, apply_gaussia
 from spektrafilm.model.emulsion import compute_density_spectral, develop, develop_simple
 from spektrafilm.utils.autoexposure import measure_autoexposure_ev
 from spektrafilm.utils.spectral_upsampling import rgb_to_raw_hanatos2025, rgb_to_raw_mallett2019
-from spektrafilm.utils.timings import timeit
 
 
 class FilmingStage:
@@ -34,7 +33,6 @@ class FilmingStage:
 
     # public methods
 
-    @timeit("auto_exposure")
     def auto_exposure(self, image: np.ndarray) -> float:
         if self._camera.auto_exposure:
             small_preview = self._resize_service.small_preview(image)
@@ -47,7 +45,6 @@ class FilmingStage:
             return image * 2 ** autoexposure_ev
         return image
 
-    @timeit("expose")
     def expose(self, image: np.ndarray) -> np.ndarray:
         raw = self._rgb_to_film_raw(
             image,
@@ -69,7 +66,6 @@ class FilmingStage:
         log_raw = np.log10(np.fmax(raw, 0.0) + 1e-10)
         return log_raw
 
-    @timeit("develop")
     def develop(self, log_raw: np.ndarray) -> np.ndarray:
         return develop(
             log_raw,

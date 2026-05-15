@@ -176,11 +176,23 @@ class DebugParams:
     deactivate_spatial_effects: bool = False
     deactivate_stochastic_effects: bool = False
     print_timings: bool = False
-    debug_mode: str = 'off' # options: 'output', 'inject', 'off', switch only one of the following at a time
-    output_film_log_raw: bool = False
-    output_film_density_cmy: bool = False
-    output_print_density_cmy: bool = False
-    inject_film_density_cmy: bool = False
+    # When True, the pipeline behaves as a deterministic per-pixel transform
+    # suitable for LUT sampling: spatial effects, stochastic effects,
+    # auto-exposure, and scanner white/black/unsharp corrections are all
+    # forced off, regardless of the underlying settings.
+    lut_mode: bool = False
+
+
+@dataclass
+class TapsParams:
+    """Pipeline tap configuration.
+
+    ``inject`` and ``collect`` name the entry and exit points in the
+    pipeline topology. Defaults of None mean "normal end-to-end run"
+    (inject at rgb_in, collect at rgb_out).
+    """
+    inject: str | None = None
+    collect: str | None = None
 
 
 @dataclass
@@ -210,6 +222,7 @@ class RuntimePhotoParams:
     io: IOParams = field(default_factory=IOParams)
     debug: DebugParams = field(default_factory=DebugParams)
     settings: SettingsParams = field(default_factory=SettingsParams)
+    taps: TapsParams = field(default_factory=TapsParams)
 
     def __post_init__(self):
         if not isinstance(self.film, Profile):

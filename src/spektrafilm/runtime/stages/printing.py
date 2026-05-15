@@ -6,7 +6,6 @@ from opt_einsum import contract
 from spektrafilm.model.diffusion import apply_diffusion_filter_um
 from spektrafilm.model.emulsion import compute_density_spectral, develop_simple
 from spektrafilm.model.illuminants import standard_illuminant
-from spektrafilm.utils.timings import timeit
 from spektrafilm.utils.conversions import density_to_light
 
 
@@ -37,7 +36,6 @@ class PrintingStage:
 
     # public methods
 
-    @timeit("expose")
     def expose(self, cmy_film_density: np.ndarray) -> np.ndarray:
         
         cmy_film_black = np.zeros((1,1,3)) - np.array(self._film_render.grain.density_min)
@@ -62,7 +60,6 @@ class PrintingStage:
         )
         return np.log10(np.fmax(raw, 0.0) + 1e-10)
 
-    @timeit("develop")
     def develop(self, log_raw: np.ndarray) -> np.ndarray:
                 
         return develop_simple(

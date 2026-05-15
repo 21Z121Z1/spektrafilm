@@ -9,7 +9,6 @@ from spektrafilm.model.diffusion import apply_gaussian_blur, apply_unsharp_mask
 from spektrafilm.model.emulsion import compute_density_spectral
 from spektrafilm.model.glare import add_glare
 from spektrafilm.model.illuminants import standard_illuminant
-from spektrafilm.utils.timings import timeit
 from spektrafilm.utils.conversions import density_to_light
 
 
@@ -43,7 +42,6 @@ class ScanningStage:
         
     # public methods
 
-    @timeit("scan")
     def scan(self, density_channels: np.ndarray) -> np.ndarray:
         rgb = self._density_to_rgb(density_channels, use_lut=self._settings.use_scanner_lut)
         rgb = self._apply_blur_and_unsharp(rgb)
