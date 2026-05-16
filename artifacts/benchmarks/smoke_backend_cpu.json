@@ -1,0 +1,97 @@
+{
+  "backend": "cpu",
+  "cases": [
+    {
+      "backend": "cpu",
+      "cold": {
+        "elapsed_s": 0.6216737499998999,
+        "memory_current_bytes": 16436213,
+        "memory_peak_bytes": 25344376,
+        "output": {
+          "dtype": "float64",
+          "finite": true,
+          "max": 0.8672583553192409,
+          "mean": 0.60474572113465,
+          "min": 0.0,
+          "shape": [
+            16,
+            16,
+            3
+          ],
+          "std": 0.22657490639300593
+        },
+        "stage_timings_s": {
+          "FilmingStage.auto_exposure": 3.249995643272996e-06,
+          "FilmingStage.develop": 0.0011570419956115074,
+          "FilmingStage.expose": 0.006306500006758142,
+          "PrintingStage.develop": 0.0002123749945894815,
+          "PrintingStage.expose": 0.10611641700234031,
+          "ScanningStage.scan": 0.0899696659980691,
+          "SpectralLUTService.get_filming_tc_lut": 1.133399928221479e-05,
+          "SpectralLUTService.spectral_compute_enlarger": 0.1021297909974237,
+          "SpectralLUTService.spectral_compute_scanner": 0.0869872920011403
+        },
+        "total_elapsed_s": 0.20384045799437445
+      },
+      "scene": "lut17_no_spatial",
+      "size": 16,
+      "warm": {
+        "elapsed_max_s": 0.17988354199769674,
+        "elapsed_mean_s": 0.17988354199769674,
+        "elapsed_min_s": 0.17988354199769674,
+        "memory_peak_mean_bytes": 10502756.0,
+        "runs": [
+          {
+            "elapsed_s": 0.17988354199769674,
+            "memory_current_bytes": 1593451,
+            "memory_peak_bytes": 10502756,
+            "output": {
+              "dtype": "float64",
+              "finite": true,
+              "max": 0.8672583553192409,
+              "mean": 0.60474572113465,
+              "min": 0.0,
+              "shape": [
+                16,
+                16,
+                3
+              ],
+              "std": 0.22657490639300593
+            },
+            "stage_timings_s": {
+              "FilmingStage.auto_exposure": 2.458000381011516e-06,
+              "FilmingStage.develop": 0.0011990830025752075,
+              "FilmingStage.expose": 0.004941874998621643,
+              "PrintingStage.develop": 0.00016279199917335063,
+              "PrintingStage.expose": 0.08800033300212817,
+              "ScanningStage.scan": 0.08550858299713582,
+              "SpectralLUTService.get_filming_tc_lut": 6.916998245287687e-06,
+              "SpectralLUTService.spectral_compute_enlarger": 0.08507583299797261,
+              "SpectralLUTService.spectral_compute_scanner": 0.0821155420053401
+            },
+            "total_elapsed_s": 0.1798805829967023
+          }
+        ],
+        "stage_timings_mean_s": {
+          "FilmingStage.auto_exposure": 2.458000381011516e-06,
+          "FilmingStage.develop": 0.0011990830025752075,
+          "FilmingStage.expose": 0.004941874998621643,
+          "PrintingStage.develop": 0.00016279199917335063,
+          "PrintingStage.expose": 0.08800033300212817,
+          "ScanningStage.scan": 0.08550858299713582,
+          "SpectralLUTService.get_filming_tc_lut": 6.916998245287687e-06,
+          "SpectralLUTService.spectral_compute_enlarger": 0.08507583299797261,
+          "SpectralLUTService.spectral_compute_scanner": 0.0821155420053401
+        }
+      }
+    }
+  ],
+  "runs": 1,
+  "scenes": [
+    "lut17_no_spatial"
+  ],
+  "sizes": [
+    16
+  ],
+  "warmups": 0
+}

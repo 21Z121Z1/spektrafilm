@@ -9,11 +9,10 @@ from spektrafilm.runtime.params_schema import RuntimePhotoParams
 from spektrafilm_gui.options import FilmFormats
 
 
-_FILM_FORMAT_MM = {float(m.value.split()[0]): m.value for m in FilmFormats}
+_FILM_FORMAT_MM_VALS = [float(m.value.split()[0]) for m in FilmFormats]
 
-
-def _closest_film_format(mm: float) -> str:
-    return min(_FILM_FORMAT_MM, key=lambda k: abs(k - mm))
+def _closest_film_format(mm: float) -> float:
+    return min(_FILM_FORMAT_MM_VALS, key=lambda k: abs(k - mm))
 
 
 StateSection = TypeVar('StateSection')
@@ -120,7 +119,7 @@ class SpecialState:
 @dataclass(slots=True)
 class SimulationState:
     film_stock: str
-    film_format_mm: str
+    film_format_mm: float
     camera_lens_blur_um: float
     camera_diffusion_filter_active: bool
     camera_diffusion_filter_family: str
@@ -297,7 +296,7 @@ def gui_state_from_params(
         ),
         simulation=SimulationState(
             film_stock=film_stock,
-            film_format_mm=_FILM_FORMAT_MM[_closest_film_format(params.camera.film_format_mm)],
+            film_format_mm=_closest_film_format(params.camera.film_format_mm),
             camera_lens_blur_um=params.camera.lens_blur_um,
             camera_diffusion_filter_active=bool(params.camera.diffusion_filter.active),
             camera_diffusion_filter_family=params.camera.diffusion_filter.filter_family,

@@ -101,4 +101,13 @@ def _deserialize_value(annotation: Any, value: Any) -> Any:
             raise ValueError("Tuple fields must be encoded as arrays.")
         return tuple(value)
 
+    if annotation is float:
+        if isinstance(value, str) and value.endswith(' mm'):
+            value = value.replace(' mm', '')
+        return float(value)
+    if annotation is int:
+        return int(value)
+    if annotation is bool:
+        return bool(value)
+
     return value

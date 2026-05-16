@@ -19,7 +19,7 @@ from spektrafilm.utils.timings import format_timings
 class SimulationPipeline:
     """Thin runtime orchestrator that composes stage objects."""
 
-    def __init__(self, params, update_params=False):
+    def __init__(self, params, *, _reused_lut_service=None):
         self._params = copy.deepcopy(params)
 
         self.camera = self._params.camera
@@ -37,7 +37,13 @@ class SimulationPipeline:
         self._last_elapsed_time = None
 
         self._resize_service = ResizingService(self.io, self.camera.film_format_mm)
-        if not update_params:
+        # Reuse the LUT service when lut_resolution is unchanged, otherwise rebuild.
+        if (
+            _reused_lut_service is not None
+            and _reused_lut_service.lut_resolution == self.settings.lut_resolution
+        ):
+            self._lut_service = _reused_lut_service
+        else:
             self._lut_service = SpectralLUTService(self.settings.lut_resolution)
         self._enlarger_service = EnlargerService(self.enlarger)
         self._color_reference_service = ColorReferenceService(self.film, self.film_render,
@@ -118,7 +124,7 @@ class SimulationPipeline:
     
     def update(self, params):
         """Update params and re-initialize stages that depend on them."""
-        self.__init__(params, update_params=True)
+        self.__init__(params, _reused_lut_service=self._lut_service)
         
     def soft_update(self,
                     exposure_compensation_ev=None,
