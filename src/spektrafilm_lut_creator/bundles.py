@@ -15,11 +15,7 @@ from spektrafilm_lut_creator.formats import Lut
 from spektrafilm_lut_creator.metadata import BundleMeta
 
 
-_VALID_TOPOLOGIES = frozenset({
-    "1-lut-combined",
-    "2-lut-film-print",
-    "4-lut-film-develop-print-develop",
-})
+_VALID_TOPOLOGIES = frozenset({"1lut", "2lut", "3lut", "4lut"})
 _VALID_GAMUT_CLIPS = frozenset({"hard", "soft"})
 _VALID_CONTAINERS = frozenset({"directory", "zip"})
 
@@ -28,19 +24,26 @@ _VALID_CONTAINERS = frozenset({"directory", "zip"})
 class BundleSpec:
     """User-facing description of a LUT bundle to build.
 
-    For M4 only ``topology="1-lut-combined"`` is implemented;
-    ``2-lut-film-print`` and ``4-lut-film-develop-print-develop`` raise
-    ``NotImplementedError`` in the builder. ``print_profiles`` is a
-    tuple of one or more print stocks: for ``1-lut-combined``, each
-    ``(film, print)`` combination is baked to its own cube and packed in
-    the same bundle.
+    All three topologies (``1lut``, ``2lut``, ``4lut``) are implemented.
+    The bundle's
+    on-disk name defaults to the canonical pattern from
+    :func:`spektrafilm_lut_creator.naming.default_bundle_name`
+    (``spektrafilm_<version>_<film>[_<paper>]_<topology>_<in>_<out>``)
+    when ``name`` is left as the empty string. Pass an explicit
+    ``name`` to override.
+
+    ``print_profiles`` is a tuple of one or more print stocks. For
+    multi-paper bundles, the auto-name omits the paper segment (the
+    bundle covers all of them — naming after one is misleading).
     """
-    name: str
     film_profile: str
     print_profiles: tuple[str, ...]
     input_color_space: str
     output_color_space: str
-    topology: str = "1-lut-combined"
+    name: str = ""
+    """Bundle name. Auto-computed via
+    :mod:`spektrafilm_lut_creator.naming` when empty."""
+    topology: str = "1lut"
     resolution: int = 33
     target: str | None = None
     """Registry name of a :class:`DeliveryTarget`, or ``None`` for the
@@ -61,6 +64,18 @@ class BundleSpec:
     matches the runtime's GUI-default ``np.clip(0, 1)``. The physical
     reflectance bound (``Y <= 1``) is upstream and always satisfied; this
     knob only controls per-channel behavior at the gamut boundary."""
+    qa: bool = False
+    """Whether :class:`BundleBuilder.write` should auto-run the QA suite
+    after writing the bundle. The reports land at
+    ``<bundle>/qa/<per-paper-bundle-name>/`` (one folder per QA'd paper);
+    the QA cache is deleted after the run so the bundle directory stays
+    ship-ready."""
+    qa_paper_index: int | None = None
+    """Which paper(s) to QA when :attr:`qa` is True. ``None`` (the
+    default) runs QA for every paper in :attr:`print_profiles`; an
+    explicit integer runs QA for only that paper. Validated against the
+    bundle's paper count up-front so a wrong index fails fast at spec
+    construction rather than partway through a long build."""
 
     def __post_init__(self):
         if self.topology not in _VALID_TOPOLOGIES:
@@ -70,12 +85,25 @@ class BundleSpec:
             )
         if not self.print_profiles:
             raise ValueError("print_profiles must contain at least one entry")
-        # For 1-lut-combined topology with multiple print profiles, the
-        # builder bakes one (film, print) cube per paper and packs them
-        # all into the same bundle. The 2-lut-film-print /
-        # 4-lut-film-develop-print-develop topologies will share the
-        # film half across papers (see M5+); for 1-lut-combined each
-        # combination is independent.
+        # Auto-compute the canonical bundle name when not explicitly
+        # given. Done here (rather than in the builder) so consumers can
+        # rely on ``spec.name`` being populated immediately after
+        # construction — bundle dirpaths, on-disk filenames, and the
+        # report directory all derive from it.
+        if not self.name:
+            from spektrafilm_lut_creator.naming import default_bundle_name
+            object.__setattr__(self, "name", default_bundle_name(
+                film_profile=self.film_profile,
+                print_profiles=self.print_profiles,
+                topology=self.topology,
+                input_color_space=self.input_color_space,
+                output_color_space=self.output_color_space,
+            ))
+        # For 1lut topology with multiple print profiles, the builder
+        # bakes one (film, print) cube per paper and packs them all
+        # into the same bundle. The 2lut / 4lut topologies share the
+        # film half across papers; for 1lut each combination is
+        # independent.
         if self.resolution < 2:
             raise ValueError(f"resolution must be >= 2, got {self.resolution}")
         if self.gamut_clip not in _VALID_GAMUT_CLIPS:
@@ -88,6 +116,13 @@ class BundleSpec:
                 f"container must be one of {sorted(_VALID_CONTAINERS)}, "
                 f"got {self.container!r}"
             )
+        if self.qa_paper_index is not None:
+            n_papers = len(self.print_profiles)
+            if not 0 <= self.qa_paper_index < n_papers:
+                raise ValueError(
+                    f"qa_paper_index={self.qa_paper_index} is out of range for a bundle "
+                    f"with {n_papers} paper(s); valid range is [0, {n_papers - 1}] or None"
+                )
         if self.target is not None:
             # Deferred to avoid the module-level circular dependency
             # between bundles and delivery_targets (the target registry

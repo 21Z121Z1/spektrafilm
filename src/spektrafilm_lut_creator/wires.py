@@ -27,11 +27,20 @@ class LogEWire:
 class DensityWire:
     """Per-channel linear normalization for CMY-density wires.
 
-    The encoding is ``code_c = D_c / d_max_c`` clamped to ``[0, 1]``; the
-    decode multiplies back. ``d_max`` is per-channel so anisotropic
-    densities use the cube range efficiently.
+    The encoding maps ``[d_min, d_max]`` linearly onto ``[0, 1]``
+    per channel and clamps:
+    ``code_c = clip((D_c - d_min_c) / (d_max_c - d_min_c), 0, 1)``.
+    The decode is the inverse (no clamp).
+
+    ``d_max`` and ``d_min`` are per-channel so anisotropic ranges use
+    the cube efficiently. ``d_min`` defaults to ``(0, 0, 0)`` — the
+    pure-D≥0 case — and is set slightly negative (e.g. ``-0.2``) when
+    the wire carries density above-base+fog and a user wants headroom
+    for downstream grain models that can dip below zero (grain
+    fluctuates *around* the dye density, including in the fog).
     """
     d_max: tuple[float, float, float]
+    d_min: tuple[float, float, float] = (0.0, 0.0, 0.0)
 
 
 @dataclass(frozen=True)

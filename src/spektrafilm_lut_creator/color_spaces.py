@@ -258,3 +258,71 @@ register(ColorSpaceEntry("Rec.2100 PQ", "ITU-R BT.2020", "ITU-R BT.2100 PQ", "lo
 register(ColorSpaceEntry("Rec.2100 HLG", "ITU-R BT.2020", "ITU-R BT.2100 HLG", "log", ("input", "output"),
                          short_tag="rec2100hlg",
                          notes="HDR broadcast (BBC/NHK/EBU live, YouTube HDR). HLG bakes OOTF + nominal peak luminance; not portable across display peaks the way PQ is."))
+
+# ---------------------------------------------------------------------------
+# v2 Tier 2 additions (n060 §3).
+#
+# Each entry is registry-only — colour-science ships the underlying
+# primaries + CCTF in upstream releases since n060 was written.
+#
+# Skipped (need manual curve implementation, deferred to a later note):
+#   - DJI D-Log M (no curve in colour-science; vendor whitepaper required)
+#   - ARRI LogC3 EI400 / EI1600 (only EI800 baseline in colour-science;
+#     curve shifts by EI not currently exposed)
+# ---------------------------------------------------------------------------
+
+# ACEScc — pure-log sibling of ACEScct, legacy VFX working space.
+register(ColorSpaceEntry("ACEScc", "ACEScg", "ACEScc",
+                         "log", ("input",),
+                         short_tag="acescc",
+                         notes="Legacy VFX log working space (AP1 primaries, ACES1.0-era). "
+                               "Same primaries as ACEScg; differs from ACEScct only in the "
+                               "removal of the small linear toe near zero."))
+
+# P3-D65 — the mastering-display container inside Dolby Vision / HDR10.
+# Linear is a working space (input only); PQ-encoded is the actual delivery
+# format used inside Rec.2020 HDR containers (input + output).
+register(ColorSpaceEntry("P3-D65 Linear", "P3-D65", None,
+                         "linear", ("input",),
+                         short_tag="p3d65lin",
+                         notes="Linear P3-D65 working space. Used alongside the PQ-encoded "
+                               "variant for HDR pipelines that want a separate scene-linear stage."))
+register(ColorSpaceEntry("P3-D65 PQ", "P3-D65", "ITU-R BT.2100 PQ",
+                         "log", ("input", "output"),
+                         short_tag="p3d65pq",
+                         notes="The mastering-display container inside DoVi/HDR10. P3-D65 "
+                               "primaries with ST.2084 transfer; same curve as Rec.2100 PQ "
+                               "but a narrower color volume. Use when the deliverable spec "
+                               "calls for 'P3-limited inside Rec.2020' or when matching a "
+                               "1000-nit P3 mastering display directly."))
+
+# DJI D-Log — Ronin 4D / Inspire 3 / X9 sensor. colour-science added both
+# the D-Gamut primaries and the D-Log curve since n060.
+register(ColorSpaceEntry("DJI D-Log", "DJI D-Gamut", "D-Log",
+                         "log", ("input",),
+                         short_tag="dlog",
+                         notes="DJI cinema cameras (Ronin 4D, Inspire 3, X9 sensor). "
+                               "D-Gamut is wider than P3, narrower than Rec.2020."))
+
+# ProPhoto RGB (encoded) — Lightroom histogram + ACR→Photoshop handoff,
+# high-gamut stills delivery for printing. colour-science's CCTF
+# implements the standard ProPhoto curve (linear toe + gamma 1.8 main
+# segment) which is the Melissa-equivalent for everything outside the
+# deepest shadows.
+register(ColorSpaceEntry("ProPhoto RGB", "ProPhoto RGB", "ProPhoto RGB",
+                         "encoded_sdr", ("input", "output"),
+                         short_tag="prophoto",
+                         notes="High-gamut stills working space + delivery target. Lightroom "
+                               "internal histogram and ACR→Photoshop interchange. D50 white "
+                               "point; chromatic adaptation handled by the XYZ conversion."))
+
+# Nikon N-Log paired with Rec.2020 — per the n060 camera-log research,
+# this is the de-facto pipeline pairing in Resolve / Baselight (Nikon
+# itself doesn't publish a distinct gamut, and BT.2020 is the conventional
+# wrapper).
+register(ColorSpaceEntry("Nikon N-Log", "ITU-R BT.2020", "N-Log",
+                         "log", ("input",),
+                         short_tag="nlog",
+                         notes="Nikon Z 6/7/8/9 N-Log. No distinct Nikon gamut is published; "
+                               "ITU-R BT.2020 is the de-facto wrapper per Resolve/Baselight "
+                               "and the n060 camera-log research."))

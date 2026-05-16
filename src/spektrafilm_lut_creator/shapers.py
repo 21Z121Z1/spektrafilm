@@ -37,30 +37,46 @@ def code_to_log_e(code: np.ndarray, wire: LogEWire) -> np.ndarray:
     return np.asarray(code, dtype=float) * span + wire.min
 
 
+def _density_wire_endpoints(wire: DensityWire) -> tuple[np.ndarray, np.ndarray]:
+    """Validate + return ``(d_min, d_max)`` as length-3 float arrays."""
+    d_max = np.asarray(wire.d_max, dtype=float)
+    d_min = np.asarray(wire.d_min, dtype=float)
+    if d_max.shape != (3,):
+        raise ValueError(f"DensityWire.d_max must be 3-tuple, got shape {d_max.shape}")
+    if d_min.shape != (3,):
+        raise ValueError(f"DensityWire.d_min must be 3-tuple, got shape {d_min.shape}")
+    if np.any(d_max - d_min <= 0.0):
+        raise ValueError(
+            f"DensityWire span (d_max - d_min) must be all-positive per channel; "
+            f"got d_min={wire.d_min}, d_max={wire.d_max}"
+        )
+    return d_min, d_max
+
+
 def density_to_code(density: np.ndarray, wire: DensityWire) -> np.ndarray:
     """Encode CMY density into [0, 1] code values, per-channel.
 
     Last axis of ``density`` is the channel axis (length 3). The encoded
-    values are clamped to ``[0, 1]``; densities above ``d_max`` are
-    truncated to 1.0 (the wire is lossy outside its declared range).
+    values are clamped to ``[0, 1]``; densities outside ``[d_min, d_max]``
+    are truncated to the nearest endpoint (the wire is lossy outside its
+    declared range).
     """
     density = np.asarray(density, dtype=float)
-    d_max = np.asarray(wire.d_max, dtype=float)
-    if d_max.shape != (3,):
-        raise ValueError(f"DensityWire.d_max must be 3-tuple, got shape {d_max.shape}")
-    if np.any(d_max <= 0.0):
-        raise ValueError(f"DensityWire.d_max must be all-positive, got {wire.d_max}")
     if density.shape[-1] != 3:
         raise ValueError(f"density last axis must be 3, got shape {density.shape}")
-    return np.clip(density / d_max, 0.0, 1.0)
+    d_min, d_max = _density_wire_endpoints(wire)
+    return np.clip((density - d_min) / (d_max - d_min), 0.0, 1.0)
 
 
 def code_to_density(code: np.ndarray, wire: DensityWire) -> np.ndarray:
-    """Decode [0, 1] code values back to CMY density, per-channel."""
+    """Decode [0, 1] code values back to CMY density, per-channel.
+
+    Codes at 0 map to ``d_min`` (which may be slightly negative when the
+    wire reserves headroom below the natural base+fog floor); codes at
+    1 map to ``d_max``. No clamping is applied on decode.
+    """
     code = np.asarray(code, dtype=float)
-    d_max = np.asarray(wire.d_max, dtype=float)
-    if d_max.shape != (3,):
-        raise ValueError(f"DensityWire.d_max must be 3-tuple, got shape {d_max.shape}")
     if code.shape[-1] != 3:
         raise ValueError(f"code last axis must be 3, got shape {code.shape}")
-    return code * d_max
+    d_min, d_max = _density_wire_endpoints(wire)
+    return code * (d_max - d_min) + d_min

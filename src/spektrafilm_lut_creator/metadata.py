@@ -96,7 +96,7 @@ class ColorSpaceMeta:
 class StocksMeta:
     """Stock identifiers used to build the bundle."""
     film: str
-    prints: tuple[str, ...]  # one entry for 1-lut-combined, >=1 otherwise
+    prints: tuple[str, ...]  # one entry for 1lut, >=1 otherwise
 
 
 @dataclass(frozen=True)
@@ -104,7 +104,7 @@ class WiresMeta:
     """Per-bundle wire constants for the four internal taps.
 
     Entries can be ``None`` for topologies that don't expose the
-    corresponding tap (e.g. 1-lut-combined bundles need none of these
+    corresponding tap (e.g. 1lut bundles need none of these
     because the intermediate taps aren't materialized as separate LUTs).
     """
     log_e_film: LogEWire | None = None
@@ -116,7 +116,7 @@ class WiresMeta:
 @dataclass(frozen=True)
 class LutFileMeta:
     """One LUT entry within a bundle."""
-    role: str            # "combined" (1-lut-combined) | "film" | "print"
+    role: str            # "combined" (1lut) | "film" | "print"
     path: str            # relative to the bundle root
     domain: str          # source tap name (e.g. "input_rgb", "cmy_film")
     range: str           # destination tap name (e.g. "cmy_film", "output_rgb")
@@ -128,8 +128,8 @@ class BundleMeta:
     """The full ``bundle.json`` payload."""
     schema_version: int = SCHEMA_VERSION
     name: str = ""
-    topology: str = "1-lut-combined"
-    # "1-lut-combined" | "2-lut-film-print" | "4-lut-film-develop-print-develop"
+    topology: str = "1lut"
+    # "1lut" | "2lut" | "4lut"
     resolution: int = 33
     target: str | None = None  # delivery target name, if any
     provenance: ProvenanceMeta = field(default_factory=ProvenanceMeta)

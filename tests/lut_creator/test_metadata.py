@@ -20,7 +20,7 @@ def test_default_bundle_meta_has_current_schema_version():
 def test_two_lut_bundle_construction():
     meta = BundleMeta(
         name="portra400_5papers",
-        topology="2-lut-film-print",
+        topology="2lut",
         resolution=33,
         stocks=StocksMeta(film="kodak_portra_400", prints=("kodak_endura", "fuji_crystal_archive")),
         color_spaces={
@@ -39,7 +39,7 @@ def test_two_lut_bundle_construction():
         ),
     )
 
-    assert meta.topology == "2-lut-film-print"
+    assert meta.topology == "2lut"
     assert meta.stocks.prints == ("kodak_endura", "fuji_crystal_archive")
     assert meta.color_spaces["input"].name == "ACEScg"
     assert meta.color_spaces["input"].cctf is False
@@ -51,7 +51,7 @@ def test_two_lut_bundle_construction():
 
 def test_four_lut_bundle_carries_all_intermediate_wires():
     meta = BundleMeta(
-        topology="4-lut-film-develop-print-develop",
+        topology="4lut",
         wires=WiresMeta(
             log_e_film=LogEWire(min=-3.1, max=2.4),
             cmy_film=DensityWire(d_max=(3.8, 4.1, 3.6)),
