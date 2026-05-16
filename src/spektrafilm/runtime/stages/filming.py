@@ -28,6 +28,10 @@ class FilmingStage:
         hanatos2025_adaptation.apply_surface = self._settings.apply_hanatos2025_adaptation_surface
         hanatos2025_adaptation.spectral_gaussian_blur = self._settings.spectral_gaussian_blur
         self._lut_service.set_hanatos2025_adaptation(hanatos2025_adaptation)
+        # Input gamut compression is per-bundle config (lives on params.io
+        # so the GUI and bundle bakes share the same code path). The
+        # service caches the LUT and invalidates it when this spec changes.
+        self._lut_service.set_input_gamut_compress(self._io.input_gamut_compress)
         self._enlarger_service.density_spectral_midgray, self._enlarger_service.density_spectral_midgray_comp = self._compute_density_spectral_midgray_to_balance_print()
         self._color_reference_service = color_reference_service
 

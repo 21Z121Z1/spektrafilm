@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from spektrafilm.utils.gamut_compression import GamutCompressSpec
 from spektrafilm_lut_creator.formats import Lut
 from spektrafilm_lut_creator.metadata import BundleMeta
 
@@ -76,6 +77,17 @@ class BundleSpec:
     explicit integer runs QA for only that paper. Validated against the
     bundle's paper count up-front so a wrong index fails fast at spec
     construction rather than partway through a long build."""
+    input_gamut_compress: GamutCompressSpec = field(default_factory=GamutCompressSpec)
+    """Input gamut compression spec (algorithm + Reinhard knee parameters)
+    used when baking the per-film tc_lut. Default is the ACES Reference
+    Gamut Compression v1.3 cyan threshold and power with the asymptote
+    limit reduced to 1.0 so the knee converges exactly at the spectral
+    locus boundary (see spektrafilm-research n100 §5). Pass
+    ``GamutCompressSpec(mode='off')`` to disable; pass
+    ``GamutCompressSpec(algorithm='oklch')`` to use the perceptual-
+    chroma-axis variant. The chosen spec is forwarded to
+    ``params.io.input_gamut_compress`` so GUI users and bundle bakes
+    share the same code path."""
 
     def __post_init__(self):
         if self.topology not in _VALID_TOPOLOGIES:

@@ -839,6 +839,7 @@ class BundleBuilder:
         params.io.input_cctf_decoding = False
         params.io.output_cctf_encoding = False
         params.io.gamut_clip = spec.gamut_clip
+        params.io.input_gamut_compress = spec.input_gamut_compress
         params = digest_params(params)
         return SimulationPipeline(params)
 

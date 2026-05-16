@@ -50,10 +50,11 @@ def qa_results(spec, bundle, tmp_path_factory):
     return run(spec, bundle, out_dir), out_dir
 
 
-def test_default_suite_has_twelve_tests():
-    assert len(DEFAULT_SUITE) == 12
+def test_default_suite_has_expected_tests():
+    # 5 LUT-fidelity + 7 model-diagnostic + 2 input gamut compression
+    # diagnostics = 14.
+    assert len(DEFAULT_SUITE) == 14
     names = list_tests()
-    # 5 LUT-fidelity + 7 model-diagnostic tests.
     assert "off_grid_identity" in names
     assert "monotonicity" in names
     assert "jacobian_condition" in names
@@ -66,11 +67,13 @@ def test_default_suite_has_twelve_tests():
     assert "black_toe" in names
     assert "hue_twist_oklab" in names
     assert "spectral_locus_envelope" in names
+    assert "input_gamut_compression_preview" in names
+    assert "input_gamut_compression_smoothness" in names
 
 
 def test_all_tests_return_a_result(qa_results):
     results, _ = qa_results
-    assert len(results) == 12
+    assert len(results) == 14
     for r in results:
         assert r.name, f"empty name on result: {r}"
 
@@ -107,7 +110,7 @@ def test_reference_cache_invalidates_on_paper_change(spec, bundle, tmp_path):
     assert cache_files, "first run should write the reference cache"
     # Second run reuses the cache; we just verify it completes.
     results = run(spec, bundle, tmp_path, paper_index=0)
-    assert len(results) == 12
+    assert len(results) == 14
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +143,7 @@ def two_lut_results(two_lut_spec, two_lut_bundle, tmp_path_factory):
 
 def test_two_lut_qa_returns_all_tests(two_lut_results):
     results, _ = two_lut_results
-    assert len(results) == 12
+    assert len(results) == 14
 
 
 def test_two_lut_qa_no_tests_raised(two_lut_results):
@@ -167,7 +170,7 @@ def test_two_lut_qa_indexes_by_paper_not_lut(two_lut_spec, two_lut_bundle, tmp_p
     # The bundle has 1 film + 2 print LUTs; paper_index in [0, 1].
     out_dir = tmp_path / "p1"
     results = run(two_lut_spec, two_lut_bundle, out_dir, paper_index=1)
-    assert len(results) == 12
+    assert len(results) == 14
     report = (out_dir / "report.md").read_text(encoding="utf-8")
     # The report names the paper, which must be the second print stock.
     assert "fujifilm_crystal_archive_typeii" in report
@@ -209,7 +212,7 @@ def three_lut_results(three_lut_spec, three_lut_bundle, tmp_path_factory):
 
 def test_three_lut_qa_returns_all_tests(three_lut_results):
     results, _ = three_lut_results
-    assert len(results) == 12
+    assert len(results) == 14
 
 
 def test_three_lut_qa_no_tests_raised(three_lut_results):
@@ -228,7 +231,7 @@ def test_three_lut_qa_indexes_by_paper_not_lut(
     not literally bundle.luts[1] (which is the shared L2)."""
     out_dir = tmp_path / "p1"
     results = run(three_lut_spec, three_lut_bundle, out_dir, paper_index=1)
-    assert len(results) == 12
+    assert len(results) == 14
     report = (out_dir / "report.md").read_text(encoding="utf-8")
     assert "fujifilm_crystal_archive_typeii" in report
 
@@ -263,7 +266,7 @@ def four_lut_results(four_lut_spec, four_lut_bundle, tmp_path_factory):
 
 def test_four_lut_qa_returns_all_tests(four_lut_results):
     results, _ = four_lut_results
-    assert len(results) == 12
+    assert len(results) == 14
 
 
 def test_four_lut_qa_no_tests_raised(four_lut_results):
@@ -288,6 +291,6 @@ def test_four_lut_qa_indexes_by_paper_not_lut(four_lut_spec, four_lut_bundle, tm
     not literally bundle.luts[1] (which is the shared L2)."""
     out_dir = tmp_path / "p1"
     results = run(four_lut_spec, four_lut_bundle, out_dir, paper_index=1)
-    assert len(results) == 12
+    assert len(results) == 14
     report = (out_dir / "report.md").read_text(encoding="utf-8")
     assert "fujifilm_crystal_archive_typeii" in report

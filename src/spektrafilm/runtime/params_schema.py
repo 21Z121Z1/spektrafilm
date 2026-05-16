@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from spektrafilm.profiles.io import Profile
+from spektrafilm.utils.gamut_compression import GamutCompressSpec
 
 
 
@@ -175,6 +176,16 @@ class IOParams:
     #           Better for downstream interpolation (e.g., 3D LUT export);
     #           may very slightly desaturate at the gamut boundary.
     gamut_clip: str = "hard"
+    # Input gamut compression: how to handle input chromaticities that fall
+    # outside the visible spectral locus (where Hanatos 2025's spectral
+    # upsampling is well-defined). The compression is applied at LUT-build
+    # time (baked into the per-film tc_lut) so the per-pixel hot path is
+    # unchanged. Default soft compression uses the ACES Reference Gamut
+    # Compression v1.3 cyan threshold and power, with the asymptote limit
+    # reduced to 1.0 so the knee converges exactly at the locus boundary.
+    # See spektrafilm-research/studies/a40_lut_system/n100_soft_input_clipping
+    # for the full rationale.
+    input_gamut_compress: GamutCompressSpec = field(default_factory=GamutCompressSpec)
     crop: bool = False
     crop_center: tuple[float, float] = (0.5, 0.5)
     crop_size: tuple[float, float] = (0.1, 0.1)
