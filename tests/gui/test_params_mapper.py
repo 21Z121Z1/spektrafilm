@@ -108,15 +108,6 @@ def test_build_params_maps_runtime_strings() -> None:
     assert params.io.output_cctf_encoding is True
 
 
-def test_build_params_accepts_legacy_film_format_unit_strings() -> None:
-    state = make_state()
-    state.simulation.film_format_mm = '35 mm'
-
-    params = build_params_from_state(state)
-
-    assert params.camera.film_format_mm == 35.0
-
-
 def test_build_params_maps_enlarger_diffusion_filter() -> None:
     state = make_state()
     state.simulation.diffusion_filter_active = True

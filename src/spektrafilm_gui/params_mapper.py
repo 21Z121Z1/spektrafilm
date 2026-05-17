@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from spektrafilm_gui.state import GuiState, normalize_film_format_mm
+from spektrafilm_gui.state import GuiState
 from spektrafilm.runtime.api import init_params
 from spektrafilm.runtime.params_schema import RuntimePhotoParams
 
@@ -60,7 +60,7 @@ def _apply_camera(params: RuntimePhotoParams, state: GuiState) -> None:
     params.camera.exposure_compensation_ev = state.simulation.exposure_compensation_ev
     params.camera.auto_exposure = state.simulation.auto_exposure
     params.camera.auto_exposure_method = state.simulation.auto_exposure_method
-    params.camera.film_format_mm = float(normalize_film_format_mm(state.simulation.film_format_mm))
+    params.camera.film_format_mm = state.simulation.film_format_mm
     params.camera.filter_uv = state.input_image.filter_uv
     params.camera.filter_ir = state.input_image.filter_ir
 

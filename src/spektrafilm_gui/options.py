@@ -50,13 +50,3 @@ class DiffusionFilterFamilies(Enum):
     black_pro_mist = "black_pro_mist"
     pro_mist = "pro_mist"
     cinebloom = "cinebloom"
-
-
-class FilmFormats(Enum):
-    f8mm = "8"
-    f16mm = "16"
-    f35mm = "35"
-    f60mm = "60"
-    f70mm = "70"
-    f90mm = "90"
-    f120mm = "120"
