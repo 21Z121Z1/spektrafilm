@@ -6,7 +6,6 @@ from enum import Enum
 from spektrafilm_gui.options import (
     AutoExposureMethods,
     DiffusionFilterFamilies,
-    FilmFormats,
     NapariInterpolationModes,
     RGBColorSpaces,
     RGBtoRAWMethod,
@@ -46,7 +45,6 @@ GUI_SECTION_ENUMS: dict[str, dict[str, type[Enum]]] = {
     },
     "simulation": {
         "film_stock": FilmStocks,
-        "film_format_mm": FilmFormats,
         "auto_exposure_method": AutoExposureMethods,
         "camera_diffusion_filter_family": DiffusionFilterFamilies,
         "print_paper": PrintPapers,
@@ -74,10 +72,11 @@ GUI_WIDGET_SPECS = {
         ),
         "film_format_mm": WidgetSpec(
             label="Film format mm",
-            tooltip="Long edge of the film format in millimeters, e.g. 8mm Super8, 16mm, 35mm, 60mm, 120mm",
+            tooltip="Long edge of the film format in millimeters, e.g. 8, 16, 35, 60, 120",
             min_value=8.0,
             max_value=120.0,
             step=1.0,
+            decimals=0,
         ),
         "camera_lens_blur_um": WidgetSpec(
             label="Camera lens blur um",
