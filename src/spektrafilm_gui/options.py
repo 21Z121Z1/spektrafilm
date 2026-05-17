@@ -53,10 +53,10 @@ class DiffusionFilterFamilies(Enum):
 
 
 class FilmFormats(Enum):
-    f8mm = "8 mm"
-    f16mm = "16 mm"
-    f35mm = "35 mm"
-    f60mm = "60 mm"
-    f70mm = "70 mm"
-    f90mm = "90 mm"
-    f120mm = "120 mm"
+    f8mm = "8"
+    f16mm = "16"
+    f35mm = "35"
+    f60mm = "60"
+    f70mm = "70"
+    f90mm = "90"
+    f120mm = "120"

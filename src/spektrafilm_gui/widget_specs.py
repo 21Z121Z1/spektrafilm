@@ -73,8 +73,8 @@ GUI_WIDGET_SPECS = {
             tooltip="Use the auto-exposure feature of the virtual camera",
         ),
         "film_format_mm": WidgetSpec(
-            label="Film format mm",
-            tooltip="Long edge of the film format in millimeters, e.g. 8mm Super8, 16mm, 35mm, 60mm, 120mm",
+            label="Film format",
+            tooltip="Long edge of the film format in millimeters, e.g. 8, 16, 35, 60, 120",
             min_value=8.0,
             max_value=120.0,
             step=1.0,

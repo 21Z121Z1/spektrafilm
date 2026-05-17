@@ -30,6 +30,7 @@ from spektrafilm_gui.state import (
     PreflashingState,
     SimulationState,
     SpecialState,
+    normalize_film_format_mm,
 )
 from spektrafilm_gui.persistence import load_dialog_dir, save_dialog_dir
 from spektrafilm_gui.theme_palette import SIZE_FOOTER_ITEM_SPACING
@@ -297,7 +298,10 @@ class DataclassSection(QWidget):
     def set_state(self, state: Any) -> None:
         for field_info in fields(self._state_cls):
             field_name = field_info.name
-            getattr(self, field_name).value = getattr(state, field_name)
+            value = getattr(state, field_name)
+            if self._section_name == 'simulation' and field_name == 'film_format_mm':
+                value = normalize_film_format_mm(value)
+            getattr(self, field_name).value = value
 
     def get_state(self) -> Any:
         values = {field_info.name: getattr(self, field_info.name).value for field_info in fields(self._state_cls)}
