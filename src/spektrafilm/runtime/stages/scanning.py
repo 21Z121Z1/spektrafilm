@@ -10,6 +10,7 @@ from spektrafilm.model.emulsion import compute_density_spectral
 from spektrafilm.model.glare import add_glare
 from spektrafilm.model.illuminants import standard_illuminant
 from spektrafilm.utils.conversions import density_to_light
+from spektrafilm.utils.gamut_compression import compress_rgb
 
 
 # Knee softness for the optional soft-clip on negative-channel out-of-gamut
@@ -80,12 +81,26 @@ class ScanningStage:
         illuminant_xyz = contract("k,kl->l", scan_illuminant, STANDARD_OBSERVER_CMFS[:]) / normalization
         illuminant_xy = colour.XYZ_to_xy(illuminant_xyz)
         xyz = add_glare(xyz, illuminant_xyz, glare)
-        return colour.XYZ_to_RGB(
+        rgb = colour.XYZ_to_RGB(
             xyz,
             colourspace=self._io.output_primaries,
             apply_cctf_encoding=False,
             illuminant=illuminant_xy,
         )
+        # Output gamut compression (ACES RGC native form by default,
+        # per-channel in destination RGB; OkLch chroma reduction
+        # available as an algorithm option). Compresses chromaticities
+        # the simulation reached that fall outside the output primaries
+        # cube — hue is preserved in the colorist sense (per-channel
+        # mixture ratios stay coherent for aces_rgc, perceptual hue
+        # for oklch). The downstream gamut_clip in
+        # _apply_cctf_encoding_and_clip handles any residual sub-pixel
+        # overshoots after this knee. See n110 for the design.
+        rgb = compress_rgb(
+            rgb, self._io.output_gamut_compress,
+            output_color_space=self._io.output_primaries,
+        )
+        return rgb
 
     def _return_callable_cmy_to_log_xyz(self):
         if self._io.scan_film:
@@ -132,6 +147,12 @@ class ScanningStage:
                 apply_cctf_decoding=False,
                 apply_cctf_encoding=True,
             )
+        # gamut_clip="off" leaves the final [0, 1] clip out entirely so
+        # downstream diagnostics (the output_gamut_compression_preview QA
+        # test) can capture the simulation's unbounded reach. Production
+        # bakes use "soft" or "hard" and the LUT cube stays in [0, 1].
+        if self._io.gamut_clip == "off":
+            return rgb
         return np.clip(rgb, a_min=0, a_max=1)
 
 

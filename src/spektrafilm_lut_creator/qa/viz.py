@@ -228,129 +228,329 @@ def cube_edges(
 # ---------------------------------------------------------------------------
 
 def transfer_curves(
-    table: np.ndarray, n: int,
+    sweep_x: np.ndarray,
+    samples: tuple[np.ndarray, np.ndarray, np.ndarray],
     *,
+    pin_label: str,
     violation_marks: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None,
+    suptitle: str = "Per-axis transfer curves through middle-gray",
 ) -> Figure:
-    """Per-axis transfer curves through the cube center.
+    """Per-axis transfer curves through a chosen centerline.
 
-    Each panel sweeps one input channel with the other two held at
-    0.5, plotting R/G/B output. If ``violation_marks`` is provided
-    (one boolean array per panel, length n-1), monotonicity violations
-    are marked in red.
+    Each panel sweeps one input channel from 0 to 1 with the other two
+    held at a fixed encoded value, plotting R/G/B output. The caller
+    computes the LUT samples via trilinear interpolation, so the
+    centerline can be placed at any encoded value (not just the cube
+    midpoint) — critical for log-encoded input spaces where the
+    encoded midpoint isn't perceptually meaningful.
+
+    Parameters
+    ----------
+    sweep_x :
+        Shape ``(N,)`` — the input encoded values being swept (typically
+        ``np.linspace(0, 1, N)``). Same x-axis for all three panels.
+    samples :
+        Three arrays of shape ``(N, 3)`` for the R-sweep, G-sweep, and
+        B-sweep respectively. Each row is the LUT's encoded RGB output
+        at that sweep point.
+    pin_label :
+        Human-readable label for what the "other channels" are pinned
+        to (e.g. ``"0.46 (middle gray)"``). Shown on each panel's
+        x-axis label so the figure is self-explanatory across input
+        color spaces.
+    violation_marks :
+        Optional ``(R_mask, G_mask, B_mask)`` of monotonicity violations
+        (each ``(N-1,)`` boolean), marked in red on the matching
+        channel's curve.
+    suptitle :
+        Figure-level title. Default reflects the new
+        middle-gray-centerline behavior.
     """
-    mid = n // 2
-    axis_codes = np.linspace(0.0, 1.0, n)
     setups = [
-        ("R", table[mid, mid, :, :], RED),
-        ("G", table[mid, :, mid, :], GREEN),
-        ("B", table[:, mid, mid, :], BLUE),
+        ("R", samples[0], RED),
+        ("G", samples[1], GREEN),
+        ("B", samples[2], BLUE),
     ]
     fig, axes = plt.subplots(1, 3, figsize=(15, 5), facecolor=BG, layout="constrained")
-    for i, (ax, (label, samples, axis_color)) in enumerate(zip(axes, setups)):
+    for i, (ax, (label, axis_samples, axis_color)) in enumerate(zip(axes, setups)):
         ax.set_facecolor(BG)
-        ax.plot(axis_codes, samples[:, 0], color=RED, lw=2.2, label="R out")
-        ax.plot(axis_codes, samples[:, 1], color=GREEN, lw=2.2, label="G out")
-        ax.plot(axis_codes, samples[:, 2], color=BLUE, lw=2.2, label="B out")
+        ax.plot(sweep_x, axis_samples[:, 0], color=RED, lw=2.2, label="R out")
+        ax.plot(sweep_x, axis_samples[:, 1], color=GREEN, lw=2.2, label="G out")
+        ax.plot(sweep_x, axis_samples[:, 2], color=BLUE, lw=2.2, label="B out")
         ax.plot([0, 1], [0, 1], color="#444444", lw=1, ls="--", label="identity")
         if violation_marks is not None:
             mask = violation_marks[i]
             if mask.any():
-                xs = axis_codes[1:][mask]
-                ys = samples[1:, i][mask]
+                xs = sweep_x[1:][mask]
+                ys = axis_samples[1:, i][mask]
                 ax.scatter(xs, ys, s=60, marker="x", color="#ff3366",
                            label="monotonicity violation", zorder=5)
         ax.set_xlim(0, 1); ax.set_ylim(0, 1)
-        ax.set_xlabel(f"{label} in  (other channels = 0.5)", color=FG)
+        ax.set_xlabel(f"{label} in  (other channels = {pin_label})", color=FG)
         ax.set_ylabel("output", color=FG)
         ax.set_title(f"{label} sweep", color=axis_color, fontsize=13, pad=8)
         _setup_2d(ax)
         ax.legend(facecolor="#1a1a1a", labelcolor=FG, framealpha=0.85,
                   loc="upper left", fontsize=9)
-    fig.suptitle("Per-axis transfer curves through the cube center",
-                 color=HI, fontsize=14)
+    fig.suptitle(suptitle, color=HI, fontsize=14)
     return fig
 
 
-def density_transfer_curves(table: np.ndarray, n: int) -> Figure:
-    """Density-domain transfer curves: per-axis sweeps + the neutral ramp.
+def density_transfer_curves(
+    sweep_x: np.ndarray,
+    r_sweep: list[tuple[float, np.ndarray, float]],
+    g_sweep: list[tuple[float, np.ndarray, float]],
+    b_sweep: list[tuple[float, np.ndarray, float]],
+    neutral_samples: np.ndarray,
+    *,
+    title: str = "Density-domain transfer curves — coupler diagnostic",
+) -> Figure:
+    """Density-domain transfer curves — coupler diagnostic.
 
     Four panels in a 2×2 grid:
 
-    - **Top row** (R, G, B sweeps): vary one input channel while the
-      other two are held at 0.5. Diagnostic of channel-isolated
-      behavior — what does pushing R alone do to the system?
-    - **Bottom row** (neutral sweep): vary R=G=B together; this is
-      the **canonical film characteristic curve** colorists recognize
-      from datasheets. The shoulder, linear segment, and toe shape
-      are all visible here in a way the per-axis panels obscure
-      (especially for log inputs, where pinning other channels at
-      0.5 already sits above scene gray and crushes the visible
-      range of the sweep).
+    - **Top row** (R, G, B sweeps): each panel sweeps one input channel
+      and shows D-R, D-G, D-B output as a *family* of curves taken at
+      several constant values of the other channels (the "pins"). The
+      spread between curves at different pins IS the coupler signature:
+      DIR couplers in the film simulation make the output channels
+      respond to inputs they otherwise shouldn't, and that cross-talk
+      shows up as a visible vertical gap between same-color curves at
+      different pins. The center pin (typically 0.5) is drawn at full
+      alpha; outer pins fade so the eye reads the family as a textured
+      band rather than a tangle of equally-weighted lines.
+    - **Bottom right** (neutral sweep): vary R=G=B together. The
+      canonical film characteristic curve from datasheets — toe,
+      linear segment, shoulder all visible.
 
     Density convention: D = -log₁₀(output) with the Y axis inverted
     so D=0 (white) sits at top and high D (black) sits at the bottom,
     matching film datasheet conventions.
-    """
-    mid = n // 2
-    axis_codes = np.linspace(0.0, 1.0, n)
-    floor = 1.0e-4
-    # Neutral diagonal: stack the R=G=B samples one per diagonal cell.
-    neutral_samples = np.stack([table[i, i, i, :] for i in range(n)], axis=0)
-    setups = [
-        ("R", table[mid, mid, :, :], RED, "other channels = 0.5"),
-        ("G", table[mid, :, mid, :], GREEN, "other channels = 0.5"),
-        ("B", table[:, mid, mid, :], BLUE, "other channels = 0.5"),
-        ("neutral (R=G=B)", neutral_samples, HI, "the canonical D-vs-input curve"),
-    ]
-    fig, axes_2d = plt.subplots(2, 2, figsize=(13, 10), facecolor=BG, layout="constrained")
-    axes = axes_2d.flat
-    # Compute a shared Y range across all panels so the curves are
-    # visually comparable.
-    all_densities = []
-    for _, samples, _, _ in setups:
-        d = -np.log10(np.clip(samples, floor, 1.0))
-        all_densities.append(d)
-    y_max = max(3.5, float(max(d.max() for d in all_densities)) * 1.05)
 
-    for ax, (label, samples, axis_color, subtitle) in zip(axes, setups):
+    Parameters
+    ----------
+    sweep_x :
+        Shape ``(N,)`` — the input encoded values being swept (same
+        x-axis for all panels). The caller computes this; typically
+        ``np.linspace(0, 1, N)``.
+    r_sweep, g_sweep, b_sweep :
+        Lists of ``(pin_value, samples, alpha)`` triples. ``samples``
+        is shape ``(N, 3)`` of LUT output at the sweep points with the
+        non-swept channels pinned at ``pin_value``. ``alpha`` controls
+        the line transparency for that pin's curves.
+    neutral_samples :
+        Shape ``(N, 3)`` of LUT output along the neutral diagonal
+        (R=G=B=sweep_x). Drawn at full alpha in the bottom-right panel.
+    title :
+        Figure suptitle.
+    """
+    floor = 1.0e-4
+
+    # Shared Y range across all 4 panels. Top stays at D=0 (white);
+    # bottom snaps to the next multiple of 0.5 above the deepest
+    # observed curve, with a hair of margin so curves don't graze
+    # the bottom axis.
+    all_densities = []
+    for sweep_data in (r_sweep, g_sweep, b_sweep):
+        for _, samples, _ in sweep_data:
+            d = -np.log10(np.clip(samples, floor, 1.0))
+            all_densities.append(d)
+    neutral_d = -np.log10(np.clip(neutral_samples, floor, 1.0))
+    all_densities.append(neutral_d)
+    observed_max = float(max(d.max() for d in all_densities))
+    y_max = float(np.ceil((observed_max + 0.05) * 2.0) / 2.0)
+    y_max = max(y_max, 0.5)
+
+    fig, axes_2d = plt.subplots(2, 2, figsize=(13, 10), facecolor=BG,
+                                layout="constrained")
+    # Materialize as a list — zip() on a flatiter advances it past the
+    # zipped count when the other iterable exhausts first, leaving
+    # nothing for the neutral panel below.
+    axes = list(axes_2d.flat)
+
+    setups = [
+        ("R", r_sweep, RED),
+        ("G", g_sweep, GREEN),
+        ("B", b_sweep, BLUE),
+    ]
+    for ax, (label, sweep_data, axis_color) in zip(axes[:3], setups):
         ax.set_facecolor(BG)
-        density = -np.log10(np.clip(samples, floor, 1.0))
-        ax.plot(axis_codes, density[:, 0], color=RED, lw=2.2, label="D-R")
-        ax.plot(axis_codes, density[:, 1], color=GREEN, lw=2.2, label="D-G")
-        ax.plot(axis_codes, density[:, 2], color=BLUE, lw=2.2, label="D-B")
+        # Plot every (pin, samples) family in the panel. The matching
+        # channel's center-pin curve sits on top of the stack so it's
+        # visually dominant.
+        for pin, samples, alpha in sweep_data:
+            density = -np.log10(np.clip(samples, floor, 1.0))
+            ax.plot(sweep_x, density[:, 0], color=RED, lw=2.0,
+                    alpha=alpha, zorder=2 + alpha)
+            ax.plot(sweep_x, density[:, 1], color=GREEN, lw=2.0,
+                    alpha=alpha, zorder=2 + alpha)
+            ax.plot(sweep_x, density[:, 2], color=BLUE, lw=2.0,
+                    alpha=alpha, zorder=2 + alpha)
         ax.set_xlim(0, 1)
         ax.set_ylim(0, y_max)
         ax.invert_yaxis()
-        ax.set_xlabel(f"{label} input code   ({subtitle})", color=FG)
+        pins = sorted({pin for pin, _, _ in sweep_data})
+        pins_text = ", ".join(f"{p:g}" for p in pins)
+        ax.set_xlabel(
+            f"{label} input code   (other channels ∈ {{{pins_text}}})",
+            color=FG, fontsize=9,
+        )
         ax.set_ylabel("D = -log₁₀(output)", color=FG)
         ax.set_title(f"{label} sweep", color=axis_color, fontsize=13, pad=8)
         _setup_2d(ax)
-        ax.legend(facecolor="#1a1a1a", labelcolor=FG, framealpha=0.85,
-                  loc="upper right", fontsize=9)
-    fig.suptitle("Density-domain transfer curves",
-                 color=HI, fontsize=14)
+        # Legend uses three full-alpha proxies so the swatch is readable
+        # against the multi-alpha lines actually drawn.
+        from matplotlib.lines import Line2D
+        proxies = [
+            Line2D([0], [0], color=RED, lw=2.0, label="D-R"),
+            Line2D([0], [0], color=GREEN, lw=2.0, label="D-G"),
+            Line2D([0], [0], color=BLUE, lw=2.0, label="D-B"),
+        ]
+        ax.legend(handles=proxies, facecolor="#1a1a1a", labelcolor=FG,
+                  framealpha=0.85, loc="upper right", fontsize=9)
+
+    # Neutral diagonal panel — single full-alpha family, the canonical
+    # film D-vs-input curve.
+    ax_n = axes[3]
+    ax_n.set_facecolor(BG)
+    ax_n.plot(sweep_x, neutral_d[:, 0], color=RED, lw=2.2, label="D-R")
+    ax_n.plot(sweep_x, neutral_d[:, 1], color=GREEN, lw=2.2, label="D-G")
+    ax_n.plot(sweep_x, neutral_d[:, 2], color=BLUE, lw=2.2, label="D-B")
+    ax_n.set_xlim(0, 1)
+    ax_n.set_ylim(0, y_max)
+    ax_n.invert_yaxis()
+    ax_n.set_xlabel(
+        "neutral (R=G=B) input code   (the canonical D-vs-input curve)",
+        color=FG, fontsize=9,
+    )
+    ax_n.set_ylabel("D = -log₁₀(output)", color=FG)
+    ax_n.set_title("neutral (R=G=B) sweep", color=HI, fontsize=13, pad=8)
+    _setup_2d(ax_n)
+    ax_n.legend(facecolor="#1a1a1a", labelcolor=FG, framealpha=0.85,
+                loc="upper right", fontsize=9)
+
+    fig.suptitle(title, color=HI, fontsize=14)
     return fig
 
 
-def rg_plane_slices(table: np.ndarray, n: int) -> Figure:
-    """R-G plane slices through the cube at varying B values."""
-    n_slices = min(8, n)
+def rg_plane_slices(
+    table: np.ndarray, n: int, out_cs: str, *, n_slices: int = 9,
+) -> Figure:
+    """R-G plane slices through the cube at varying B-input values,
+    rendered as **sRGB display images** (hard-clipped).
+
+    The cube table is encoded in the bundle's output color space. A
+    naive imshow would treat those values as if they were sRGB-encoded,
+    which produces visibly wrong colors for any non-sRGB output
+    (Rec.2020, DCI-P3, P3-D65 PQ, …). Each slice is decoded to linear
+    in the output primaries, chromatically adapted to sRGB primaries,
+    sRGB-encoded, and hard-clipped — so what's on screen is the LUT's
+    R-G response at that B as it would appear on an sRGB display.
+    """
+    from spektrafilm_lut_creator.color_spaces import (
+        decode_cctf, get as get_cs,
+    )
+    # Fixed 3x3 grid; default 9 slices fills it exactly. If the cube
+    # resolution is too small for 9 slices we use as many as fit and
+    # leave the trailing axes blank.
+    n_slices = min(n_slices, n)
+    grid_cols = 3
+    grid_rows = int(np.ceil(n_slices / grid_cols))
     indices = np.linspace(0, n - 1, n_slices, dtype=int)
-    fig, axes = plt.subplots(1, n_slices, figsize=(2.0 * n_slices, 2.7),
-                             facecolor=BG, layout="constrained")
-    axes = np.atleast_1d(axes)
-    for idx, ax in zip(indices, axes):
-        slice_img = np.clip(table[idx, :, :, :], 0.0, 1.0)
-        ax.imshow(slice_img, origin="lower", extent=(0, 1, 0, 1), interpolation="bilinear")
-        ax.set_title(f"B = {idx / (n - 1):.2f}", color=FG, fontsize=10)
+    out_entry = get_cs(out_cs)
+
+    fig, axes_2d = plt.subplots(
+        grid_rows, grid_cols,
+        figsize=(2.4 * grid_cols, 2.6 * grid_rows + 0.4),
+        facecolor=BG, layout="constrained",
+    )
+    axes = np.atleast_1d(axes_2d).reshape(grid_rows, grid_cols).flatten()
+    for i, ax in enumerate(axes):
+        if i >= n_slices:
+            ax.axis("off")
+            continue
+        idx = indices[i]
+        slice_encoded = np.asarray(table[idx, :, :, :], dtype=float)
+        slice_linear = decode_cctf(slice_encoded, out_cs)
+        srgb_linear = np.asarray(
+            colour.RGB_to_RGB(
+                slice_linear,
+                out_entry.primaries,
+                "sRGB",
+                chromatic_adaptation_transform="CAT02",
+            ), dtype=float,
+        )
+        srgb_encoded = np.asarray(
+            colour.cctf_encoding(np.clip(srgb_linear, 0.0, 1.0), function="sRGB"),
+            dtype=float,
+        )
+        ax.imshow(np.clip(srgb_encoded, 0.0, 1.0),
+                  origin="lower", extent=(0, 1, 0, 1), interpolation="bilinear")
+        b_val = idx / (n - 1)
+        ax.set_title(f"B = {b_val:.2f}", color=FG, fontsize=10)
         ax.set_xticks([0, 1]); ax.set_yticks([0, 1])
         ax.tick_params(colors=FG, length=2)
         for spine in ax.spines.values():
             spine.set_color("#555555")
-    axes[0].set_xlabel("R", color=FG)
-    axes[0].set_ylabel("G", color=FG)
-    fig.suptitle("R-G plane slices through the cube", color=HI, fontsize=14)
+        # Only the leftmost column gets a G label; only the bottom
+        # row gets an R label — keeps the grid uncluttered.
+        row, col = i // grid_cols, i % grid_cols
+        if col == 0:
+            ax.set_ylabel("G in", color=FG, fontsize=8)
+        if row == grid_rows - 1 or (i + grid_cols) >= n_slices:
+            ax.set_xlabel("R in", color=FG, fontsize=8)
+    fig.suptitle(
+        f"R-G cube slices at varying B   (output {out_cs} → sRGB display, hard-clipped)",
+        color=HI, fontsize=13,
+    )
+    return fig
+
+
+def gamut_edge_stress(
+    panels: list[tuple[str, np.ndarray, dict]],
+    *,
+    in_cs: str,
+    out_cs: str,
+) -> Figure:
+    """Granger-style RGB stress chart panels.
+
+    Each panel is a vertical linear-RGB gradient (white at the top,
+    saturated RGB-cube edge in the middle as the hue cycles across
+    columns, black at the bottom) generated in one target RGB color
+    space, CAT-adapted into the bundle's input encoding, pushed
+    through the LUT, and displayed in sRGB (hard-clipped). Pixels
+    whose target-space color does not fit the bundle's input encoding
+    are left black.
+
+    ``panels`` is ``[(target_cs_name, srgb_image (H,W,3), stats_dict)]``.
+    """
+    # Panel aspect is 3:1 (width:height) to match Mononodes-style charts —
+    # the gradient image itself is built at 3:1 too, so aspect="equal"
+    # honors that and avoids the very-long banner shape.
+    n_panels = len(panels)
+    panel_width = 9.0
+    fig, axes = plt.subplots(
+        n_panels, 1,
+        figsize=(panel_width, (panel_width / 3.0) * n_panels + 0.8),
+        facecolor=BG, layout="constrained",
+    )
+    axes = np.atleast_1d(axes)
+    for ax, (cs_name, img, stats) in zip(axes, panels):
+        ax.imshow(img, aspect="equal", origin="upper", interpolation="nearest")
+        oog_sat = stats.get("oog_fraction_saturated_row", 0.0)
+        ax.set_title(
+            f"target: {cs_name}   ·   saturated-row OOG vs {in_cs}: {oog_sat:.1%}",
+            color=FG, fontsize=11, pad=4,
+        )
+        ax.set_xticks([]); ax.set_yticks([])
+        for spine in ax.spines.values():
+            spine.set_color("#555555")
+    fig.suptitle(
+        f"Gamut-edge stress test — {in_cs} → {out_cs}\n"
+        f"(per column: linear-RGB gradient white → saturated edge of the target "
+        f"cube → black; out-of-input-gamut pixels left black)",
+        color=HI, fontsize=13,
+    )
     return fig
 
 

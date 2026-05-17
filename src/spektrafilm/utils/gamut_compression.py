@@ -91,6 +91,80 @@ class GamutCompressSpec:
             raise ValueError(f"knee power must be > 0, got {p}")
 
 
+@dataclass(frozen=True)
+class OutputGamutCompressSpec:
+    """Configuration for output gamut compression.
+
+    Independent of :class:`GamutCompressSpec` (which targets the visible
+    spectral locus on the input side, in chromaticity). This spec targets
+    the *output primaries cube* on the output side, in destination RGB.
+    Both algorithms reuse the same Reinhard knee math.
+
+    Attributes
+    ----------
+    mode :
+        ``"soft"`` applies the Reinhard-knee compression; ``"off"``
+        disables compression and passes output RGB through unchanged
+        (the existing per-channel ``gamut_clip`` in scanning.py is then
+        the only output-side safety net).
+    algorithm :
+        ``"oklch"`` (default) — perceptual-hue-preserving chroma
+        reduction in OkLab. Convert output RGB → OkLab → OkLch
+        (L, C, h), look up ``C_max(L, h)`` for the output color
+        space's RGB cube, apply the Reinhard knee to ``C / C_max``,
+        reconstruct. Preserves OkLab hue ``h`` and OkLab lightness
+        ``L`` — the colorist sees the same hue at the same perceptual
+        brightness, just less saturated. Default because the
+        simulation's output gamut is the smooth, round-to-hexagonal
+        envelope of a CMY dye set (see n110 §2), and perceptual-
+        chroma reduction around a round envelope reads more smoothly
+        than a per-channel knee against a triangle.
+
+        ``"aces_rgc"`` — ACES Reference Gamut Compression v1.3 native
+        form. Per-channel knee on the achromatic distance
+        ``d = (max(R,G,B) - c) / max(R,G,B)``. Preserves the achromatic
+        RGB mixture. This is the cinema-industry standard for output
+        gamut mapping; same operation as OCIO's
+        ``FixedFunctionTransform(style=ACES_GamutComp13)`` (the knee
+        math is verified bit-identical in
+        ``validate_compression_against_references.py``). Available as
+        an opt-in for users who want behavior matching downstream
+        Resolve/Nuke gamut-compress tools.
+    knee :
+        ``(threshold, limit, power)`` of the Reinhard knee. Default
+        ``(0.815, 1.0, 1.2)`` matches the ACES RGC v1.3 cyan threshold
+        and power; the limit is reduced from 1.147 to 1.0 so the knee's
+        asymptote lands at the output gamut boundary itself (cube edge)
+        rather than past it — the LUT cube must contain values in
+        [0, 1] without needing a hard clip. Same reasoning as the
+        input side (see n100 §5.2).
+    """
+
+    mode: Literal["off", "soft"] = "soft"
+    algorithm: Literal["aces_rgc", "oklch"] = "oklch"
+    knee: tuple[float, float, float] = (0.815, 1.0, 1.2)
+
+    def __post_init__(self) -> None:
+        if self.mode not in ("off", "soft"):
+            raise ValueError(
+                f"mode must be 'off' or 'soft', got {self.mode!r}"
+            )
+        if self.algorithm not in ("aces_rgc", "oklch"):
+            raise ValueError(
+                f"algorithm must be 'aces_rgc' or 'oklch', "
+                f"got {self.algorithm!r}"
+            )
+        t, l, p = self.knee
+        if not (0.0 <= t < 1.0):
+            raise ValueError(
+                f"knee threshold must be in [0, 1), got {t}"
+            )
+        if not (l > 0.0):
+            raise ValueError(f"knee limit must be > 0, got {l}")
+        if not (p > 0.0):
+            raise ValueError(f"knee power must be > 0, got {p}")
+
+
 # ---------------------------------------------------------------------------
 # Spectral locus singleton
 # ---------------------------------------------------------------------------
@@ -424,6 +498,245 @@ def compress_xy(
             threshold=threshold, limit=limit, power=power, locus=locus,
         )
     raise ValueError(f"unknown algorithm {spec.algorithm!r}")
+
+
+# ---------------------------------------------------------------------------
+# Output-side: per-channel ACES RGC in destination RGB
+# ---------------------------------------------------------------------------
+
+
+def compress_rgb_aces_rgc(
+    rgb: np.ndarray,
+    *,
+    threshold: float,
+    limit: float,
+    power: float,
+) -> np.ndarray:
+    """ACES Reference Gamut Compression v1.3 in its native form.
+
+    For each pixel, compute the achromatic value ``ach = max(R, G, B)``
+    and per-channel distance ``d = (ach - c) / ach``. ``d >= 0`` for
+    every channel; ``d > 1`` exactly when ``c < 0`` (the channel is
+    "more saturated than the achromatic envelope"). Apply the Reinhard
+    knee to each per-channel distance, then reconstruct:
+    ``c' = ach * (1 - d')``.
+
+    With the default ``limit = 1.0``, the knee asymptotes at ``d = 1``,
+    so negative channels (which had ``d > 1``) are pulled to exactly
+    ``c' = 0`` — the cube boundary. Positive channels inside the
+    threshold ``t`` are unchanged. Hue is preserved in the colorist
+    sense (the channel-mixture ratios stay coherent rather than the
+    dominant-wavelength chromaticity).
+
+    Notes on amplitude
+    ------------------
+    This operation does *not* touch the achromatic value itself, so
+    pixels with ``ach > 1`` retain ``ach > 1`` after compression. That
+    high-amplitude case is handled by the existing
+    ``params.io.gamut_clip`` safety net downstream (per-channel
+    soft-plus or ``np.clip(0, 1)``) — the LUT cube's [0, 1] invariant
+    is preserved by the combination.
+
+    References
+    ----------
+    AMPAS Gamut Mapping Virtual Working Group, *ACES Reference Gamut
+    Compression v1.3*, 2020. Same per-channel formulation as OCIO's
+    ``FixedFunctionTransform(style=ACES_GamutComp13)``; knee math
+    A/B-validated in
+    ``spektrafilm-research/studies/a40_lut_system/
+    validate_compression_against_references.py``.
+    """
+    rgb = np.asarray(rgb, dtype=float)
+    # Achromatic envelope. For all-non-positive pixels (extreme shadows)
+    # we fall back to identity — no meaningful chromaticity to compress.
+    ach = np.max(rgb, axis=-1)
+    safe_ach = np.where(ach > 1e-12, ach, 1.0)
+
+    d = (ach[..., None] - rgb) / safe_ach[..., None]
+    d_compressed = reinhard_knee(
+        d, threshold=threshold, limit=limit, power=power,
+    )
+    rgb_compressed = ach[..., None] * (1.0 - d_compressed)
+    # Pixels with ach <= 0 keep their original (near-black) values.
+    return np.where(ach[..., None] > 1e-12, rgb_compressed, rgb)
+
+
+# ---------------------------------------------------------------------------
+# Output-side: OkLch chroma reduction to the output primaries cube.
+# Mirrors the input-side compress_oklch_chroma but with the boundary swapped
+# from the visible spectral locus (a chromaticity polygon) to the destination
+# RGB cube (the output primaries' [0, 1]³ in linear RGB).
+# ---------------------------------------------------------------------------
+
+
+_OKLCH_OUTPUT_CMAX_CACHE: dict[
+    str, tuple[np.ndarray, np.ndarray, np.ndarray]
+] = {}
+
+
+def _build_oklch_output_c_max_table(
+    output_color_space: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Bisect to find max Oklch chroma at each (L, h) such that the
+    resulting linear RGB in ``output_color_space`` is inside [0, 1]^3.
+
+    Per output color space; cached after the first call. Sampling
+    matches the input-side ``_build_oklch_c_max_table`` (64 × 720)
+    so resolution and per-cell error characteristics are consistent.
+    """
+    cs = colour.RGB_COLOURSPACES[output_color_space]
+    white = np.asarray(cs.whitepoint, dtype=float)
+
+    n_L = _OKLCH_CMAX_TABLE_N_L
+    n_h = _OKLCH_CMAX_TABLE_N_H
+    n_bisect = _OKLCH_CMAX_TABLE_N_BISECT
+
+    L_grid = np.linspace(0.02, 1.0, n_L)
+    h_grid = np.linspace(-np.pi, np.pi, n_h, endpoint=False)
+    L_mesh, h_mesh = np.meshgrid(L_grid, h_grid, indexing="ij")
+
+    lo = np.zeros_like(L_mesh)
+    hi = np.full_like(L_mesh, 0.5)  # 0.5 covers all realistic chromas
+
+    for _ in range(n_bisect):
+        mid = (lo + hi) * 0.5
+        a = mid * np.cos(h_mesh)
+        b = mid * np.sin(h_mesh)
+        lab = np.stack([L_mesh, a, b], axis=-1).reshape(-1, 3)
+        xyz = np.asarray(colour.Oklab_to_XYZ(lab))
+        rgb = np.asarray(colour.XYZ_to_RGB(
+            xyz, colourspace=output_color_space,
+            illuminant=white, apply_cctf_encoding=False,
+        ))
+        # In-gamut iff every channel is in [0, 1]. Small slack absorbs
+        # the matrix-inverse floating-point noise that would otherwise
+        # leave the largest in-gamut chroma slightly conservative.
+        in_gamut = np.all(
+            (rgb >= -1e-6) & (rgb <= 1.0 + 1e-6), axis=-1,
+        ).reshape(L_mesh.shape)
+        lo = np.where(in_gamut, mid, lo)
+        hi = np.where(in_gamut, hi, mid)
+    return L_grid, h_grid, lo
+
+
+def _get_oklch_output_c_max_table(
+    output_color_space: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    if output_color_space not in _OKLCH_OUTPUT_CMAX_CACHE:
+        _OKLCH_OUTPUT_CMAX_CACHE[output_color_space] = (
+            _build_oklch_output_c_max_table(output_color_space)
+        )
+    return _OKLCH_OUTPUT_CMAX_CACHE[output_color_space]
+
+
+def compress_rgb_oklch_chroma(
+    rgb: np.ndarray,
+    output_color_space: str,
+    *,
+    threshold: float,
+    limit: float,
+    power: float,
+) -> np.ndarray:
+    """OkLch chroma reduction to the output RGB cube.
+
+    For each pixel, convert linear ``output_color_space`` RGB → XYZ →
+    OkLab → OkLch (L, C, h). Look up the maximum in-gamut chroma
+    ``C_max(L, h)`` for the destination RGB cube and apply the Reinhard
+    knee on ``C / C_max``. Reconstruct OkLch → OkLab → XYZ → RGB.
+
+    L (perceptual lightness) and h (perceptual hue) are preserved by
+    construction; only the perceptual chroma shrinks. With
+    ``limit = 1.0`` the knee asymptotes at ``C / C_max = 1``, i.e. the
+    cube boundary itself — outputs are guaranteed inside the RGB cube
+    by the OkLch math, no final clip needed for the chroma direction
+    (the achromatic lightness axis is unaffected and the cube's
+    [0, 1] amplitude bound is preserved by the OkLab transform when
+    L ∈ [0, 1]).
+
+    Heavier per-pixel than :func:`compress_rgb_aces_rgc`: each call
+    runs RGB ↔ XYZ ↔ OkLab, a hypot + atan2, a bilinear table lookup,
+    a knee, and cos/sin reconstruction. The OkLch C_max table is
+    cached per output color space (one build per illuminant), so
+    repeated bakes against the same output space are fast.
+    """
+    rgb = np.asarray(rgb, dtype=float)
+    cs = colour.RGB_COLOURSPACES[output_color_space]
+    white = np.asarray(cs.whitepoint, dtype=float)
+
+    # RGB → XYZ → OkLab → OkLch (L, C, h).
+    xyz = np.asarray(colour.RGB_to_XYZ(
+        rgb, colourspace=output_color_space,
+        illuminant=white, apply_cctf_decoding=False,
+    ))
+    lab = np.asarray(colour.XYZ_to_Oklab(xyz))
+    L = lab[..., 0]
+    a = lab[..., 1]
+    b = lab[..., 2]
+    C = np.hypot(a, b)
+    h = np.arctan2(b, a)
+
+    # Compress C against the per-output-space C_max(L, h).
+    c_max_lookup_table = _get_oklch_output_c_max_table(output_color_space)
+    C_max = _c_max_lookup(L, h, *c_max_lookup_table)
+    safe_C_max = np.fmax(C_max, 1e-9)
+    d_norm = C / safe_C_max
+    d_compressed = reinhard_knee(
+        d_norm, threshold=threshold, limit=limit, power=power,
+    )
+    C_new = d_compressed * safe_C_max
+
+    # OkLch → OkLab → XYZ → RGB.
+    a_new = C_new * np.cos(h)
+    b_new = C_new * np.sin(h)
+    lab_new = np.stack([L, a_new, b_new], axis=-1)
+    xyz_new = np.asarray(colour.Oklab_to_XYZ(lab_new))
+    rgb_new = np.asarray(colour.XYZ_to_RGB(
+        xyz_new, colourspace=output_color_space,
+        illuminant=white, apply_cctf_encoding=False,
+    ))
+    return rgb_new
+
+
+def compress_rgb(
+    rgb: np.ndarray,
+    spec: "OutputGamutCompressSpec",
+    *,
+    output_color_space: str | None = None,
+) -> np.ndarray:
+    """Apply output gamut compression to RGB values per ``spec``.
+
+    Parameters
+    ----------
+    rgb :
+        RGB array in the destination output primaries (linear),
+        shape ``(..., 3)``.
+    spec :
+        Output compression configuration. ``spec.mode == "off"``
+        returns ``rgb`` unchanged.
+    output_color_space :
+        Name of the destination color space (e.g. ``"sRGB"``).
+        Required when ``spec.algorithm == "oklch"`` because that
+        algorithm needs to build / look up the per-color-space
+        ``C_max(L, h)`` table. Ignored for ``"aces_rgc"``, which
+        operates purely in destination RGB.
+    """
+    if spec.mode == "off":
+        return np.asarray(rgb, dtype=float)
+    threshold, limit, power = spec.knee
+    if spec.algorithm == "aces_rgc":
+        return compress_rgb_aces_rgc(
+            rgb, threshold=threshold, limit=limit, power=power,
+        )
+    if spec.algorithm == "oklch":
+        if output_color_space is None:
+            raise ValueError(
+                "output_color_space is required when algorithm='oklch'"
+            )
+        return compress_rgb_oklch_chroma(
+            rgb, output_color_space=output_color_space,
+            threshold=threshold, limit=limit, power=power,
+        )
+    raise ValueError(f"unknown output algorithm {spec.algorithm!r}")
 
 
 # ---------------------------------------------------------------------------

@@ -1,14 +1,13 @@
 # spektrafilm_lut_creator.qa
 
-QA suite for spektrafilm LUT bundles. Answers two questions in one
-pass:
+QA suite for spektrafilm LUT bundles. Answers two questions in one pass:
 
-1. **LUT fidelity** — does the cube preserve the spektrafilm pipeline
-   within industry tolerance, both on-grid and off-grid via trilinear
-   and tetrahedral interpolation (what real hosts use)?
-2. **Model diagnostic** — does the spektrafilm pipeline itself produce
-   sensible output? Failures here aren't LUT-bake bugs, they're model
-   issues. The bake might be perfect; the model still wrong.
+1. **LUT fidelity** — does the cube preserve the spektrafilm pipeline within
+   industry tolerance, both on-grid and off-grid via trilinear and tetrahedral
+   interpolation (what real hosts use)?
+2. **Model diagnostic** — does the spektrafilm pipeline itself produce sensible
+   output? Failures here aren't LUT-bake bugs, they're model issues. The bake
+   might be perfect; the model still wrong.
 
 Design context: `studies/a40_lut_system/n080_lut_quality_and_visualization.md`.
 
@@ -26,12 +25,11 @@ results = run(spec, bundle, out_dir="qa/my_bundle", paper_index=0)
 
 `run` writes:
 
-- `qa/my_bundle/report.md` — the human-readable QA report (renders in
-  VS Code, GitHub, any markdown viewer)
+- `qa/my_bundle/report.md` — the human-readable QA report (renders in VS Code,
+  GitHub, any markdown viewer)
 - `qa/my_bundle/figures/*.png` — one PNG per test
-- `qa/my_bundle/cache/*.npz` — pipeline reference samples (the only
-  expensive build artifact; invalidated automatically when the
-  bundle changes)
+- `qa/my_bundle/cache/*.npz` — pipeline reference samples (the only expensive
+  build artifact; invalidated automatically when the bundle changes)
 
 To QA every paper in a multi-paper bundle, iterate over
 `range(len(bundle.luts))` and call `run` per index.
@@ -59,9 +57,16 @@ To QA every paper in a multi-paper bundle, iterate over
 | `hue_twist_oklab` | Per-saturation-band hue rotation | `max ≤ 30°` |
 | `spectral_locus_envelope` | Reach of model gamut at maximum saturation | Informational |
 
-Skin-tone arc (ISO 17321 measured spectra) is **deferred** for v1 —
-needs the measured-reflectance pipeline that wasn't worth scoping in
-the first ship. See n080 §3.5 for the design.
+### Picture-style diagnostics
+
+| Test | What it asks | Pass criterion |
+|---|---|---|
+| `gamut_edge_stress` | LUT rendering of white / hue-cycle / black bands at the edges of Rec.709, Rec.2020, ACES2065-1 | Informational |
+| `rg_plane_slices` | R-G cube cross-sections at evenly-spaced B-input values, rendered in sRGB | Informational |
+
+Skin-tone arc (ISO 17321 measured spectra) is **deferred** for v1 — needs the
+measured-reflectance pipeline that wasn't worth scoping in the first ship. See
+n080 §3.5 for the design.
 
 ## Layout
 
@@ -78,18 +83,16 @@ qa/
   suite.py        # QAContext + run() + markdown report emission
 ```
 
-Code stays minimal on purpose — each test is one function and is
-explicit about its pattern, metric, and pass criterion. The
-scientific weight is in the metric implementations and the citation
-list inside each `Result.references`.
+Code stays minimal on purpose — each test is one function and is explicit about
+its pattern, metric, and pass criterion. The scientific weight is in the metric
+implementations and the citation list inside each `Result.references`.
 
 ## Adding a test
 
 1. Write `def my_test(ctx: QAContext) -> Result:` in `tests.py`.
 2. Add it to `DEFAULT_TESTS` at the bottom of `tests.py`.
-3. If it needs a new viz, add a function to `viz.py` returning a
-   `Figure`.
+3. If it needs a new viz, add a function to `viz.py` returning a `Figure`.
 4. If it needs a new metric, add it to `metrics.py`.
-5. Cite the reference standard or paper in `Result.references`. The
-   report renders these — if you can't cite a source, the test
-   probably isn't industry-grade yet.
+5. Cite the reference standard or paper in `Result.references`. The report
+   renders these — if you can't cite a source, the test probably isn't
+   industry-grade yet.

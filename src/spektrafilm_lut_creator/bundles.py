@@ -11,7 +11,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from spektrafilm.utils.gamut_compression import GamutCompressSpec
+from spektrafilm.utils.gamut_compression import (
+    GamutCompressSpec,
+    OutputGamutCompressSpec,
+)
 from spektrafilm_lut_creator.formats import Lut
 from spektrafilm_lut_creator.metadata import BundleMeta
 
@@ -88,6 +91,16 @@ class BundleSpec:
     chroma-axis variant. The chosen spec is forwarded to
     ``params.io.input_gamut_compress`` so GUI users and bundle bakes
     share the same code path."""
+    output_gamut_compress: OutputGamutCompressSpec = field(default_factory=OutputGamutCompressSpec)
+    """Output gamut compression spec (ACES Reference Gamut Compression
+    v1.3 in destination RGB). Default compresses out-of-output-gamut
+    samples — chromaticities the film simulation reaches that fall
+    outside ``output_color_space`` — smoothly onto the output primaries
+    cube via a per-channel Reinhard knee on the achromatic distance.
+    The cinema-industry standard for output gamut mapping (same
+    operation as OCIO ``FixedFunctionTransform(style=ACES_GamutComp13)``).
+    The existing ``gamut_clip`` knob remains as the final safety net.
+    Pass ``OutputGamutCompressSpec(mode='off')`` to disable."""
 
     def __post_init__(self):
         if self.topology not in _VALID_TOPOLOGIES:

@@ -3,7 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from spektrafilm.profiles.io import Profile
-from spektrafilm.utils.gamut_compression import GamutCompressSpec
+from spektrafilm.utils.gamut_compression import (
+    GamutCompressSpec,
+    OutputGamutCompressSpec,
+)
 
 
 
@@ -186,6 +189,14 @@ class IOParams:
     # See spektrafilm-research/studies/a40_lut_system/n100_soft_input_clipping
     # for the full rationale.
     input_gamut_compress: GamutCompressSpec = field(default_factory=GamutCompressSpec)
+    # Output gamut compression: smoothly compresses out-of-output-gamut
+    # chromaticities into the output primaries cube via ACES Reference
+    # Gamut Compression v1.3 (per-channel in destination RGB). The
+    # existing per-channel ``gamut_clip`` knob still runs after this as
+    # the final safety net (handles any sub-pixel overshoots).
+    # See spektrafilm-research/studies/a40_lut_system/n100_soft_input_clipping
+    # for the parallel input-side reasoning.
+    output_gamut_compress: OutputGamutCompressSpec = field(default_factory=OutputGamutCompressSpec)
     crop: bool = False
     crop_center: tuple[float, float] = (0.5, 0.5)
     crop_size: tuple[float, float] = (0.1, 0.1)

@@ -50,28 +50,52 @@ def near_zero_patches(
 
 
 def highlight_ramps_per_channel(
-    input_color_space: str, n: int = 64, lo: float = 0.4, hi: float = 1.0
-) -> np.ndarray:
-    """Per-channel ramp in the encoded input space, top half by default.
+    input_color_space: str,
+    n: int = 64,
+    lo: float | None = None,
+    hi: float = 1.0,
+) -> tuple[np.ndarray, float]:
+    """Per-channel ramp from middle-gray to max encoded in input space.
 
-    Returns ``(3 * n, 3)``. The first ``n`` rows ramp R alone (G, B
-    held at mid-gray 0.5); the next ``n`` ramp G; the last ``n`` ramp
-    B. For log input spaces this covers many stops above middle gray;
-    for linear inputs it covers the upper half of the encoded domain.
+    Returns ``(samples, lo_used)`` where ``samples`` has shape
+    ``(3 * n, 3)``. The first ``n`` rows ramp R alone with G, B held
+    at the input space's middle-gray-encoded value; the next ``n``
+    ramp G; the last ``n`` ramp B.
 
-    The test that consumes this checks the second-derivative of the
-    output along each ramp (kinks = bad rolloff or DIR-coupler
-    artifacts).
+    The ramp's low end (``lo``) defaults to the input color space's
+    **middle-gray-encoded** value — i.e. linear 0.18 through the input
+    CCTF. So:
+
+    - sRGB: lo ≈ 0.46 → covers ~2.5 stops above middle gray (the
+      sRGB highlight zone).
+    - V-Log: lo ≈ 0.42 → covers ~8 stops above middle gray (the
+      log highlight headroom).
+    - ACEScg (linear): lo = 0.18 → covers ~2.5 stops above middle
+      gray.
+
+    Each input space gets a sweep honest to its own dynamic range.
+    Without this anchoring, ``lo=0.4`` was below mid-gray for sRGB
+    but mid-dark for V-Log, producing visually confusing curves.
+
+    The non-swept channels are also pinned at the same middle-gray-
+    encoded value so the ramp traces a *neutral-gray-anchored*
+    highlight sweep across input spaces. ``lo_used`` is the actual
+    encoded value used, returned so callers can label the figure.
     """
-    del input_color_space
+    if lo is None:
+        from spektrafilm_lut_creator.color_spaces import encode_cctf
+        mid_gray_linear = np.full((1, 3), 0.18, dtype=float)
+        mid_gray_encoded = encode_cctf(mid_gray_linear, input_color_space)
+        lo = float(np.asarray(mid_gray_encoded).flatten()[0])
+
+    pin = lo
     t = np.linspace(lo, hi, n)
-    mid = 0.5
     ramps = []
     for axis in range(3):
-        block = np.full((n, 3), mid)
+        block = np.full((n, 3), pin)
         block[:, axis] = t
         ramps.append(block)
-    return np.concatenate(ramps, axis=0)
+    return np.concatenate(ramps, axis=0), float(lo)
 
 
 def planckian_sweep(
