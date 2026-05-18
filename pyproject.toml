@@ -13,29 +13,56 @@ authors = [
     { name = "Andrea Volpato", email = "volpedellenevi@gmail.com" },
 ]
 dependencies = [
+    # Core runtime — the physical-pipeline core under `spektrafilm/`.
+    # See studies/a40_lut_system/n070_runtime_architecture_split.md for
+    # why the runtime is the one layer that imports nothing from the
+    # GUI or LUT-creator packages.
     "numpy~=2.4",
-    "matplotlib~=3.10",
     "scipy~=1.17",
     "colour-science~=0.4.6",
     "scikit-image~=0.26",
+    "matplotlib~=3.10",
     "opt-einsum~=3.4.0",
-    "napari~=0.6.6",
-    "qtpy~=2.4",
-    "lmfit~=1.3.2",
-    "pyside6~=6.9",
-    "Pillow~=12.1",
     "numba~=0.64",
     "OpenImageIO~=3.1.11",
     "pyfftw~=0.15.0",
     "rawpy~=0.26.1",
     "exiv2~=0.18.1",
     "lensfunpy~=1.18.0",
+    # Currently unused in src/ but retained: lmfit is used by the
+    # sibling spektrafilm-profile-creator workflow; PyYAML is on the
+    # short-list for future config-file parsing. Audit and drop if
+    # still unused in a later cleanup.
+    "lmfit~=1.3.2",
     "PyYAML~=6.0",
-    "pyconify~=0.2.1",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "opencolorio~=2.5"]
+# spektrafilm_gui — interactive Qt + napari shell. None of these are
+# imported by the runtime; only `spektrafilm_gui/` (and indirectly the
+# `spektrafilm[gui]` script entry point) needs them.
+gui = [
+    "qtpy~=2.4",
+    "pyside6~=6.9",
+    "napari~=0.6.6",
+    "Pillow~=12.1",
+    "pyconify~=0.2.1",
+]
+# spektrafilm_lut_creator — LUT bake + QA + OCIO emission. Most of the
+# package piggybacks on core deps (numpy, colour-science, matplotlib);
+# `markdown` is the one new dep, used only for the QA HTML report.
+lut_creator = [
+    "markdown~=3.7",
+]
+# Test/dev tooling.
+dev = [
+    "pytest",
+    "opencolorio~=2.5",   # PyOpenColorIO; validates emitted config.ocio files
+]
+# Convenience alias — installs the full stack (gui + lut_creator + dev).
+# Use this for development environments: `pip install -e ".[all]"`.
+# Self-referential extras are supported by pip >= 21.2 and uv.
+all = ["spektrafilm[gui,lut_creator,dev]"]
 
 [project.scripts]
 spektrafilm = "spektrafilm_gui.app:main"
