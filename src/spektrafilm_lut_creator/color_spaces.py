@@ -217,7 +217,8 @@ register(ColorSpaceEntry("Adobe RGB",   "Adobe RGB (1998)", "Gamma 2.2", "encode
 # Camera log (input only).
 register(ColorSpaceEntry("ACEScct",                  "ACEScct",            "ACEScct",
                          "log", ("input",),
-                         short_tag="acescct"))
+                         short_tag="acescct",
+                         ocio_alias="ACEScct"))
 register(ColorSpaceEntry("ARRI LogC3 (EI800)",       "ARRI Wide Gamut 3",  "ARRI LogC3",
                          "log", ("input",),
                          short_tag="logc3",
@@ -247,10 +248,12 @@ register(ColorSpaceEntry("Fujifilm F-Log2",          "F-Gamut",            "F-Lo
                          short_tag="flog2"))
 register(ColorSpaceEntry("Canon Log 3",              "Cinema Gamut",       "Canon Log 3",
                          "log", ("input",),
-                         short_tag="canonlog3"))
+                         short_tag="canonlog3",
+                         ocio_alias="Canon Log 3 - Cinema Gamut"))
 register(ColorSpaceEntry("RED Log3G10",              "REDWideGamutRGB",    "Log3G10",
                          "log", ("input",),
-                         short_tag="redlog3g10"))
+                         short_tag="redlog3g10",
+                         ocio_alias="RED Log3G10 - REDWideGamutRGB"))
 register(ColorSpaceEntry("DaVinci Intermediate",     "DaVinci Wide Gamut", "DaVinci Intermediate",
                          "log", ("input",),
                          short_tag="davinciintermediate"))
@@ -271,9 +274,11 @@ register(ColorSpaceEntry("Blackmagic Film Gen 5",    "Blackmagic Wide Gamut", "B
 # (peak-nit assumption, never apply Rec.709 LUTs to PQ signal, etc.).
 register(ColorSpaceEntry("Rec.2100 PQ", "ITU-R BT.2020", "ITU-R BT.2100 PQ", "log", ("input", "output"),
                          short_tag="rec2100pq",
+                         ocio_alias="Rec.2100-PQ - Display",
                          notes="HDR streaming master (Netflix/Apple TV+/Disney+/Amazon/Max). ST.2084 transfer. Domain [0,1] = 0..10,000 nits; document per-LUT peak-luminance assumption."))
 register(ColorSpaceEntry("Rec.2100 HLG", "ITU-R BT.2020", "ITU-R BT.2100 HLG", "log", ("input", "output"),
                          short_tag="rec2100hlg",
+                         ocio_alias="Rec.2100-HLG - Display",
                          notes="HDR broadcast (BBC/NHK/EBU live, YouTube HDR). HLG bakes OOTF + nominal peak luminance; not portable across display peaks the way PQ is."))
 
 # ---------------------------------------------------------------------------
@@ -292,6 +297,7 @@ register(ColorSpaceEntry("Rec.2100 HLG", "ITU-R BT.2020", "ITU-R BT.2100 HLG", "
 register(ColorSpaceEntry("ACEScc", "ACEScg", "ACEScc",
                          "log", ("input",),
                          short_tag="acescc",
+                         ocio_alias="ACEScc",
                          notes="Legacy VFX log working space (AP1 primaries, ACES1.0-era). "
                                "Same primaries as ACEScg; differs from ACEScct only in the "
                                "removal of the small linear toe near zero."))
@@ -307,6 +313,7 @@ register(ColorSpaceEntry("P3-D65 Linear", "P3-D65", None,
 register(ColorSpaceEntry("P3-D65 PQ", "P3-D65", "ITU-R BT.2100 PQ",
                          "log", ("input", "output"),
                          short_tag="p3d65pq",
+                         ocio_alias="ST2084 P3-D65 - Display",
                          notes="The mastering-display container inside DoVi/HDR10. P3-D65 "
                                "primaries with ST.2084 transfer; same curve as Rec.2100 PQ "
                                "but a narrower color volume. Use when the deliverable spec "

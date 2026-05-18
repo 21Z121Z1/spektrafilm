@@ -1491,8 +1491,16 @@ def output_gamut_compression_preview(ctx: "QAContext") -> Result:
 
     bg, fg, hi, dim = "#0a0a0a", "#cccccc", "#ffee66", "#888888"
 
+    from spektrafilm_lut_creator.color_spaces import get as _get_cs
     spec = ctx.spec.output_gamut_compress
     out_cs_name = ctx.spec.output_color_space
+    # ``compress_rgb`` is in the runtime layer (per n070) and takes a
+    # ``colour-science`` primaries name, not our registry name. The two
+    # happen to coincide for sRGB / Display P3 / DCI-P3, which is why
+    # this latent bug only surfaced when M8's OCIO expansion enabled
+    # output spaces whose registry names differ (Rec.709 / Rec.2020 /
+    # Rec.2100 PQ / Rec.2100 HLG / P3-D65 PQ).
+    out_primaries_name = _get_cs(out_cs_name).primaries
 
     # Saturated cube edges — the standard "rim" stimulus. n=96 per edge
     # gives 12 × 96 = 1152 samples; dense enough that consecutive points
@@ -1501,16 +1509,13 @@ def output_gamut_compression_preview(ctx: "QAContext") -> Result:
 
     rgb_unbounded = _run_unbounded_pipeline_for_rim(ctx, rim_samples)
     rgb_compressed = (
-        compress_rgb(rgb_unbounded, spec, output_color_space=out_cs_name)
+        compress_rgb(rgb_unbounded, spec, output_color_space=out_primaries_name)
         if spec.mode != "off" else rgb_unbounded.copy()
     )
 
     # Project both rim populations to xy in the output color space's
     # chromaticity frame.
-    out_primaries = colour.RGB_COLOURSPACES[
-        __import__("spektrafilm_lut_creator.color_spaces", fromlist=["get"])
-            .get(out_cs_name).primaries
-    ]
+    out_primaries = colour.RGB_COLOURSPACES[out_primaries_name]
     out_white = np.asarray(out_primaries.whitepoint, dtype=float)
     out_tri = np.asarray(out_primaries.primaries, dtype=float)
 

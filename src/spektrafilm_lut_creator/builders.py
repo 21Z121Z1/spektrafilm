@@ -1033,13 +1033,12 @@ class BundleBuilder:
 
         Returns True iff a config was written. Unsupported combinations
         log a concise notice and return False rather than raising — the
-        rest of the bundle artifact is still valid and the user picked a
-        valid combination for the LUT bake itself; OCIO support is a
-        bonus channel.
+        user explicitly opted in to OCIO via ``spec.ocio_config=True``
+        and probably wants to know why no file appeared.
 
         See studies/a40_lut_system/n120_ocio_config_emission.md.
         """
-        if not self.spec.emit_ocio:
+        if not self.spec.ocio_config:
             return False
         # Lazy import: keeps ocio_emit isolated from the cold-load path
         # of the builders module (mirrors the pattern used for qa.run

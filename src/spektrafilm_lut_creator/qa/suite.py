@@ -298,6 +298,10 @@ def run(
 
     report_path = out_dir / "report.md"
     write_report(results, ctx, report_path)
+    # Render the same content as a self-contained HTML page next to
+    # report.md. Cheap (~100ms) and the colorist can double-click it.
+    from spektrafilm_lut_creator.qa.html_export import report_md_to_html
+    html_path = report_md_to_html(report_path)
 
     n_pass = sum(1 for r in results if r.passed is True)
     n_fail = sum(1 for r in results if r.passed is False)
@@ -307,7 +311,7 @@ def run(
         for r in results:
             if r.passed is False:
                 print(f"[qa]   FAIL  {r.name}  {r.short_summary()}")
-    print(f"[qa] wrote {report_path}")
+    print(f"[qa] wrote {report_path}, {html_path.name}")
     return results
 
 
