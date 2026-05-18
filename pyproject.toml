@@ -35,7 +35,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["pytest", "opencolorio~=2.5"]
 
 [project.scripts]
 spektrafilm = "spektrafilm_gui.app:main"

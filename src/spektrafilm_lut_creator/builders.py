@@ -1027,6 +1027,32 @@ class BundleBuilder:
         title = _l4_lut_title(spec, print_stock, version_tag)
         return rel_path, Lut(table=table, title=title)
 
+    def _maybe_emit_ocio(self, bundle: Bundle, bundle_root: Path) -> bool:
+        """Write ``config.ocio`` to the bundle root if the spec opts in
+        and the (topology, color-space) combination is supported.
+
+        Returns True iff a config was written. Unsupported combinations
+        log a concise notice and return False rather than raising — the
+        rest of the bundle artifact is still valid and the user picked a
+        valid combination for the LUT bake itself; OCIO support is a
+        bonus channel.
+
+        See studies/a40_lut_system/n120_ocio_config_emission.md.
+        """
+        if not self.spec.emit_ocio:
+            return False
+        # Lazy import: keeps ocio_emit isolated from the cold-load path
+        # of the builders module (mirrors the pattern used for qa.run
+        # and delivery_targets).
+        from spektrafilm_lut_creator import ocio_emit
+        reason = ocio_emit.unsupported_reason(self.spec)
+        if reason:
+            print(f"[bake] skipping config.ocio: {reason}")
+            return False
+        yaml_text = ocio_emit.emit_ocio_config(bundle, self.spec)
+        (bundle_root / "config.ocio").write_text(yaml_text, encoding="utf-8")
+        return True
+
     def _run_qa(self, bundle: Bundle, bundle_root: Path) -> None:
         """Run the QA suite for the spec's selected paper(s).
 
@@ -1136,7 +1162,9 @@ class BundleBuilder:
         shutil.copy2(_lut_license_source_path(), out_dir / _LUT_LICENSE_FILENAME)
         n_cubes = len(bundle.luts)
         cube_word = "cube" if n_cubes == 1 else "cubes"
-        print(f"[bake] wrote {n_cubes} {cube_word} + bundle.json, README.md, LICENSE")
+        emitted_ocio = self._maybe_emit_ocio(bundle, out_dir)
+        extras = ", config.ocio" if emitted_ocio else ""
+        print(f"[bake] wrote {n_cubes} {cube_word} + bundle.json, README.md, LICENSE{extras}")
         if self.spec.qa:
             self._run_qa(bundle, out_dir)
         if archive_path is not None:

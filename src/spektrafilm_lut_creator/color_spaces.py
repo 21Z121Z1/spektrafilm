@@ -46,6 +46,10 @@ class ColorSpaceEntry:
     role: tuple[str, ...]
     short_tag: str = ""
     notes: str = ""
+    ocio_alias: str = ""
+    """ACES Studio Config-style long-name alias emitted alongside the
+    short ``name`` in OCIO configs. Empty string means no alias.
+    See studies/a40_lut_system/n120_ocio_config_emission.md §7."""
 
 
 _REGISTRY: dict[str, ColorSpaceEntry] = {}
@@ -168,9 +172,11 @@ def from_xyz(xyz, name: str) -> np.ndarray:
 # Scene-linear (input only).
 register(ColorSpaceEntry("ACES2065-1",       "ACES2065-1",   None, "linear", ("input",),
                          short_tag="aces20651",
+                         ocio_alias="ACES - ACES2065-1",
                          notes="ACES interchange (AP0 primaries)."))
 register(ColorSpaceEntry("ACEScg",           "ACEScg",       None, "linear", ("input",),
                          short_tag="acescg",
+                         ocio_alias="ACES - ACEScg",
                          notes="AP1 primaries; VFX rendering workhorse."))
 register(ColorSpaceEntry("Rec.709 Linear",   "ITU-R BT.709", None, "linear", ("input",),
                          short_tag="rec709lin"))
@@ -186,18 +192,23 @@ register(ColorSpaceEntry("sRGB Linear",      "sRGB",         None, "linear", ("i
 # Encoded SDR (input and output).
 register(ColorSpaceEntry("sRGB",        "sRGB",         "sRGB",          "encoded_sdr", ("input", "output"),
                          short_tag="srgb",
+                         ocio_alias="sRGB - Display",
                          notes="The web default."))
 register(ColorSpaceEntry("Rec.709",     "ITU-R BT.709", "ITU-R BT.1886", "encoded_sdr", ("input", "output"),
                          short_tag="rec709",
+                         ocio_alias="Rec.1886 Rec.709 - Display",
                          notes="Broadcast; BT.1886 EOTF."))
 register(ColorSpaceEntry("Display P3",  "Display P3",   "sRGB",          "encoded_sdr", ("input", "output"),
                          short_tag="displayp3",
+                         ocio_alias="Display P3 - Display",
                          notes="Apple devices."))
 register(ColorSpaceEntry("Rec.2020",    "ITU-R BT.2020", "ITU-R BT.1886","encoded_sdr", ("input", "output"),
                          short_tag="rec2020",
+                         ocio_alias="Rec.1886 Rec.2020 - Display",
                          notes="Wide-gamut SDR."))
 register(ColorSpaceEntry("DCI-P3",      "DCI-P3",       "Gamma 2.6",     "encoded_sdr", ("input", "output"),
                          short_tag="dcip3",
+                         ocio_alias="G2.6-P3-DCI - Display",
                          notes="Theatrical (xenon white ~6300K, gamma 2.6)."))
 register(ColorSpaceEntry("Adobe RGB",   "Adobe RGB (1998)", "Gamma 2.2", "encoded_sdr", ("input", "output"),
                          short_tag="adobergb",
@@ -210,19 +221,24 @@ register(ColorSpaceEntry("ACEScct",                  "ACEScct",            "ACES
 register(ColorSpaceEntry("ARRI LogC3 (EI800)",       "ARRI Wide Gamut 3",  "ARRI LogC3",
                          "log", ("input",),
                          short_tag="logc3",
+                         ocio_alias="ARRI LogC3 (EI800) - AWG3",
                          notes="EI800 is colour-science's default LogC3 curve."))
 register(ColorSpaceEntry("ARRI LogC4",               "ARRI Wide Gamut 4",  "ARRI LogC4",
                          "log", ("input",),
-                         short_tag="logc4"))
+                         short_tag="logc4",
+                         ocio_alias="ARRI LogC4 - AWG4"))
 register(ColorSpaceEntry("Sony S-Log3",              "S-Gamut3",           "S-Log3",
                          "log", ("input",),
-                         short_tag="slog3"))
+                         short_tag="slog3",
+                         ocio_alias="Sony S-Log3 - S-Gamut3"))
 register(ColorSpaceEntry("Sony S-Log3 (S-Gamut3.Cine)", "S-Gamut3.Cine",   "S-Log3",
                          "log", ("input",),
-                         short_tag="slog3cine"))
+                         short_tag="slog3cine",
+                         ocio_alias="Sony S-Log3 - S-Gamut3.Cine"))
 register(ColorSpaceEntry("Panasonic V-Log",          "V-Gamut",            "V-Log",
                          "log", ("input",),
-                         short_tag="vlog"))
+                         short_tag="vlog",
+                         ocio_alias="Panasonic V-Log - V-Gamut"))
 register(ColorSpaceEntry("Fujifilm F-Log",           "F-Gamut",            "F-Log",
                          "log", ("input",),
                          short_tag="flog"))
@@ -241,6 +257,7 @@ register(ColorSpaceEntry("DaVinci Intermediate",     "DaVinci Wide Gamut", "DaVi
 register(ColorSpaceEntry("Apple Log",                "ITU-R BT.2020",      "Apple Log Profile",
                          "log", ("input",),
                          short_tag="applelog",
+                         ocio_alias="Apple Log",
                          notes="iPhone 15+ Pro, iPhone 17 Pro, Vision Pro Immersive. Apple Log pairs with BT.2020 primaries per Apple's spec."))
 register(ColorSpaceEntry("Blackmagic Film Gen 5",    "Blackmagic Wide Gamut", "Blackmagic Film Generation 5",
                          "log", ("input",),

@@ -101,6 +101,13 @@ class BundleSpec:
     operation as OCIO ``FixedFunctionTransform(style=ACES_GamutComp13)``).
     The existing ``gamut_clip`` knob remains as the final safety net.
     Pass ``OutputGamutCompressSpec(mode='off')`` to disable."""
+    emit_ocio: bool = True
+    """Whether the bundle includes a standalone OCIO 2 config file
+    (``config.ocio``) alongside its LUT files. Cheap to emit and
+    unlocks OCIO-managed apps (Nuke, Maya, Houdini, Blender, ...);
+    grading apps that don't read OCIO (Lumix Lab, FFmpeg) ignore it.
+    Pass ``False`` to skip for size-constrained deliveries.
+    See studies/a40_lut_system/n120_ocio_config_emission.md."""
 
     def __post_init__(self):
         if self.topology not in _VALID_TOPOLOGIES:
