@@ -350,3 +350,54 @@ register(ColorSpaceEntry("Nikon N-Log", "ITU-R BT.2020", "N-Log",
                          notes="Nikon Z 6/7/8/9 N-Log. No distinct Nikon gamut is published; "
                                "ITU-R BT.2020 is the de-facto wrapper per Resolve/Baselight "
                                "and the n060 camera-log research."))
+
+
+# ---------------------------------------------------------------------------
+# Input exposure gain (n150 revised) — simple linear scaling.
+#
+# A bundle can specify how many stops above middle gray (0.18 linear)
+# the source's encoded 1.0 should land at in the film's frame. The bake
+# computes the native "encoded 1.0 → linear" mapping for the input
+# color space and applies a uniform linear gain so the post-decode
+# values get re-scaled accordingly. No log shaping; the trade-off is
+# that mid-gray drifts with the gain (a single multiplication cannot
+# both pin mid-gray and reposition white, by construction).
+#
+# When the bundle leaves the field at ``None``, no gain is applied and
+# the film sees the input's native dynamic range — which is the strict
+# colorimetric default that works predictably in any host.
+# ---------------------------------------------------------------------------
+
+
+_MID_GRAY_LINEAR = 0.18
+
+
+def input_exposure_gain(
+    input_color_space: str, stops_above_gray: float | None,
+) -> float:
+    """Return the linear gain that places source white at
+    ``0.18 * 2 ** stops_above_gray`` in the film's frame.
+
+    ``None`` → ``1.0`` (no transformation, native behavior).
+
+    Otherwise: the input's native "encoded 1.0 → linear" value is read
+    from :func:`decode_cctf` (1.0 for sRGB / linear inputs, ≈46 for
+    V-Log, …) and the returned gain rescales linear so encoded 1.0
+    lands at the requested number of stops above mid-gray.
+
+    Parameters
+    ----------
+    input_color_space :
+        Registry name of the bundle's input color space. Used to look
+        up the native white-to-linear mapping via :func:`decode_cctf`.
+    stops_above_gray :
+        Target stops above middle gray for source encoded 1.0, or
+        ``None`` to skip the transformation.
+    """
+    if stops_above_gray is None:
+        return 1.0
+    native_white = float(np.asarray(
+        decode_cctf(np.array([1.0]), input_color_space)
+    ).flatten()[0])
+    target_white = _MID_GRAY_LINEAR * (2.0 ** float(stops_above_gray))
+    return target_white / native_white

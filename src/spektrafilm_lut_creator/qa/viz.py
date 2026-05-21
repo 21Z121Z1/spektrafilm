@@ -31,6 +31,92 @@ WARN = "#ffd060"
 PANE_EDGE_RGBA = (1.0, 1.0, 1.0, 0.22)
 GRID_RGBA = (1.0, 1.0, 1.0, 0.12)
 
+# ---------------------------------------------------------------------------
+# Canonical typography (n090 §3 trust signals — figures of-a-piece).
+# Suptitle = figure-level title; PANEL = inner-panel title.
+# ---------------------------------------------------------------------------
+SUPTITLE_FS = 14
+PANEL_TITLE_FS = 12
+SUPTITLE_PAD = 10
+PANEL_TITLE_PAD = 8
+IDENTITY_COLOR = "#555555"
+IDENTITY_ALPHA = 0.7
+FOOTER_FS = 8
+FOOTER_COLOR = DIM
+FOOTER_BAND_FRAC = 0.04
+"""Fraction of figure height reserved for the version footer.
+
+Sized so x-axis tick labels of the bottom subplot row can't bleed into
+the band: at the suite's typical 9–10 inch tall figures and 160 DPI,
+0.04 ≈ 0.4 inch ≈ 60 px of clear space — enough for a centered 8pt
+footer with breathing room on either side."""
+HEADER_BAND_FRAC = 0.08
+"""Fraction of figure height reserved at the top for the suptitle.
+
+When :func:`add_footer` clamps the constrained-layout rect to leave a
+band free at the bottom for the version footer, the same rect's *top*
+needs to be set explicitly too — otherwise matplotlib treats the rect
+as the working area and tries to fit the suptitle inside it, with
+nowhere to go above. The suptitle ends up flush with the figure's top
+edge and overlaps with panel titles.
+
+0.08 is sized to accommodate the suite's largest suptitle (two lines
+at 14pt) on figures down to ~5 inches tall. Single-line suptitles
+waste a couple of percent of the figure to whitespace, which is the
+acceptable price for not having to thread "is your suptitle one or
+two lines" through every viz function."""
+
+
+def _identity_line(ax, *, label: str | None = "identity",
+                   lo: float = 0.0, hi: float = 1.0) -> None:
+    """Standard y=x reference line for 2D transfer plots.
+
+    Centralizing the styling so every figure uses the same gray /
+    dash style — no more drift between ``#444444`` and ``#555555``.
+    """
+    ax.plot([lo, hi], [lo, hi], color=IDENTITY_COLOR, lw=1.0, ls="--",
+            alpha=IDENTITY_ALPHA, label=label, zorder=1)
+
+
+def add_footer(fig, version: str) -> None:
+    """Stamp the canonical ``spektrafilm <version>`` footer on a figure.
+
+    Reserves :data:`FOOTER_BAND_FRAC` of the figure height as a clear
+    band at the bottom, then places the version text centered in it.
+    The reserve is applied through whichever layout system the figure
+    uses:
+
+    - **Constrained-layout figures** (every 2D figure in this module)
+      have their layout engine's ``rect`` clamped to leave the bottom
+      band free — subplots reflow upward and tick labels stop at the
+      band's top edge instead of bleeding into the footer.
+    - **Manually-laid-out figures** (the 3D scatters, which call
+      :func:`_fill_3d`) get a bumped ``subplots_adjust(bottom=...)``
+      instead, preserving the other margins ``_fill_3d`` set.
+
+    Called from :func:`spektrafilm_lut_creator.qa.tests._save` so every
+    saved figure carries the producing version automatically — a
+    trust signal that survives the figure leaving its bundle (n090 §3).
+    """
+    engine = fig.get_layout_engine()
+    if engine is not None:
+        # Constrained layout: clamp the subplot rect on *both* sides so
+        # neither the footer band nor the suptitle gets eaten. The top
+        # bound is the load-bearing one — without it constrained-layout
+        # tries to fit the suptitle inside the working area and the
+        # title ends up flush with the figure's top edge, colliding
+        # with panel titles.
+        engine.set(rect=(0.0, FOOTER_BAND_FRAC, 1.0, 1.0 - HEADER_BAND_FRAC))
+    elif fig.subplotpars.bottom < FOOTER_BAND_FRAC:
+        # Manual layout (the _fill_3d path): widen the bottom margin
+        # only if it's currently tighter than the band. Other margins
+        # set by _fill_3d are preserved.
+        fig.subplots_adjust(bottom=FOOTER_BAND_FRAC)
+    # Text centered vertically within the band.
+    fig.text(0.5, FOOTER_BAND_FRAC / 2.0, f"spektrafilm {version}",
+             color=FOOTER_COLOR, fontsize=FOOTER_FS,
+             ha="center", va="center", alpha=0.85)
+
 
 def _setup_3d(ax) -> None:
     """Apply the project's consistent 3D-axis styling.
@@ -57,8 +143,8 @@ def _setup_2d(ax) -> None:
     ax.grid(True, alpha=0.12, color=HI)
 
 
-def _fill_3d(fig, *, has_cbar: bool = False, top: float = 0.94,
-             bottom: float = 0.02, wspace: float = 0.0) -> None:
+def _fill_3d(fig, *, has_cbar: bool = False, top: float | None = None,
+             bottom: float | None = None, wspace: float = 0.0) -> None:
     """Push 3D axes to fill the figure canvas.
 
     matplotlib 3D axes default to a generous interior margin; for the
@@ -66,7 +152,17 @@ def _fill_3d(fig, *, has_cbar: bool = False, top: float = 0.94,
     the figure with a lot of dead black background around it. We pull
     the axes box outward with subplots_adjust; ``bbox_inches="tight"``
     at save time then trims off whatever tick decorations stick out.
+
+    ``top`` / ``bottom`` default to :data:`HEADER_BAND_FRAC` /
+    :data:`FOOTER_BAND_FRAC` complements so the suptitle and version
+    footer have the same reserved bands as the constrained-layout
+    figures. Callers can override for 2-line suptitles that need more
+    top space.
     """
+    if top is None:
+        top = 1.0 - HEADER_BAND_FRAC
+    if bottom is None:
+        bottom = FOOTER_BAND_FRAC
     right = 0.92 if has_cbar else 1.0
     fig.subplots_adjust(left=0.0, right=right,
                         bottom=bottom, top=top, wspace=wspace)
@@ -134,7 +230,7 @@ def cube_sculpture(
     ax.set_xlabel("R in", color=FG, labelpad=8)
     ax.set_ylabel("G in", color=FG, labelpad=8)
     ax.set_zlabel("B in", color=FG, labelpad=8)
-    ax.set_title(title, color=HI, pad=20, fontsize=14)
+    ax.set_title(title, color=HI, pad=SUPTITLE_PAD, fontsize=SUPTITLE_FS)
     _setup_3d(ax)
     ax.view_init(elev=22, azim=-58)
     _fill_3d(fig, has_cbar=color_by is not None)
@@ -155,11 +251,11 @@ def cube_deformation(
     ax1 = fig.add_subplot(121, projection="3d", facecolor=BG)
     ax1.scatter(grid_input[:, 0], grid_input[:, 1], grid_input[:, 2],
                 c=colors, s=18, alpha=0.9, edgecolors="none", depthshade=False)
-    ax1.set_title("input positions", color=HI, pad=14, fontsize=12)
+    ax1.set_title("input positions", color=HI, pad=PANEL_TITLE_PAD, fontsize=PANEL_TITLE_FS)
     ax2 = fig.add_subplot(122, projection="3d", facecolor=BG)
     ax2.scatter(colors[:, 0], colors[:, 1], colors[:, 2],
                 c=colors, s=18, alpha=0.9, edgecolors="none", depthshade=False)
-    ax2.set_title("output positions", color=HI, pad=14, fontsize=12)
+    ax2.set_title("output positions", color=HI, pad=PANEL_TITLE_PAD, fontsize=PANEL_TITLE_FS)
     for ax in (ax1, ax2):
         ax.set_xlabel("R", color=FG, labelpad=6)
         ax.set_ylabel("G", color=FG, labelpad=6)
@@ -168,7 +264,7 @@ def cube_deformation(
         _setup_3d(ax)
         ax.view_init(elev=22, azim=-58)
     fig.suptitle("LUT deformation: where does each input land?",
-                 color=HI, fontsize=14, y=0.98)
+                 color=HI, fontsize=SUPTITLE_FS)
     _fill_3d(fig, has_cbar=False)
     return fig
 
@@ -208,8 +304,8 @@ def cube_edges(
         ax2.scatter(out_pos[:, 0], out_pos[:, 1], out_pos[:, 2],
                     c=out_pos, s=22, alpha=0.95, edgecolors="none",
                     depthshade=False)
-    ax1.set_title("cube edges — input coordinates", color=HI, pad=14, fontsize=12)
-    ax2.set_title("cube edges — output coordinates", color=HI, pad=14, fontsize=12)
+    ax1.set_title("cube edges — input coordinates", color=HI, pad=PANEL_TITLE_PAD, fontsize=PANEL_TITLE_FS)
+    ax2.set_title("cube edges — output coordinates", color=HI, pad=PANEL_TITLE_PAD, fontsize=PANEL_TITLE_FS)
     for ax in (ax1, ax2):
         ax.set_xlabel("R", color=FG, labelpad=6)
         ax.set_ylabel("G", color=FG, labelpad=6)
@@ -218,7 +314,7 @@ def cube_edges(
         _setup_3d(ax)
         ax.view_init(elev=22, azim=-58)
     fig.suptitle("Saturated cube edges — the canonical hue+saturation cycle",
-                 color=HI, fontsize=14, y=0.98)
+                 color=HI, fontsize=SUPTITLE_FS)
     _fill_3d(fig, has_cbar=False)
     return fig
 
@@ -277,7 +373,7 @@ def transfer_curves(
         ax.plot(sweep_x, axis_samples[:, 0], color=RED, lw=2.2, label="R out")
         ax.plot(sweep_x, axis_samples[:, 1], color=GREEN, lw=2.2, label="G out")
         ax.plot(sweep_x, axis_samples[:, 2], color=BLUE, lw=2.2, label="B out")
-        ax.plot([0, 1], [0, 1], color="#444444", lw=1, ls="--", label="identity")
+        _identity_line(ax)
         if violation_marks is not None:
             mask = violation_marks[i]
             if mask.any():
@@ -288,11 +384,11 @@ def transfer_curves(
         ax.set_xlim(0, 1); ax.set_ylim(0, 1)
         ax.set_xlabel(f"{label} in  (other channels = {pin_label})", color=FG)
         ax.set_ylabel("output", color=FG)
-        ax.set_title(f"{label} sweep", color=axis_color, fontsize=13, pad=8)
+        ax.set_title(f"{label} sweep", color=axis_color, fontsize=PANEL_TITLE_FS, pad=PANEL_TITLE_PAD)
         _setup_2d(ax)
         ax.legend(facecolor="#1a1a1a", labelcolor=FG, framealpha=0.85,
                   loc="upper left", fontsize=9)
-    fig.suptitle(suptitle, color=HI, fontsize=14)
+    fig.suptitle(suptitle, color=HI, fontsize=SUPTITLE_FS)
     return fig
 
 
@@ -334,10 +430,15 @@ def density_transfer_curves(
         x-axis for all panels). The caller computes this; typically
         ``np.linspace(0, 1, N)``.
     r_sweep, g_sweep, b_sweep :
-        Lists of ``(pin_value, samples, alpha)`` triples. ``samples``
+        Lists of ``(pin_density, samples, alpha)`` triples. ``samples``
         is shape ``(N, 3)`` of LUT output at the sweep points with the
-        non-swept channels pinned at ``pin_value``. ``alpha`` controls
-        the line transparency for that pin's curves.
+        non-swept channels pinned. ``pin_density`` is the *output*
+        density the off-diagonal curves are expected to start at on the
+        Y-axis — the caller picked the actual input-code pins by
+        inverting the neutral characteristic curve so the off-diagonals
+        enter each panel at ``pin_density``. Used only for the axis
+        label. ``alpha`` controls the line transparency for that pin's
+        curves.
     neutral_samples :
         Shape ``(N, 3)`` of LUT output along the neutral diagonal
         (R=G=B=sweep_x). Drawn at full alpha in the bottom-right panel.
@@ -346,10 +447,10 @@ def density_transfer_curves(
     """
     floor = 1.0e-4
 
-    # Shared Y range across all 4 panels. Top stays at D=0 (white);
-    # bottom snaps to the next multiple of 0.5 above the deepest
-    # observed curve, with a hair of margin so curves don't graze
-    # the bottom axis.
+    # Shared Y range across all 4 panels (so D values are visually
+    # comparable across the R / G / B / neutral sweeps). Top stays at
+    # D=0 (white); bottom sits just past the deepest observed density
+    # — no snapping to round numbers, the plot surface is for the data.
     all_densities = []
     for sweep_data in (r_sweep, g_sweep, b_sweep):
         for _, samples, _ in sweep_data:
@@ -358,8 +459,7 @@ def density_transfer_curves(
     neutral_d = -np.log10(np.clip(neutral_samples, floor, 1.0))
     all_densities.append(neutral_d)
     observed_max = float(max(d.max() for d in all_densities))
-    y_max = float(np.ceil((observed_max + 0.05) * 2.0) / 2.0)
-    y_max = max(y_max, 0.5)
+    y_max = observed_max * 1.05
 
     fig, axes_2d = plt.subplots(2, 2, figsize=(13, 10), facecolor=BG,
                                 layout="constrained")
@@ -389,14 +489,14 @@ def density_transfer_curves(
         ax.set_xlim(0, 1)
         ax.set_ylim(0, y_max)
         ax.invert_yaxis()
-        pins = sorted({pin for pin, _, _ in sweep_data})
-        pins_text = ", ".join(f"{p:g}" for p in pins)
+        pin_densities = sorted({pin for pin, _, _ in sweep_data})
+        pins_text = ", ".join(f"{p:g}" for p in pin_densities)
         ax.set_xlabel(
-            f"{label} input code   (other channels ∈ {{{pins_text}}})",
+            f"{label} input code   (other channels start at D ≈ {{{pins_text}}})",
             color=FG, fontsize=9,
         )
         ax.set_ylabel("D = -log₁₀(output)", color=FG)
-        ax.set_title(f"{label} sweep", color=axis_color, fontsize=13, pad=8)
+        ax.set_title(f"{label} sweep", color=axis_color, fontsize=PANEL_TITLE_FS, pad=PANEL_TITLE_PAD)
         _setup_2d(ax)
         # Legend uses three full-alpha proxies so the swatch is readable
         # against the multi-alpha lines actually drawn.
@@ -424,12 +524,12 @@ def density_transfer_curves(
         color=FG, fontsize=9,
     )
     ax_n.set_ylabel("D = -log₁₀(output)", color=FG)
-    ax_n.set_title("neutral (R=G=B) sweep", color=HI, fontsize=13, pad=8)
+    ax_n.set_title("neutral (R=G=B) sweep", color=HI, fontsize=PANEL_TITLE_FS, pad=PANEL_TITLE_PAD)
     _setup_2d(ax_n)
     ax_n.legend(facecolor="#1a1a1a", labelcolor=FG, framealpha=0.85,
                 loc="upper right", fontsize=9)
 
-    fig.suptitle(title, color=HI, fontsize=14)
+    fig.suptitle(title, color=HI, fontsize=SUPTITLE_FS)
     return fig
 
 
@@ -501,7 +601,7 @@ def rg_plane_slices(
             ax.set_xlabel("R in", color=FG, fontsize=8)
     fig.suptitle(
         f"R-G cube slices at varying B   (output {out_cs} → sRGB display, hard-clipped)",
-        color=HI, fontsize=13,
+        color=HI, fontsize=SUPTITLE_FS,
     )
     return fig
 
@@ -545,11 +645,12 @@ def gamut_edge_stress(
         ax.set_xticks([]); ax.set_yticks([])
         for spine in ax.spines.values():
             spine.set_color("#555555")
+    # The per-column gradient construction (white → saturated edge →
+    # black, OOG pixels black) is documented in the QA report; keeping
+    # the suptitle to one line avoids stomping on the top panel.
     fig.suptitle(
-        f"Gamut-edge stress test — {in_cs} → {out_cs}\n"
-        f"(per column: linear-RGB gradient white → saturated edge of the target "
-        f"cube → black; out-of-input-gamut pixels left black)",
-        color=HI, fontsize=13,
+        f"Gamut-edge stress test — {in_cs} → {out_cs}",
+        color=HI, fontsize=SUPTITLE_FS,
     )
     return fig
 
@@ -577,7 +678,7 @@ def jacobian_condition_3d(
     ax.set_ylabel("G in", color=FG, labelpad=8)
     ax.set_zlabel("B in", color=FG, labelpad=8)
     ax.set_title("Local Jacobian condition number (cube smoothness)",
-                 color=HI, pad=20, fontsize=14)
+                 color=HI, pad=SUPTITLE_PAD, fontsize=SUPTITLE_FS)
     _setup_3d(ax)
     ax.view_init(elev=22, azim=-58)
     _fill_3d(fig, has_cbar=True)
@@ -609,10 +710,10 @@ def output_histograms(grid_output: np.ndarray) -> Figure:
         ax.set_xlabel(f"{name} output", color=FG)
         ax.set_ylabel("count", color=FG)
         ax.set_title(f"{name}    clipped lo: {clipped_lo}   hi: {clipped_hi}",
-                     color=col, fontsize=12, pad=6)
+                     color=col, fontsize=PANEL_TITLE_FS, pad=PANEL_TITLE_PAD)
         _setup_2d(ax)
     fig.suptitle("Per-channel output distributions (with CDF + clipping markers)",
-                 color=HI, fontsize=13)
+                 color=HI, fontsize=SUPTITLE_FS)
     return fig
 
 
@@ -671,7 +772,9 @@ def oklab_gamut_compare(
 
     # If input is much wider than the output, compute how many input
     # samples land outside the displayed frame — useful disclosure when
-    # the input gamut extends beyond the visible locus.
+    # the input gamut extends beyond the visible locus. Surfaced as a
+    # corner annotation on the input panel so the suptitle stays a
+    # single line (the suite's standard).
     in_a, in_b, in_L = lab_in[:, 1], lab_in[:, 2], lab_in[:, 0]
     in_in_frame = (
         (in_a >= a_lo) & (in_a <= a_hi)
@@ -679,9 +782,14 @@ def oklab_gamut_compare(
         & (in_L >= L_lo) & (in_L <= L_hi)
     )
     n_out = int((~in_in_frame).sum())
-    suptitle = "LUT gamut compression in OkLab  (frame: output cube + 30%)"
     if n_out > 0:
-        suptitle += f"\n{n_out} / {len(in_in_frame)} input samples outside frame (clipped from view)"
+        ax1.text2D(
+            0.02, 0.02,
+            f"{n_out} / {len(in_in_frame)} samples outside frame "
+            f"(clipped from view)",
+            transform=ax1.transAxes, color=DIM, fontsize=9,
+            ha="left", va="bottom",
+        )
 
     for ax in (ax1, ax2):
         ax.set_xlabel("a*", color=FG, labelpad=6)
@@ -690,8 +798,11 @@ def oklab_gamut_compare(
         ax.set_xlim(a_lo, a_hi); ax.set_ylim(b_lo, b_hi); ax.set_zlim(L_lo, L_hi)
         _setup_3d(ax)
         ax.view_init(elev=18, azim=-58)
-    fig.suptitle(suptitle, color=HI, fontsize=13, y=0.98)
-    _fill_3d(fig, has_cbar=False, top=0.91 if n_out > 0 else 0.94)
+    fig.suptitle(
+        "LUT gamut compression in OkLab  (frame: output cube + 30%)",
+        color=HI, fontsize=SUPTITLE_FS,
+    )
+    _fill_3d(fig, has_cbar=False)
     return fig
 
 
@@ -718,7 +829,7 @@ def oklab_ab_slices(grid_output: np.ndarray, out_cs: str) -> Figure:
         for spine in ax.spines.values():
             spine.set_color("#555555")
     fig.suptitle("OkLab a*–b* slices of the LUT output",
-                 color=HI, fontsize=14)
+                 color=HI, fontsize=SUPTITLE_FS)
     fig.supxlabel("a* (red–green)", color=FG)
     fig.supylabel("b* (yellow–blue)", color=FG)
     return fig
@@ -741,7 +852,7 @@ def hue_twist_oklab(
     band_colors = plt.cm.plasma(np.linspace(0.2, 0.95, len(bands)))
     fig, ax = plt.subplots(figsize=(9, 9), facecolor=BG, layout="constrained")
     ax.set_facecolor(BG)
-    ax.plot([-180, 180], [-180, 180], color="#555555", lw=1.0, ls="--", label="identity")
+    _identity_line(ax, lo=-180, hi=180)
     ax.plot([-180, 180], [180, 540], color="#333333", lw=0.6, ls=":")
     ax.plot([-180, 180], [-540, -180], color="#333333", lw=0.6, ls=":")
     for (lo, hi), col in zip(bands, band_colors):
@@ -756,7 +867,7 @@ def hue_twist_oklab(
     ax.set_yticks(np.arange(-180, 181, 60))
     ax.set_xlabel("input hue (OkLab)  [°]", color=FG)
     ax.set_ylabel("output hue (OkLab)  [°]", color=FG)
-    ax.set_title("Hue-twist diagram (OkLab)", color=HI, fontsize=14, pad=10)
+    ax.set_title("Hue-twist diagram (OkLab)", color=HI, fontsize=SUPTITLE_FS, pad=SUPTITLE_PAD)
     _setup_2d(ax)
     ax.legend(facecolor="#1a1a1a", labelcolor=FG, framealpha=0.9,
               loc="upper left", fontsize=9)
@@ -801,7 +912,7 @@ def oklab_displacement(
         ax.set_ylabel("b*  (yellow–blue)", color=FG)
         _setup_2d(ax)
     fig.suptitle("OkLab displacement: where the LUT sends each input chromaticity",
-                 color=HI, fontsize=14)
+                 color=HI, fontsize=SUPTITLE_FS)
     return fig
 
 
@@ -837,7 +948,7 @@ def chromaticity_1931(
     ax.set_xlim(-0.05, 0.85); ax.set_ylim(-0.05, 0.95)
     ax.set_xlabel("x", color=FG); ax.set_ylabel("y", color=FG)
     ax.set_title("CIE 1931 chromaticity — LUT output footprint",
-                 color=HI, fontsize=14, pad=12)
+                 color=HI, fontsize=SUPTITLE_FS, pad=SUPTITLE_PAD)
     _setup_2d(ax)
     ax.legend(facecolor="#1a1a1a", labelcolor=FG, framealpha=0.9,
               loc="upper right", fontsize=9)
@@ -875,7 +986,7 @@ def offgrid_error_scatter(
     ax.set_xlabel("R in", color=FG, labelpad=8)
     ax.set_ylabel("G in", color=FG, labelpad=8)
     ax.set_zlabel("B in", color=FG, labelpad=8)
-    ax.set_title(title, color=HI, pad=20, fontsize=14)
+    ax.set_title(title, color=HI, pad=SUPTITLE_PAD, fontsize=SUPTITLE_FS)
     _setup_3d(ax)
     ax.view_init(elev=22, azim=-58)
     _fill_3d(fig, has_cbar=True)
@@ -905,7 +1016,7 @@ def planckian_path(
     ax.set_xlim(-0.05, 0.85); ax.set_ylim(-0.05, 0.95)
     ax.set_xlabel("x", color=FG); ax.set_ylabel("y", color=FG)
     ax.set_title("Planckian / daylight sweep — output chromaticity per CCT",
-                 color=HI, fontsize=14, pad=12)
+                 color=HI, fontsize=SUPTITLE_FS, pad=SUPTITLE_PAD)
     _setup_2d(ax)
     ax.legend(facecolor="#1a1a1a", labelcolor=FG, framealpha=0.9,
               loc="upper right", fontsize=9)
@@ -937,7 +1048,8 @@ def highlight_rolloff_curves(
         top.set_ylim(0, 1.05)
         top.set_xlabel(f"{label} input code", color=FG)
         top.set_ylabel("output", color=FG)
-        top.set_title(f"{label} ramp", color=axis_color, fontsize=12, pad=6)
+        top.set_title(f"{label} ramp", color=axis_color,
+                      fontsize=PANEL_TITLE_FS, pad=PANEL_TITLE_PAD)
         _setup_2d(top)
         top.legend(facecolor="#1a1a1a", labelcolor=FG, framealpha=0.85,
                    loc="lower right", fontsize=8)
@@ -952,35 +1064,7 @@ def highlight_rolloff_curves(
         bot.set_xlabel(f"{label} input code", color=FG)
         bot.set_ylabel("d²/dE²", color=FG)
         _setup_2d(bot)
-    fig.suptitle(title, color=HI, fontsize=14)
-    return fig
-
-
-def black_toe_curves(
-    in_codes: np.ndarray, out_rgb: np.ndarray,
-) -> Figure:
-    """Linear and log-scale views of the transfer near zero.
-
-    ``in_codes`` shape ``(n,)`` (the neutral ramp from 0 to 0.05).
-    ``out_rgb`` shape ``(n, 3)``.
-    """
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5), facecolor=BG, layout="constrained")
-    for ax_idx, (ax, scale) in enumerate(zip(axes, ("linear", "log"))):
-        ax.set_facecolor(BG)
-        ax.plot(in_codes, out_rgb[:, 0], color=RED, lw=2.0, marker="o", ms=4, label="R out")
-        ax.plot(in_codes, out_rgb[:, 1], color=GREEN, lw=2.0, marker="o", ms=4, label="G out")
-        ax.plot(in_codes, out_rgb[:, 2], color=BLUE, lw=2.0, marker="o", ms=4, label="B out")
-        if scale == "log":
-            ax.set_xscale("symlog", linthresh=1e-3)
-            ax.set_yscale("symlog", linthresh=1e-3)
-        ax.set_xlabel("neutral input code", color=FG)
-        ax.set_ylabel("output", color=FG)
-        ax.set_title(f"Near-zero transfer ({scale} scale)",
-                     color=HI, fontsize=12, pad=8)
-        _setup_2d(ax)
-        ax.legend(facecolor="#1a1a1a", labelcolor=FG, framealpha=0.85,
-                  loc="upper left", fontsize=9)
-    fig.suptitle("Black-toe behavior", color=HI, fontsize=14)
+    fig.suptitle(title, color=HI, fontsize=SUPTITLE_FS)
     return fig
 
 
@@ -997,20 +1081,24 @@ def dynamic_range_curve(
     """Density vs scene-linear log E (stops), the canonical film
     characteristic plot.
 
-    Three layers, top to bottom:
+    Four layers:
 
     1. The main curve — output density ``D = -log10(Y)`` vs input
        stops above middle gray. Y axis inverted so D=0 (white) sits
        at the top, high D (black) at the bottom — film datasheet
        convention.
-    2. **Encoding-clip vertical lines**: dashed bars marking where
-       the input encoding can no longer represent the scene-linear
-       value. Stops outside these bars are "the input encoding's
-       fault" if rendering is flat.
+    2. **Encoding-clip shading + dashed bars**: warm-tinted shaded
+       regions covering the *full extent* of stops the input encoding
+       can't represent (clipped to 0 or 1 at the input), with a dashed
+       vertical line at each clip threshold for precise reading. Stops
+       inside these shaded regions are "the input encoding's fault" —
+       the LUT was fed the same clip-boundary value for every stop in
+       that range, so the curve is necessarily flat there.
     3. **Toe / shoulder shading**: light gray bands at the bottom
        and top of the rendered range where slope falls below the
-       active threshold. These are the model's compression
-       decisions.
+       active threshold. These are the model's compression decisions.
+    4. **'x' markers** on the clipped-stop samples to make the flat
+       segment legible even where it overlaps with shading.
 
     A small text box prints the summary numbers (encoded range,
     active range, collapsed toe/shoulder) so the figure is
@@ -1024,7 +1112,9 @@ def dynamic_range_curve(
     fig, ax = plt.subplots(figsize=(12, 7), facecolor=BG, layout="constrained")
     ax.set_facecolor(BG)
 
-    # Toe / shoulder shading inside the encoded range.
+    # Toe / shoulder shading inside the encoded range, plus encoding-clip
+    # shading outside it so the *full extent* of clipped stops is visible
+    # at a glance (the "x" markers alone made the clip range easy to miss).
     encoded_ok = ~encoded_clip_mask
     enc_idx = np.where(encoded_ok)[0]
     if enc_idx.size >= 2:
@@ -1042,10 +1132,25 @@ def dynamic_range_curve(
             ax.axvspan(shoulder_lo, enc_hi_x, color="#888866", alpha=0.18,
                        label=f"shoulder collapse: {stats['shoulder_collapsed_stops']:.1f} stops")
 
-        # Encoded-range markers.
+        # Encoding-clip shading: full vertical extent of the clipped
+        # stops, one span on each side that actually clips. Each
+        # carries its own count so the legend describes the situation
+        # asymmetric SDR inputs typically produce (no shadow clip in
+        # the ramp range, large highlight clip).
+        if enc_lo_x > stops[0]:
+            lo_stops = stops[enc_idx[0]] - stops[0]
+            ax.axvspan(stops[0], enc_lo_x, color=WARN, alpha=0.12,
+                       label=f"encoding clip: {lo_stops:.1f} stops (shadows)")
+        if enc_hi_x < stops[-1]:
+            hi_stops = stops[-1] - stops[enc_idx[-1]]
+            ax.axvspan(enc_hi_x, stops[-1], color=WARN, alpha=0.12,
+                       label=f"encoding clip: {hi_stops:.1f} stops (highlights)")
+
+        # Boundary markers — kept as a precise visual anchor at the
+        # exact clip threshold (the shading shows extent; the dashed
+        # line shows where the encoding starts to clip).
         ax.axvline(enc_lo_x, color=WARN, lw=1.0, ls="--", alpha=0.7)
-        ax.axvline(enc_hi_x, color=WARN, lw=1.0, ls="--", alpha=0.7,
-                   label="input encoding clip")
+        ax.axvline(enc_hi_x, color=WARN, lw=1.0, ls="--", alpha=0.7)
 
     # Main curve.
     ax.plot(stops, density, color=HI, lw=2.4, zorder=5)
@@ -1063,7 +1168,7 @@ def dynamic_range_curve(
     ax.set_xlabel("scene-linear stops above middle gray  (log₂(linear / 0.18))",
                   color=FG)
     ax.set_ylabel("D = -log₁₀(output Y)   (film density convention)", color=FG)
-    ax.set_ylim(0, max(3.5, float(density.max()) * 1.05))
+    ax.set_ylim(0, float(density.max()) * 1.05)
     ax.invert_yaxis()
     ax.set_xlim(stops[0], stops[-1])
     _setup_2d(ax)
@@ -1085,7 +1190,7 @@ def dynamic_range_curve(
 
     ax.set_title(
         f"Dynamic range — {in_cs} → {out_cs}",
-        color=HI, fontsize=14, pad=10,
+        color=HI, fontsize=SUPTITLE_FS, pad=SUPTITLE_PAD,
     )
     ax.legend(facecolor="#1a1a1a", labelcolor=FG, framealpha=0.85,
               loc="lower right", fontsize=9)
@@ -1124,7 +1229,7 @@ def spectral_locus_envelope(
     ax.set_xlim(-0.05, 0.85); ax.set_ylim(-0.05, 0.95)
     ax.set_xlabel("x", color=FG); ax.set_ylabel("y", color=FG)
     ax.set_title("Spectral-locus envelope — cube edges through the LUT",
-                 color=HI, fontsize=14, pad=12)
+                 color=HI, fontsize=SUPTITLE_FS, pad=SUPTITLE_PAD)
     _setup_2d(ax)
     ax.legend(facecolor="#1a1a1a", labelcolor=FG, framealpha=0.9,
               loc="upper right", fontsize=9)

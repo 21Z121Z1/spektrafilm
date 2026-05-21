@@ -201,3 +201,52 @@ class TestCanonicalXYZ:
         assert 0.94 < xyz[0] < 1.0
         assert 0.99 < xyz[1] < 1.01
         assert 0.95 < xyz[2] < 1.05
+
+
+# ---------------------------------------------------------------------------
+# n150 — input exposure gain
+# ---------------------------------------------------------------------------
+
+
+class TestInputExposureGain:
+    """Simple scalar gain: source encoded 1.0 lands at
+    ``0.18 * 2 ** stops_above_gray`` in the film's frame. No log
+    shaping; mid-gray drifts with the gain."""
+
+    def test_none_returns_unit_gain(self):
+        assert cs.input_exposure_gain("sRGB", None) == 1.0
+        assert cs.input_exposure_gain("Panasonic V-Log", None) == 1.0
+        assert cs.input_exposure_gain("ACEScg", None) == 1.0
+
+    def test_srgb_native_gain_is_identity(self):
+        """sRGB native white sits at ≈2.47 stops above 0.18. Setting
+        stops_above_gray to that value yields gain ≈ 1.0."""
+        native = float(np.log2(1.0 / 0.18))
+        gain = cs.input_exposure_gain("sRGB", native)
+        np.testing.assert_allclose(gain, 1.0, rtol=1e-6)
+
+    def test_srgb_six_stops_above(self):
+        """Setting stops_above_gray = 6 on sRGB → gain ≈ 11.5
+        (= 0.18 * 64 / 1.0)."""
+        gain = cs.input_exposure_gain("sRGB", 6.0)
+        np.testing.assert_allclose(gain, 0.18 * 2 ** 6, rtol=1e-6)
+
+    def test_vlog_native_gain_is_identity(self):
+        """V-Log encoded 1.0 ≈ 46 linear (~8 stops above 0.18). Setting
+        stops_above_gray to that value yields gain ≈ 1.0."""
+        native_white = float(np.asarray(
+            cs.decode_cctf(np.array([1.0]), "Panasonic V-Log")
+        ).flatten()[0])
+        native_stops = float(np.log2(native_white / 0.18))
+        gain = cs.input_exposure_gain("Panasonic V-Log", native_stops)
+        np.testing.assert_allclose(gain, 1.0, rtol=1e-3)
+
+    def test_vlog_six_stops_attenuates(self):
+        """V-Log native ≈8 stops above gray. Setting stops_above_gray = 6
+        is a *reduction*, so gain < 1."""
+        gain = cs.input_exposure_gain("Panasonic V-Log", 6.0)
+        assert gain < 1.0
+
+    def test_unknown_input_color_space_raises(self):
+        with pytest.raises(KeyError, match="Unknown color space"):
+            cs.input_exposure_gain("Not A Real Space", 6.0)

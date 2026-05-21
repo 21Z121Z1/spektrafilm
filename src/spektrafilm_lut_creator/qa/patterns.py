@@ -27,28 +27,6 @@ def neutral_ramp(input_color_space: str, n: int = 64) -> np.ndarray:
     return np.stack([t, t, t], axis=-1)
 
 
-def near_zero_patches(
-    input_color_space: str, n: int = 48, hi: float = 0.10,
-) -> np.ndarray:
-    """Dense achromatic sampling near zero ``[0, hi]``.
-
-    Used by the black-toe test. Includes exactly zero and a fine
-    geometric progression up to ``hi`` (default 10% of full code).
-    The default range is wide enough that at typical LUT resolutions
-    (33^3 / 65^3) the sweep crosses at least 3-4 grid corners — so
-    trilinear interpolation actually has structure to interpolate
-    rather than producing a near-flat segment between just two
-    corners.
-    """
-    del input_color_space
-    if hi <= 0.0 or hi > 1.0:
-        raise ValueError(f"hi must be in (0, 1], got {hi}")
-    # Geometric spacing concentrates samples near zero where the
-    # transfer curve is steepest.
-    t = np.concatenate(([0.0], np.geomspace(1.0 / 4096, hi, n - 1)))
-    return np.stack([t, t, t], axis=-1)
-
-
 def highlight_ramps_per_channel(
     input_color_space: str,
     n: int = 64,

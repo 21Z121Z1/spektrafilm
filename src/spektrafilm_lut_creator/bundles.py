@@ -91,6 +91,38 @@ class BundleSpec:
     chroma-axis variant. The chosen spec is forwarded to
     ``params.io.input_gamut_compress`` so GUI users and bundle bakes
     share the same code path."""
+    stops_above_gray: float | None = None
+    """How many stops above middle gray (0.18 linear) the source's
+    encoded 1.0 should correspond to in the film's frame.
+
+    Implemented as a plain linear gain — no log shaping. The bake
+    computes the input's native white-to-mid-gray ratio (from
+    :func:`decode_cctf`), then scales the linear values so source
+    encoded 1.0 lands at ``0.18 × 2 ** stops_above_gray`` in the
+    film's frame. Mid-gray drifts as a side effect of the single
+    gain (this is the simple-multiplication trade-off; recovering
+    fixed mid-gray *and* configurable headroom would require log
+    shaping, which this design deliberately rules out).
+
+    ``None`` (the default) leaves the input untouched — the film
+    sees the source's native dynamic range. For sRGB / Rec.2020 /
+    Rec.709 (BT.1886 / sRGB CCTF) the native is ≈2.47 stops above
+    mid-gray. For log inputs (V-Log, S-Log3, ACEScct) the native
+    is ≈7–8 stops.
+
+    Set to a number to override. Examples:
+
+    - ``2.47`` on sRGB input ≈ identity (matches native).
+    - ``6.0`` on sRGB input → gain ≈ 11.5 → film sees source white
+      at +6 stops above 0.18; the rest of the source slides up the
+      exposure axis with it, so mid-gray ends up at +3.5 stops in
+      the film's frame and the film walks well into its shoulder.
+    - ``6.0`` on V-Log input → gain ≈ 0.25 → V-Log gets attenuated
+      so its native ≈8-stop white sits at +6 stops above 0.18.
+
+    With ``stops_above_gray`` set the LUT is no longer a strict
+    colorimetric round-trip; the bundle README discloses the
+    effective gain."""
     output_gamut_compress: OutputGamutCompressSpec = field(default_factory=OutputGamutCompressSpec)
     """Output gamut compression spec (ACES Reference Gamut Compression
     v1.3 in destination RGB). Default compresses out-of-output-gamut
@@ -109,6 +141,18 @@ class BundleSpec:
     useful for OCIO-managed pipelines (Nuke, Maya, Houdini, Blender,
     OCIO-aware Resolve modes). Pass ``True`` to emit the config.
     See studies/a40_lut_system/n120_ocio_config_emission.md."""
+    include_combinations: bool = False
+    """Whether the bundle also ships every contiguous sub-chain of the
+    canonical LUTs as pre-collapsed single cubes in a ``combinations/``
+    subfolder. For a 4-LUT bundle that's 6 extra cubes per paper
+    (``l12``, ``l23``, ``l34``, ``l123``, ``l234``, ``l1234``); for
+    3-LUT 3 extras; for 2-LUT 1 extra (``l12``); for 1-LUT a no-op.
+    Combinations let single-LUT-slot grading apps (Resolve LUT slot,
+    Lumix Lab, OBS, FFmpeg, Premiere) apply any sub-chain of the
+    canonical chain as one cube — handy when the canonical 4-cube
+    chain is impractical. The OCIO config (when ``ocio_config=True``)
+    does *not* reference these cubes: it chains the canonical L1..LN
+    directly. See studies/a40_lut_system/n130_sub_chain_combinations.md."""
 
     def __post_init__(self):
         if self.topology not in _VALID_TOPOLOGIES:

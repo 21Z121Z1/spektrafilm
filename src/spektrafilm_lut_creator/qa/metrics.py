@@ -472,16 +472,3 @@ def dynamic_range_stats(
     }
 
 
-def slope_at_zero(curve_x: np.ndarray, curve_y: np.ndarray, n_first: int = 5) -> float:
-    """Initial slope estimated from the first ``n_first`` samples.
-
-    Linear least-squares fit. Used by the black-toe test to quantify
-    how the transfer curve rises from zero.
-    """
-    x = np.asarray(curve_x, dtype=float).ravel()
-    y = np.asarray(curve_y, dtype=float).ravel()
-    n_first = min(n_first, x.size)
-    if n_first < 2:
-        return 0.0
-    a, _ = np.polyfit(x[:n_first], y[:n_first], 1)
-    return float(a)

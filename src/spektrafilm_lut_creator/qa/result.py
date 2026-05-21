@@ -36,14 +36,23 @@ class Result:
     interpretation
         One sentence: what does it mean if this test fails? This is
         what makes the report legible to someone who didn't write it.
-    references
-        Citations: standards (BT.2124), papers, ACEScentral threads,
-        talks. Rendered as a bulleted list under the test in the
-        report.
+    reference_values
+        Per-metric quality targets, keyed by the same metric name used
+        in ``summary``. Rendered as a bulleted list under "Reference
+        values" right after the figure in the report so readers can
+        compare the headline numbers to a known-good range. The value
+        is free-form text — typically a condition (``"≤ 2.0"``) plus a
+        short justification (``"perceptual visibility threshold"``).
+        Leave empty for tests that don't have established targets.
+        Citations and prior art live in the test function's docstring,
+        not on the ``Result`` — the bundle's QA report is for the
+        bundle's numbers, not a literature review.
     passed
         ``True`` / ``False`` if a tolerance was checked, ``None`` if
-        the test is purely informational. Failing tests are surfaced
-        at the top of the report.
+        the test is purely informational. Used by the console log and
+        any CI integrations; not surfaced in the bundle's QA report
+        (the report instead exposes ``reference_values`` so readers
+        can judge the numbers themselves).
     units
         Units string for ``summary`` values where relevant
         (``"deltaITP"``, ``"log10(cond)"``, ``"ΔE2000"``).
@@ -53,7 +62,7 @@ class Result:
     scalar_field: np.ndarray | None = None
     figure_path: Path | None = None
     interpretation: str = ""
-    references: tuple[str, ...] = ()
+    reference_values: dict[str, str] = field(default_factory=dict)
     passed: bool | None = None
     units: str = ""
 

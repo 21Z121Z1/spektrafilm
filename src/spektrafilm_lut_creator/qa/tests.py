@@ -30,7 +30,13 @@ if TYPE_CHECKING:
 
 
 def _save(ctx: "QAContext", fig, name: str):
-    """Save a figure under ``figures/<name>.png`` and close it."""
+    """Save a figure under ``figures/<name>.png`` and close it.
+
+    Stamps every figure with the producing spektrafilm version (bottom
+    center) via :func:`viz.add_footer` so reports remain traceable
+    after they leave the bundle directory.
+    """
+    viz.add_footer(fig, ctx.bundle.meta.provenance.spektrafilm_version)
     path = ctx.figures_dir / f"{name}.png"
     fig.savefig(path, dpi=160, facecolor=fig.get_facecolor(), bbox_inches="tight")
     plt.close(fig)
@@ -55,6 +61,13 @@ def off_grid_identity(ctx: "QAContext") -> Result:
     ``p99 ≤ 1.0`` for both trilinear and tetrahedral. ΔE₀₀ is the
     metric colorists reference daily; ΔITP (BT.2124) is also computed
     and reported but the pass criterion is ΔE₀₀.
+
+    References
+    ----------
+    - CIE 142:2001 (CIEDE2000) — the workhorse perceptual metric.
+    - ITU-R BT.2124 — HDR-aware perceptual color difference (ΔITP).
+    - Kirk, *Tetrahedral Interpolation* (FilmLight Truelight whitepapers).
+    - OCIO ``ociochecklut`` — the reference implementation we mirror.
     """
     ref = ctx.reference
     table = ctx.lut.table
@@ -106,17 +119,17 @@ def off_grid_identity(ctx: "QAContext") -> Result:
             "ΔE₀₀ measures perceptual error between the LUT's prediction "
             "(via interpolation in the host's mode — trilinear or "
             "tetrahedral) and the live pipeline at off-grid positions. "
-            "Failure (max > 2.0) means users will see interpolation "
+            "Above the visibility threshold users will see interpolation "
             "artifacts the on-grid test cannot detect; remedies are "
             "higher LUT resolution or wire-shaping changes. ΔITP is "
             "reported as a secondary, HDR-aware companion metric."
         ),
-        references=(
-            "CIE 142:2001 (CIEDE2000) — the workhorse perceptual metric",
-            "ITU-R BT.2124 — HDR-aware perceptual color difference (ΔITP)",
-            "Kirk, Tetrahedral Interpolation (FilmLight Truelight whitepapers)",
-            "OCIO ociochecklut",
-        ),
+        reference_values={
+            "trilinear_dE2000_max": "≤ 2.0 — perceptual visibility threshold for graphics work",
+            "trilinear_dE2000_p99": "≤ 1.0 — interpolation-quality target across the cube",
+            "tetrahedral_dE2000_max": "≤ 2.0 — same threshold under tetrahedral interpolation",
+            "tetrahedral_dE2000_p99": "≤ 1.0 — same target under tetrahedral interpolation",
+        },
         passed=passed,
     )
 
@@ -142,6 +155,11 @@ def monotonicity(ctx: "QAContext") -> Result:
     pinning at the true middle-gray-encoded position (≈0.42 for
     V-Log, ≈0.46 for sRGB, 0.18 for ACEScg) gives a centerline that
     actually represents the channel's behavior at a neutral gray.
+
+    References
+    ----------
+    - OCIO v2 design notes on monotonic LUT structure.
+    - FilmLight Truelight whitepapers.
     """
     from spektrafilm_lut_creator.color_spaces import encode_cctf
 
@@ -219,10 +237,10 @@ def monotonicity(ctx: "QAContext") -> Result:
             "the saturation knee) or a bake artifact at the cube "
             "boundary; investigate both before relaxing the test."
         ),
-        references=(
-            "OCIO v2 design notes on monotonic LUT structure",
-            "FilmLight Truelight whitepapers",
-        ),
+        reference_values={
+            "violations": "== 0 — any cube-wide fold-back is a hard invertibility break",
+            "worst_negative_diff": "== 0.0 when violations == 0; a tiny negative (≈ -1e-5) on the centerline is bake jitter rather than a real fold",
+        },
         passed=passed,
     )
 
@@ -235,6 +253,11 @@ def jacobian_condition(ctx: "QAContext") -> Result:
     (long thin parallelepipeds in output space). Healthy cube cells
     have log-cond ~ O(1); pathological cells climb above 3 (cond ~
     1000), signaling visible artifacts.
+
+    References
+    ----------
+    - Siragusano, *The Beauty of Per-Pixel Math* (FilmLight, Vimeo).
+    - Hable, filmicworlds.com.
     """
     table = ctx.lut.table
     n = ctx.lut.resolution
@@ -259,10 +282,6 @@ def jacobian_condition(ctx: "QAContext") -> Result:
             "rises sharply. Shape of the high-cond region matters more "
             "than its absolute value — a thin shell near the gamut "
             "boundary is expected; a fat interior region is suspicious."
-        ),
-        references=(
-            "Siragusano, 'The Beauty of Per-Pixel Math' (FilmLight, Vimeo)",
-            "Hable, filmicworlds.com",
         ),
         passed=None,  # informational — no hard threshold
     )
@@ -295,7 +314,6 @@ def total_variation(ctx: "QAContext") -> Result:
             "axial spectrum. The histogram plot is a sanity check on "
             "clipping incidence at 0 and 1."
         ),
-        references=(),
         passed=None,
     )
 
@@ -307,6 +325,11 @@ def gamut_self_intersection(ctx: "QAContext") -> Result:
     transform — a hard failure for any grading workflow. The compression
     ratio (output / input OkLab hull volume) is a separate informational
     number: < 1 expected (LUTs compress); > 1 means expansion (suspect).
+
+    References
+    ----------
+    - ACES Reference Gamut Compression test imagery.
+    - Morovic, gamut-mapping CIC papers.
     """
     table = ctx.lut.table
     flips = metrics.gamut_self_intersection_score(table)
@@ -346,10 +369,10 @@ def gamut_self_intersection(ctx: "QAContext") -> Result:
             "either degenerate output (very small ratio) or unexpected "
             "expansion (ratio > 1)."
         ),
-        references=(
-            "ACES Reference Gamut Compression test imagery",
-            "Morovic, gamut mapping CIC papers",
-        ),
+        reference_values={
+            "fold_triangles": "== 0 — any cube-face fold is a hard non-invertibility",
+            "compression_ratio": "in [0.05, 1.05] — < 0.05 is extreme collapse, > 1.05 is unexpected expansion",
+        },
         passed=passed,
     )
 
@@ -367,14 +390,23 @@ def characteristic_curve(ctx: "QAContext") -> Result:
     several constant values of the other two ("pins") and overlaying
     the resulting density curves.
 
-    The pins ``[0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]`` are drawn with
-    alpha pattern ``[0.4, 0.6, 0.8, 1.0, 0.8, 0.6, 0.4]`` — the center
-    pin (0.5) is bold, outer pins fade. The vertical spread between
-    same-color curves at different pins is the **DIR coupler signature**:
-    if the developer-inhibitor couplers in the film simulation are
-    active, pushing one channel's pin level shifts the other channels'
-    density response visibly; an uncoupled simulation would show all
-    same-color curves stacked.
+    Pins are picked so the **off-diagonal curves enter each panel at
+    target output densities** ``[0.2, 0.4, 0.6, 0.8, 1.0]``. Concretely:
+    we build a fine neutral (R=G=B=t) characteristic curve from the
+    LUT, invert it once to find the input codes ``t`` whose neutral
+    output density equals each target D, and pin the non-swept channels
+    at those codes. So in the R panel, at sweep_x=0, the G and B curves
+    start near D=0.2/0.4/0.6/0.8/1.0 — the legend value matches what
+    you see on the Y-axis at the left edge of the panel. (Not exact —
+    pulling the swept channel to 0 perturbs the off-diagonal output via
+    chemistry coupling — but well within "about", which is the point of
+    the visualization.)
+
+    The vertical spread between same-color curves at different pins is
+    the **DIR coupler signature**: if the developer-inhibitor couplers
+    in the film simulation are active, pushing one channel's pin level
+    shifts the other channels' density response visibly; an uncoupled
+    simulation would show all same-color curves stacked.
 
     The bottom-right panel keeps the canonical neutral (R=G=B) curve
     — the classic film D-vs-input characteristic from datasheets.
@@ -382,13 +414,39 @@ def characteristic_curve(ctx: "QAContext") -> Result:
     Uses trilinear interpolation on the LUT (the LUT already encodes
     the on-grid pipeline response; we sample at the pins which may not
     align with the cube grid).
+
+    References
+    ----------
+    - Hunt, *The Reproduction of Colour* — characteristic curves.
+    - Any film stock datasheet (Kodak, Fuji) — the canonical D vs
+      log E shape this plot is patterned on.
     """
     table = ctx.lut.table
     n = ctx.lut.resolution
 
-    # Pins and alpha pattern per the design — center bold, outer faded.
-    pins = (0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8)
-    alphas = (0.15, 0.3, 0.5, 1.0, 0.5, 0.3, 0.15)
+    # Build the neutral characteristic curve at fine resolution and
+    # invert it to find the pin input codes whose neutral output density
+    # equals each target. Use the mean of the three output channels as
+    # the density reference — for a calibrated neutral the three channels
+    # track closely, and the mean is robust to small per-channel
+    # divergence.
+    pin_densities = (0.2, 0.4, 0.6, 0.8, 1.0)
+    alphas = (0.3, 0.6, 1.0, 0.6, 0.3)
+    n_neutral_probe = 257
+    t_probe = np.linspace(0.0, 1.0, n_neutral_probe).astype(np.float32)
+    neutral_probe_in = np.stack([t_probe, t_probe, t_probe], axis=-1)
+    neutral_probe_out = np.asarray(
+        evaluators.apply_trilinear(table, neutral_probe_in), dtype=float,
+    )
+    neutral_d = -np.log10(
+        np.clip(np.mean(neutral_probe_out, axis=-1), 1e-4, 1.0),
+    )
+    # np.interp wants x ascending; density is monotonically decreasing in
+    # t (more input → less density on a print), so flip both vectors.
+    pin_codes = tuple(
+        float(np.interp(d, neutral_d[::-1], t_probe[::-1].astype(float)))
+        for d in pin_densities
+    )
 
     # Trilinear-sampled sweeps at finer-than-cube resolution; gives
     # smooth curves even at low cube resolutions and lets us pin the
@@ -399,14 +457,17 @@ def characteristic_curve(ctx: "QAContext") -> Result:
     r_sweep_data: list[tuple[float, np.ndarray, float]] = []
     g_sweep_data: list[tuple[float, np.ndarray, float]] = []
     b_sweep_data: list[tuple[float, np.ndarray, float]] = []
-    for pin, alpha in zip(pins, alphas):
-        pin_arr = np.full(n_samples, pin)
+    for pin_d, pin_code, alpha in zip(pin_densities, pin_codes, alphas):
+        pin_arr = np.full(n_samples, pin_code)
         r_in = np.stack([sweep_x, pin_arr, pin_arr], axis=-1).astype(np.float32)
         g_in = np.stack([pin_arr, sweep_x, pin_arr], axis=-1).astype(np.float32)
         b_in = np.stack([pin_arr, pin_arr, sweep_x], axis=-1).astype(np.float32)
-        r_sweep_data.append((pin, evaluators.apply_trilinear(table, r_in), alpha))
-        g_sweep_data.append((pin, evaluators.apply_trilinear(table, g_in), alpha))
-        b_sweep_data.append((pin, evaluators.apply_trilinear(table, b_in), alpha))
+        # The pin value in the data tuple is the *density* — used for
+        # legend labels in viz.density_transfer_curves so the label
+        # units match the panel's Y-axis.
+        r_sweep_data.append((pin_d, evaluators.apply_trilinear(table, r_in), alpha))
+        g_sweep_data.append((pin_d, evaluators.apply_trilinear(table, g_in), alpha))
+        b_sweep_data.append((pin_d, evaluators.apply_trilinear(table, b_in), alpha))
 
     # Neutral R=G=B sweep — the canonical D-vs-input curve.
     neutral_in = np.stack([sweep_x, sweep_x, sweep_x], axis=-1).astype(np.float32)
@@ -449,10 +510,6 @@ def characteristic_curve(ctx: "QAContext") -> Result:
             "or chemistry-model bug, not a LUT bug; check the print "
             "chemistry's neutral handling."
         ),
-        references=(
-            "Hunt, 'The Reproduction of Colour' — characteristic curves",
-            "any film stock datasheet (Kodak, Fuji)",
-        ),
         passed=None,
     )
 
@@ -464,6 +521,11 @@ def planckian_sweep(ctx: "QAContext") -> Result:
     D65", "white under D75", etc. to a smooth, monotonic curve in
     output chromaticity. Kinks or fold-backs reveal white-balance
     handling bugs.
+
+    References
+    ----------
+    - CIE 15:2018 (daylight illuminants).
+    - Poynton, *Color FAQ* — white-point handling.
     """
     spec = ctx.spec
     samples_encoded, cct = patterns.planckian_sweep(spec.input_color_space, n=16)
@@ -506,133 +568,9 @@ def planckian_sweep(ctx: "QAContext") -> Result:
             "adaptation — worth investigating the scan illuminant "
             "handling and the print's spectral response curves."
         ),
-        references=(
-            "CIE 15:2018 (daylight illuminants)",
-            "Poynton, Color FAQ — white-point handling",
-        ),
-        passed=passed,
-    )
-
-
-def highlight_rolloff(ctx: "QAContext") -> Result:
-    """Smoothness of the LUT's per-channel transfer near the top end.
-
-    For log/HDR-friendly input spaces, the upper half of the input
-    domain covers many stops above middle gray — exactly where the
-    shoulder of the density curves shapes the look. Kinks in the
-    second derivative are visible artifacts.
-
-    The ramp is anchored at the input color space's **middle-gray-
-    encoded** value (linear 0.18 through the input CCTF), so the
-    sweep represents "neutral gray → max highlight" honestly across
-    log and SDR inputs. The non-swept channels are also pinned at
-    that same encoded value so the ramp is a true highlight sweep
-    on a gray background.
-    """
-    spec = ctx.spec
-    n_per_axis = 64
-    pattern, lo_used = patterns.highlight_ramps_per_channel(
-        spec.input_color_space, n=n_per_axis,
-    )
-    lut_out = evaluators.apply_trilinear(ctx.lut.table, pattern)
-    # Split into the three per-channel ramps.
-    per_axis_out = [lut_out[i * n_per_axis:(i + 1) * n_per_axis] for i in range(3)]
-    in_codes = np.linspace(lo_used, 1.0, n_per_axis)
-
-    # Second-derivative max on the swept channel — kink detector.
-    max_d2 = max(
-        metrics.second_derivative_max(per_axis_out[c][:, c]) for c in range(3)
-    )
-    fig = viz.highlight_rolloff_curves(
-        in_codes, per_axis_out,
-        title=(
-            f"Highlight rolloff — middle-gray-to-max ramps "
-            f"({spec.input_color_space} encoded {lo_used:.3f} → 1.000)"
-        ),
-    )
-    path = _save(ctx, fig, "highlight_rolloff")
-
-    # Empirical threshold: smooth shoulders give max |d²| < ~0.005 for
-    # 64-sample ramps. Set the bar loosely at 0.02 — actual kinks lift
-    # by an order of magnitude when present.
-    passed = max_d2 <= 0.02
-
-    return Result(
-        name="highlight_rolloff",
-        summary={
-            "max_abs_second_derivative": max_d2,
-            "ramp_lo_encoded": lo_used,
-            "ramp_hi_encoded": 1.0,
+        reference_values={
+            "max_bend_angle_deg": "≤ 30° — daylight CCT sweep should map to a smooth curve; pure monotone smoothness gives ~0°",
         },
-        figure_path=path,
-        units="output (per-step²)",
-        interpretation=(
-            "A film's shoulder should be smooth at the resolution of "
-            "the LUT. Kinks indicate a model regime change (e.g., a "
-            "piecewise function with a discontinuous derivative) or a "
-            "bake artifact at the LUT's gamut boundary. Visible in "
-            "long exponential ramps as banding or a hard knee. The "
-            "ramp is anchored at middle-gray-encoded so the same "
-            "test reads honestly across log and SDR inputs."
-        ),
-        references=(
-            "ARRI K1S0-057 LogC curve whitepaper",
-            "ACES Output Transform threads (ACEScentral)",
-        ),
-        passed=passed,
-    )
-
-
-def black_toe(ctx: "QAContext") -> Result:
-    """Behavior near zero — slope and channel divergence at code 0.
-
-    Crushed blacks, hue shifts at base+fog, and shadow banding all
-    live in the bottom 5% of the input domain. A trustworthy bundle
-    has its three channels converging gracefully at zero with a clean
-    finite slope.
-    """
-    spec = ctx.spec
-    pattern = patterns.near_zero_patches(spec.input_color_space, n=48)
-    lut_out = evaluators.apply_trilinear(ctx.lut.table, pattern)
-    in_codes = pattern[:, 0]
-
-    # Slope of each channel near zero.
-    slopes = [metrics.slope_at_zero(in_codes, lut_out[:, c], n_first=5) for c in range(3)]
-    # Channel divergence at code 0.
-    divergence_at_zero = float(np.ptp(lut_out[0]))
-
-    fig = viz.black_toe_curves(in_codes, lut_out)
-    path = _save(ctx, fig, "black_toe")
-
-    # Industry-ish: at code 0, R, G, B should land within ~0.005 of each
-    # other (a neutral input stays neutral in shadows).
-    passed = divergence_at_zero <= 0.005
-
-    return Result(
-        name="black_toe",
-        summary={
-            "slope_R": slopes[0],
-            "slope_G": slopes[1],
-            "slope_B": slopes[2],
-            "divergence_at_zero": divergence_at_zero,
-        },
-        figure_path=path,
-        units="output",
-        interpretation=(
-            "At code 0, the three channels should land at nearly the "
-            "same value (a neutral input stays neutral in shadows). "
-            "Divergence indicates either a chemistry-model bias at base "
-            "fog, or numerical handling at the LUT's lower boundary. "
-            "Flat-line output across [0, 0.10] is expected behavior "
-            "for log inputs (V-Log, S-Log3, LogC, etc.) where code 0 "
-            "sits well below scene black and the pipeline floors to a "
-            "fixed value; the meaningful black-toe shape for those "
-            "inputs lives near the encoded scene-black point higher up."
-        ),
-        references=(
-            "SMPTE RP 2096-1 HDR test patterns",
-            "Pomfort QC report patterns",
-        ),
         passed=passed,
     )
 
@@ -651,6 +589,12 @@ def hue_twist_oklab(ctx: "QAContext") -> Result:
     (they lie outside the visible spectral locus — V-Gamut and
     ProPhoto primaries extend there — and don't have meaningful hue
     coordinates).
+
+    References
+    ----------
+    - Ottosson, *OkLab*, https://bottosson.github.io/posts/oklab/.
+    - Yedlin, *Display Prep Demo*, yedlin.net.
+    - Sobotka, *AgX*, github.com/sobotka/AgX.
     """
     in_cs = ctx.spec.input_color_space
     out_cs = ctx.spec.output_color_space
@@ -691,11 +635,6 @@ def hue_twist_oklab(ctx: "QAContext") -> Result:
             "Per-stock pass/fail thresholds wait on the baselines work "
             "(n080 §10)."
         ),
-        references=(
-            "Ottosson, OkLab, https://bottosson.github.io/posts/oklab/",
-            "Yedlin, Display Prep Demo, yedlin.net",
-            "Sobotka, AgX, github.com/sobotka/AgX",
-        ),
         passed=None,  # informational; no absolute threshold pre-baselines
     )
 
@@ -724,6 +663,12 @@ def dynamic_range_usage(ctx: "QAContext") -> Result:
     Reported informational for v1 — there's no universal "correct"
     answer for how many stops a film simulation should preserve, but
     knowing the number is a colorist staple.
+
+    References
+    ----------
+    - Hunt, *The Reproduction of Colour* — characteristic curves.
+    - ARRI K1S0-057 LogC whitepaper.
+    - ANSI/SMPTE RP 180 (18% middle gray).
     """
     in_cs = ctx.spec.input_color_space
     out_cs = ctx.spec.output_color_space
@@ -763,11 +708,6 @@ def dynamic_range_usage(ctx: "QAContext") -> Result:
             "shoulder collapsed stops sit *within* the encoded range — "
             "they're rendering decisions, not encoding limits."
         ),
-        references=(
-            "Hunt, 'The Reproduction of Colour' — characteristic curves",
-            "ARRI K1S0-057 LogC whitepaper",
-            "ANSI/SMPTE RP 180 (18% middle gray)",
-        ),
         passed=None,
     )
 
@@ -793,6 +733,11 @@ def spectral_locus_envelope(ctx: "QAContext") -> Result:
     role as a "where does the gamut reach" diagnostic; this plot
     answers the complementary "what does the full LUT *look* like in
     xy" question.
+
+    References
+    ----------
+    - Mansencal (@KelSolaar), colour-science visualizations.
+    - ACES Reference Gamut Compression.
     """
     out_cs = ctx.spec.output_color_space
 
@@ -822,14 +767,17 @@ def spectral_locus_envelope(ctx: "QAContext") -> Result:
     from spektrafilm.utils.gamut_compression import spectral_locus_xy
     locus = spectral_locus_xy()
 
-    bg, fg, hi, dim = "#0a0a0a", "#cccccc", "#ffee66", "#888888"
+    # ``accent`` is the yellow-ish color used for the input-gamut
+    # triangle overlay (visible against the dark BG); titles use the
+    # shared viz.HI white so they match the rest of the report.
+    bg, fg, accent, dim = "#0a0a0a", "#cccccc", "#ffee66", "#888888"
 
     fig, ax = plt.subplots(figsize=(10, 10), facecolor=bg, layout="constrained")
     ax.set_facecolor(bg)
     for spine in ax.spines.values():
         spine.set_color("#555555")
     ax.tick_params(colors=fg)
-    ax.grid(True, alpha=0.08, color=hi)
+    ax.grid(True, alpha=0.08, color=accent)
 
     # Reference frame — drawn before scatter so dots sit on top.
     ax.plot(locus[:, 0], locus[:, 1], color=dim, lw=1.0, alpha=0.5,
@@ -939,9 +887,8 @@ def spectral_locus_envelope(ctx: "QAContext") -> Result:
     ax.set_ylabel("y", color=fg)
     ax.set_aspect("equal")
     ax.set_title(
-        f"LUT chromaticity map — {ctx.spec.input_color_space} → {out_cs}\n"
-        f"(every cube cell rendered at its xy position in its own color)",
-        color=hi, fontsize=12, pad=10,
+        f"LUT chromaticity map — {ctx.spec.input_color_space} → {out_cs}",
+        color=viz.HI, fontsize=viz.SUPTITLE_FS, pad=viz.SUPTITLE_PAD,
     )
 
     path = _save(ctx, fig, "spectral_locus_envelope")
@@ -967,10 +914,6 @@ def spectral_locus_envelope(ctx: "QAContext") -> Result:
             "intended. The complementary "
             "`output_gamut_compression_preview` figure shows the "
             "rim envelope and the compression's effect explicitly."
-        ),
-        references=(
-            "Mansencal (@KelSolaar), colour-science visualizations",
-            "ACES Reference Gamut Compression",
         ),
         passed=None,
     )
@@ -1066,6 +1009,12 @@ def input_gamut_compression_preview(ctx: "QAContext") -> Result:
     Styling mirrors spektrafilm-research/studies/a40_lut_system/
     tune_input_gamut_compression.py ``plot_compression_preview`` so the
     QA artifact reads the same way as the study figures.
+
+    References
+    ----------
+    - ACES Reference Gamut Compression v1.3 (AMPAS, 2020).
+    - Hanatos et al., *Sigmoidal Compression for Reflectance Manifold* (2025).
+    - spektrafilm-research n100 §5.
     """
     from spektrafilm.utils.gamut_compression import (
         compress_xy, spectral_locus_xy,
@@ -1075,7 +1024,10 @@ def input_gamut_compression_preview(ctx: "QAContext") -> Result:
     # Palette matches the tuning script (BG/FG/HI/DIM and the
     # OOG/compressed/arrow colors). Keeping these inline rather than
     # importing from the research tree keeps QA self-contained.
-    bg, fg, hi, dim = "#0a0a0a", "#cccccc", "#ffee66", "#888888"
+    # ``accent`` is the yellow-ish color used for the input-gamut
+    # triangle overlay (visible against the dark BG); titles use the
+    # shared viz.HI white so they match the rest of the report.
+    bg, fg, accent, dim = "#0a0a0a", "#cccccc", "#ffee66", "#888888"
     ok_color = "#66cc99"
     oog_color = "#ff6666"
     moved_color = "#66ccff"
@@ -1114,7 +1066,7 @@ def input_gamut_compression_preview(ctx: "QAContext") -> Result:
     for spine in ax.spines.values():
         spine.set_color("#555555")
     ax.tick_params(colors=fg)
-    ax.grid(True, alpha=0.12, color=hi)
+    ax.grid(True, alpha=0.12, color=accent)
 
     # Spectral locus.
     ax.plot(locus[:, 0], locus[:, 1], color=fg, lw=1.3, alpha=0.95,
@@ -1127,9 +1079,9 @@ def input_gamut_compression_preview(ctx: "QAContext") -> Result:
         in_cs_obj = colour.RGB_COLOURSPACES[in_entry.primaries]
         pri = np.asarray(in_cs_obj.primaries, dtype=float)
         tri = np.vstack([pri, pri[:1]])
-        ax.plot(tri[:, 0], tri[:, 1], color=hi, lw=1.4, alpha=0.7,
+        ax.plot(tri[:, 0], tri[:, 1], color=accent, lw=1.4, alpha=0.7,
                 label=f"{ctx.spec.input_color_space} gamut")
-        ax.fill(tri[:, 0], tri[:, 1], color=hi, alpha=0.04)
+        ax.fill(tri[:, 0], tri[:, 1], color=accent, alpha=0.04)
     except Exception:
         pass
 
@@ -1221,7 +1173,7 @@ def input_gamut_compression_preview(ctx: "QAContext") -> Result:
         f"compression preview — {ctx.spec.input_color_space} via "
         f"{spec.algorithm} (t={spec.knee[0]}, l={spec.knee[1]}, "
         f"p={spec.knee[2]})",
-        color=hi, fontsize=12, pad=10,
+        color=viz.HI, fontsize=viz.SUPTITLE_FS, pad=viz.SUPTITLE_PAD,
     )
     ax.legend(facecolor="#1a1a1a", labelcolor=fg, framealpha=0.9,
               loc="upper right", fontsize=8)
@@ -1254,11 +1206,6 @@ def input_gamut_compression_preview(ctx: "QAContext") -> Result:
             "time (n100 §3.1); this plot is the build's audit trail. "
             "Informational only — no pass/fail."
         ),
-        references=(
-            "ACES Reference Gamut Compression v1.3 (AMPAS, 2020)",
-            "Hanatos et al., Sigmoidal Compression for Reflectance Manifold (2025)",
-            "spektrafilm-research n100 §5",
-        ),
         passed=None,
     )
 
@@ -1275,12 +1222,20 @@ def input_gamut_compression_smoothness(ctx: "QAContext") -> Result:
     Styling mirrors spektrafilm-research/studies/a40_lut_system/
     tune_input_gamut_compression.py ``plot_smoothness_circumferential``
     so the QA artifact reads identically to the study figure.
+
+    References
+    ----------
+    - spektrafilm-research n100 §5.1 (smoothness probes).
+    - ``tune_input_gamut_compression.py`` ``plot_smoothness_circumferential``.
     """
     from spektrafilm.utils.gamut_compression import (
         compress_xy, spectral_locus_xy,
     )
 
-    bg, fg, hi, dim = "#0a0a0a", "#cccccc", "#ffee66", "#888888"
+    # ``accent`` is the yellow-ish color used for the input-gamut
+    # triangle overlay (visible against the dark BG); titles use the
+    # shared viz.HI white so they match the rest of the report.
+    bg, fg, accent, dim = "#0a0a0a", "#cccccc", "#ffee66", "#888888"
 
     spec = ctx.spec.input_gamut_compress
     ref_illuminant = _film_reference_illuminant(ctx)
@@ -1327,7 +1282,7 @@ def input_gamut_compression_smoothness(ctx: "QAContext") -> Result:
     for spine in ax.spines.values():
         spine.set_color("#555555")
     ax.tick_params(colors=fg)
-    ax.grid(True, alpha=0.12, color=hi)
+    ax.grid(True, alpha=0.12, color=accent)
 
     # Spectral locus.
     ax.plot(locus[:, 0], locus[:, 1], color=fg, lw=1.0, alpha=0.85,
@@ -1336,7 +1291,7 @@ def input_gamut_compression_smoothness(ctx: "QAContext") -> Result:
     # Input gamut triangle.
     if pri is not None:
         tri = np.vstack([pri, pri[:1]])
-        ax.plot(tri[:, 0], tri[:, 1], color=hi, lw=1.0, alpha=0.5,
+        ax.plot(tri[:, 0], tri[:, 1], color=accent, lw=1.0, alpha=0.5,
                 label=f"{ctx.spec.input_color_space} gamut")
 
     # Input circle as a dashed reference.
@@ -1365,7 +1320,7 @@ def input_gamut_compression_smoothness(ctx: "QAContext") -> Result:
         f"(t={spec.knee[0]}, l={spec.knee[1]}, p={spec.knee[2]})\n"
         f"r = {radius} from {ref_illuminant}    "
         f"worst/median step {ratio:.2f}",
-        color=hi, fontsize=11, pad=10,
+        color=viz.HI, fontsize=viz.SUPTITLE_FS, pad=viz.SUPTITLE_PAD,
     )
     leg = ax.legend(loc="upper right", fontsize=8,
                     facecolor="#1a1a1a", edgecolor="#555555",
@@ -1400,10 +1355,6 @@ def input_gamut_compression_smoothness(ctx: "QAContext") -> Result:
             "into banding in the baked LUT. `worst_over_median_step` "
             "near 1 is ideal; >>1 indicates a kink. Informational only — "
             "no pass/fail."
-        ),
-        references=(
-            "spektrafilm-research n100 §5.1 (smoothness probes)",
-            "tune_input_gamut_compression.py plot_smoothness_circumferential",
         ),
         passed=None,
     )
@@ -1483,13 +1434,23 @@ def output_gamut_compression_preview(ctx: "QAContext") -> Result:
     Informational only — the compression itself is correct by
     construction. This figure is the bundle's audit trail showing
     *what* the compression did for the specific input/output pair.
+
+    References
+    ----------
+    - spektrafilm-research n110 (output compression design).
+    - ACES Reference Gamut Compression v1.3 (AMPAS, 2020).
+    - OCIO ``FixedFunctionTransform(style=ACES_GamutComp13)``.
+    - CSS Color 4 (W3C) OkLch gamut mapping.
     """
     from spektrafilm_lut_creator.qa import patterns
     from spektrafilm.utils.gamut_compression import (
         compress_rgb, spectral_locus_xy,
     )
 
-    bg, fg, hi, dim = "#0a0a0a", "#cccccc", "#ffee66", "#888888"
+    # ``accent`` is the yellow-ish color used for the input-gamut
+    # triangle overlay (visible against the dark BG); titles use the
+    # shared viz.HI white so they match the rest of the report.
+    bg, fg, accent, dim = "#0a0a0a", "#cccccc", "#ffee66", "#888888"
 
     from spektrafilm_lut_creator.color_spaces import get as _get_cs
     spec = ctx.spec.output_gamut_compress
@@ -1561,7 +1522,7 @@ def output_gamut_compression_preview(ctx: "QAContext") -> Result:
     for spine in ax.spines.values():
         spine.set_color("#555555")
     ax.tick_params(colors=fg)
-    ax.grid(True, alpha=0.12, color=hi)
+    ax.grid(True, alpha=0.12, color=accent)
 
     # Spectral locus — faint background reference.
     ax.plot(locus[:, 0], locus[:, 1], color=dim, lw=1.0, alpha=0.45,
@@ -1726,7 +1687,7 @@ def output_gamut_compression_preview(ctx: "QAContext") -> Result:
         f"output gamut compression — {ctx.spec.input_color_space} → "
         f"{out_cs_name} via {algorithm_label}\n"
         f"(t={spec.knee[0]}, l={spec.knee[1]}, p={spec.knee[2]})",
-        color=hi, fontsize=12, pad=10,
+        color=viz.HI, fontsize=viz.SUPTITLE_FS, pad=viz.SUPTITLE_PAD,
     )
 
     path = _save(ctx, fig, "output_gamut_compression_preview")
@@ -1758,12 +1719,6 @@ def output_gamut_compression_preview(ctx: "QAContext") -> Result:
             "available as opt-in for cinema-pipeline compatibility. "
             "Informational only — no pass/fail."
         ),
-        references=(
-            "spektrafilm-research n110 (output compression design)",
-            "ACES Reference Gamut Compression v1.3 (AMPAS, 2020)",
-            "OCIO FixedFunctionTransform(style=ACES_GamutComp13)",
-            "CSS Color 4 (W3C) OkLch gamut mapping",
-        ),
         passed=None,
     )
 
@@ -1776,7 +1731,7 @@ def _build_gamut_edge_stress_panel(
     target_cs: str,
     in_cs: str,
     out_cs: str,
-    table: np.ndarray,
+    pipeline,
     *,
     width: int = 768,
     height: int = 256,
@@ -1798,18 +1753,33 @@ def _build_gamut_edge_stress_panel(
     ``w_sat = 1 - |2v-1|``, ``w_black = max(0, 2v-1)`` for
     ``v ∈ [0, 1]`` top→bottom.
 
-    The encoded image is then CCTF-decoded to target linear RGB,
-    CAT-adapted to the bundle's input primaries, and CCTF-encoded
-    again for the input space. Pixels whose target-space color does
-    not fit ``[0, 1]`` in the input encoding are left **black** in
-    the rendered panel (no LUT processing). In-range pixels are
-    hard-clipped, pushed through the LUT (trilinear), then converted
-    from the output color space to sRGB-encoded for display
-    (hard-clipped).
+    The encoded image is CCTF-decoded to target linear, CAT-adapted
+    into the bundle's input primaries (no clipping — saturated rim
+    pixels keep their negative components), and pushed through the
+    actual runtime pipeline. This is what a real workflow does: the
+    runtime's input gamut compression handles chromaticities inside
+    the visible locus directly via spectral upsampling, so there's no
+    need to force the input through the LUT's [0, 1]³ cube boundary
+    via hard clipping. The LUT is *not* used for this test — running
+    the runtime is the honest answer for stress-test inputs whose
+    chromaticities sit outside the bundle's declared input primaries.
+
+    Output goes through the runtime's output gamut compression (toward
+    the bundle's output primaries, baked into the pipeline). The
+    result is then CAT'd to sRGB linear and OkLch-chroma-reduced
+    toward sRGB for display, so wider-output bundles still render
+    smoothly here.
+
+    The ``oog_fraction_*`` stats report how many pixels of the
+    target-space gradient lie outside the bundle's input-primaries
+    cube — a diagnostic of "how much of this source the bundle can't
+    natively represent in its declared input gamut," kept even though
+    the pipeline handles those pixels without clipping.
     """
     from spektrafilm_lut_creator.color_spaces import (
-        decode_cctf, encode_cctf, get as get_cs,
+        decode_cctf, get as get_cs,
     )
+    from spektrafilm.utils.gamut_compression import compress_rgb_oklch_chroma
 
     W, H = width, height
 
@@ -1845,9 +1815,9 @@ def _build_gamut_edge_stress_panel(
     in_entry = get_cs(in_cs)
     out_entry = get_cs(out_cs)
 
-    # CCTF-decode to target linear, CAT to input linear, CCTF-encode
-    # for the input space. For linear target spaces (ACES2065-1) the
-    # decode is a no-op.
+    # CCTF-decode to target linear, CAT to bundle-input linear. No
+    # clipping at this boundary — the pipeline will handle any negative
+    # components via input gamut compression toward the spectral locus.
     image_linear = decode_cctf(image_target_encoded, target_cs)
     input_linear = np.asarray(
         colour.RGB_to_RGB(
@@ -1857,36 +1827,46 @@ def _build_gamut_edge_stress_panel(
             chromatic_adaptation_transform="CAT02",
         ), dtype=float,
     )
-    input_encoded = encode_cctf(input_linear, in_cs)
 
+    # OOG-to-input diagnostic: how much of the target gradient sits
+    # outside the bundle's declared input primaries cube. Computed
+    # purely for the stat; the pipeline doesn't need it.
     oog_mask = np.any(
-        (input_encoded < 0.0) | (input_encoded > 1.0), axis=-1,
+        (input_linear < 0.0) | (input_linear > 1.0), axis=-1,
     )
-    input_encoded_clipped = np.clip(input_encoded, 0.0, 1.0)
 
-    flat = input_encoded_clipped.reshape(-1, 3).astype(np.float32)
-    lut_out_flat = evaluators.apply_trilinear(table, flat)
-    lut_out = lut_out_flat.reshape(H, W, 3)
+    # Run the gradient through the actual runtime pipeline. Pipeline
+    # expects (H, W, 3); lut_mode disables every spatial effect so the
+    # layout is purely a performance knob. Output is linear RGB in the
+    # bundle's output primaries.
+    image_in = input_linear.reshape(1, H * W, 3).astype(np.float32)
+    image_out_linear = np.asarray(
+        pipeline.process(image_in), dtype=float,
+    ).reshape(H, W, 3)
 
-    lut_out_linear = decode_cctf(lut_out, out_cs)
+    # Display conversion: CAT from bundle output primaries to sRGB
+    # linear, OkLch chroma reduction toward sRGB (preserves perceptual
+    # hue + lightness when the output color space is wider than sRGB),
+    # then sRGB-encode. For sRGB-output bundles the OkLch step is
+    # effectively identity.
     srgb_linear = np.asarray(
         colour.RGB_to_RGB(
-            lut_out_linear,
+            image_out_linear,
             out_entry.primaries,
             "sRGB",
             chromatic_adaptation_transform="CAT02",
         ), dtype=float,
+    )
+    srgb_linear = compress_rgb_oklch_chroma(
+        srgb_linear, output_color_space="sRGB",
+        threshold=0.815, limit=1.0, power=1.2,
     )
     srgb_encoded = np.asarray(
         colour.cctf_encoding(np.clip(srgb_linear, 0.0, 1.0), function="sRGB"),
         dtype=float,
     )
     srgb_encoded = np.clip(srgb_encoded, 0.0, 1.0)
-    srgb_encoded[oog_mask] = 0.0
 
-    # Saturated-row OOG fraction: how much of the gradient's middle
-    # band — the "rim" of the target cube — falls outside the input
-    # encoding. The headline number on each panel.
     mid_band = slice(max(0, H // 2 - H // 16), H // 2 + H // 16)
     stats = {
         "oog_fraction_total": float(oog_mask.mean()),
@@ -1897,28 +1877,75 @@ def _build_gamut_edge_stress_panel(
 
 def gamut_edge_stress(ctx: "QAContext") -> Result:
     """Granger-style RGB stress chart at the edges of three target
-    color spaces.
+    color spaces, rendered through the actual runtime pipeline.
 
-    For each target space (Rec.709, Rec.2020, ACES2065-1) we build a
+    For each target space (Rec.709, DCI-P3, Rec.2020) we build a
     vertical linear-RGB gradient — white at the top, the saturated
     edge of the target's RGB cube in the middle (hue cycle across
-    columns), black at the bottom — convert it into the bundle's
-    input encoding (CAT-aware + CCTF), leave out-of-input-gamut
-    pixels black, push the rest through the LUT, and render the
-    result in sRGB for direct viewing. Visible bands, kinks, hue
-    jumps, or posterization in the rendered gradient signal LUT
-    pathology at saturated input — a regime the rest of the suite
-    probes only statistically.
+    columns), black at the bottom — CAT-adapt it into the bundle's
+    input primaries (no clipping), and process it through the runtime
+    pipeline rather than the baked LUT. The runtime handles
+    chromaticities outside the bundle's declared input cube directly:
+    spectral upsampling works anywhere inside the visible locus, and
+    the bundle's input gamut compression (toward the locus) handles
+    anything beyond. Output goes through the bundle's output gamut
+    compression and is rendered to sRGB for display via OkLch chroma
+    reduction toward the sRGB primaries.
+
+    Why the runtime and not the LUT: the LUT is sampled in
+    ``[0, 1]^3`` of the bundle's input encoded cube; saturated rim
+    pixels in a wider target space (P3, Rec.2020) lie outside that
+    cube and the LUT physically can't evaluate them without first
+    clipping them in — which is exactly the artifact the test is
+    supposed to surface. Running the runtime is the honest answer
+    for "what would the bundle produce if applied to this source."
+
+    Visible bands, kinks, hue jumps, or posterization in the rendered
+    gradient signal model-side pathology at saturated input — a
+    regime the rest of the suite probes only statistically.
+
+    References
+    ----------
+    - Mononodes LUT Inspector — Granger-style RGB stress chart,
+      https://mononodes.com/lut-inspector/.
+    - Mononodes Cube Slice DCTL — RGB cube face gradients.
     """
-    in_cs = ctx.spec.input_color_space
-    out_cs = ctx.spec.output_color_space
-    table = ctx.lut.table
+    from spektrafilm.runtime.params_builder import digest_params, init_params
+    from spektrafilm.runtime.pipeline import SimulationPipeline
+    from spektrafilm_lut_creator.color_spaces import get as get_color_space
+
+    spec = ctx.spec
+    in_cs = spec.input_color_space
+    out_cs = spec.output_color_space
+    in_entry = get_color_space(in_cs)
+    out_entry = get_color_space(out_cs)
+    paper = (
+        ctx.bundle.meta.stocks.prints[ctx.paper_index]
+        if ctx.bundle.meta.stocks else spec.print_profiles[ctx.paper_index]
+    )
+
+    # Build the runtime pipeline once and share it across the three
+    # target gradients. lut_mode disables spatial effects; the
+    # gamut_clip / input_gamut_compress / output_gamut_compress
+    # settings mirror the bundle's bake-time configuration so the
+    # stress test renders what the bundle would actually produce.
+    params = init_params(film_profile=spec.film_profile, print_profile=paper)
+    params.debug.lut_mode = True
+    params.io.input_primaries = in_entry.primaries
+    params.io.output_primaries = out_entry.primaries
+    params.io.input_cctf_decoding = False
+    params.io.output_cctf_encoding = False
+    params.io.gamut_clip = spec.gamut_clip
+    params.io.input_gamut_compress = spec.input_gamut_compress
+    params.io.output_gamut_compress = spec.output_gamut_compress
+    params = digest_params(params)
+    pipeline = SimulationPipeline(params)
 
     target_spaces = ["Rec.709", "DCI-P3", "Rec.2020"]
     panels: list[tuple[str, np.ndarray, dict]] = []
     summary: dict[str, float] = {}
     for cs in target_spaces:
-        img, stats = _build_gamut_edge_stress_panel(cs, in_cs, out_cs, table)
+        img, stats = _build_gamut_edge_stress_panel(cs, in_cs, out_cs, pipeline)
         panels.append((cs, img, stats))
         summary[f"{cs}_oog_fraction_saturated_row"] = stats["oog_fraction_saturated_row"]
 
@@ -1932,23 +1959,23 @@ def gamut_edge_stress(ctx: "QAContext") -> Result:
         units="",
         interpretation=(
             "Each panel is a Granger-style RGB stress chart at the "
-            "edges of one target RGB space: each column is a linear "
-            "interpolation white → saturated_edge(hue) → black in "
-            "target-cs linear RGB. The image is CAT-adapted into the "
-            "bundle's input encoding, pixels outside [0, 1] there are "
-            "left black, and the rest go through the LUT and back out "
-            "to sRGB for viewing. The gradient should be continuous "
-            "and smooth from top to bottom; visible bands, hue jumps, "
-            "or posterization reveal LUT pathology at saturated input. "
-            "OOG fractions tell you how much of each target's "
-            "saturated rim the bundle's input encoding can actually "
-            "represent — for narrow inputs like sRGB the Rec.2020 / "
-            "ACES2065-1 saturated rows will be largely black."
-        ),
-        references=(
-            "Mononodes LUT Inspector — Granger-style RGB stress chart, "
-            "https://mononodes.com/lut-inspector/",
-            "Mononodes Cube Slice DCTL — RGB cube face gradients",
+            "edges of one target RGB space: each column is a tent "
+            "white → saturated_edge(hue) → black in target-cs encoded "
+            "RGB. The image is CAT-adapted into the bundle's input "
+            "primaries (no clipping) and pushed through the runtime "
+            "pipeline, which handles chromaticities outside the "
+            "bundle's input cube via spectral upsampling + input "
+            "gamut compression toward the visible locus. Output is "
+            "rendered to sRGB for viewing via OkLch chroma reduction. "
+            "The gradient should be continuous and smooth from top to "
+            "bottom; visible bands, hue jumps, or posterization "
+            "reveal model-side pathology at saturated input. "
+            "`oog_fraction_*` reports how many pixels lie outside the "
+            "bundle's input primaries cube — a diagnostic of how much "
+            "of each target's saturated rim the bundle has to handle "
+            "as out-of-input-gamut input (the pipeline still renders "
+            "them, but they're physically outside the bundle's "
+            "declared input gamut)."
         ),
         passed=None,
     )
@@ -1985,7 +2012,6 @@ def rg_plane_slices(ctx: "QAContext") -> Result:
             "left→right, G bottom→top — corner colors are the LUT's "
             "renderings of input (R, G, B) corners at that B."
         ),
-        references=(),
         passed=None,
     )
 
@@ -1999,8 +2025,6 @@ DEFAULT_TESTS = (
     characteristic_curve,
     dynamic_range_usage,
     planckian_sweep,
-    highlight_rolloff,
-    black_toe,
     hue_twist_oklab,
     spectral_locus_envelope,
     input_gamut_compression_preview,

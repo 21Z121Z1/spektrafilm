@@ -123,24 +123,25 @@ def default_bundle_name(
     return "_".join(parts)
 
 
-def per_paper_bundle_name(
+def per_paper_qa_folder_name(
     film_profile: str,
     print_profile: str,
-    topology: str,
     input_color_space: str,
     output_color_space: str,
 ) -> str:
-    """The single-paper bundle name for one paper from a multi-paper bundle.
+    """Folder name for one paper's QA report inside ``<bundle>/qa/``.
 
-    Used to label per-paper QA report folders: a 3-paper bundle named
-    ``spektrafilm_v032_portra160_3paperpack_2lut_vlog_srgb`` produces
-    QA report folders named ``spektrafilm_v032_portra160_<paper>_2lut_vlog_srgb``
-    — the same shape a single-paper bundle of that paper would have.
+    Shape: ``<film>_<paper>_<input>_<output>`` (e.g.
+    ``portra160_portraendura_vlog_srgb``). Deliberately short —
+    the parent bundle directory already carries the spektrafilm
+    version + topology, so the QA folder only disambiguates by the
+    fields that change *within* a bundle (the paper) and the
+    color-space pair that frames the test.
     """
-    return default_bundle_name(
-        film_profile=film_profile,
-        print_profiles=(print_profile,),
-        topology=topology,
-        input_color_space=input_color_space,
-        output_color_space=output_color_space,
-    )
+    from spektrafilm_lut_creator.color_spaces import short_tag as _cs_short_tag
+
+    film_tag = normalize_stock(film_profile)
+    paper_tag = normalize_stock(print_profile)
+    in_tag = _cs_short_tag(input_color_space)
+    out_tag = _cs_short_tag(output_color_space)
+    return f"{film_tag}_{paper_tag}_{in_tag}_{out_tag}"

@@ -19,7 +19,11 @@ import pytest
 
 from spektrafilm_lut_creator.builders import BundleBuilder
 from spektrafilm_lut_creator.bundles import BundleSpec
-from spektrafilm_lut_creator.color_spaces import encode_cctf, decode_cctf
+from spektrafilm_lut_creator.color_spaces import (
+    decode_cctf,
+    encode_cctf,
+    input_exposure_gain,
+)
 from spektrafilm_lut_creator.formats import get_format
 from spektrafilm_lut_creator.grid import cube_grid, grid_as_image
 
@@ -182,7 +186,14 @@ class TestBuildEndToEndAgreesWithPipeline:
         samples_encoded = grid[flat_indices]
         # Reshape to a tiny image (3, 1, 3) so the pipeline accepts it.
         image_encoded = samples_encoded.reshape(len(flat_indices), 1, 3)
-        image_linear = decode_cctf(image_encoded, _INPUT_CS).astype(np.float32)
+        # n150: the bake applies the input exposure gain after
+        # decode_cctf when stops_above_gray is set. The fixture uses
+        # the default (None → gain 1.0), so the call below is identity;
+        # keeping it mirrors the bake's call shape for parity in case
+        # the fixture is later configured with a non-None value.
+        image_linear = decode_cctf(image_encoded, _INPUT_CS)
+        gain = input_exposure_gain(_INPUT_CS, None)
+        image_linear = (image_linear * gain).astype(np.float32)
         live_linear_out = pipeline.process(image_linear)
         live_encoded_out = encode_cctf(np.asarray(live_linear_out, dtype=float), _OUTPUT_CS)
         live_clipped = np.clip(live_encoded_out, 0.0, 1.0)
@@ -763,7 +774,10 @@ class TestTwoLutBundle:
         n = self._TWO_LUT_RES
         grid = cube_grid(n)
         image_enc = grid.reshape(1, n ** 3, 3)
-        image_lin = decode_cctf(image_enc, _INPUT_CS).astype(np.float32)
+        # n150: mirror the bake's input transform (decode + exposure gain).
+        # Fixture uses default stops_above_gray=None → gain 1.0.
+        image_lin = decode_cctf(image_enc, _INPUT_CS)
+        image_lin = (image_lin * input_exposure_gain(_INPUT_CS, None)).astype(np.float32)
         cmy_film = np.asarray(pipeline.process(image_lin, collect="cmy_film"),
                               dtype=float).reshape(n ** 3, 3)
 
@@ -810,7 +824,10 @@ class TestTwoLutBundle:
         samples_encoded = rng.uniform(0.0, 1.0, size=(200, 3)).astype(np.float32)
 
         # Live pipeline end-to-end:
-        samples_linear = decode_cctf(samples_encoded, _INPUT_CS).astype(np.float32)
+        # n150: mirror the bake's decode + exposure-gain path.
+        # Fixture uses default stops_above_gray=None → gain 1.0.
+        samples_linear = decode_cctf(samples_encoded, _INPUT_CS)
+        samples_linear = (samples_linear * input_exposure_gain(_INPUT_CS, None)).astype(np.float32)
         live_rgb_linear = np.asarray(
             pipeline.process(samples_linear.reshape(1, -1, 3)),
             dtype=float,
@@ -1219,7 +1236,10 @@ class TestFourLutBundle:
 
         rng = np.random.default_rng(20260516)
         samples_encoded = rng.uniform(0.0, 1.0, size=(200, 3)).astype(np.float32)
-        samples_linear = decode_cctf(samples_encoded, _INPUT_CS).astype(np.float32)
+        # n150: mirror the bake's decode + exposure-gain path.
+        # Fixture uses default stops_above_gray=None → gain 1.0.
+        samples_linear = decode_cctf(samples_encoded, _INPUT_CS)
+        samples_linear = (samples_linear * input_exposure_gain(_INPUT_CS, None)).astype(np.float32)
         live_rgb_linear = np.asarray(
             pipeline.process(samples_linear.reshape(1, -1, 3)),
             dtype=float,
@@ -1360,6 +1380,38 @@ class TestBundleSpecQaFields:
             qa_paper_index=0,
         )
         assert spec.qa_paper_index == 0
+
+
+class TestBundleSpecStopsAboveGray:
+    """``BundleSpec.stops_above_gray`` defaults to ``None`` (native, no
+    gain) and can be overridden with a float to apply a linear gain so
+    source encoded 1.0 lands at ``0.18 * 2 ** stops_above_gray`` in the
+    film's frame (n150)."""
+
+    @pytest.mark.parametrize("input_cs", [
+        "Rec.2020",         # encoded_sdr
+        "sRGB",             # encoded_sdr
+        "ACEScg",           # linear
+        "Panasonic V-Log",  # log
+    ])
+    def test_every_kind_defaults_to_none(self, input_cs):
+        spec = BundleSpec(
+            film_profile="kodak_portra_400",
+            print_profiles=("kodak_portra_endura",),
+            input_color_space=input_cs,
+            output_color_space="sRGB",
+        )
+        assert spec.stops_above_gray is None
+
+    def test_explicit_value_is_preserved(self):
+        spec = BundleSpec(
+            film_profile="kodak_portra_400",
+            print_profiles=("kodak_portra_endura",),
+            input_color_space="sRGB",
+            output_color_space="sRGB",
+            stops_above_gray=6.0,
+        )
+        assert spec.stops_above_gray == 6.0
 
 
 class TestDefaultOutputDirectory:

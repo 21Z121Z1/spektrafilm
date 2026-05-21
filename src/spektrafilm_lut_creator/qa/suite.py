@@ -103,45 +103,50 @@ def _paper_name(bundle: Bundle, paper_index: int) -> str:
 def _effective_lut(bundle: Bundle, paper_index: int) -> tuple[str, Lut]:
     """Return ``(label, Lut)`` for the LUT to QA at ``paper_index``.
 
-    For 1-LUT bundles this is exactly ``bundle.luts[paper_index]``.
-    For 2-LUT and 4-LUT bundles, this composes the relevant LUTs at
-    the bundle's cube resolution and returns a virtual combined
-    :class:`Lut`. The composition uses trilinear interpolation in
-    each stage — matching the most common host interpolation mode
-    (Premiere/FFmpeg/OBS). The composed table is therefore *what
-    users will deploy*, sampled at the bundle's grid.
+    Composes the canonical L1..LN chain via trilinear interpolation
+    (the host-default mode), matching what a user actually deploys
+    when they apply the bundle's cubes in order. Returns a virtual
+    combined :class:`Lut` keyed on the final-stage canonical cube's
+    filename.
+
+    Cubes are looked up by :attr:`LutFileMeta.role` rather than by
+    index into ``bundle.luts`` — bundles with
+    :attr:`BundleSpec.include_combinations` interleave extra cubes
+    into that list, so positional indexing would pick the wrong cube.
     """
     topology = bundle.meta.topology
+    paper_name = _paper_name(bundle, paper_index)
+    by_path: dict[str, Lut] = {p: l for p, l in bundle.luts}
+
+    def find(role: str, paper: str | None = None) -> tuple[str, Lut]:
+        for entry in bundle.meta.luts:
+            if entry.role == role and entry.paper == paper:
+                return entry.path, by_path[entry.path]
+        raise LookupError(
+            f"no canonical LUT in bundle with role={role!r}, paper={paper!r}"
+        )
+
     if topology == "1lut":
-        return bundle.luts[paper_index]
+        path, lut = find("combined", paper_name)
+        return path, lut
     if topology == "2lut":
-        # Layout: bundle.luts[0] is the shared film LUT, then one
-        # print LUT per paper in order.
-        film_rel, film_lut = bundle.luts[0]
-        print_rel, print_lut = bundle.luts[1 + paper_index]
-        composed = _compose_film_print(film_lut, print_lut, bundle.meta.resolution)
-        # Label by the print LUT's filename — that's the artifact the
-        # user thinks of as "this paper's LUT chain".
-        return print_rel, composed
+        _, film = find("film")
+        path, print_lut = find("print", paper_name)
+        composed = _compose_film_print(film, print_lut, bundle.meta.resolution)
+        return path, composed
     if topology == "3lut":
-        # Layout: bundle.luts[0]=L1, [1]=L2 (shared); then [2+paper_index]=L3
-        # for each paper in order. L3 is the combined back-half cube.
-        l1 = bundle.luts[0][1]
-        l2 = bundle.luts[1][1]
-        l3_rel, l3 = bundle.luts[2 + paper_index]
+        _, l1 = find("filming_expose")
+        _, l2 = find("filming_develop")
+        path, l3 = find("printing_combined", paper_name)
         composed = _compose_3lut(l1, l2, l3, bundle.meta.resolution)
-        return l3_rel, composed
+        return path, composed
     if topology == "4lut":
-        # Layout: bundle.luts[0]=L1, [1]=L2 (shared); then [2+2*paper_index]=L3,
-        # [3+2*paper_index]=L4 for each paper in order.
-        l1 = bundle.luts[0][1]
-        l2 = bundle.luts[1][1]
-        l3_idx = 2 + 2 * paper_index
-        l4_idx = 3 + 2 * paper_index
-        l3 = bundle.luts[l3_idx][1]
-        l4_rel, l4 = bundle.luts[l4_idx]
+        _, l1 = find("filming_expose")
+        _, l2 = find("filming_develop")
+        _, l3 = find("printing_expose", paper_name)
+        path, l4 = find("printing_develop_scan", paper_name)
         composed = _compose_4lut(l1, l2, l3, l4, bundle.meta.resolution)
-        return l4_rel, composed
+        return path, composed
     raise NotImplementedError(
         f"QA does not yet handle topology={topology!r}"
     )
@@ -319,19 +324,22 @@ def run(
 # Markdown report emission.
 # ---------------------------------------------------------------------------
 
-_STATUS_BADGES = {"PASS": "✅", "FAIL": "❌", "INFO": "ℹ️"}
-
-
 def write_report(results: list[Result], ctx: QAContext, path: Path) -> None:
     """Write ``report.md`` summarizing the QA run.
 
     The layout is the same every time:
 
     1. Run header (bundle, paper, color spaces, resolution).
-    2. Summary table — one row per test, status + headline number(s).
-    3. Failing tests called out at the top (in body order otherwise).
-    4. Per-test sections: heading, status, summary table, figure,
-       interpretation paragraph, references list.
+    2. Summary table — one row per test, headline number(s).
+    3. Per-test sections: heading, units, summary table, figure,
+       reference-values list, interpretation paragraph.
+
+    Pass/fail is intentionally **not** rendered in the report — the
+    reader judges the numbers themselves against ``reference_values``
+    where the test exposes them. Pass/fail still drives the console
+    log and any CI integrations via :meth:`Result.passed`. Literature
+    citations and prior art live in each test function's docstring,
+    not in the report — the bundle output is for the bundle's numbers.
 
     Markdown renders cleanly in VS Code, GitHub, and any reader. PDF
     export is a downstream concern.
@@ -352,37 +360,25 @@ def write_report(results: list[Result], ctx: QAContext, path: Path) -> None:
     lines.append(f"- **Generated**: `{bundle.meta.provenance.created}`")
     lines.append("")
 
-    # Failing tests called out at the top.
-    failing = [r for r in results if r.passed is False]
-    if failing:
-        lines.append("## ⚠ Failing tests")
-        lines.append("")
-        for r in failing:
-            lines.append(f"- **{r.name}** — {r.short_summary()}")
-        lines.append("")
-
     # Summary table.
     lines.append("## Summary")
     lines.append("")
-    lines.append("| Test | Status | Headline numbers |")
-    lines.append("|---|---|---|")
+    lines.append("| Test | Headline numbers |")
+    lines.append("|---|---|")
     for r in results:
-        badge = _STATUS_BADGES[r.status()]
         summary = r.short_summary()
         # Escape pipes inside the summary cell.
         summary = summary.replace("|", "\\|")
-        lines.append(f"| [{r.name}](#{_anchor(r.name)}) | {badge} {r.status()} | {summary} |")
+        lines.append(f"| [{r.name}](#{_anchor(r.name)}) | {summary} |")
     lines.append("")
 
     # Per-test sections.
     for r in results:
         lines.append(f"## {r.name}")
         lines.append("")
-        badge = _STATUS_BADGES[r.status()]
-        lines.append(f"**Status**: {badge} {r.status()}")
         if r.units:
-            lines.append(f"  ·  **Units**: {r.units}")
-        lines.append("")
+            lines.append(f"**Units**: {r.units}")
+            lines.append("")
 
         # Summary key/value table.
         if r.summary:
@@ -398,14 +394,14 @@ def write_report(results: list[Result], ctx: QAContext, path: Path) -> None:
             lines.append(f"![{r.name}]({rel})")
             lines.append("")
 
-        if r.interpretation:
-            lines.append(r.interpretation)
+        if r.reference_values:
+            lines.append("**Reference values:**")
+            for key, ref_text in r.reference_values.items():
+                lines.append(f"- `{key}` {ref_text}")
             lines.append("")
 
-        if r.references:
-            lines.append("**References:**")
-            for ref in r.references:
-                lines.append(f"- {ref}")
+        if r.interpretation:
+            lines.append(r.interpretation)
             lines.append("")
 
     lines.append("---")

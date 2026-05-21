@@ -24,7 +24,7 @@ from spektrafilm_lut_creator.wires import DensityWire, LogEWire
 SCHEMA_VERSION = 1
 
 _PROJECT_URL = "https://github.com/andreavolpato/spektrafilm"
-_LUT_LICENSE_URL = "https://github.com/andreavolpato/spektrafilm/blob/main/LICENSE_SPEKTRAFILM_LUT"
+_LUT_LICENSE_URL = "https://github.com/andreavolpato/spektrafilm/blob/main/SPEKTRAFILM_LICENSE.txt"
 
 
 def _spektrafilm_version() -> str:
@@ -66,8 +66,8 @@ class ProvenanceMeta:
     license: str = (
         "This LUT is licensed for personal and commercial image/video use. "
         "You may share the LUT for free, but you may not sell or resell the "
-        "LUT file (original or modified), or include it in paid plugins."
-        "See LICENSE_SPEKTRAFILM_LUT for details."
+        "LUT file (original or derivatives), or include it in paid plugins."
+        "See SPEKTRAFILM_LICENSE.txt for details."
         "A copy of the license is included in the bundle folder,"
         f"and also available at {_LUT_LICENSE_URL}."
     )
@@ -123,6 +123,21 @@ class LutFileMeta:
     paper: str | None = None  # set for role="print"
 
 
+@dataclass(frozen=True)
+class InputExposureMeta:
+    """Bundle-level record of the active input exposure gain (n150).
+
+    Stored on :class:`BundleMeta` whenever the bundle was baked with
+    a non-``None`` ``BundleSpec.stops_above_gray``. Consumers reading
+    ``bundle.json`` see both the requested target and the resulting
+    linear gain so they can reverse the operation if needed. Omitted
+    (the ``BundleMeta.input_exposure`` field stays ``None``) when the
+    bundle used the native input dynamic range.
+    """
+    stops_above_gray: float
+    gain: float  # linear multiplier applied to post-decode_cctf values
+
+
 @dataclass
 class BundleMeta:
     """The full ``bundle.json`` payload."""
@@ -137,4 +152,5 @@ class BundleMeta:
     color_spaces: dict[str, ColorSpaceMeta] = field(default_factory=dict)
     wires: WiresMeta = field(default_factory=WiresMeta)
     luts: tuple[LutFileMeta, ...] = ()
+    input_exposure: InputExposureMeta | None = None
     params_snapshot: dict[str, Any] = field(default_factory=dict)

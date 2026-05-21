@@ -44,6 +44,23 @@ class DensityWire:
 
 
 @dataclass(frozen=True)
+class BoundaryWires:
+    """Wires at the pipeline's internal boundary taps for a bundle.
+
+    Carried through ``BundleBuilder._bake_sublut`` so one parameterized
+    helper can bake any sub-chain by looking up the wire at its inject /
+    collect taps. Fields stay ``None`` when the topology doesn't measure
+    that wire — a 1-LUT bake never touches an intermediate wire, a 2-LUT
+    bake measures only ``cmy_film``, etc. Input and output color spaces
+    (the wires at ``rgb_in`` / ``rgb_out``) are read from
+    :class:`BundleSpec` directly, not stored here.
+    """
+    log_e_film: LogEWire | None = None
+    cmy_film: DensityWire | None = None
+    log_e_print: LogEWire | None = None
+
+
+@dataclass(frozen=True)
 class RgbWire:
     """RGB wire identified by a registry name + CCTF state.
 

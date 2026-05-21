@@ -234,7 +234,7 @@ def _humanize_stock(stock: str) -> str:
 def _header_lines(spec: BundleSpec) -> list[str]:
     major, minor = OCIO_PROFILE_VERSION
     papers = ", ".join(spec.print_profiles)
-    return [
+    lines = [
         f"ocio_profile_version: {major}.{minor}",
         "",
         f"name: {_yaml_str(spec.name)}",
@@ -244,11 +244,23 @@ def _header_lines(spec: BundleSpec) -> list[str]:
         f"  Input: {spec.input_color_space}  Output: {spec.output_color_space}",
         f"  Reference: {REFERENCE_COLORSPACE} (AP0)",
         "  See n120_ocio_config_emission.md in spektrafilm-research for design notes.",
+    ]
+    if spec.include_combinations:
+        # Discoverability nudge for OCIO users curious about the
+        # `combinations/` folder. The config itself doesn't reference
+        # those cubes — see n130 §6 for rationale.
+        lines.extend([
+            "  Note: this bundle also ships pre-collapsed sub-chain cubes under",
+            "  `combinations/` for single-LUT-slot grading apps. The OCIO config",
+            "  references only the canonical chain (see n130 sec 6).",
+        ])
+    lines.extend([
         "",
         "search_path: .",
         "family_separator: /",
         "",
-    ]
+    ])
+    return lines
 
 
 def _roles_block() -> list[str]:

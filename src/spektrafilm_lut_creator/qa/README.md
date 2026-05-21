@@ -53,7 +53,6 @@ To QA every paper in a multi-paper bundle, iterate over
 | `characteristic_curve` | System D-vs-input on the neutral ramp | Informational |
 | `planckian_sweep` | Daylight illuminants → output chromaticity smoothness | `max bend angle ≤ 30°` |
 | `highlight_rolloff` | Smoothness of per-channel transfer near the top end | `max ｜d²｜ ≤ 0.02` |
-| `black_toe` | Channel divergence and slope near input zero | Divergence at zero `≤ 0.005` |
 | `hue_twist_oklab` | Per-saturation-band hue rotation | `max ≤ 30°` |
 | `spectral_locus_envelope` | Reach of model gamut at maximum saturation | Informational |
 
@@ -85,7 +84,8 @@ qa/
 
 Code stays minimal on purpose — each test is one function and is explicit about
 its pattern, metric, and pass criterion. The scientific weight is in the metric
-implementations and the citation list inside each `Result.references`.
+implementations and the citation list inside each test function's docstring
+(under a `References` heading).
 
 ## Adding a test
 
@@ -93,6 +93,8 @@ implementations and the citation list inside each `Result.references`.
 2. Add it to `DEFAULT_TESTS` at the bottom of `tests.py`.
 3. If it needs a new viz, add a function to `viz.py` returning a `Figure`.
 4. If it needs a new metric, add it to `metrics.py`.
-5. Cite the reference standard or paper in `Result.references`. The report
-   renders these — if you can't cite a source, the test probably isn't
-   industry-grade yet.
+5. Cite the reference standard or paper under a `References` heading in
+   the test's docstring (numpydoc style). If you can't cite a source, the
+   test probably isn't industry-grade yet. If the test has known quality
+   targets, populate `Result.reference_values` so the report can show
+   them alongside the bundle's numbers.
