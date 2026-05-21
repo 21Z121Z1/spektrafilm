@@ -109,6 +109,66 @@ def test_process_raw_file_daylight_uses_linear_output_and_colour_conversion(monk
     assert captured['colour']['apply_cctf_encoding'] is False
 
 
+def test_process_raw_file_preserves_requested_output_dtype(monkeypatch):
+    raw_image = np.full((1, 1, 3), 16384, dtype=np.uint16)
+    captured = {}
+
+    class Reader:
+        daylight_whitebalance = [2.0, 1.0, 1.5, 1.0]
+        rgb_xyz_matrix = np.array(
+            [
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.0, 1.0],
+                [0.0, 1.0, 0.0],
+            ],
+            dtype=np.float64,
+        )
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            return False
+
+        def postprocess(self, **kwargs):
+            captured['postprocess'] = kwargs
+            return raw_image
+
+    def imread(path):
+        captured['path'] = path
+        return Reader()
+
+    def fake_rgb_to_rgb(image, **kwargs):
+        captured['image'] = image
+        captured['colour'] = kwargs
+        return image + 0.25
+
+    monkeypatch.setattr(
+        raw_file_processor,
+        'rawpy',
+        SimpleNamespace(
+            imread=imread,
+            ColorSpace=SimpleNamespace(ACES='ACES'),
+        ),
+    )
+    monkeypatch.setattr(raw_file_processor.colour, 'RGB_to_RGB', fake_rgb_to_rgb)
+
+    result = raw_file_processor.load_and_process_raw_file(
+        'example.nef',
+        white_balance='daylight',
+        output_colorspace='sRGB',
+        output_cctf_encoding=False,
+        output_dtype=np.float64,
+    )
+
+    expected_linear = raw_image.astype(np.float64) / 65535.0
+    np.testing.assert_allclose(captured['image'], expected_linear)
+    np.testing.assert_allclose(result, expected_linear + 0.25)
+    assert result.dtype == np.float64
+    assert captured['image'].dtype == np.float64
+
+
 def test_process_raw_file_as_shot_uses_camera_white_balance(monkeypatch):
     raw_image = np.full((1, 1, 3), 32768, dtype=np.uint16)
     captured = {}

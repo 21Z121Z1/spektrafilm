@@ -35,6 +35,17 @@ class AutoExposureMethods(Enum):
     average = "average"
 
 
+class ComputeBackends(Enum):
+    auto = "auto"
+    cpu = "cpu"
+    mlx = "mlx"
+
+
+class RuntimeFloatPrecisions(Enum):
+    float32 = "float32"
+    float64 = "float64"
+
+
 class NapariInterpolationModes(Enum):
     nearest = "nearest"
     linear = "linear"

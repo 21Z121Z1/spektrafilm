@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "spektrafilm"
-version = "0.3.2"
+version = "0.3.1"
 description = "Spectral simulation of analog film photography"
 readme = "README.md"
 requires-python = "~=3.13"
@@ -36,6 +36,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest"]
+gpu-apple = ["mlx>=0.31"]
 
 [project.scripts]
 spektrafilm = "spektrafilm_gui.app:main"
@@ -44,7 +45,7 @@ spektrafilm = "spektrafilm_gui.app:main"
 zip-safe = false
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = [".", "src"]
 include = [
     "spektrafilm",
     "spektrafilm.*",
@@ -59,4 +60,3 @@ spektrafilm = [
 spektrafilm_gui = [
     "assets/*",
 ]
-

@@ -1,0 +1,403 @@
+from __future__ import annotations
+
+from typing import Any
+
+import numpy as np
+
+
+# ---------------------------------------------------------------------------
+# 2D LUT Mitchell-Netravali cubic interpolation
+# ---------------------------------------------------------------------------
+
+_LUT_CUBIC_2D_KERNEL = None
+
+
+def _get_lut_cubic_2d_kernel(mx):
+    global _LUT_CUBIC_2D_KERNEL
+    if _LUT_CUBIC_2D_KERNEL is not None:
+        return _LUT_CUBIC_2D_KERNEL
+
+    source = """
+        uint elem = thread_position_in_grid.x;
+        uint size = lut_shape[0];
+        uint channels = lut_shape[2];
+        uint total = image_shape[0] * image_shape[1] * channels;
+        if (elem >= total) {
+            return;
+        }
+
+        uint c = elem % channels;
+        uint pixel = elem / channels;
+        if (size == 1) {
+            out[elem] = lut[c];
+            return;
+        }
+
+        float upper = float(size - 1);
+        float x = float(image[pixel * 2]) * upper;
+        float y = float(image[pixel * 2 + 1]) * upper;
+
+        if (x <= 0.0f) {
+            x = 0.0f;
+        } else if (x >= upper) {
+            x = upper;
+        }
+        if (y <= 0.0f) {
+            y = 0.0f;
+        } else if (y >= upper) {
+            y = upper;
+        }
+
+        int x_base;
+        float x_frac;
+        if (x >= upper) {
+            x_base = int(size) - 2;
+            x_frac = 1.0f;
+        } else {
+            x_base = int(floor(x));
+            x_frac = x - float(x_base);
+        }
+
+        int y_base;
+        float y_frac;
+        if (y >= upper) {
+            y_base = int(size) - 2;
+            y_frac = 1.0f;
+        } else {
+            y_base = int(floor(y));
+            y_frac = y - float(y_base);
+        }
+
+        float wx[4];
+        float wy[4];
+
+        float tx0 = fabs(x_frac + 1.0f);
+        if (tx0 < 1.0f) {
+            wx[0] = (1.0f / 6.0f) * ((7.0f) * tx0 * tx0 * tx0 + (-12.0f) * tx0 * tx0 + (16.0f / 3.0f));
+        } else if (tx0 < 2.0f) {
+            wx[0] = (1.0f / 6.0f) * ((-7.0f / 3.0f) * tx0 * tx0 * tx0 + 12.0f * tx0 * tx0 - 20.0f * tx0 + (32.0f / 3.0f));
+        } else {
+            wx[0] = 0.0f;
+        }
+
+        float tx1 = fabs(x_frac);
+        if (tx1 < 1.0f) {
+            wx[1] = (1.0f / 6.0f) * ((7.0f) * tx1 * tx1 * tx1 + (-12.0f) * tx1 * tx1 + (16.0f / 3.0f));
+        } else if (tx1 < 2.0f) {
+            wx[1] = (1.0f / 6.0f) * ((-7.0f / 3.0f) * tx1 * tx1 * tx1 + 12.0f * tx1 * tx1 - 20.0f * tx1 + (32.0f / 3.0f));
+        } else {
+            wx[1] = 0.0f;
+        }
+
+        float tx2 = fabs(x_frac - 1.0f);
+        if (tx2 < 1.0f) {
+            wx[2] = (1.0f / 6.0f) * ((7.0f) * tx2 * tx2 * tx2 + (-12.0f) * tx2 * tx2 + (16.0f / 3.0f));
+        } else if (tx2 < 2.0f) {
+            wx[2] = (1.0f / 6.0f) * ((-7.0f / 3.0f) * tx2 * tx2 * tx2 + 12.0f * tx2 * tx2 - 20.0f * tx2 + (32.0f / 3.0f));
+        } else {
+            wx[2] = 0.0f;
+        }
+
+        float tx3 = fabs(x_frac - 2.0f);
+        if (tx3 < 1.0f) {
+            wx[3] = (1.0f / 6.0f) * ((7.0f) * tx3 * tx3 * tx3 + (-12.0f) * tx3 * tx3 + (16.0f / 3.0f));
+        } else if (tx3 < 2.0f) {
+            wx[3] = (1.0f / 6.0f) * ((-7.0f / 3.0f) * tx3 * tx3 * tx3 + 12.0f * tx3 * tx3 - 20.0f * tx3 + (32.0f / 3.0f));
+        } else {
+            wx[3] = 0.0f;
+        }
+
+        float ty0 = fabs(y_frac + 1.0f);
+        if (ty0 < 1.0f) {
+            wy[0] = (1.0f / 6.0f) * ((7.0f) * ty0 * ty0 * ty0 + (-12.0f) * ty0 * ty0 + (16.0f / 3.0f));
+        } else if (ty0 < 2.0f) {
+            wy[0] = (1.0f / 6.0f) * ((-7.0f / 3.0f) * ty0 * ty0 * ty0 + 12.0f * ty0 * ty0 - 20.0f * ty0 + (32.0f / 3.0f));
+        } else {
+            wy[0] = 0.0f;
+        }
+
+        float ty1 = fabs(y_frac);
+        if (ty1 < 1.0f) {
+            wy[1] = (1.0f / 6.0f) * ((7.0f) * ty1 * ty1 * ty1 + (-12.0f) * ty1 * ty1 + (16.0f / 3.0f));
+        } else if (ty1 < 2.0f) {
+            wy[1] = (1.0f / 6.0f) * ((-7.0f / 3.0f) * ty1 * ty1 * ty1 + 12.0f * ty1 * ty1 - 20.0f * ty1 + (32.0f / 3.0f));
+        } else {
+            wy[1] = 0.0f;
+        }
+
+        float ty2 = fabs(y_frac - 1.0f);
+        if (ty2 < 1.0f) {
+            wy[2] = (1.0f / 6.0f) * ((7.0f) * ty2 * ty2 * ty2 + (-12.0f) * ty2 * ty2 + (16.0f / 3.0f));
+        } else if (ty2 < 2.0f) {
+            wy[2] = (1.0f / 6.0f) * ((-7.0f / 3.0f) * ty2 * ty2 * ty2 + 12.0f * ty2 * ty2 - 20.0f * ty2 + (32.0f / 3.0f));
+        } else {
+            wy[2] = 0.0f;
+        }
+
+        float ty3 = fabs(y_frac - 2.0f);
+        if (ty3 < 1.0f) {
+            wy[3] = (1.0f / 6.0f) * ((7.0f) * ty3 * ty3 * ty3 + (-12.0f) * ty3 * ty3 + (16.0f / 3.0f));
+        } else if (ty3 < 2.0f) {
+            wy[3] = (1.0f / 6.0f) * ((-7.0f / 3.0f) * ty3 * ty3 * ty3 + 12.0f * ty3 * ty3 - 20.0f * ty3 + (32.0f / 3.0f));
+        } else {
+            wy[3] = 0.0f;
+        }
+
+        float acc = 0.0f;
+        float weight_sum = 0.0f;
+        for (int i = 0; i < 4; ++i) {
+            int xi = x_base - 1 + i;
+            if (xi < 0) {
+                xi = -xi;
+            } else if (xi >= int(size)) {
+                xi = 2 * (int(size) - 1) - xi;
+            }
+            for (int j = 0; j < 4; ++j) {
+                int yj = y_base - 1 + j;
+                if (yj < 0) {
+                    yj = -yj;
+                } else if (yj >= int(size)) {
+                    yj = 2 * (int(size) - 1) - yj;
+                }
+                float weight = wx[i] * wy[j];
+                weight_sum += weight;
+                uint lut_index = (uint(xi) * size + uint(yj)) * channels + c;
+                acc += weight * float(lut[lut_index]);
+            }
+        }
+        if (weight_sum != 0.0f) {
+            acc /= weight_sum;
+        }
+        out[elem] = acc;
+    """
+    _LUT_CUBIC_2D_KERNEL = mx.fast.metal_kernel(
+        name="spektrafilm_lut_cubic_2d",
+        input_names=["lut", "image"],
+        output_names=["out"],
+        source=source,
+    )
+    return _LUT_CUBIC_2D_KERNEL
+
+
+def apply_lut_cubic_2d_mlx(lut: Any, image: Any, *, mx=None):
+    """Apply a normalized 2D LUT with Mitchell-Netravali cubic interpolation."""
+    if mx is None:
+        import mlx.core as mx
+
+    lut = mx.array(lut, dtype=mx.float32)
+    image = mx.array(image, dtype=mx.float32)
+    size = int(lut.shape[0])
+    if lut.ndim != 3:
+        raise ValueError("2D LUT must have shape LxLxC")
+    if size == 0 or lut.shape[1] != size:
+        raise ValueError("2D LUT must have equal non-empty dimensions")
+    if image.ndim != 3 or image.shape[-1] != 2:
+        raise ValueError("2D LUT coordinates must have shape HxWx2")
+
+    channels = int(lut.shape[2])
+    kernel = _get_lut_cubic_2d_kernel(mx)
+    outputs = kernel(
+        inputs=[lut, image],
+        grid=(int(np.prod(image.shape[:-1]) * channels), 1, 1),
+        threadgroup=(256, 1, 1),
+        output_shapes=[image.shape[:-1] + (channels,)],
+        output_dtypes=[mx.float32],
+    )
+    return outputs[0]
+
+
+def apply_lut_cubic_2d_numpy(lut: np.ndarray, image: np.ndarray) -> np.ndarray:
+    """NumPy/Numba reference for the MLX Mitchell 2D LUT kernel."""
+    from spektrafilm.utils.fast_interp_lut import apply_lut_cubic_2d
+
+    return apply_lut_cubic_2d(
+        np.ascontiguousarray(lut, dtype=np.float64),
+        np.ascontiguousarray(image, dtype=np.float64),
+    )
+
+
+# ---------------------------------------------------------------------------
+# 3D LUT trilinear interpolation
+# ---------------------------------------------------------------------------
+
+def apply_lut_trilinear_3d_mlx(lut: Any, image: Any, *, mx=None):
+    """Apply a normalized 3D LUT with trilinear interpolation using MLX ops.
+
+    This is a fast pilot kernel, not the CPU PCHIP-quality path. Callers must
+    label outputs that use it as fast/trilinear rather than exact PCHIP parity.
+    """
+    if mx is None:
+        import mlx.core as mx
+
+    lut = mx.array(lut, dtype=mx.float32)
+    image = mx.array(image, dtype=mx.float32)
+    size = int(lut.shape[0])
+    if lut.ndim != 4 or lut.shape[-1] != 3:
+        raise ValueError("3D LUT must have shape LxLxLx3")
+    if size == 0 or lut.shape[1] != size or lut.shape[2] != size:
+        raise ValueError("3D LUT must have equal non-empty dimensions")
+    if size == 1:
+        return mx.broadcast_to(lut[0, 0, 0], image.shape[:-1] + (3,))
+
+    # Clip to [0, 1] — this is the normalised density coordinate space,
+    # NOT the output RGB space.  HDR scene-linear values are produced
+    # downstream by XYZ_to_RGB and preserved per ColorEncoding policy.
+    coord = mx.clip(image, 0.0, 1.0) * float(size - 1)
+    idx0 = mx.floor(coord).astype(mx.int32)
+    idx1 = mx.minimum(idx0 + 1, size - 1)
+    frac = coord - idx0.astype(mx.float32)
+
+    r0 = idx0[..., 0]
+    g0 = idx0[..., 1]
+    b0 = idx0[..., 2]
+    r1 = idx1[..., 0]
+    g1 = idx1[..., 1]
+    b1 = idx1[..., 2]
+
+    fr = frac[..., 0:1]
+    fg = frac[..., 1:2]
+    fb = frac[..., 2:3]
+
+    c000 = lut[r0, g0, b0]
+    c100 = lut[r1, g0, b0]
+    c010 = lut[r0, g1, b0]
+    c110 = lut[r1, g1, b0]
+    c001 = lut[r0, g0, b1]
+    c101 = lut[r1, g0, b1]
+    c011 = lut[r0, g1, b1]
+    c111 = lut[r1, g1, b1]
+
+    c00 = c000 + fr * (c100 - c000)
+    c10 = c010 + fr * (c110 - c010)
+    c01 = c001 + fr * (c101 - c001)
+    c11 = c011 + fr * (c111 - c011)
+    c0 = c00 + fg * (c10 - c00)
+    c1 = c01 + fg * (c11 - c01)
+    return c0 + fb * (c1 - c0)
+
+
+def apply_lut_trilinear_3d_numpy(lut: np.ndarray, image: np.ndarray) -> np.ndarray:
+    """NumPy reference for the MLX trilinear pilot kernel."""
+    lut = np.asarray(lut, dtype=np.float64)
+    image = np.asarray(image, dtype=np.float64)
+    size = lut.shape[0]
+    if lut.ndim != 4 or lut.shape[-1] != 3:
+        raise ValueError("3D LUT must have shape LxLxLx3")
+    if size == 0 or lut.shape[1] != size or lut.shape[2] != size:
+        raise ValueError("3D LUT must have equal non-empty dimensions")
+    if size == 1:
+        return np.broadcast_to(lut[0, 0, 0], image.shape[:-1] + (3,)).copy()
+
+    # Clip to [0, 1] — this is the normalised density coordinate space,
+    # NOT the output RGB space.  HDR scene-linear values are produced
+    # downstream by XYZ_to_RGB and preserved per ColorEncoding policy.
+    coord = np.clip(image, 0.0, 1.0) * float(size - 1)
+    idx0 = np.floor(coord).astype(np.int64)
+    idx1 = np.minimum(idx0 + 1, size - 1)
+    frac = coord - idx0
+
+    r0, g0, b0 = idx0[..., 0], idx0[..., 1], idx0[..., 2]
+    r1, g1, b1 = idx1[..., 0], idx1[..., 1], idx1[..., 2]
+    fr = frac[..., 0:1]
+    fg = frac[..., 1:2]
+    fb = frac[..., 2:3]
+
+    c000 = lut[r0, g0, b0]
+    c100 = lut[r1, g0, b0]
+    c010 = lut[r0, g1, b0]
+    c110 = lut[r1, g1, b0]
+    c001 = lut[r0, g0, b1]
+    c101 = lut[r1, g0, b1]
+    c011 = lut[r0, g1, b1]
+    c111 = lut[r1, g1, b1]
+
+    c00 = c000 + fr * (c100 - c000)
+    c10 = c010 + fr * (c110 - c010)
+    c01 = c001 + fr * (c101 - c001)
+    c11 = c011 + fr * (c111 - c011)
+    c0 = c00 + fg * (c10 - c00)
+    c1 = c01 + fg * (c11 - c01)
+    return c0 + fb * (c1 - c0)
+
+
+# ---------------------------------------------------------------------------
+# 2D LUT bilinear interpolation
+# ---------------------------------------------------------------------------
+
+def apply_lut_bilinear_2d_mlx(lut: Any, image: Any, *, mx=None):
+    """Apply a 2D LUT with bilinear interpolation using MLX ops.
+
+    ``lut`` has shape ``LxLxC`` where C is the number of output channels.
+    ``image`` has shape ``HxWx2`` with normalised [0,1] coordinates.
+
+    This is a fast pilot kernel corresponding to the CPU cubic
+    ``apply_lut_cubic_2d``. Callers must be aware of the quality difference.
+    """
+    if mx is None:
+        import mlx.core as mx
+
+    lut = mx.array(lut, dtype=mx.float32)
+    image = mx.array(image, dtype=mx.float32)
+    size = int(lut.shape[0])
+    channels = int(lut.shape[2])
+    if lut.ndim != 3:
+        raise ValueError("2D LUT must have shape LxLxC")
+    if size == 0 or lut.shape[1] != size:
+        raise ValueError("2D LUT must have equal non-empty dimensions")
+    if size == 1:
+        return mx.broadcast_to(lut[0, 0], image.shape[:-1] + (channels,))
+
+    coord = mx.clip(image, 0.0, 1.0) * float(size - 1)
+    idx0 = mx.floor(coord).astype(mx.int32)
+    idx1 = mx.minimum(idx0 + 1, size - 1)
+    frac = coord - idx0.astype(mx.float32)
+
+    x0 = idx0[..., 0]
+    y0 = idx0[..., 1]
+    x1 = idx1[..., 0]
+    y1 = idx1[..., 1]
+
+    fx = frac[..., 0:1]
+    fy = frac[..., 1:2]
+
+    c00 = lut[x0, y0]
+    c10 = lut[x1, y0]
+    c01 = lut[x0, y1]
+    c11 = lut[x1, y1]
+
+    c0 = c00 + fx * (c10 - c00)
+    c1 = c01 + fx * (c11 - c01)
+    return c0 + fy * (c1 - c0)
+
+
+def apply_lut_bilinear_2d_numpy(lut: np.ndarray, image: np.ndarray) -> np.ndarray:
+    """NumPy reference for the MLX bilinear 2D LUT kernel."""
+    lut = np.asarray(lut, dtype=np.float64)
+    image = np.asarray(image, dtype=np.float64)
+    size = lut.shape[0]
+    channels = lut.shape[2]
+    if lut.ndim != 3:
+        raise ValueError("2D LUT must have shape LxLxC")
+    if size == 0 or lut.shape[1] != size:
+        raise ValueError("2D LUT must have equal non-empty dimensions")
+    if size == 1:
+        return np.broadcast_to(lut[0, 0], image.shape[:-1] + (channels,)).copy()
+
+    coord = np.clip(image, 0.0, 1.0) * float(size - 1)
+    idx0 = np.floor(coord).astype(np.int64)
+    idx1 = np.minimum(idx0 + 1, size - 1)
+    frac = coord - idx0
+
+    x0, y0 = idx0[..., 0], idx0[..., 1]
+    x1, y1 = idx1[..., 0], idx1[..., 1]
+    fx = frac[..., 0:1]
+    fy = frac[..., 1:2]
+
+    c00 = lut[x0, y0]
+    c10 = lut[x1, y0]
+    c01 = lut[x0, y1]
+    c11 = lut[x1, y1]
+
+    c0 = c00 + fx * (c10 - c00)
+    c1 = c01 + fx * (c11 - c01)
+    return c0 + fy * (c1 - c0)

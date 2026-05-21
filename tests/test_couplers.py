@@ -101,6 +101,8 @@ class TestDirCouplers:
             density_max,
             matrix,
             dir_couplers.diffusion_size_um / pixel_size_um,
+            dir_couplers.diffusion_tail_um / pixel_size_um,
+            dir_couplers.diffusion_tail_weight,
             positive=positive,
         )
         expected = interpolate_exposure_to_density(

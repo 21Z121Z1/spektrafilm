@@ -20,9 +20,6 @@ class InputImageState:
     input_color_space: str
     apply_cctf_decoding: bool
     spectral_upsampling_method: str
-    apply_hanatos2025_adaptation_window: bool
-    apply_hanatos2025_adaptation_surface: bool
-    spectral_gaussian_blur: float
     filter_uv: tuple[float, float, float]
     filter_ir: tuple[float, float, float]
 
@@ -107,6 +104,7 @@ class SpecialState:
     film_gamma_factor: float
     print_channel_swap: tuple[int, int, int]
     print_gamma_factor: float
+    runtime_float_precision: str = "float32"
 
 
 @dataclass(slots=True)
@@ -128,6 +126,7 @@ class SimulationState:
     exposure_compensation_ev: float
     auto_exposure: bool
     auto_exposure_method: str
+    compute_backend: str
     print_paper: str
     print_illuminant: str
     print_exposure: float
@@ -156,6 +155,7 @@ class SimulationState:
     saving_cctf_encoding: bool
     auto_preview: bool
     scan_film: bool
+    hdr_exr_output: bool = False
 
 
 @dataclass(slots=True)
@@ -217,9 +217,6 @@ def gui_state_from_params(
             input_color_space=params.io.input_color_space,
             apply_cctf_decoding=params.io.input_cctf_decoding,
             spectral_upsampling_method=params.settings.rgb_to_raw_method,
-            apply_hanatos2025_adaptation_window=params.settings.apply_hanatos2025_adaptation_window,
-            apply_hanatos2025_adaptation_surface=params.settings.apply_hanatos2025_adaptation_surface,
-            spectral_gaussian_blur=params.settings.spectral_gaussian_blur,
             filter_uv=tuple(params.camera.filter_uv),
             filter_ir=tuple(params.camera.filter_ir),
         ),
@@ -286,6 +283,7 @@ def gui_state_from_params(
             film_gamma_factor=params.film_render.density_curve_gamma,
             print_channel_swap=(0, 1, 2),
             print_gamma_factor=params.print_render.density_curve_gamma,
+            runtime_float_precision=params.settings.float_precision,
         ),
         simulation=SimulationState(
             film_stock=film_stock,
@@ -305,6 +303,7 @@ def gui_state_from_params(
             exposure_compensation_ev=params.camera.exposure_compensation_ev,
             auto_exposure=params.camera.auto_exposure,
             auto_exposure_method=params.camera.auto_exposure_method,
+            compute_backend=params.settings.compute_backend,
             print_paper=print_paper,
             print_illuminant=params.enlarger.illuminant,
             print_exposure=params.enlarger.print_exposure,
@@ -333,6 +332,8 @@ def gui_state_from_params(
             saving_cctf_encoding=params.io.output_cctf_encoding,
             auto_preview=True,
             scan_film=params.io.scan_film,
+            hdr_exr_output=not bool(params.io.output_cctf_encoding)
+            and not bool(getattr(params.io, "output_clip_max", True)),
         ),
         display=DisplayState(
             use_display_transform=True,

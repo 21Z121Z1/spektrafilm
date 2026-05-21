@@ -172,11 +172,14 @@ def apply_grain(
     profile_type,
     bypass_grain=False,
     use_fast_stats=False,
+    backend=None,
 ):
     if not grain.active or bypass_grain:
         return density_cmy
 
     if not grain.sublayers_active:
+        if backend is not None and getattr(backend, "supports_gpu", False):
+            density_cmy = backend.to_numpy(density_cmy)
         density_max = np.nanmax(density_curves, axis=0)
         return apply_grain_to_density(
             density_cmy,
@@ -195,7 +198,10 @@ def apply_grain(
         density_curves,
         density_curves_layers,
         positive_film=profile_type == 'positive',
+        backend=backend,
     )
+    if backend is not None and getattr(backend, "supports_gpu", False):
+        density_cmy_layers = backend.to_numpy(density_cmy_layers)
     density_max_layers = np.nanmax(density_curves_layers, axis=0)
     return apply_grain_to_density_layers(
         density_cmy_layers,

@@ -73,7 +73,10 @@ def _apply_io(params: RuntimePhotoParams, state: GuiState) -> None:
     params.io.input_color_space = state.input_image.input_color_space
     params.io.input_cctf_decoding = state.input_image.apply_cctf_decoding
     params.io.output_color_space = state.simulation.output_color_space
-    params.io.output_cctf_encoding = True
+    hdr_output = bool(getattr(state.simulation, "hdr_exr_output", False))
+    params.io.output_cctf_encoding = not hdr_output
+    params.io.output_clip_min = True
+    params.io.output_clip_max = not hdr_output
     params.io.scan_film = state.simulation.scan_film
 
 
@@ -156,10 +159,9 @@ def _apply_scanner(params: RuntimePhotoParams, state: GuiState) -> None:
 
 def _apply_settings(params: RuntimePhotoParams, state: GuiState) -> None:
     params.settings.rgb_to_raw_method = state.input_image.spectral_upsampling_method
-    params.settings.apply_hanatos2025_adaptation_window = bool(state.input_image.apply_hanatos2025_adaptation_window)
-    params.settings.apply_hanatos2025_adaptation_surface = bool(state.input_image.apply_hanatos2025_adaptation_surface)
-    params.settings.spectral_gaussian_blur = float(state.input_image.spectral_gaussian_blur)
     params.settings.preview_max_size = state.display.preview_max_size
+    params.settings.compute_backend = state.simulation.compute_backend
+    params.settings.float_precision = state.special.runtime_float_precision
     params.settings.use_enlarger_lut = True
     params.settings.use_scanner_lut = True
     params.settings.lut_resolution = 17

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from spektrafilm.color_management import ColorEncoding
 from spektrafilm_gui import controller as controller_module
 from spektrafilm_gui import controller_layers as controller_layers_module
 from spektrafilm_gui.controller import GuiController, PROFILE_SYNC_FIELDS
@@ -55,12 +56,21 @@ def _run_simulation_case(
     simulated_image = np.full((4, 4, 3), 0.5, dtype=np.float32) if simulated_image is None else simulated_image
     preview_image = np.full((4, 4, 3), 99, dtype=np.uint8) if preview_image is None else preview_image
     captured: dict[str, object] = {}
+    params = SimpleNamespace(
+        io=SimpleNamespace(
+            output_color_space=gui_state.simulation.output_color_space,
+            output_cctf_encoding=True,
+            output_clip_min=True,
+            output_clip_max=True,
+        ),
+        settings=SimpleNamespace(preview_mode=False),
+    )
 
     controller._current_input_image = np.asarray(input_image)
     controller._current_preview_image = np.asarray(preview_source_image)
     monkeypatch.setattr(controller, '_sync_white_border', lambda *, white_padding: captured.setdefault('white_padding', white_padding))
     monkeypatch.setattr(controller_module, 'collect_gui_state', lambda *, widgets: gui_state)
-    monkeypatch.setattr(controller_module, 'build_params_from_state', lambda state: object())
+    monkeypatch.setattr(controller_module, 'build_params_from_state', lambda state: params)
 
     def fake_process_image_with_runtime(image, _params):
         captured['processing_input'] = image.copy()
@@ -69,13 +79,13 @@ def _run_simulation_case(
     def fake_prepare_output_display_image(
         image_data,
         *,
-        output_color_space,
+        output_encoding,
         use_display_transform,
         padding_pixels=0.0,
     ):
         captured['display_args'] = {
             'image_data': image_data.copy(),
-            'output_color_space': output_color_space,
+            'output_encoding': output_encoding,
             'use_display_transform': use_display_transform,
             'padding_pixels': padding_pixels,
         }
@@ -105,7 +115,7 @@ def test_load_input_image_builds_preview_stack_and_homes_view(monkeypatch) -> No
     preview_display_image = np.full((2, 1, 3), 0.75, dtype=np.float32)
     captured: dict[str, object] = {}
 
-    monkeypatch.setattr(controller_module, 'load_image_oiio', lambda path: raw_image)
+    monkeypatch.setattr(controller_module, 'load_image_oiio', lambda path, *, dtype=np.float32: raw_image.astype(dtype))
     monkeypatch.setattr(controller_module, 'collect_gui_state', lambda *, widgets: gui_state)
     monkeypatch.setattr(controller_module, 'build_params_from_state', lambda state: (_ for _ in ()).throw(AssertionError('should not build params for image load preview cache')))
     monkeypatch.setattr(controller, '_resize_for_preview', lambda image, *, max_size: preview_image)
@@ -159,6 +169,7 @@ def test_show_startup_placeholder_builds_portrait_preview_stack_and_homes_view(m
 
 def test_load_input_image_requests_auto_preview_once_when_enabled(monkeypatch) -> None:
     controller = GuiController(viewer=object(), widgets=SimpleNamespace(simulation=SimpleNamespace(auto_preview_value=lambda: True)))
+    gui_state = make_test_controller_gui_state()
     raw_image = np.full((4, 2, 3), 0.25, dtype=np.float32)
     preview_image = np.full((2, 1, 3), 0.5, dtype=np.float32)
     captured: dict[str, object] = {}
@@ -167,7 +178,8 @@ def test_load_input_image_requests_auto_preview_once_when_enabled(monkeypatch) -
         captured['stack_image'] = image
         controller._current_preview_image = preview_image
 
-    monkeypatch.setattr(controller_module, 'load_image_oiio', lambda path: raw_image)
+    monkeypatch.setattr(controller_module, 'collect_gui_state', lambda *, widgets: gui_state)
+    monkeypatch.setattr(controller_module, 'load_image_oiio', lambda path, *, dtype=np.float32: raw_image.astype(dtype))
     monkeypatch.setattr(controller, '_set_or_add_input_stack', fake_set_or_add_input_stack)
     monkeypatch.setattr(controller, 'request_auto_preview', lambda: captured.setdefault('preview_requests', 0) or captured.__setitem__('preview_requests', captured.get('preview_requests', 0) + 1))
 
@@ -175,6 +187,23 @@ def test_load_input_image_requests_auto_preview_once_when_enabled(monkeypatch) -
 
     np.testing.assert_allclose(captured['stack_image'], raw_image)
     assert captured['preview_requests'] == 1
+
+
+def test_save_output_layer_preserves_input_filename_stem_for_default_name(monkeypatch) -> None:
+    controller = GuiController(viewer=object(), widgets=object())
+    controller._current_input_path = 'C:/tmp/example.raw'
+    controller._output_layer = lambda: object()
+    captured: dict[str, object] = {}
+
+    def fake_get_save_file_name(self, parent, title, initial, file_filter):
+        captured['initial'] = initial
+        return '', ''
+
+    monkeypatch.setattr(controller_module._DirMemoryDialog, 'get_save_file_name', fake_get_save_file_name)
+
+    controller.save_output_layer()
+
+    assert captured['initial'] == 'example.jpg'
 
 
 def test_rotate_input_image_clockwise_rebuilds_preview_hides_output_and_requests_auto_preview(monkeypatch) -> None:
@@ -272,10 +301,11 @@ def test_load_raw_image_uses_pipeline_input_settings_and_builds_preview_stack(mo
         'temperature': 3200.0,
         'tint': 0.85,
         'lens_correction': False,
-        'output_colorspace': 'Display P3',
-        'output_cctf_encoding': True,
-        'lens_info_out': {},
-    }
+            'output_colorspace': 'Display P3',
+            'output_cctf_encoding': True,
+            'output_dtype': np.float32,
+            'lens_info_out': {},
+        }
     assert len(viewer.layers) == 4
     assert [layer.name for layer in viewer.layers[-3:]] == [
         WHITE_BORDER_LAYER_NAME,
@@ -425,6 +455,38 @@ def test_apply_profile_defaults_routes_through_selection_digest(monkeypatch) -> 
     assert controller._next_runtime_digest_applies_stock_specifics is True
 
 
+def test_apply_print_profile_defaults_forces_print_route_after_selection_digest(monkeypatch) -> None:
+    controller = GuiController(viewer=object(), widgets=object())
+    controller._next_runtime_digest_applies_stock_specifics = False
+    gui_state = make_test_controller_gui_state()
+    captured: dict[str, object] = {}
+    built_params = object()
+    digested_params = SimpleNamespace(io=SimpleNamespace(scan_film=True))
+    synced_state = object()
+
+    def fake_gui_state_from_params(params, *, film_stock, print_paper):
+        captured['synced_args'] = (params, film_stock, print_paper, params.io.scan_film)
+        return synced_state
+
+    monkeypatch.setattr(controller_module, 'collect_gui_state', lambda *, widgets: gui_state)
+    monkeypatch.setattr(controller_module, 'build_params_from_state', lambda state: built_params)
+    monkeypatch.setattr(controller_module, 'digest_after_selection', lambda params: digested_params)
+    monkeypatch.setattr(controller_module, 'gui_state_from_params', fake_gui_state_from_params)
+    monkeypatch.setattr(controller, '_apply_profile_sync_state', lambda state: captured.setdefault('applied_state', state))
+
+    controller.apply_print_profile_defaults('ignored-by-handler')
+
+    assert captured['synced_args'] == (
+        digested_params,
+        gui_state.simulation.film_stock,
+        gui_state.simulation.print_paper,
+        False,
+    )
+    assert digested_params.io.scan_film is False
+    assert captured['applied_state'] is synced_state
+    assert controller._next_runtime_digest_applies_stock_specifics is True
+
+
 def test_apply_profile_sync_state_updates_runtime_owned_widget_fields() -> None:
     original_fields = dict(PROFILE_SYNC_FIELDS)
     try:
@@ -480,7 +542,7 @@ def test_run_simulation_passes_display_transform_settings(monkeypatch) -> None:
     )
 
     np.testing.assert_allclose(captured['display_args']['image_data'], np.full((4, 4, 3), 0.5, dtype=np.float32))
-    assert captured['display_args']['output_color_space'] == gui_state.simulation.output_color_space
+    assert captured['display_args']['output_encoding'].color_space == gui_state.simulation.output_color_space
     assert captured['display_args']['use_display_transform'] is True
     assert captured['display_args']['padding_pixels'] == 0.0
     np.testing.assert_array_equal(captured['output_layer']['image'], np.full((6, 6, 3), 99, dtype=np.uint8))
@@ -524,11 +586,20 @@ def test_start_simulation_reports_persistent_computing_status(monkeypatch) -> No
     gui_state = make_test_controller_gui_state()
     preview_image = np.full((2, 2, 3), 0.25, dtype=np.float32)
     captured: dict[str, object] = {}
+    params = SimpleNamespace(
+        io=SimpleNamespace(
+            output_color_space=gui_state.simulation.output_color_space,
+            output_cctf_encoding=True,
+            output_clip_min=True,
+            output_clip_max=True,
+        ),
+        settings=SimpleNamespace(preview_mode=False),
+    )
 
     controller._current_preview_image = preview_image
     monkeypatch.setattr(controller, '_sync_white_border', lambda *, white_padding: captured.setdefault('white_padding', white_padding))
     monkeypatch.setattr(controller_module, 'collect_gui_state', lambda *, widgets: gui_state)
-    monkeypatch.setattr(controller_module, 'build_params_from_state', lambda state: object())
+    monkeypatch.setattr(controller_module, 'build_params_from_state', lambda state: params)
     monkeypatch.setattr(controller_module, 'set_status', lambda viewer, message, timeout_ms=5000: captured.setdefault('status', (message, timeout_ms)))
     monkeypatch.setattr(controller._thread_pool, 'start', lambda worker: captured.setdefault('worker', worker))
 
@@ -547,11 +618,20 @@ def test_start_simulation_skips_computing_status_for_silent_preview(monkeypatch)
     gui_state = make_test_controller_gui_state()
     preview_image = np.full((2, 2, 3), 0.25, dtype=np.float32)
     captured: dict[str, object] = {}
+    params = SimpleNamespace(
+        io=SimpleNamespace(
+            output_color_space=gui_state.simulation.output_color_space,
+            output_cctf_encoding=True,
+            output_clip_min=True,
+            output_clip_max=True,
+        ),
+        settings=SimpleNamespace(preview_mode=False),
+    )
 
     controller._current_preview_image = preview_image
     monkeypatch.setattr(controller, '_sync_white_border', lambda *, white_padding: captured.setdefault('white_padding', white_padding))
     monkeypatch.setattr(controller_module, 'collect_gui_state', lambda *, widgets: gui_state)
-    monkeypatch.setattr(controller_module, 'build_params_from_state', lambda state: object())
+    monkeypatch.setattr(controller_module, 'build_params_from_state', lambda state: params)
     monkeypatch.setattr(controller_module, 'set_status', lambda viewer, message, timeout_ms=5000: captured.setdefault('status_calls', []).append((message, timeout_ms)))
     monkeypatch.setattr(controller._thread_pool, 'start', lambda worker: captured.setdefault('worker', worker))
 
@@ -642,6 +722,7 @@ def test_refresh_preview_cache_recomputes_cached_preview_without_hiding_visible_
         float_image=float_image,
         output_color_space='ACES2065-1',
         output_cctf_encoding=True,
+        output_encoding=ColorEncoding(color_space='ACES2065-1', transfer='cctf', role='display'),
         use_display_transform=False,
     )
     output_layer = controller._output_layer()
@@ -717,6 +798,12 @@ def test_start_simulation_sets_preview_mode_before_runtime_digest(
     image_data = np.full((2, 2, 3), 0.25, dtype=np.float32)
     params = SimpleNamespace(
         settings=SimpleNamespace(preview_mode=False),
+        io=SimpleNamespace(
+            output_color_space='ACES2065-1',
+            output_cctf_encoding=True,
+            output_clip_min=True,
+            output_clip_max=True,
+        ),
         film_render=SimpleNamespace(
             grain=SimpleNamespace(active=True),
             halation=SimpleNamespace(active=True),
@@ -746,7 +833,7 @@ def test_execute_simulation_request_routes_through_runtime_simulator_path(monkey
         mode_label='Preview',
         image=np.full((2, 2, 3), 0.25, dtype=np.float32),
         params=object(),
-        output_color_space='sRGB',
+        output_encoding=ColorEncoding(color_space='sRGB', transfer='cctf', role='display'),
         use_display_transform=False,
     )
     captured: dict[str, object] = {}
@@ -870,7 +957,7 @@ def test_on_simulation_finished_reports_completed_status(monkeypatch) -> None:
             mode_label='Preview',
             display_image=np.full((2, 2, 3), 9, dtype=np.uint8),
             float_image=np.full((2, 2, 3), 0.5, dtype=np.float32),
-            output_color_space='sRGB',
+            output_encoding=ColorEncoding(color_space='sRGB', transfer='cctf', role='display'),
             use_display_transform=False,
             status_message='Display transform: disabled',
         )
@@ -893,7 +980,7 @@ def test_on_simulation_finished_skips_completed_status_for_silent_preview(monkey
             mode_label='Preview',
             display_image=np.full((2, 2, 3), 9, dtype=np.uint8),
             float_image=np.full((2, 2, 3), 0.5, dtype=np.float32),
-            output_color_space='sRGB',
+            output_encoding=ColorEncoding(color_space='sRGB', transfer='cctf', role='display'),
             use_display_transform=False,
             status_message='Display transform: disabled',
         )

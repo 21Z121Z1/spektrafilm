@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from spektrafilm.gpu.metal_serialization import serialized_metal_runtime
 from spektrafilm.runtime.params_schema import RuntimePhotoParams
 from spektrafilm.runtime.pipeline import SimulationPipeline
 from spektrafilm.utils.preview import resize_for_preview
@@ -17,21 +18,54 @@ class Simulator:
     """
 
     def __init__(self, params: RuntimePhotoParams):
-        self._pipeline = SimulationPipeline(params) # should stay private
+        if _params_may_use_metal(params):
+            with serialized_metal_runtime():
+                self._pipeline = SimulationPipeline(params) # should stay private
+        else:
+            self._pipeline = SimulationPipeline(params) # should stay private
 
     def process(self, image):
         """Process the input image through the simulation pipeline and return the final result."""
+        if self._uses_metal_runtime():
+            with serialized_metal_runtime():
+                result = self._pipeline.process(image)
+                self._synchronize_metal_runtime()
+                return result
         return self._pipeline.process(image)
 
     def update_params(self, params):
         """Update the parameters of the simulation pipeline."""
+        if self._uses_metal_runtime() or _params_may_use_metal(params):
+            with serialized_metal_runtime():
+                try:
+                    self._pipeline.update(params)
+                finally:
+                    self._synchronize_metal_runtime()
+            return
         self._pipeline.update(params)
 
     def soft_update(self, **kwargs):
         """Soft update parameters by only changing the provided fields, keeping the rest unchanged.
         only selected safe parameters can be updated with this method
         """
+        if self._uses_metal_runtime():
+            with serialized_metal_runtime():
+                try:
+                    self._pipeline.soft_update(**kwargs)
+                finally:
+                    self._synchronize_metal_runtime()
+            return
         self._pipeline.soft_update(**kwargs)
+
+    def _uses_metal_runtime(self) -> bool:
+        backend = getattr(self._pipeline, "_array_backend", None)
+        return bool(getattr(backend, "supports_gpu", False))
+
+    def _synchronize_metal_runtime(self) -> None:
+        backend = getattr(self._pipeline, "_array_backend", None)
+        synchronize = getattr(backend, "synchronize", None)
+        if callable(synchronize):
+            synchronize()
 
     def get_timings(self):
         """Get the timings of the different stages of the simulation pipeline."""
@@ -52,6 +86,13 @@ class Simulator:
 
 ######################################################################################
 # Convenience functions for single-call simulation without needing to instantiate the Simulator class.
+
+def _params_may_use_metal(params: RuntimePhotoParams) -> bool:
+    settings = getattr(params, "settings", None)
+    compute_backend = str(getattr(settings, "compute_backend", "auto")).strip().lower()
+    float_precision = str(getattr(settings, "float_precision", "float32")).strip().lower()
+    return compute_backend in {"auto", "mlx"} and float_precision != "float64"
+
 
 def simulate(image, params: RuntimePhotoParams,
              digest_params_first: bool = True,

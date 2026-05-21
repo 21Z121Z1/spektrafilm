@@ -5,11 +5,13 @@ from enum import Enum
 
 from spektrafilm_gui.options import (
     AutoExposureMethods,
+    ComputeBackends,
     DiffusionFilterFamilies,
     NapariInterpolationModes,
     RGBColorSpaces,
     RGBtoRAWMethod,
     RawWhiteBalance,
+    RuntimeFloatPrecisions,
 )
 from spektrafilm.model.illuminants import Illuminants
 from spektrafilm.model.stocks import FilmStocks, PrintPapers
@@ -46,12 +48,16 @@ GUI_SECTION_ENUMS: dict[str, dict[str, type[Enum]]] = {
     "simulation": {
         "film_stock": FilmStocks,
         "auto_exposure_method": AutoExposureMethods,
+        "compute_backend": ComputeBackends,
         "camera_diffusion_filter_family": DiffusionFilterFamilies,
         "print_paper": PrintPapers,
         "print_illuminant": Illuminants,
         "output_color_space": RGBColorSpaces,
         "saving_color_space": RGBColorSpaces,
         "diffusion_filter_family": DiffusionFilterFamilies,
+    },
+    "special": {
+        "runtime_float_precision": RuntimeFloatPrecisions,
     },
 }
 
@@ -77,6 +83,10 @@ GUI_WIDGET_SPECS = {
             max_value=120.0,
             step=1.0,
             decimals=0,
+        ),
+        "compute_backend": WidgetSpec(
+            label="Compute backend",
+            tooltip="Select CPU, automatic fallback, or the optional Apple GPU/MLX backend.",
         ),
         "camera_lens_blur_um": WidgetSpec(
             label="Camera lens blur um",
@@ -288,6 +298,10 @@ GUI_WIDGET_SPECS = {
             label="Saving CCTF encoding",
             tooltip="Add or not the CCTF to the saved image file",
         ),
+        "hdr_exr_output": WidgetSpec(
+            label="HDR EXR output",
+            tooltip="Keep runtime output scene-linear for EXR saving; disables output CCTF and highlight clipping. Preview remains SDR.",
+        ),
         "auto_preview": WidgetSpec(label="Auto preview", tooltip="trigger the preview after every change of gui parameters, use mouse scrollwheel on parameters field, read preview tooltip for details"),
         "scan_film": WidgetSpec(label="Scan film", tooltip="Show a scan of the negative instead of the print"),
     },
@@ -320,6 +334,10 @@ GUI_WIDGET_SPECS = {
         ),
     },
     "special": {
+        "runtime_float_precision": WidgetSpec(
+            label="Runtime float precision",
+            tooltip="Internal CPU precision for full-resolution processing. float32 uses about half the memory of float64; float64 requires the CPU backend.",
+        ),
         "film_gamma_factor": WidgetSpec(
             label="Film gamma factor",
             tooltip="Gamma factor of the density curves of the negative, < 1 reduce contrast, > 1 increase contrast",
@@ -558,20 +576,6 @@ GUI_WIDGET_SPECS = {
         "spectral_upsampling_method": WidgetSpec(
             label="Spectral upsampling",
             tooltip="Method to upsample the spectral resolution of the image, hanatos2025 works on the full visible locus, mallett2019 works only on sRGB (will clip input).",
-        ),
-        "apply_hanatos2025_adaptation_window": WidgetSpec(
-            label="hanatos2025 adaptation window",
-            tooltip="Apply the hanatos2025 bandpass adaptation window when reconstructing spectra.",
-        ),
-        "apply_hanatos2025_adaptation_surface": WidgetSpec(
-            label="hanatos2025 adaptation surface",
-            tooltip="Apply the hanatos2025 surface adaptation polynomial when reconstructing spectra.",
-        ),
-        "spectral_gaussian_blur": WidgetSpec(
-            label="Spectral gaussian blur",
-            tooltip="Sigma in nm for Gaussian blur applied to reconstructed spectra.",
-            min_value=0,
-            step=0.1,
         ),
         "filter_uv": WidgetSpec(
             label="UV filter",

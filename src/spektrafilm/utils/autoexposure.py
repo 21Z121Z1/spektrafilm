@@ -1,7 +1,6 @@
 import numpy as np
 import colour
 
-
 def _luminance_y(image, color_space, apply_cctf_decoding):
     image_XYZ = colour.RGB_to_XYZ(image, color_space, apply_cctf_decoding=apply_cctf_decoding)
     return image_XYZ[:, :, 1]
