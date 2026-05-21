@@ -190,14 +190,11 @@ cython_debug/
 .DS_Store
 
 # uv
-uv.lock
 
 # claude
 .claude
 
 # Project-local generated artifacts
-docs/
-tests/
 ISSUE_color_space_metadata.md
 archive/
 artifacts/
