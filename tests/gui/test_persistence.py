@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from spektrafilm_gui.persistence import (
     clear_saved_default_gui_state,
     gui_state_from_dict,
@@ -78,18 +76,31 @@ def test_save_default_and_clear_saved_default(monkeypatch, tmp_path: Path) -> No
     assert not default_path.exists()
 
 
-def test_gui_state_from_dict_rejects_missing_fields() -> None:
+def test_gui_state_from_dict_fills_missing_section_from_defaults() -> None:
     data = gui_state_to_dict(PROJECT_DEFAULT_GUI_STATE)
     del data['simulation']
 
-    with pytest.raises(ValueError, match='simulation'):
-        gui_state_from_dict(data)
+    restored = gui_state_from_dict(data)
+
+    assert restored.simulation == PROJECT_DEFAULT_GUI_STATE.simulation
 
 
-def test_gui_state_from_dict_uses_default_for_missing_optional_display_field() -> None:
+def test_gui_state_from_dict_fills_missing_field_from_defaults() -> None:
     data = gui_state_to_dict(PROJECT_DEFAULT_GUI_STATE)
     del data['display']['output_interpolation']
+    del data['simulation']['print_exposure']
 
     restored = gui_state_from_dict(data)
 
-    assert restored.display.output_interpolation == 'spline36'
+    assert restored.display.output_interpolation == PROJECT_DEFAULT_GUI_STATE.display.output_interpolation
+    assert restored.simulation.print_exposure == PROJECT_DEFAULT_GUI_STATE.simulation.print_exposure
+
+
+def test_gui_state_from_dict_ignores_unknown_fields() -> None:
+    data = gui_state_to_dict(PROJECT_DEFAULT_GUI_STATE)
+    data['display']['legacy_dropped_field'] = 'gone'
+    data['unknown_top_level_section'] = {'foo': 1}
+
+    restored = gui_state_from_dict(data)
+
+    assert restored == PROJECT_DEFAULT_GUI_STATE

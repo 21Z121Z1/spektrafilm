@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
-from dataclasses import MISSING, asdict, fields, is_dataclass
+from dataclasses import asdict, fields, is_dataclass
 from pathlib import Path
-from typing import Any, TypeVar, get_origin, get_type_hints
+from typing import Any
 
 from qtpy.QtCore import QSettings, QStandardPaths
 
@@ -11,8 +11,6 @@ from spektrafilm_gui.state import GuiState, PROJECT_DEFAULT_GUI_STATE, clone_gui
 
 
 DEFAULT_GUI_STATE_FILENAME = "gui_default_state.json"
-
-GuiStateType = TypeVar("GuiStateType")
 
 
 def gui_state_to_dict(state: GuiState) -> dict[str, Any]:
@@ -22,7 +20,7 @@ def gui_state_to_dict(state: GuiState) -> dict[str, Any]:
 def gui_state_from_dict(data: dict[str, Any]) -> GuiState:
     if not isinstance(data, dict):
         raise ValueError("GUI state data must be a JSON object.")
-    return _deserialize_dataclass(GuiState, data)
+    return _merge_into_dataclass(clone_gui_state(PROJECT_DEFAULT_GUI_STATE), data)
 
 
 def load_default_gui_state() -> GuiState:
@@ -64,24 +62,22 @@ def default_gui_state_path() -> Path:
     return Path.home() / ".spektrafilm" / DEFAULT_GUI_STATE_FILENAME
 
 
-def _deserialize_dataclass(cls: type[GuiStateType], data: dict[str, Any]) -> GuiStateType:
+def _merge_into_dataclass(target: Any, data: Any) -> Any:
     if not isinstance(data, dict):
-        raise ValueError(f"Expected an object for {cls.__name__}.")
-
-    type_hints = get_type_hints(cls)
-    values: dict[str, Any] = {}
-    for field_info in fields(cls):
-        field_name = field_info.name
-        if field_name not in data:
-            if field_info.default is not MISSING:
-                values[field_name] = field_info.default
-                continue
-            if field_info.default_factory is not MISSING:
-                values[field_name] = field_info.default_factory()
-                continue
-            raise ValueError(f"Missing field {field_name!r} in {cls.__name__}.")
-        values[field_name] = _deserialize_value(type_hints[field_name], data[field_name])
-    return cls(**values)
+        return target
+    for field_info in fields(target):
+        name = field_info.name
+        if name not in data:
+            continue
+        current = getattr(target, name)
+        value = data[name]
+        if is_dataclass(current):
+            _merge_into_dataclass(current, value)
+        elif isinstance(current, tuple) and isinstance(value, (list, tuple)):
+            setattr(target, name, tuple(value))
+        elif not is_dataclass(current) and not isinstance(current, tuple):
+            setattr(target, name, value)
+    return target
 
 
 def load_dialog_dir(key: str) -> str:
@@ -90,15 +86,3 @@ def load_dialog_dir(key: str) -> str:
 
 def save_dialog_dir(key: str, directory: str) -> None:
     QSettings('spektrafilm', 'spektrafilm').setValue(f'dialog_dirs/{key}', directory)
-
-
-def _deserialize_value(annotation: Any, value: Any) -> Any:
-    if is_dataclass(annotation):
-        return _deserialize_dataclass(annotation, value)
-
-    if get_origin(annotation) is tuple:
-        if not isinstance(value, (list, tuple)):
-            raise ValueError("Tuple fields must be encoded as arrays.")
-        return tuple(value)
-
-    return value
