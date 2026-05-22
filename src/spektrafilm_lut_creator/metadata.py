@@ -55,21 +55,21 @@ class ProvenanceMeta:
 
     Every bundle carries this block so downstream users (colorists,
     grading suites, archive systems) can identify spektrafilm as the
-    source, comply with the project's GPL license, and cite the work
-    correctly. The defaults mirror the spektrafilm profile metadata
-    pattern.
+    source, comply with the spektrafilm License (Commercial Use, Free
+    Share, No Resale), and cite the work correctly. The defaults
+    mirror the spektrafilm profile metadata pattern.
     """
     spektrafilm_version: str = field(default_factory=_spektrafilm_version)
     lut_creator_version: str = field(default_factory=_lut_creator_version)
     created: str = field(default_factory=_created_iso8601)
     copyright: str = field(default_factory=_copyright_statement)
     license: str = (
+        "spektrafilm License v1.0 (Commercial Use, Free Share, No Resale). "
         "This LUT is licensed for personal and commercial image/video use. "
         "You may share the LUT for free, but you may not sell or resell the "
-        "LUT file (original or derivatives), or include it in paid plugins."
-        "See SPEKTRAFILM_LICENSE.txt for details."
-        "A copy of the license is included in the bundle folder,"
-        f"and also available at {_LUT_LICENSE_URL}."
+        "LUT file (original or derivatives), or include it in paid plugins "
+        "or LUT packs. See SPEKTRAFILM_LICENSE.txt in the bundle folder for "
+        f"details; the full text is also available at {_LUT_LICENSE_URL}."
     )
     citation: str = (
         "If you use this LUT in your work, please cite the spektrafilm "

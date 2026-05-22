@@ -173,16 +173,26 @@ def dynamic_range_neutral_ramp(
     input_color_space: str,
     *,
     stop_lo: float = -8.0,
-    stop_hi: float = 8.0,
+    stop_hi: float | None = None,
     n: int = 257,
     middle_gray_linear: float = 0.18,
+    margin_stops: float = 0.5,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Neutral ramp sampled uniformly in **scene-linear log2 stops**.
 
     Returns ``(stops, encoded_rgb, encoded_clip_mask)``:
 
-    - ``stops``: shape ``(n,)`` linear stops above/below middle gray
-      (default range ``[-8, +8]``, i.e. ~16 EV total).
+    - ``stops``: shape ``(n,)`` linear stops above/below middle gray.
+      When ``stop_hi`` is ``None`` (default), the upper bound is
+      derived from the input encoding so the ramp spans the full
+      headroom the encoding carries. For V-Log that is ~+8 EV; for
+      ARRI LogC4 ~+11.35 EV; for sRGB / Rec.709 ~+2.47 EV. A
+      ``margin_stops`` pad is added past that ceiling so the
+      encoding-clip cliff sits inside the ramp and the figure marks
+      it. The lower bound stays fixed (default ``-8`` EV): log
+      encodings have soft footroom rather than a hard cliff on the
+      low side, so adapting the bottom doesn't surface anything and
+      a fixed floor keeps stop-resolution consistent across cameras.
     - ``encoded_rgb``: shape ``(n, 3)``, scene-linear values
       ``0.18 * 2^stop`` encoded for the input color space (CCTF
       applied) and clipped to ``[0, 1]``. This is what gets fed to
@@ -196,13 +206,28 @@ def dynamic_range_neutral_ramp(
     distinguishes the "D vs log E" film characteristic plot from the
     encoded-code transfer plot.
 
+    Adapting the upper bound to the input encoding matters most for
+    log curves with asymmetric headroom. V-Log places encoded 1.0 at
+    exactly +8 EV above middle gray, so a fixed +8 ceiling happens
+    to fit. ARRI LogC4 places encoded 1.0 at +11.35 EV — a fixed +8
+    ceiling misses ~3.4 stops of the camera's representable
+    headroom, and ``encoded_range_stops`` then reports the window
+    rather than the encoding. Probing ``encode_cctf`` to find the
+    ceiling fixes that.
+
     References
     ----------
     - 0.18 middle-gray convention: ANSI/SMPTE RP 180.
     - Stops as the unit: any cinematography reference (Hunt, Holben).
+    - V-Log spec: Panasonic V-Log Reference Manual.
+    - LogC4 spec: ARRI LogC4 White Paper (2022).
     """
     from spektrafilm_lut_creator.color_spaces import encode_cctf
 
+    if stop_hi is None:
+        stop_hi = _encoding_stop_ceiling(
+            input_color_space, middle_gray_linear,
+        ) + margin_stops
     if stop_hi <= stop_lo:
         raise ValueError(f"stop_hi {stop_hi} must exceed stop_lo {stop_lo}")
     stops = np.linspace(stop_lo, stop_hi, n)
@@ -214,6 +239,32 @@ def dynamic_range_neutral_ramp(
     encoded_clip_mask = np.any((pre_clip < 0.0) | (pre_clip > 1.0), axis=-1)
     encoded = np.clip(pre_clip, 0.0, 1.0).astype(np.float32)
     return stops, encoded, encoded_clip_mask
+
+
+def _encoding_stop_ceiling(
+    input_color_space: str, middle_gray_linear: float,
+) -> float:
+    """Highest stop above middle gray the encoding still fits in code
+    ``[0, 1]``.
+
+    Probes the encoding curve over a wide window and returns the
+    largest stop whose pre-clip encoded value stays ≤ 1.0. For V-Log
+    this is +8.00 EV; for ARRI LogC4 +11.35 EV; for sRGB / Rec.709
+    +2.47 EV.
+    """
+    from spektrafilm_lut_creator.color_spaces import encode_cctf
+
+    probe = np.linspace(-12.0, 20.0, 3201)
+    lin = middle_gray_linear * (2.0 ** probe)
+    enc = encode_cctf(np.stack([lin] * 3, axis=-1), input_color_space)
+    ok = np.all(enc <= 1.0, axis=-1)
+    if not ok.any():
+        raise ValueError(
+            f"input encoding {input_color_space!r} clips at every probed "
+            f"stop — encoding may be invalid"
+        )
+    idx = np.where(ok)[0]
+    return float(probe[idx[-1]])
 
 
 def spectral_locus_chromaticities() -> np.ndarray:

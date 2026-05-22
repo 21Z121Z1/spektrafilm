@@ -21,6 +21,11 @@ The split is deliberate:
 
 ## What lives here
 
+- **Command-line interface** (`cli.py`) — `spektrafilm-lut build` and
+  `spektrafilm-lut list`. Accepts color spaces as canonical registry names
+  (`"Panasonic V-Log"`) or short-tag slugs (`vlog`); the full `BundleSpec` is
+  also loadable from TOML via `--from spec.toml`. CLI flags override TOML when
+  both are present.
 - **Color-space registry** (`color_spaces.py`) — gatekept list of curated
   `(name, primaries, CCTF, kind, role)` entries. Decouples primaries from CCTF
   (so Apple Log + BT.2020 and BMG5 + BMD Wide Gamut can be expressed); validates
@@ -32,10 +37,16 @@ The split is deliberate:
   that show up between LUTs in multi-LUT bundles.
 - **Sampling grids** (`grid.py`) — Adobe-canonical `(N**3, 3)` grids plus
   image-shape reshaping for the pipeline.
-- **Formats** (`formats/`) — `.cube` reader/writer + plugin registry for future
-  formats (`3dl`, `hald_png`, OCIO config emission).
+- **Formats** (`formats/`) — pluggable readers/writers; v1 ships
+  `cube` (Adobe), `lumix` (Lumix-strict `.cube` variant with
+  `#LUMIXPHOTOSTYLE`), `3dl` (Autodesk 10-bit Lustre), and `hald_png`
+  (Hald-CLUT 8-bit PNG for Photoshop / OBS / ImageMagick). OCIO config
+  emission is its own sibling in `ocio_emit.py`.
 - **Bundles** (`bundles.py`, `builders.py`) — `BundleSpec` / `BundleBuilder`
   orchestrating one or more LUT bakes; `BundleMeta` for `bundle.json` side-cars.
+  Bundle READMEs lead with a "What this is / what this isn't" framing
+  (n090 §5.1) and, when QA runs, surface a "## Quality" pass/fail badge
+  block (n090 §6.1).
 
 ## The boundary with the runtime
 
@@ -76,10 +87,14 @@ intentionally less expressive than the registry. The expressive side lives here.
 
 ## Where to look
 
+- `cli.py` — the `spektrafilm-lut` command-line entry point
 - `color_spaces.py` — the gatekept registry (22 entries in v1, 27 in v2)
 - `wires.py`, `shapers.py` — wire math
 - `grid.py` — sampling-grid helpers
 - `formats/cube.py` — Adobe .cube reader/writer
+- `formats/lumix.py` — Lumix-strict .cube variant
+- `formats/threedl.py` — Autodesk .3dl writer
+- `formats/hald_png.py` — Hald-CLUT PNG writer
 - `bundles.py` — `BundleSpec` (user-facing) + `Bundle` (built artifact)
 - `builders.py` — `BundleBuilder` orchestrator
 - `metadata.py` — `BundleMeta` (bundle.json schema)

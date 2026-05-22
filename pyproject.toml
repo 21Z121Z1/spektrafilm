@@ -53,6 +53,7 @@ gui = [
 # `markdown` is the one new dep, used only for the QA HTML report.
 lut_creator = [
     "markdown~=3.7",
+    "Pillow~=12.1",   # Hald-CLUT PNG writer
 ]
 # Test/dev tooling.
 dev = [
@@ -66,6 +67,7 @@ all = ["spektrafilm[gui,lut_creator,dev]"]
 
 [project.scripts]
 spektrafilm = "spektrafilm_gui.app:main"
+spektrafilm-lut = "spektrafilm_lut_creator.cli:main"
 
 [tool.setuptools]
 zip-safe = false

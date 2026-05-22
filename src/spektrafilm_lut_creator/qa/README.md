@@ -44,7 +44,7 @@ To QA every paper in a multi-paper bundle, iterate over
 | `monotonicity` | Are diagonal axes non-decreasing in their matching output channel? | Zero violations on diagonal |
 | `jacobian_condition` | Local 3×3 Jacobian condition number — smoothness diagnostic | Informational |
 | `total_variation` | Per-axis variation + axial-FFT high-band energy | Informational |
-| `gamut_self_intersection` | Face fold-backs + hull-volume compression ratio | No folds, ratio in `[0.05, 1.05]` |
+| `output_gamut_compression` | Face fold-backs + hull-volume compression ratio + output-gamut compression preview (OkLab + xy) | No folds, ratio in `[0.05, 1.05]` |
 
 ### Model diagnostic
 
@@ -52,7 +52,6 @@ To QA every paper in a multi-paper bundle, iterate over
 |---|---|---|
 | `characteristic_curve` | System D-vs-input on the neutral ramp | Informational |
 | `planckian_sweep` | Daylight illuminants → output chromaticity smoothness | `max bend angle ≤ 30°` |
-| `highlight_rolloff` | Smoothness of per-channel transfer near the top end | `max ｜d²｜ ≤ 0.02` |
 | `hue_twist_oklab` | Per-saturation-band hue rotation | `max ≤ 30°` |
 | `spectral_locus_envelope` | Reach of model gamut at maximum saturation | Informational |
 
@@ -60,7 +59,7 @@ To QA every paper in a multi-paper bundle, iterate over
 
 | Test | What it asks | Pass criterion |
 |---|---|---|
-| `gamut_edge_stress` | LUT rendering of white / hue-cycle / black bands at the edges of Rec.709, Rec.2020, ACES2065-1 | Informational |
+| `output_gamut_edge_stress` | LUT rendering of white / hue-cycle / black bands at the edges of Rec.709, Rec.2020, ACES2065-1 | Informational |
 | `rg_plane_slices` | R-G cube cross-sections at evenly-spaced B-input values, rendered in sRGB | Informational |
 
 Skin-tone arc (ISO 17321 measured spectra) is **deferred** for v1 — needs the

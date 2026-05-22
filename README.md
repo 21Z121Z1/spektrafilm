@@ -5,8 +5,8 @@
 > [!IMPORTANT] 
 > This project is in rapid development, some areas are still being
 > built and will change fast. The core functionality of the tech demo is
-> maturing. LUT export with `.cube` bundles and OCIO config emission has landed;
-> more features for easy integration in third party software will follow.
+> maturing. Alpha LUT export has landed; more features for easy integration in 
+> third party software will follow.
 > 
 
 An exploration of how to make good use of spectroscopic data from manufacturer
@@ -55,7 +55,7 @@ export is very slow at the moment.
 >  alternative options. I am very open to collaboration and integration, but I
 >  want to ensure that spektrafilm remains open source and for the community. 
 >
-> LUTs are on a strict *commercial use, no resale* custom [license](LICENSE_SPEKTRAFILM_LUT).
+> LUTs are on a strict *commercial use, no resale* custom [license](SPEKTRAFILM_LICENSE.txt).
 >
 >  This helps sustain open color science. Thanks!
 
@@ -139,8 +139,10 @@ The codebase is organized as three packages under `src/`:
 2. [src/spektrafilm_gui](src/spektrafilm_gui): desktop Qt + napari GUI built on
    top of the runtime.
 3. [src/spektrafilm_lut_creator](src/spektrafilm_lut_creator): LUT bake + QA +
-   OCIO config emission. Builds `.cube` bundles in 1-LUT / 2-LUT / 3-LUT / 4-LUT
-   topologies with optional standalone OCIO 2 configs for pipeline integration.
+   OCIO config emission. Builds `.cube` / `.3dl` / Hald-CLUT PNG bundles in
+   1-LUT / 2-LUT / 3-LUT / 4-LUT topologies with optional standalone OCIO 2
+   configs for pipeline integration. Drives via the `spektrafilm-lut`
+   command-line tool or the Python `BundleBuilder` API.
 
 Canonical import surfaces:
 
@@ -169,31 +171,55 @@ from spektrafilm_lut_creator.builders import BundleBuilder
 from spektrafilm_lut_creator.bundles import BundleSpec
 
 spec = BundleSpec(
-	film_profile="kodak_portra_400",
-	print_profiles=("kodak_portra_endura",),
-	input_color_space="Panasonic V-Log",
-	output_color_space="sRGB",
-	topology="1lut",
-	resolution=33,
-	ocio_config=True,   # opt-in: also emit a standalone OCIO 2 config
-	qa=True,            # opt-in: run the QA suite and emit report.html
+      film_profile="kodak_portra_400",
+      print_profiles=("kodak_portra_endura",),
+      input_color_space="Panasonic V-Log",
+      output_color_space="sRGB",
+      topology="1lut",
+      resolution=33,
+      ocio_config=True,   # opt-in: also emit a standalone OCIO 2 config
+      qa=True,            # opt-in: run the QA suite and emit report.html
+      target="lumix_reatlime_vlog",  # special .cube files for lumix realtime 
 )
 builder = BundleBuilder(spec)
 builder.write(builder.build())   # lands in build/lut_bundles/<auto-name>/
 ```
 
+Equivalent on the command line — color spaces accept canonical
+registry names or `short_tag` slugs (`vlog`, `srgb`, `acescg`, ...):
+
+```bash
+spektrafilm-lut build \
+	--film kodak_portra_400 \
+	--print kodak_portra_endura \
+	--input vlog --output srgb \
+	--topology 1lut --resolution 33 \
+	--qa --ocio-config \
+	--out ./build/lut_bundles/
+
+spektrafilm-lut list films         # discover registered profiles
+spektrafilm-lut list inputs        # discover input color spaces
+```
+
+For complex specs (nested gamut-compression settings, multi-paper
+bundles), pass `--from spec.toml` to load the full `BundleSpec` from
+a TOML file.
+
 Dependency direction:
 
 1. `spektrafilm_gui` depends on `spektrafilm`.
 2. `spektrafilm_lut_creator` depends on `spektrafilm`.
-3. `spektrafilm_profile_creator` (separate repo) depends on `spektrafilm`.
-4. `spektrafilm` (runtime) does not depend on any of the higher-level packages.
+3. `spektrafilm` (runtime) does not depend on any of the higher-level packages.
 
 ## Installation
 
 > [!NOTE] 
 > Since spektrafilm is not compatible with the latest Python version, an
 > older version like 3.13 must be used.
+
+I reccomend to install spektrafilm with `conda`+`pip` for now, just because it 
+is my current workflow and thus it has more chances to be tested right after 
+commit.
 
 ### Using `uv`
 

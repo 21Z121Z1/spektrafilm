@@ -22,7 +22,7 @@ from spektrafilm_lut_creator.delivery_targets import (
 )
 
 
-_LUT_LICENSE_PATH = Path(__file__).resolve().parents[2] / "LICENSE_SPEKTRAFILM_LUT"
+_LUT_LICENSE_PATH = Path(__file__).resolve().parents[2] / "SPEKTRAFILM_LICENSE.txt"
 
 
 class TestRegistry:
@@ -193,7 +193,7 @@ class TestBuilderEmitsTargetVariant:
         text = (out_dir / rel_path).read_text(encoding="utf-8")
         # Generic format carries the rich provenance header.
         assert "spektrafilm LUT" in text
-        assert "GPL" in text
+        assert "No Resale" in text
 
     def test_target_write_copies_lut_license(self, tmp_path):
         from spektrafilm_lut_creator.builders import BundleBuilder
@@ -211,7 +211,7 @@ class TestBuilderEmitsTargetVariant:
         bundle = builder.build()
         out_dir = builder.write(bundle, tmp_path / "target_license")
 
-        assert (out_dir / "LICENSE_SPEKTRAFILM_LUT").read_text(encoding="utf-8") == _LUT_LICENSE_PATH.read_text(encoding="utf-8")
+        assert (out_dir / "SPEKTRAFILM_LICENSE.txt").read_text(encoding="utf-8") == _LUT_LICENSE_PATH.read_text(encoding="utf-8")
 
     def test_no_target_write_copies_lut_license(self, tmp_path):
         from spektrafilm_lut_creator.builders import BundleBuilder
@@ -229,4 +229,4 @@ class TestBuilderEmitsTargetVariant:
         bundle = builder.build()
         out_dir = builder.write(bundle, tmp_path / "generic_license")
 
-        assert (out_dir / "LICENSE_SPEKTRAFILM_LUT").read_text(encoding="utf-8") == _LUT_LICENSE_PATH.read_text(encoding="utf-8")
+        assert (out_dir / "SPEKTRAFILM_LICENSE.txt").read_text(encoding="utf-8") == _LUT_LICENSE_PATH.read_text(encoding="utf-8")

@@ -148,9 +148,10 @@ class ScanningStage:
                 apply_cctf_encoding=True,
             )
         # gamut_clip="off" leaves the final [0, 1] clip out entirely so
-        # downstream diagnostics (the output_gamut_compression_preview QA
-        # test) can capture the simulation's unbounded reach. Production
-        # bakes use "soft" or "hard" and the LUT cube stays in [0, 1].
+        # downstream diagnostics (the output_gamut_compression QA test's
+        # before/after panels) can capture the simulation's unbounded
+        # reach. Production bakes use "soft" or "hard" and the LUT cube
+        # stays in [0, 1].
         if self._io.gamut_clip == "off":
             return rgb
         return np.clip(rgb, a_min=0, a_max=1)

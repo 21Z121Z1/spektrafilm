@@ -1,11 +1,12 @@
-"""The eleven QA tests.
+"""The QA suite — 14 tests, one figure each.
 
 Each function takes a :class:`QAContext` and returns a :class:`Result`.
 Five tests address **LUT fidelity** (does the cube preserve the
-pipeline within industry tolerance), six address **model diagnostic**
-(does the spektrafilm pipeline itself produce sensible output). Both
-are necessary for an industry-grade QA story — see
-``studies/a40_lut_system/n080``.
+pipeline within industry tolerance), seven address **model diagnostic**
+(does the spektrafilm pipeline itself produce sensible output), and
+two are **picture-style diagnostics** that render the bundle through
+representative stress patterns. All three flavors are necessary for
+an industry-grade QA story — see ``studies/a40_lut_system/n080``.
 
 Tests that need the cached pipeline reference (``ctx.reference``) are
 LUT-fidelity tests; model-diagnostic tests use their own small
@@ -318,24 +319,69 @@ def total_variation(ctx: "QAContext") -> Result:
     )
 
 
-def gamut_self_intersection(ctx: "QAContext") -> Result:
-    """Detect cube-face folds and report gamut compression ratio.
+def output_gamut_compression(ctx: "QAContext") -> Result:
+    """Detect cube-face folds, report gamut compression ratio, and
+    visualize the output gamut before/after compression.
 
-    Fold-backs of the cube surface indicate a non-orientation-preserving
-    transform — a hard failure for any grading workflow. The compression
-    ratio (output / input OkLab hull volume) is a separate informational
-    number: < 1 expected (LUTs compress); > 1 means expansion (suspect).
+    Combines two diagnostics that share the same underlying data
+    (LUT cube + an unbounded re-run of the simulation):
+
+    1. **Fold-back metric** — `metrics.gamut_self_intersection_score`
+       counts cube-face triangles that flip orientation. Any fold is a
+       hard non-invertibility and fails the test.
+    2. **Hull volume ratio** — output OkLab convex-hull volume divided
+       by input OkLab convex-hull volume. < 1 expected (LUTs compress);
+       > 1 means expansion (suspect).
+    3. **Gamut compression preview** — a 1x2 figure with the LUT's
+       compressed gamut volume (faint cube cloud) and the
+       unbounded→compressed rim envelope, shown in OkLab (left) and
+       xy chromaticity (right). The xy panel duplicates what the
+       standalone preview test used to render; merging the two avoids
+       two separate unbounded-pipeline runs.
 
     References
     ----------
     - ACES Reference Gamut Compression test imagery.
     - Morovic, gamut-mapping CIC papers.
+    - spektrafilm-research n110 (output compression design).
+    - ACES Reference Gamut Compression v1.3 (AMPAS, 2020).
     """
+    from spektrafilm_lut_creator.qa import patterns
+    from spektrafilm.utils.gamut_compression import compress_rgb
+    from spektrafilm_lut_creator.color_spaces import get as _get_cs
+
     table = ctx.lut.table
     flips = metrics.gamut_self_intersection_score(table)
     hull = metrics.gamut_hull_volume_ratio(
         ctx.grid_input, ctx.grid_output, ctx.spec.output_color_space,
     )
+
+    # Rim — saturated cube edges — and its unbounded pipeline output.
+    rim_samples, rim_segments = patterns.saturated_cube_edges(n=96)
+    out_cs_name = ctx.spec.output_color_space
+    out_primaries_name = _get_cs(out_cs_name).primaries
+    compression_spec = ctx.spec.output_gamut_compress
+
+    rim_unbounded = _run_unbounded_pipeline_for_rim(ctx, rim_samples)
+    rim_compressed = (
+        compress_rgb(rim_unbounded, compression_spec,
+                     output_color_space=out_primaries_name)
+        if compression_spec.mode != "off" else rim_unbounded.copy()
+    )
+
+    hsv = np.asarray(colour.RGB_to_HSV(rim_samples), dtype=float)
+    rim_hues = hsv[..., 0]
+    n_per_seg = len(rim_segments[0])
+    n_segments = len(rim_segments)
+
+    # Stats for the merged summary (mirror the old preview's numbers).
+    ach = rim_unbounded.max(axis=-1)
+    bright_mask = ach > 1e-2
+    safe_ach = np.where(ach > 1e-6, ach, 1.0)
+    d_max = ((ach[..., None] - rim_unbounded) / safe_ach[..., None]).max(axis=-1)
+    oog_mask = (d_max > 1.0) & bright_mask
+    oog_fraction = float(oog_mask.sum() / max(int(bright_mask.sum()), 1))
+    rim_disp = np.linalg.norm(rim_unbounded - rim_compressed, axis=-1)
 
     summary = {
         "fold_triangles": int(flips["flips"]),
@@ -343,21 +389,36 @@ def gamut_self_intersection(ctx: "QAContext") -> Result:
         "input_hull_volume": float(hull["input_hull_volume"]),
         "output_hull_volume": float(hull["output_hull_volume"]),
         "compression_ratio": float(hull["compression_ratio"]),
+        "compression_mode": compression_spec.mode,
+        "compression_algorithm": compression_spec.algorithm,
+        "rim_oog_fraction": oog_fraction,
+        "rim_oog_samples": int(oog_mask.sum()),
+        "rim_max_displacement":
+            float(rim_disp[oog_mask].max()) if oog_mask.any() else 0.0,
+        "rim_mean_displacement":
+            float(rim_disp[oog_mask].mean()) if oog_mask.any() else 0.0,
     }
     # Hard failure when face folds appear. Compression ratio > 1.05 is
     # suspicious (rare expansion); < 0.05 is suspicious (extreme
-    # collapse).
+    # collapse). Rim displacement/OOG is informational only.
     passed = (flips["flips"] == 0
               and 0.05 <= hull["compression_ratio"] <= 1.05)
 
-    fig = viz.oklab_gamut_compare(
-        ctx.grid_input, ctx.grid_output,
-        ctx.spec.input_color_space, ctx.spec.output_color_space,
+    fig = viz.gamut_compression_3d_xy(
+        grid_output_compressed=ctx.grid_output,
+        rim_unbounded_linear=rim_unbounded,
+        rim_compressed_linear=rim_compressed,
+        rim_input_hues=rim_hues,
+        rim_n_per_segment=n_per_seg,
+        rim_n_segments=n_segments,
+        in_cs_name=ctx.spec.input_color_space,
+        out_cs_name=out_cs_name,
+        compression_spec=compression_spec,
     )
-    path = _save(ctx, fig, "gamut_self_intersection")
+    path = _save(ctx, fig, "output_gamut_compression")
 
     return Result(
-        name="gamut_self_intersection",
+        name="output_gamut_compression",
         summary=summary,
         figure_path=path,
         units="",
@@ -367,7 +428,11 @@ def gamut_self_intersection(ctx: "QAContext") -> Result:
             "ratio quantifies how much perceptual volume the LUT throws "
             "away; numbers in [0.05, 1.05] are normal, outside means "
             "either degenerate output (very small ratio) or unexpected "
-            "expansion (ratio > 1)."
+            "expansion (ratio > 1). The figure's left panel shows the "
+            "LUT's compressed gamut in OkLab (faint cube cloud) with "
+            "the unbounded rim (solid colored lines) and the compressed "
+            "rim (dashed) overlaid; the right panel is the canonical "
+            "xy-chromaticity preview of the same compression event."
         ),
         reference_values={
             "fold_triangles": "== 0 — any cube-face fold is a hard non-invertibility",
@@ -728,11 +793,10 @@ def spectral_locus_envelope(ctx: "QAContext") -> Result:
     similar chromaticities (the dye-gamut "shoulders" and the
     achromatic core), and fade to single dots in the sparse rim.
 
-    Replaces the older rim-only envelope plot — the
-    output_gamut_compression_preview now covers the rim envelope's
-    role as a "where does the gamut reach" diagnostic; this plot
-    answers the complementary "what does the full LUT *look* like in
-    xy" question.
+    Replaces the older rim-only envelope plot — the rim envelope's
+    "where does the gamut reach" role is now covered by the right
+    panel of ``output_gamut_compression``; this plot answers the
+    complementary "what does the full LUT *look* like in xy" question.
 
     References
     ----------
@@ -911,9 +975,9 @@ def spectral_locus_envelope(ctx: "QAContext") -> Result:
             "saturated rim sparse). `inside_output_gamut_fraction` "
             "near 1.0 confirms output gamut compression is keeping "
             "the simulation inside the output primaries triangle as "
-            "intended. The complementary "
-            "`output_gamut_compression_preview` figure shows the "
-            "rim envelope and the compression's effect explicitly."
+            "intended. The complementary `output_gamut_compression` "
+            "figure shows the rim envelope and the compression's "
+            "effect explicitly."
         ),
         passed=None,
     )
@@ -1412,317 +1476,6 @@ def _run_unbounded_pipeline_for_rim(
     return image_out.reshape(-1, 3)
 
 
-def output_gamut_compression_preview(ctx: "QAContext") -> Result:
-    """Visualize the simulation's unbounded output reach and where the
-    ACES RGC output compression maps it.
-
-    Renders, in the output color space's xy chromaticity diagram:
-
-    - The visible spectral locus (faint reference).
-    - The output primaries triangle with its primary corners colored
-      (R / G / B), the canonical "destination gamut" visual.
-    - The simulation's **unbounded** reachable rim — the chromaticities
-      the pipeline reaches when fed saturated input cube edges *with
-      output gamut compression disabled*. Plotted as a hue-coded
-      rainbow ring around the output gamut.
-    - The **compressed** rim — the same samples after ACES RGC v1.3 in
-      destination RGB pulls them inside the output gamut. Faint inner
-      ring, color-matched to the unbounded ring so the eye can follow
-      each sample's path.
-    - Sparse displacement arrows on the brightest OOG subset.
-
-    Informational only — the compression itself is correct by
-    construction. This figure is the bundle's audit trail showing
-    *what* the compression did for the specific input/output pair.
-
-    References
-    ----------
-    - spektrafilm-research n110 (output compression design).
-    - ACES Reference Gamut Compression v1.3 (AMPAS, 2020).
-    - OCIO ``FixedFunctionTransform(style=ACES_GamutComp13)``.
-    - CSS Color 4 (W3C) OkLch gamut mapping.
-    """
-    from spektrafilm_lut_creator.qa import patterns
-    from spektrafilm.utils.gamut_compression import (
-        compress_rgb, spectral_locus_xy,
-    )
-
-    # ``accent`` is the yellow-ish color used for the input-gamut
-    # triangle overlay (visible against the dark BG); titles use the
-    # shared viz.HI white so they match the rest of the report.
-    bg, fg, accent, dim = "#0a0a0a", "#cccccc", "#ffee66", "#888888"
-
-    from spektrafilm_lut_creator.color_spaces import get as _get_cs
-    spec = ctx.spec.output_gamut_compress
-    out_cs_name = ctx.spec.output_color_space
-    # ``compress_rgb`` is in the runtime layer (per n070) and takes a
-    # ``colour-science`` primaries name, not our registry name. The two
-    # happen to coincide for sRGB / Display P3 / DCI-P3, which is why
-    # this latent bug only surfaced when M8's OCIO expansion enabled
-    # output spaces whose registry names differ (Rec.709 / Rec.2020 /
-    # Rec.2100 PQ / Rec.2100 HLG / P3-D65 PQ).
-    out_primaries_name = _get_cs(out_cs_name).primaries
-
-    # Saturated cube edges — the standard "rim" stimulus. n=96 per edge
-    # gives 12 × 96 = 1152 samples; dense enough that consecutive points
-    # trace a smooth envelope of the model's reachable gamut.
-    rim_samples, rim_segments = patterns.saturated_cube_edges(n=96)
-
-    rgb_unbounded = _run_unbounded_pipeline_for_rim(ctx, rim_samples)
-    rgb_compressed = (
-        compress_rgb(rgb_unbounded, spec, output_color_space=out_primaries_name)
-        if spec.mode != "off" else rgb_unbounded.copy()
-    )
-
-    # Project both rim populations to xy in the output color space's
-    # chromaticity frame.
-    out_primaries = colour.RGB_COLOURSPACES[out_primaries_name]
-    out_white = np.asarray(out_primaries.whitepoint, dtype=float)
-    out_tri = np.asarray(out_primaries.primaries, dtype=float)
-
-    def _rgb_to_xy(rgb):
-        xyz = colour.RGB_to_XYZ(
-            rgb, colourspace=out_primaries.name,
-            apply_cctf_decoding=False, illuminant=out_white,
-        )
-        b = xyz.sum(axis=-1, keepdims=True)
-        return xyz[..., :2] / np.where(np.abs(b) > 1e-12, b, 1.0)
-
-    xy_unbounded = _rgb_to_xy(rgb_unbounded)
-    xy_compressed = _rgb_to_xy(rgb_compressed)
-
-    # Stats. d_norm = "how far past the output gamut," measured as the
-    # normalized achromatic distance in RGB (= the same quantity ACES
-    # RGC operates on). ach > 0 to skip near-black noise samples.
-    ach = rgb_unbounded.max(axis=-1)
-    safe_ach = np.where(ach > 1e-6, ach, 1.0)
-    d_per_channel = (ach[..., None] - rgb_unbounded) / safe_ach[..., None]
-    d_max = d_per_channel.max(axis=-1)  # per-pixel worst channel distance
-    bright_mask = ach > 1e-2
-    oog_mask = (d_max > 1.0) & bright_mask
-    oog_fraction = float(oog_mask.sum() / max(int(bright_mask.sum()), 1))
-    disp = np.linalg.norm(rgb_unbounded - rgb_compressed, axis=-1)
-
-    # Hue coding: use the HSV hue of the INPUT encoded RGB. Cube edges
-    # trace through (red → yellow → green → cyan → blue → magenta) by
-    # construction, so this gives an exact rainbow ordering with
-    # every sample colored by its true position in the input cube's
-    # saturation circle. Coloring by xy-angle around the output white
-    # is what I tried first — but the angular-to-perceptual hue
-    # mapping in xy is non-linear (the locus is not a circle), which
-    # produced visible hue rotation. Input HSV is exact and is also
-    # robust to OOG samples whose output xy can be unreliable.
-    hsv = np.asarray(colour.RGB_to_HSV(rim_samples), dtype=float)
-    hues = hsv[..., 0]
-
-    locus = spectral_locus_xy()
-
-    fig, ax = plt.subplots(figsize=(10, 10), facecolor=bg, layout="constrained")
-    ax.set_facecolor(bg)
-    for spine in ax.spines.values():
-        spine.set_color("#555555")
-    ax.tick_params(colors=fg)
-    ax.grid(True, alpha=0.12, color=accent)
-
-    # Spectral locus — faint background reference.
-    ax.plot(locus[:, 0], locus[:, 1], color=dim, lw=1.0, alpha=0.45,
-            label="visible spectral locus")
-    # Subtle fill inside the locus to suggest "all visible color lives here."
-    locus_path = plt.Polygon(locus, closed=True, facecolor="#cccccc",
-                             alpha=0.025, edgecolor="none")
-    ax.add_patch(locus_path)
-
-    # Output gamut triangle — the destination region.
-    tri = np.vstack([out_tri, out_tri[:1]])
-    # Subtle fill in the destination region.
-    ax.fill(tri[:, 0], tri[:, 1], color="#ffffff", alpha=0.04, zorder=1.5)
-    ax.plot(tri[:, 0], tri[:, 1], color=fg, lw=2.0, alpha=0.95,
-            label=f"{out_cs_name} gamut", zorder=2)
-    # Primary corner dots colored as their primary (R/G/B).
-    primary_colors = ["#ff5566", "#66ff88", "#5599ff"]
-    primary_labels = ["R", "G", "B"]
-    for (px, py), pcol, plab in zip(out_tri, primary_colors, primary_labels):
-        ax.plot(px, py, "o", color=pcol, markersize=11,
-                markeredgecolor=bg, markeredgewidth=1.5, zorder=4)
-        # Place the letter just outside the triangle so it doesn't sit on the dot.
-        offset = np.array([px, py]) - out_white
-        n = np.linalg.norm(offset) + 1e-9
-        lx, ly = np.array([px, py]) + 0.035 * offset / n
-        ax.text(lx, ly, plab, color=pcol, ha="center", va="center",
-                fontsize=12, fontweight="bold", zorder=5)
-
-    # White point.
-    ax.plot(out_white[0], out_white[1], "D", color=fg, markersize=10,
-            markeredgecolor=bg, markeredgewidth=1.2,
-            label=f"{out_cs_name} white", zorder=4)
-
-    # Per-segment polylines — drawing the rim as colored lines (one
-    # per cube edge) reads as the envelope of a continuous surface
-    # rather than a scatter cloud. Each polyline is colored by its
-    # segment's mean hue (computed on the unit circle to avoid the
-    # 0/1 wraparound seam).
-    #
-    # We skip the three "lit-white" edges (cyan→white, magenta→white,
-    # yellow→white — every fourth segment per axis sweep in
-    # ``saturated_cube_edges``). These are *saturation* sweeps, not
-    # hue sweeps; their xy projections run from a saturated corner
-    # inward toward the achromatic axis, which visually clutters the
-    # rim envelope with lines crossing the white point. They stay in
-    # the underlying scatter and the stats panel so the figure still
-    # accurately reflects the full cube's behavior.
-    bright_idx = np.flatnonzero(bright_mask)
-    n_per_seg = len(rim_segments[0])
-    for k, _ in enumerate(rim_segments):
-        if k % 4 == 3:  # lit-white edge (pin = (1, 1)) — skip polyline
-            continue
-        s, e = k * n_per_seg, (k + 1) * n_per_seg
-        # Skip the edge if every sample is dim (near-black input edges).
-        if not bright_mask[s:e].any():
-            continue
-        seg_hue = hues[s:e]
-        col = plt.cm.hsv(
-            np.angle(np.exp(1j * 2 * np.pi * np.mean(seg_hue)))
-            / (2 * np.pi) % 1.0
-        )
-        # Faint backing line for the unbounded envelope, then a brighter
-        # foreground line — gives a subtle glow.
-        ax.plot(xy_unbounded[s:e, 0], xy_unbounded[s:e, 1],
-                color=col, lw=4.0, alpha=0.25, zorder=2.6)
-        ax.plot(xy_unbounded[s:e, 0], xy_unbounded[s:e, 1],
-                color=col, lw=1.6, alpha=0.95, zorder=2.7)
-        if spec.mode != "off":
-            ax.plot(xy_compressed[s:e, 0], xy_compressed[s:e, 1],
-                    color=col, lw=1.0, alpha=0.7, ls="--", zorder=2.65)
-
-    # Rainbow scatter on top of the polylines — anchors each rim point
-    # in its true hue and makes the dot density read as "sample count
-    # per direction."
-    ax.scatter(
-        xy_unbounded[bright_idx, 0], xy_unbounded[bright_idx, 1],
-        c=hues[bright_idx], cmap=plt.cm.hsv, s=20, alpha=0.95,
-        edgecolors="none", zorder=3, label="unbounded rim",
-    )
-    if spec.mode != "off" and oog_mask.any():
-        ax.scatter(
-            xy_compressed[bright_idx, 0], xy_compressed[bright_idx, 1],
-            c=hues[bright_idx], cmap=plt.cm.hsv, s=10, alpha=0.7,
-            edgecolors="none", zorder=3.5, label="compressed rim",
-        )
-
-        # Sparse displacement arrows, ~120 picked from the brightest OOG
-        # samples (highest visual contribution). Color them subtly so
-        # they read as "motion" without overwhelming the dots.
-        oog_bright_idx = np.flatnonzero(oog_mask)
-        n_arrows = min(len(oog_bright_idx), 120)
-        if n_arrows > 0:
-            rng = np.random.default_rng(0)
-            pick = rng.choice(oog_bright_idx, size=n_arrows, replace=False)
-            ax.quiver(
-                xy_unbounded[pick, 0], xy_unbounded[pick, 1],
-                xy_compressed[pick, 0] - xy_unbounded[pick, 0],
-                xy_compressed[pick, 1] - xy_unbounded[pick, 1],
-                color="#ffaa55", alpha=0.5,
-                angles="xy", scale_units="xy", scale=1.0,
-                width=0.0022, headwidth=4, headlength=5, zorder=3.7,
-            )
-
-    # Stats panel.
-    if spec.mode != "off" and oog_mask.any():
-        text = (
-            f"algorithm:    {spec.algorithm}\n"
-            f"mode:         {spec.mode}\n"
-            f"threshold:    {spec.knee[0]}\n"
-            f"limit:        {spec.knee[1]}\n"
-            f"power:        {spec.knee[2]}\n"
-            f"\n"
-            f"input:        {ctx.spec.input_color_space}\n"
-            f"output:       {out_cs_name}\n"
-            f"OOG fraction: {oog_fraction:.1%}\n"
-            f"OOG samples:  {int(oog_mask.sum())}\n"
-            f"max disp:     {disp[oog_mask].max():.4f}\n"
-            f"p99 disp:     {np.percentile(disp[oog_mask], 99):.4f}\n"
-            f"mean disp:    {disp[oog_mask].mean():.4f}"
-        )
-    elif spec.mode == "off":
-        text = (
-            f"algorithm:    {spec.algorithm}\n"
-            f"mode:         OFF\n"
-            f"\n"
-            f"input:        {ctx.spec.input_color_space}\n"
-            f"output:       {out_cs_name}\n"
-            f"OOG fraction: {oog_fraction:.1%}\n"
-            f"(compression disabled — rim shown as-is)"
-        )
-    else:
-        text = (
-            f"algorithm:    {spec.algorithm}\n"
-            f"\n(no bright OOG samples — the simulation's rim is\n"
-            f" already inside the output gamut for this input)"
-        )
-    ax.text(
-        0.02, 0.98, text,
-        transform=ax.transAxes, va="top", ha="left",
-        color=fg, family="monospace", fontsize=9,
-        bbox=dict(facecolor="#1a1a1a", edgecolor="#555555",
-                  alpha=0.92, boxstyle="round,pad=0.5"),
-        zorder=10,
-    )
-
-    # Compact legend in the upper right with the structural elements.
-    leg = ax.legend(loc="upper right", fontsize=8,
-                    facecolor="#1a1a1a", edgecolor="#555555",
-                    labelcolor=fg)
-    leg.get_frame().set_alpha(0.9)
-
-    ax.set_xlim(-0.05, 0.85)
-    ax.set_ylim(-0.05, 0.95)
-    ax.set_xlabel("x", color=fg)
-    ax.set_ylabel("y", color=fg)
-    ax.set_aspect("equal")
-    algorithm_label = {
-        "oklch": "OkLch chroma reduction",
-        "aces_rgc": "ACES RGC v1.3",
-    }.get(spec.algorithm, spec.algorithm)
-    ax.set_title(
-        f"output gamut compression — {ctx.spec.input_color_space} → "
-        f"{out_cs_name} via {algorithm_label}\n"
-        f"(t={spec.knee[0]}, l={spec.knee[1]}, p={spec.knee[2]})",
-        color=viz.HI, fontsize=viz.SUPTITLE_FS, pad=viz.SUPTITLE_PAD,
-    )
-
-    path = _save(ctx, fig, "output_gamut_compression_preview")
-
-    return Result(
-        name="output_gamut_compression_preview",
-        summary={
-            "mode": spec.mode,
-            "algorithm": spec.algorithm,
-            "knee_threshold": float(spec.knee[0]),
-            "knee_limit": float(spec.knee[1]),
-            "knee_power": float(spec.knee[2]),
-            "output_color_space": out_cs_name,
-            "oog_fraction": oog_fraction,
-            "n_oog_samples": int(oog_mask.sum()),
-            "max_displacement": float(disp[oog_mask].max()) if oog_mask.any() else 0.0,
-            "mean_displacement": float(disp[oog_mask].mean()) if oog_mask.any() else 0.0,
-        },
-        figure_path=path,
-        units="",
-        interpretation=(
-            "The simulation reaches chromaticities outside the output "
-            "color space's gamut whenever the input is wide-gamut "
-            "(V-Log → sRGB, AP0 → Rec.2020, etc.). This figure shows "
-            "the *unbounded* reach (rainbow rim, vivid) and where the "
-            "output compression maps it (inner rim, faded). "
-            "Default algorithm is OkLch chroma reduction (perceptual "
-            "hue + lightness preserved); ACES RGC per-channel is "
-            "available as opt-in for cinema-pipeline compatibility. "
-            "Informational only — no pass/fail."
-        ),
-        passed=None,
-    )
-
-
 # ---------------------------------------------------------------------------
 # Gamut edge stress + R-G plane slices — picture-style diagnostics.
 # ---------------------------------------------------------------------------
@@ -1766,9 +1519,12 @@ def _build_gamut_edge_stress_panel(
 
     Output goes through the runtime's output gamut compression (toward
     the bundle's output primaries, baked into the pipeline). The
-    result is then CAT'd to sRGB linear and OkLch-chroma-reduced
-    toward sRGB for display, so wider-output bundles still render
-    smoothly here.
+    result is then CAT'd to sRGB linear and hard-clipped to ``[0, 1]``
+    for display — the runtime's output gamut compression is expected
+    to have already pulled values inside the cube, so the clip should
+    be near-identity in well-behaved bundles. Any visible clip cliff
+    here is a bake-time disclosure that the bundle's compression
+    didn't fully contain the simulation's reach for this target.
 
     The ``oog_fraction_*`` stats report how many pixels of the
     target-space gradient lie outside the bundle's input-primaries
@@ -1779,7 +1535,6 @@ def _build_gamut_edge_stress_panel(
     from spektrafilm_lut_creator.color_spaces import (
         decode_cctf, get as get_cs,
     )
-    from spektrafilm.utils.gamut_compression import compress_rgb_oklch_chroma
 
     W, H = width, height
 
@@ -1845,10 +1600,14 @@ def _build_gamut_edge_stress_panel(
     ).reshape(H, W, 3)
 
     # Display conversion: CAT from bundle output primaries to sRGB
-    # linear, OkLch chroma reduction toward sRGB (preserves perceptual
-    # hue + lightness when the output color space is wider than sRGB),
-    # then sRGB-encode. For sRGB-output bundles the OkLch step is
-    # effectively identity.
+    # linear, then a hard clip to [0, 1] before sRGB-encoding. This
+    # step used to be an OkLch chroma reduction toward sRGB, but OkLab's
+    # well-known blue hue rotation produced a visible cyan↔magenta seam
+    # at the deep-blue corner — visible in the saturated row of the
+    # strip. A hard clip keeps the test "honest about" what the bundle
+    # actually delivers: any value the runtime's output gamut
+    # compression didn't already pull inside [0, 1]³ now clips at the
+    # cube boundary, exactly as a downstream consumer would see it.
     srgb_linear = np.asarray(
         colour.RGB_to_RGB(
             image_out_linear,
@@ -1856,10 +1615,6 @@ def _build_gamut_edge_stress_panel(
             "sRGB",
             chromatic_adaptation_transform="CAT02",
         ), dtype=float,
-    )
-    srgb_linear = compress_rgb_oklch_chroma(
-        srgb_linear, output_color_space="sRGB",
-        threshold=0.815, limit=1.0, power=1.2,
     )
     srgb_encoded = np.asarray(
         colour.cctf_encoding(np.clip(srgb_linear, 0.0, 1.0), function="sRGB"),
@@ -1875,7 +1630,7 @@ def _build_gamut_edge_stress_panel(
     return srgb_encoded, stats
 
 
-def gamut_edge_stress(ctx: "QAContext") -> Result:
+def output_gamut_edge_stress(ctx: "QAContext") -> Result:
     """Granger-style RGB stress chart at the edges of three target
     color spaces, rendered through the actual runtime pipeline.
 
@@ -1950,10 +1705,10 @@ def gamut_edge_stress(ctx: "QAContext") -> Result:
         summary[f"{cs}_oog_fraction_saturated_row"] = stats["oog_fraction_saturated_row"]
 
     fig = viz.gamut_edge_stress(panels, in_cs=in_cs, out_cs=out_cs)
-    path = _save(ctx, fig, "gamut_edge_stress")
+    path = _save(ctx, fig, "output_gamut_edge_stress")
 
     return Result(
-        name="gamut_edge_stress",
+        name="output_gamut_edge_stress",
         summary=summary,
         figure_path=path,
         units="",
@@ -1966,7 +1721,9 @@ def gamut_edge_stress(ctx: "QAContext") -> Result:
             "pipeline, which handles chromaticities outside the "
             "bundle's input cube via spectral upsampling + input "
             "gamut compression toward the visible locus. Output is "
-            "rendered to sRGB for viewing via OkLch chroma reduction. "
+            "rendered to sRGB for viewing via CAT + a hard clip to "
+            "[0, 1] (the runtime's own output gamut compression is "
+            "expected to have already done the cube containment). "
             "The gradient should be continuous and smooth from top to "
             "bottom; visible bands, hue jumps, or posterization "
             "reveal model-side pathology at saturated input. "
@@ -2021,7 +1778,7 @@ DEFAULT_TESTS = (
     monotonicity,
     jacobian_condition,
     total_variation,
-    gamut_self_intersection,
+    output_gamut_compression,
     characteristic_curve,
     dynamic_range_usage,
     planckian_sweep,
@@ -2029,7 +1786,6 @@ DEFAULT_TESTS = (
     spectral_locus_envelope,
     input_gamut_compression_preview,
     input_gamut_compression_smoothness,
-    output_gamut_compression_preview,
-    gamut_edge_stress,
+    output_gamut_edge_stress,
     rg_plane_slices,
 )

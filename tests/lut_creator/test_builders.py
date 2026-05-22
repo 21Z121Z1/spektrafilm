@@ -31,7 +31,7 @@ from spektrafilm_lut_creator.grid import cube_grid, grid_as_image
 _RESOLUTION = 5  # small enough to run quickly, large enough to exercise the cube layout
 _INPUT_CS = "ACEScg"  # linear, scene-referred
 _OUTPUT_CS = "sRGB"   # encoded SDR
-_LUT_LICENSE_PATH = Path(__file__).resolve().parents[2] / "LICENSE_SPEKTRAFILM_LUT"
+_LUT_LICENSE_PATH = Path(__file__).resolve().parents[2] / "SPEKTRAFILM_LICENSE.txt"
 
 
 @pytest.fixture(scope="module")
@@ -392,7 +392,7 @@ class TestBundleContainer:
         assert "bundle/" in members
         assert "bundle/bundle.json" in members
         assert "bundle/README.md" in members
-        assert "bundle/LICENSE_SPEKTRAFILM_LUT" in members
+        assert "bundle/SPEKTRAFILM_LICENSE.txt" in members
         assert f"bundle/{rel_path}" in members
 
 
@@ -415,9 +415,22 @@ class TestBundleWrite:
         assert "kodak_portra_endura" in text
         assert "bundle.json" in text
 
+    def test_readme_includes_what_this_is_and_isnt_framing(self, builder, built, tmp_path):
+        """n090 §5.1 — the bundle README must lead with the
+        'what this is / what this isn't' framing so a colorist scanning
+        the first screen reads 'calibrated technical transform', not
+        'another LUT pack'."""
+        out_dir = builder.write(built, tmp_path / "framing")
+        text = (out_dir / "README.md").read_text(encoding="utf-8")
+        assert "## What this is" in text
+        assert "## What this is not" in text
+        assert "stylistic look-up grade" in text
+        # The 'what this is' section must precede 'Quick info'.
+        assert text.index("## What this is") < text.index("## Quick info")
+
     def test_write_copies_lut_license(self, builder, built, tmp_path):
         out_dir = builder.write(built, tmp_path / "bundle_license")
-        copied = out_dir / "LICENSE_SPEKTRAFILM_LUT"
+        copied = out_dir / "SPEKTRAFILM_LICENSE.txt"
         assert copied.exists()
         assert copied.read_text(encoding="utf-8") == _LUT_LICENSE_PATH.read_text(encoding="utf-8")
 
@@ -455,7 +468,8 @@ class TestProvenance:
         assert prov.lut_creator_version
         assert prov.created  # ISO 8601
         assert "spektrafilm" in prov.copyright
-        assert "GPL" in prov.license
+        assert "No Resale" in prov.license
+        assert "may not sell or resell" in prov.license
         assert "github.com/andreavolpato/spektrafilm" in prov.license
         assert "spektrafilm" in prov.citation
         assert "CITATION.cff" in prov.citation
@@ -480,7 +494,7 @@ class TestProvenance:
         # The comment block must carry the essentials.
         assert "spektrafilm LUT" in head_blob
         assert built.meta.name in head_blob
-        assert "GPL" in head_blob
+        assert "No Resale" in head_blob
         assert "github.com/andreavolpato/spektrafilm" in head_blob
         assert "CITATION.cff" in head_blob
         # Every comment-block line starts with '#'.

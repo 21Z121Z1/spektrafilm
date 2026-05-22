@@ -411,16 +411,60 @@ def _bundle_output_paths(out_path: Path, container: str) -> tuple[Path, Path | N
     return out_path, out_path.with_suffix(".zip")
 
 
-def _bundle_readme_text(meta: BundleMeta) -> str:
-    """Render a quick-start README for the bundle root."""
+def _bundle_readme_text(
+    meta: BundleMeta,
+    *,
+    qa_results: dict[str, list] | None = None,
+) -> str:
+    """Render a quick-start README for the bundle root.
+
+    ``qa_results`` is the optional ``{paper: [Result, ...]}`` mapping
+    produced by :meth:`BundleBuilder._run_qa`. When present, a
+    "## Quality" pass/fail badge block is rendered near the top of
+    the README (n090 §6.1).
+    """
     prov = meta.provenance
     input_cs = meta.color_spaces.get("input")
     output_cs = meta.color_spaces.get("output")
+    film_label = meta.stocks.film if meta.stocks is not None else "the film"
+    if meta.stocks is not None and meta.stocks.prints:
+        paper_label = (
+            meta.stocks.prints[0]
+            if len(meta.stocks.prints) == 1
+            else f"{len(meta.stocks.prints)} print papers"
+        )
+    else:
+        paper_label = "a print paper"
     lines = [
         "# spektrafilm LUT bundle",
         "",
         "This folder contains exported LUT files plus the machine-readable metadata and license for this bundle.",
         "",
+        "## What this is",
+        "",
+        (
+            f"A physically based simulation of {film_label} on "
+            f"{paper_label}, calibrated against published spectral dye "
+            "response and characteristic curves. The cube is the "
+            "*neutral developed and printed* render — the technical "
+            "transform a perfectly exposed negative would walk through "
+            "to land on paper."
+        ),
+        "",
+        "## What this is not",
+        "",
+        (
+            "This is **not** a stylistic look-up grade. There is no "
+            "creative color decision baked in beyond the film's own "
+            "physics — no extra contrast, no shifted hue, no taste "
+            "layer. Aesthetic grading happens *before* (input side) or "
+            "*after* (output side) this LUT, not inside it."
+        ),
+        "",
+    ]
+    if qa_results:
+        lines.extend(_quality_readme_section(qa_results))
+    lines.extend([
         "## Quick info",
         f"- Name: {meta.name}",
         f"- Topology: {meta.topology}",
@@ -428,7 +472,7 @@ def _bundle_readme_text(meta: BundleMeta) -> str:
         f"- Delivery target: {meta.target or 'generic Adobe .cube'}",
         f"- Created: {prov.created}",
         f"- spektrafilm version: {prov.spektrafilm_version}",
-    ]
+    ])
     if meta.stocks is not None:
         lines.append(f"- Film stock: {meta.stocks.film}")
         if meta.stocks.prints:
@@ -602,6 +646,38 @@ def _bundle_readme_text(meta: BundleMeta) -> str:
         "- See bundle.json for the complete structured metadata.",
     ])
     return "\n".join(lines) + "\n"
+
+
+def _quality_readme_section(qa_results: dict[str, list]) -> list[str]:
+    """Render the README's "## Quality" pass/fail badge block (n090 §6.1).
+
+    Produces one row per QA test, surfacing the test's pass/fail/info
+    status and its headline ``short_summary()``. For multi-paper
+    bundles every paper gets its own subsection so the colorist can
+    audit each chain independently.
+    """
+    badges = {"PASS": "✓ PASS", "FAIL": "✗ FAIL", "INFO": "· INFO"}
+    lines = ["## Quality", ""]
+    multi_paper = len(qa_results) > 1
+    for paper, results in qa_results.items():
+        if multi_paper:
+            lines.extend([f"### {paper}", ""])
+        n_pass = sum(1 for r in results if r.passed is True)
+        n_fail = sum(1 for r in results if r.passed is False)
+        n_info = sum(1 for r in results if r.passed is None)
+        lines.extend([
+            f"{n_pass} pass · {n_fail} fail · {n_info} info "
+            f"— full report at `qa/<paper-folder>/report.md`.",
+            "",
+            "| Test | Status | Headline |",
+            "|------|--------|----------|",
+        ])
+        for r in results:
+            lines.append(
+                f"| `{r.name}` | {badges[r.status()]} | {r.short_summary()} |"
+            )
+        lines.append("")
+    return lines
 
 
 def _combinations_readme_section(
@@ -1402,7 +1478,9 @@ class BundleBuilder:
         (bundle_root / "config.ocio").write_text(yaml_text, encoding="utf-8")
         return True
 
-    def _run_qa(self, bundle: Bundle, bundle_root: Path) -> None:
+    def _run_qa(
+        self, bundle: Bundle, bundle_root: Path,
+    ) -> dict[str, list]:
         """Run the QA suite for the spec's selected paper(s).
 
         Reports land at ``<bundle_root>/qa/<per-paper-bundle-name>/``;
@@ -1411,6 +1489,10 @@ class BundleBuilder:
         ``cache/`` subdirectory is removed — the reference samples are
         cheap to recompute when needed and don't belong in a shipped
         bundle.
+
+        Returns a ``{paper: [Result, ...]}`` mapping so callers can
+        surface the QA outcomes elsewhere (e.g. the bundle README's
+        "## Quality" pass/fail block, n090 §6.1).
         """
         # Lazy import: qa.suite imports bundles/builders symbols transitively,
         # so eager-importing here would risk a cycle on cold module load.
@@ -1426,21 +1508,21 @@ class BundleBuilder:
         qa_root = bundle_root / "qa"
         qa_root.mkdir(parents=True, exist_ok=True)
 
+        results_by_paper: dict[str, list] = {}
         for idx in paper_indices:
             paper = spec.print_profiles[idx]
             report_name = per_paper_qa_folder_name(
                 film_profile=spec.film_profile,
                 print_profile=paper,
-                input_color_space=spec.input_color_space,
-                output_color_space=spec.output_color_space,
             )
             report_dir = qa_root / report_name
-            run_qa(spec, bundle, report_dir, paper_index=idx)
+            results_by_paper[paper] = run_qa(spec, bundle, report_dir, paper_index=idx)
             # The QA reference cache is regenerable scratch work — strip
             # it before the bundle is potentially zipped or shipped.
             cache_dir = report_dir / "cache"
             if cache_dir.exists():
                 shutil.rmtree(cache_dir)
+        return results_by_paper
 
     def write(self, bundle: Bundle, out_dir: Path | None = None) -> Path:
         """Write a built bundle to ``out_dir`` and return the output path.
@@ -1448,7 +1530,7 @@ class BundleBuilder:
         Writes one cube per ``(film, print)`` combination using the
         canonical filename (``lut_<version>_<film>_<print>.cube``) plus
         a ``bundle.json`` side-car, a quick-start ``README.md``, and a
-        copy of ``LICENSE_SPEKTRAFILM_LUT`` in the bundle root.
+        copy of ``SPEKTRAFILM_LICENSE.txt`` in the bundle root.
 
         When ``out_dir`` is ``None``, the bundle lands at
         ``cwd/build/lut_bundles/<spec.name>/`` — drop-in usable for a
@@ -1514,7 +1596,15 @@ class BundleBuilder:
         extras = ", config.ocio" if emitted_ocio else ""
         print(f"[bake] wrote {n_cubes} {cube_word} + bundle.json, README.md, LICENSE{extras}")
         if self.spec.qa:
-            self._run_qa(bundle, out_dir)
+            qa_results = self._run_qa(bundle, out_dir)
+            # Rewrite the README with a Quality pass/fail block now that
+            # we have QA outcomes (n090 §6.1). The original README was
+            # written above so the bundle is well-formed even when QA is
+            # skipped; this overwrite is a refinement, not a fallback.
+            (out_dir / _BUNDLE_README_FILENAME).write_text(
+                _bundle_readme_text(bundle.meta, qa_results=qa_results),
+                encoding="utf-8",
+            )
         if archive_path is not None:
             archive_base = archive_path.with_suffix("")
             shutil.make_archive(
