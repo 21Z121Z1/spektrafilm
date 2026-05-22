@@ -125,7 +125,7 @@ class TestBuildResult:
         assert entry.path == built.luts[0][0]
         assert entry.domain == "input_rgb"
         assert entry.range == "output_rgb"
-        assert entry.paper == "kodak_portra_endura"
+        assert entry.print_profile == "kodak_portra_endura"
 
     def test_lut_is_self_consistent_with_grid_samples(self, built):
         """The LUT table, indexed by the cube_grid sample positions, equals
@@ -208,17 +208,17 @@ class TestBuildEndToEndAgreesWithPipeline:
         np.testing.assert_allclose(baked, live_clipped, atol=1e-6)
 
 
-class TestMultiPaperOneLut:
+class TestMultiPrintOneLut:
     """A 1lut bundle with N>1 print profiles produces N cubes — one per
     (film, print) combination — packed into a single bundle directory.
     The film LUT is the same content for each, but bundled metadata
-    records which paper each cube was baked against.
+    records which print each cube was baked against.
     """
 
     @pytest.fixture(scope="class")
-    def multi_paper_bundle(self):
+    def multi_print_bundle(self):
         spec = BundleSpec(
-            name="portra400_two_papers",
+            name="portra400_two_prints",
             film_profile="kodak_portra_400",
             print_profiles=("kodak_portra_endura", "fujifilm_crystal_archive_typeii"),
             input_color_space="ACEScg",
@@ -228,10 +228,10 @@ class TestMultiPaperOneLut:
         )
         return BundleBuilder(spec).build()
 
-    def test_one_lut_per_paper(self, multi_paper_bundle):
-        assert len(multi_paper_bundle.luts) == 2
-        rel_paths = [rel for rel, _ in multi_paper_bundle.luts]
-        # Canonical filenames include the normalized paper tag (kodak_portra_endura
+    def test_one_lut_per_print(self, multi_print_bundle):
+        assert len(multi_print_bundle.luts) == 2
+        rel_paths = [rel for rel, _ in multi_print_bundle.luts]
+        # Canonical filenames include the normalized print tag (kodak_portra_endura
         # -> portraendura; fujifilm_crystal_archive_typeii -> crystalarchive).
         assert any("portraendura" in r for r in rel_paths)
         assert any("crystalarchive" in r for r in rel_paths)
@@ -240,11 +240,11 @@ class TestMultiPaperOneLut:
             assert r.endswith(".cube")
             assert not r.endswith("_spektrafilm.cube")
 
-    def test_metadata_records_paper_per_lut(self, multi_paper_bundle):
-        meta_luts = multi_paper_bundle.meta.luts
+    def test_metadata_records_print_per_lut(self, multi_print_bundle):
+        meta_luts = multi_print_bundle.meta.luts
         assert len(meta_luts) == 2
-        papers = sorted(entry.paper for entry in meta_luts)
-        assert papers == ["fujifilm_crystal_archive_typeii", "kodak_portra_endura"]
+        prints = sorted(entry.print_profile for entry in meta_luts)
+        assert prints == ["fujifilm_crystal_archive_typeii", "kodak_portra_endura"]
         # All entries share the same role / domain / range — they're each
         # full 1lut bakes.
         for entry in meta_luts:
@@ -252,13 +252,13 @@ class TestMultiPaperOneLut:
             assert entry.domain == "input_rgb"
             assert entry.range == "output_rgb"
 
-    def test_stocks_metadata_lists_all_papers(self, multi_paper_bundle):
-        stocks = multi_paper_bundle.meta.stocks
+    def test_stocks_metadata_lists_all_prints(self, multi_print_bundle):
+        stocks = multi_print_bundle.meta.stocks
         assert stocks.film == "kodak_portra_400"
         assert stocks.prints == ("kodak_portra_endura", "fujifilm_crystal_archive_typeii")
 
-    def test_lut_titles_disambiguate(self, multi_paper_bundle):
-        titles = sorted(lut.title for _, lut in multi_paper_bundle.luts)
+    def test_lut_titles_disambiguate(self, multi_print_bundle):
+        titles = sorted(lut.title for _, lut in multi_print_bundle.luts)
         # Canonical title pattern: v<version>_<film>_<print>; film_tag is
         # portra400, print_tags are portraendura / crystalarchive.
         assert len(titles) == 2
@@ -267,15 +267,15 @@ class TestMultiPaperOneLut:
             assert title.startswith("v")
             assert "portra400" in title
 
-    def test_papers_produce_distinct_output(self, multi_paper_bundle):
-        """Two different print papers must produce numerically distinct
+    def test_prints_produce_distinct_output(self, multi_print_bundle):
+        """Two different print prints must produce numerically distinct
         cube tables. If they don't, the build is silently using the same
-        pipeline for both papers."""
-        table_a = multi_paper_bundle.luts[0][1].table
-        table_b = multi_paper_bundle.luts[1][1].table
+        pipeline for both prints."""
+        table_a = multi_print_bundle.luts[0][1].table
+        table_b = multi_print_bundle.luts[1][1].table
         assert not np.array_equal(table_a, table_b)
 
-    def test_write_emits_one_cube_per_paper(self, tmp_path):
+    def test_write_emits_one_cube_per_print(self, tmp_path):
         spec = BundleSpec(
             name="multi_write",
             film_profile="kodak_portra_400",
@@ -519,15 +519,15 @@ class TestProvenance:
 class TestDefaultBundleName:
     """``BundleSpec.name`` defaults to a canonical pattern when left empty:
 
-    ``spektrafilm_<version>_<film>_<paper>_<topology>_<in_cs>_<out_cs>``
+    ``spektrafilm_<version>_<film>_<print>_<topology>_<in_cs>_<out_cs>``
 
-    For single-paper bundles ``<paper>`` is the normalized paper stock tag.
-    For multi-paper bundles it becomes ``<N>paperpack`` so the count stays
+    For single-print bundles ``<print>`` is the normalized print stock tag.
+    For multi-print bundles it becomes ``<N>printpack`` so the count stays
     visible in the filename without misleadingly naming the pack after one
-    of its papers.
+    of its prints.
     """
 
-    def test_single_paper_1lut(self):
+    def test_single_print_1lut(self):
         spec = BundleSpec(
             film_profile="kodak_portra_400",
             print_profiles=("kodak_portra_endura",),
@@ -544,7 +544,7 @@ class TestDefaultBundleName:
         assert "_acescg_" in spec.name
         assert spec.name.endswith("_srgb")
 
-    def test_single_paper_2lut_vlog_rec2020(self):
+    def test_single_print_2lut_vlog_rec2020(self):
         spec = BundleSpec(
             film_profile="kodak_portra_400",
             print_profiles=("kodak_portra_endura",),
@@ -559,7 +559,7 @@ class TestDefaultBundleName:
         assert "_vlog_" in spec.name
         assert spec.name.endswith("_rec2020")
 
-    def test_single_paper_4lut(self):
+    def test_single_print_4lut(self):
         spec = BundleSpec(
             film_profile="kodak_portra_400",
             print_profiles=("kodak_portra_endura",),
@@ -572,7 +572,7 @@ class TestDefaultBundleName:
         assert "_portra400_" in spec.name
         assert "_portraendura_" in spec.name
 
-    def test_two_paper_bundle_uses_paperpack_token(self):
+    def test_two_print_bundle_uses_printpack_token(self):
         spec = BundleSpec(
             film_profile="kodak_portra_400",
             print_profiles=("kodak_portra_endura", "fujifilm_crystal_archive_typeii"),
@@ -581,17 +581,17 @@ class TestDefaultBundleName:
             topology="1lut",
             resolution=5,
         )
-        # No specific paper tag; pack-count placeholder instead.
+        # No specific print tag; pack-count placeholder instead.
         assert "_portraendura" not in spec.name
         assert "_crystalarchive" not in spec.name
-        assert "_2paperpack_" in spec.name
+        assert "_2printpack_" in spec.name
         # Film, topology, color spaces survive unchanged.
         assert "_portra400_" in spec.name
         assert "_1lut_" in spec.name
         assert "_acescg_" in spec.name
         assert spec.name.endswith("_srgb")
 
-    def test_three_paper_bundle_uses_3paperpack_token(self):
+    def test_three_print_bundle_uses_3printpack_token(self):
         spec = BundleSpec(
             film_profile="kodak_portra_400",
             print_profiles=(
@@ -604,7 +604,7 @@ class TestDefaultBundleName:
             topology="2lut",
             resolution=5,
         )
-        assert "_3paperpack_" in spec.name
+        assert "_3printpack_" in spec.name
         assert "_2lut_" in spec.name
 
     def test_explicit_name_overrides_default(self):
@@ -638,7 +638,7 @@ class TestDefaultBundleName:
 
 class TestTwoLutBundle:
     """A ``2lut`` bundle splits the chain at the ``cmy_film``
-    tap: one shared film LUT (L1∘L2) plus one print LUT per paper
+    tap: one shared film LUT (L1∘L2) plus one print LUT per print
     (L3∘L4). The shared film LUT's output is *normalized* cmy_film
     density, recorded in ``bundle.meta.wires.cmy_film`` so the print
     LUT can interpret its input. See n010 §3 / n030 §3 for the wire
@@ -646,14 +646,14 @@ class TestTwoLutBundle:
     """
 
     _TWO_LUT_RES = 5
-    _TWO_LUT_PAPERS = ("kodak_portra_endura", "fujifilm_crystal_archive_typeii")
+    _TWO_LUT_PRINTS = ("kodak_portra_endura", "fujifilm_crystal_archive_typeii")
 
     @pytest.fixture(scope="class")
     def two_lut_spec(self) -> BundleSpec:
         return BundleSpec(
             name="portra400_two_lut",
             film_profile="kodak_portra_400",
-            print_profiles=self._TWO_LUT_PAPERS,
+            print_profiles=self._TWO_LUT_PRINTS,
             input_color_space=_INPUT_CS,
             output_color_space=_OUTPUT_CS,
             topology="2lut",
@@ -666,9 +666,9 @@ class TestTwoLutBundle:
 
     # ---- structure ------------------------------------------------------
 
-    def test_bundle_has_one_film_lut_plus_one_per_paper(self, two_lut_bundle):
-        # 1 film LUT + len(papers) print LUTs.
-        assert len(two_lut_bundle.luts) == 1 + len(self._TWO_LUT_PAPERS)
+    def test_bundle_has_one_film_lut_plus_one_per_print(self, two_lut_bundle):
+        # 1 film LUT + len(prints) print LUTs.
+        assert len(two_lut_bundle.luts) == 1 + len(self._TWO_LUT_PRINTS)
 
     def test_first_lut_is_the_shared_film_lut(self, two_lut_bundle):
         rel, lut = two_lut_bundle.luts[0]
@@ -681,18 +681,18 @@ class TestTwoLutBundle:
                                    self._TWO_LUT_RES, 3)
         assert lut.table.min() >= 0.0 and lut.table.max() <= 1.0
 
-    def test_remaining_luts_are_per_paper_prints(self, two_lut_bundle):
+    def test_remaining_luts_are_per_print_prints(self, two_lut_bundle):
         # First entry is the film LUT; rest are print LUTs.
-        for (rel, lut), paper in zip(two_lut_bundle.luts[1:], self._TWO_LUT_PAPERS):
+        for (rel, lut), print in zip(two_lut_bundle.luts[1:], self._TWO_LUT_PRINTS):
             assert rel.endswith("_print.cube")
             assert "portra400" in rel
-            # The paper's normalized stock tag appears in the filename.
+            # The print's normalized stock tag appears in the filename.
             # kodak_portra_endura -> portraendura;
             # fujifilm_crystal_archive_typeii -> crystalarchive
-            paper_tag = paper.split("_", 1)[1].replace("_", "")
+            print_tag = print.split("_", 1)[1].replace("_", "")
             # Loose check: at least the leading word of the normalized
             # stock matches.
-            assert any(token in rel for token in paper_tag.split()) or True
+            assert any(token in rel for token in print_tag.split()) or True
             assert lut.title.endswith("_print")
             assert lut.table.shape == (self._TWO_LUT_RES, self._TWO_LUT_RES,
                                        self._TWO_LUT_RES, 3)
@@ -705,17 +705,17 @@ class TestTwoLutBundle:
 
     def test_metadata_lut_roles(self, two_lut_bundle):
         roles = [e.role for e in two_lut_bundle.meta.luts]
-        assert roles == ["film"] + ["print"] * len(self._TWO_LUT_PAPERS)
+        assert roles == ["film"] + ["print"] * len(self._TWO_LUT_PRINTS)
 
     def test_metadata_lut_domain_range(self, two_lut_bundle):
         film_entry, *print_entries = two_lut_bundle.meta.luts
         assert film_entry.domain == "input_rgb"
         assert film_entry.range == "cmy_film"
-        assert film_entry.paper is None
+        assert film_entry.print_profile is None
         for entry in print_entries:
             assert entry.domain == "cmy_film"
             assert entry.range == "output_rgb"
-            assert entry.paper in self._TWO_LUT_PAPERS
+            assert entry.print_profile in self._TWO_LUT_PRINTS
 
     def test_density_wire_recorded(self, two_lut_bundle):
         wires = two_lut_bundle.meta.wires
@@ -743,7 +743,7 @@ class TestTwoLutBundle:
 
     # ---- behavior -------------------------------------------------------
 
-    def test_film_lut_shared_across_papers(self, two_lut_spec):
+    def test_film_lut_shared_across_prints(self, two_lut_spec):
         """The film LUT is recomputed deterministically for each
         bundle; with the same spec we should get bit-identical film
         tables in two builds."""
@@ -753,8 +753,8 @@ class TestTwoLutBundle:
         film_b = b2.luts[0][1].table
         np.testing.assert_array_equal(film_a, film_b)
 
-    def test_papers_produce_distinct_print_luts(self, two_lut_bundle):
-        # Print LUTs for different papers must differ.
+    def test_prints_produce_distinct_print_luts(self, two_lut_bundle):
+        # Print LUTs for different prints must differ.
         table_a = two_lut_bundle.luts[1][1].table
         table_b = two_lut_bundle.luts[2][1].table
         assert not np.array_equal(table_a, table_b)
@@ -771,10 +771,10 @@ class TestTwoLutBundle:
 
         in_entry = get_cs(_INPUT_CS)
         out_entry = get_cs(_OUTPUT_CS)
-        # Use the first paper — cmy_film tap is print-independent.
+        # Use the first print — cmy_film tap is print-independent.
         params = init_params(
             film_profile="kodak_portra_400",
-            print_profile=self._TWO_LUT_PAPERS[0],
+            print_profile=self._TWO_LUT_PRINTS[0],
         )
         params.debug.lut_mode = True
         params.io.input_primaries = in_entry.primaries
@@ -816,13 +816,13 @@ class TestTwoLutBundle:
         from spektrafilm_lut_creator.color_spaces import get as get_cs
         from spektrafilm_lut_creator.qa.evaluators import apply_trilinear
 
-        # Use the first paper for both bundle and live pipeline.
-        first_paper = self._TWO_LUT_PAPERS[0]
+        # Use the first print for both bundle and live pipeline.
+        first_print = self._TWO_LUT_PRINTS[0]
         in_entry = get_cs(_INPUT_CS)
         out_entry = get_cs(_OUTPUT_CS)
         params = init_params(
             film_profile="kodak_portra_400",
-            print_profile=first_paper,
+            print_profile=first_print,
         )
         params.debug.lut_mode = True
         params.io.input_primaries = in_entry.primaries
@@ -852,7 +852,7 @@ class TestTwoLutBundle:
 
         # Chain through the two baked LUTs (trilinear in both halves).
         film_lut = two_lut_bundle.luts[0][1]
-        # Print LUT for the first paper is at index 1.
+        # Print LUT for the first print is at index 1.
         print_lut = two_lut_bundle.luts[1][1]
         cmy_codes = apply_trilinear(film_lut.table, samples_encoded)
         chain_rgb_encoded = apply_trilinear(print_lut.table, cmy_codes)
@@ -880,7 +880,7 @@ class TestTwoLutBundle:
         film_cubes = [c for c in cubes if c.endswith("_film.cube")]
         print_cubes = [c for c in cubes if c.endswith("_print.cube")]
         assert len(film_cubes) == 1
-        assert len(print_cubes) == len(self._TWO_LUT_PAPERS)
+        assert len(print_cubes) == len(self._TWO_LUT_PRINTS)
 
     def test_bundle_json_includes_density_wire(self, two_lut_spec, tmp_path):
         bundle = BundleBuilder(two_lut_spec).build()
@@ -940,31 +940,31 @@ class TestTwoLutBundle:
 
 
 # ---------------------------------------------------------------------------
-# 3-LUT bundles (L1 + L2 shared + per-paper combined back-half)
+# 3-LUT bundles (L1 + L2 shared + per-print combined back-half)
 # ---------------------------------------------------------------------------
 
 
 class TestThreeLutBundle:
     """A ``3lut`` bundle splits the chain at the ``log_e_film`` and
     ``cmy_film`` taps but collapses everything after ``cmy_film`` into
-    a single per-paper back-half cube. L1 + L2 are paper-independent
-    (filming stages); L3 is paper-specific and contains
+    a single per-print back-half cube. L1 + L2 are print-independent
+    (filming stages); L3 is print-specific and contains
     ``printing.expose + printing.develop + scanning.scan``.
 
-    Total cubes for an N-paper bundle: ``2 + N`` — one fewer per paper
+    Total cubes for an N-print bundle: ``2 + N`` — one fewer per print
     than 4-LUT, at the cost of losing the ``log_e_print`` tap for
     enlarger-stage effect injection.
     """
 
     _THREE_LUT_RES = 5
-    _THREE_LUT_PAPERS = ("kodak_portra_endura", "fujifilm_crystal_archive_typeii")
+    _THREE_LUT_PRINTS = ("kodak_portra_endura", "fujifilm_crystal_archive_typeii")
 
     @pytest.fixture(scope="class")
     def three_lut_spec(self) -> BundleSpec:
         return BundleSpec(
             name="portra400_three_lut",
             film_profile="kodak_portra_400",
-            print_profiles=self._THREE_LUT_PAPERS,
+            print_profiles=self._THREE_LUT_PRINTS,
             input_color_space=_INPUT_CS,
             output_color_space=_OUTPUT_CS,
             topology="3lut",
@@ -977,30 +977,30 @@ class TestThreeLutBundle:
 
     # ---- structure ------------------------------------------------------
 
-    def test_bundle_has_2_shared_plus_n_per_paper(self, three_lut_bundle):
-        expected = 2 + len(self._THREE_LUT_PAPERS)
+    def test_bundle_has_2_shared_plus_n_per_print(self, three_lut_bundle):
+        expected = 2 + len(self._THREE_LUT_PRINTS)
         assert len(three_lut_bundle.luts) == expected
 
     def test_topology_recorded(self, three_lut_bundle):
         assert three_lut_bundle.meta.topology == "3lut"
 
-    def test_roles_are_two_shared_then_paper_specific(self, three_lut_bundle):
+    def test_roles_are_two_shared_then_print_specific(self, three_lut_bundle):
         roles = [lut.role for lut in three_lut_bundle.meta.luts]
         # Layout: filming_expose (L1), filming_develop (L2), then one
-        # printing_combined per paper.
+        # printing_combined per print.
         assert roles[0] == "filming_expose"
         assert roles[1] == "filming_develop"
         for role in roles[2:]:
             assert role == "printing_combined"
 
-    def test_l1_l2_paper_independent(self, three_lut_bundle):
-        """L1 and L2 are paper=None in the metadata; the printing_combined
-        L3 carries the paper name."""
+    def test_l1_l2_print_independent(self, three_lut_bundle):
+        """L1 and L2 are print=None in the metadata; the printing_combined
+        L3 carries the print name."""
         metas = three_lut_bundle.meta.luts
-        assert metas[0].paper is None
-        assert metas[1].paper is None
+        assert metas[0].print_profile is None
+        assert metas[1].print_profile is None
         for meta in metas[2:]:
-            assert meta.paper in self._THREE_LUT_PAPERS
+            assert meta.print_profile in self._THREE_LUT_PRINTS
 
     def test_filenames_use_numbered_convention(self, three_lut_bundle):
         """Numbered (l1/l2/l3) rather than semantic (film/print) — matches
@@ -1071,23 +1071,23 @@ class TestThreeLutBundle:
 class TestFourLutBundle:
     """A ``4lut`` bundle splits the chain at
     three intermediate taps (``log_e_film``, ``cmy_film``,
-    ``log_e_print``). L1 + L2 are paper-independent (filming stages),
-    L3 + L4 are paper-specific (printing + scan).
+    ``log_e_print``). L1 + L2 are print-independent (filming stages),
+    L3 + L4 are print-specific (printing + scan).
 
-    Total cubes for an N-paper bundle: ``2 + 2N``. The
+    Total cubes for an N-print bundle: ``2 + 2N``. The
     ``WiresMeta.log_e_film`` / ``cmy_film`` / ``log_e_print`` fields
     are all populated; ``cmy_print`` stays None (L4 collapses it).
     """
 
     _FOUR_LUT_RES = 5
-    _FOUR_LUT_PAPERS = ("kodak_portra_endura", "fujifilm_crystal_archive_typeii")
+    _FOUR_LUT_PRINTS = ("kodak_portra_endura", "fujifilm_crystal_archive_typeii")
 
     @pytest.fixture(scope="class")
     def four_lut_spec(self) -> BundleSpec:
         return BundleSpec(
             name="portra400_four_lut",
             film_profile="kodak_portra_400",
-            print_profiles=self._FOUR_LUT_PAPERS,
+            print_profiles=self._FOUR_LUT_PRINTS,
             input_color_space=_INPUT_CS,
             output_color_space=_OUTPUT_CS,
             topology="4lut",
@@ -1100,8 +1100,8 @@ class TestFourLutBundle:
 
     # ---- structure ------------------------------------------------------
 
-    def test_bundle_has_2_shared_plus_2_per_paper(self, four_lut_bundle):
-        expected = 2 + 2 * len(self._FOUR_LUT_PAPERS)
+    def test_bundle_has_2_shared_plus_2_per_print(self, four_lut_bundle):
+        expected = 2 + 2 * len(self._FOUR_LUT_PRINTS)
         assert len(four_lut_bundle.luts) == expected
 
     def test_first_two_luts_are_shared_l1_l2(self, four_lut_bundle):
@@ -1110,19 +1110,19 @@ class TestFourLutBundle:
         assert rel0.endswith("_l1.cube")
         assert rel1.endswith("_l2.cube")
         assert "portra400" in rel0 and "portra400" in rel1
-        # No paper name in the shared filenames.
-        for paper in self._FOUR_LUT_PAPERS:
-            paper_tag = paper.split("_", 1)[1].replace("_", "")[:8]
-            assert paper_tag not in rel0
-            assert paper_tag not in rel1
+        # No print name in the shared filenames.
+        for print in self._FOUR_LUT_PRINTS:
+            print_tag = print.split("_", 1)[1].replace("_", "")[:8]
+            assert print_tag not in rel0
+            assert print_tag not in rel1
         # Shape sanity.
         for lut in (lut0, lut1):
             assert lut.table.shape == (self._FOUR_LUT_RES,) * 3 + (3,)
             assert lut.table.min() >= 0.0 and lut.table.max() <= 1.0
 
-    def test_remaining_luts_are_l3_l4_per_paper(self, four_lut_bundle):
-        # After [L1, L2], the luts alternate L3, L4 per paper in spec order.
-        for i, paper in enumerate(self._FOUR_LUT_PAPERS):
+    def test_remaining_luts_are_l3_l4_per_print(self, four_lut_bundle):
+        # After [L1, L2], the luts alternate L3, L4 per print in spec order.
+        for i, print in enumerate(self._FOUR_LUT_PRINTS):
             l3_rel, l3 = four_lut_bundle.luts[2 + 2 * i]
             l4_rel, l4 = four_lut_bundle.luts[3 + 2 * i]
             assert l3_rel.endswith("_l3.cube")
@@ -1139,7 +1139,7 @@ class TestFourLutBundle:
     def test_metadata_lut_roles(self, four_lut_bundle):
         roles = [e.role for e in four_lut_bundle.meta.luts]
         expected = ["filming_expose", "filming_develop"]
-        for _ in self._FOUR_LUT_PAPERS:
+        for _ in self._FOUR_LUT_PRINTS:
             expected.extend(["printing_expose", "printing_develop_scan"])
         assert roles == expected
 
@@ -1147,17 +1147,17 @@ class TestFourLutBundle:
         luts = four_lut_bundle.meta.luts
         # L1, L2 (shared).
         assert luts[0].domain == "input_rgb" and luts[0].range == "log_e_film"
-        assert luts[0].paper is None
+        assert luts[0].print_profile is None
         assert luts[1].domain == "log_e_film" and luts[1].range == "cmy_film"
-        assert luts[1].paper is None
-        # L3, L4 (per paper).
-        for i, paper in enumerate(self._FOUR_LUT_PAPERS):
+        assert luts[1].print_profile is None
+        # L3, L4 (per print).
+        for i, print in enumerate(self._FOUR_LUT_PRINTS):
             l3 = luts[2 + 2 * i]
             l4 = luts[3 + 2 * i]
             assert l3.domain == "cmy_film" and l3.range == "log_e_print"
-            assert l3.paper == paper
+            assert l3.print_profile == print
             assert l4.domain == "log_e_print" and l4.range == "output_rgb"
-            assert l4.paper == paper
+            assert l4.print_profile == print
 
     def test_three_intermediate_wires_populated(self, four_lut_bundle):
         wires = four_lut_bundle.meta.wires
@@ -1205,22 +1205,22 @@ class TestFourLutBundle:
 
     # ---- behavior -------------------------------------------------------
 
-    def test_papers_share_l1_l2_byte_identical(self, four_lut_bundle):
-        """L1 and L2 don't depend on the print paper; the bundle has
-        exactly ONE pair of them shared across every paper."""
+    def test_prints_share_l1_l2_byte_identical(self, four_lut_bundle):
+        """L1 and L2 don't depend on the print print; the bundle has
+        exactly ONE pair of them shared across every print."""
         # We don't compare across bundles here — the assertion is that
         # the bundle's metadata has the L1 / L2 entries marked
-        # paper=None, and the lut list has exactly one of each.
+        # print=None, and the lut list has exactly one of each.
         roles = [e.role for e in four_lut_bundle.meta.luts]
         assert roles.count("filming_expose") == 1
         assert roles.count("filming_develop") == 1
 
-    def test_papers_produce_distinct_l3_l4(self, four_lut_bundle):
-        # Per-paper L3 and L4 must differ between papers.
-        l3_a = four_lut_bundle.luts[2][1].table  # paper 0 L3
-        l3_b = four_lut_bundle.luts[4][1].table  # paper 1 L3
-        l4_a = four_lut_bundle.luts[3][1].table  # paper 0 L4
-        l4_b = four_lut_bundle.luts[5][1].table  # paper 1 L4
+    def test_prints_produce_distinct_l3_l4(self, four_lut_bundle):
+        # Per-print L3 and L4 must differ between prints.
+        l3_a = four_lut_bundle.luts[2][1].table  # print 0 L3
+        l3_b = four_lut_bundle.luts[4][1].table  # print 1 L3
+        l4_a = four_lut_bundle.luts[3][1].table  # print 0 L4
+        l4_b = four_lut_bundle.luts[5][1].table  # print 1 L4
         assert not np.array_equal(l3_a, l3_b)
         assert not np.array_equal(l4_a, l4_b)
 
@@ -1235,10 +1235,10 @@ class TestFourLutBundle:
         from spektrafilm_lut_creator.color_spaces import get as get_cs
         from spektrafilm_lut_creator.qa.evaluators import apply_trilinear
 
-        first_paper = self._FOUR_LUT_PAPERS[0]
+        first_print = self._FOUR_LUT_PRINTS[0]
         in_entry = get_cs(_INPUT_CS)
         out_entry = get_cs(_OUTPUT_CS)
-        params = init_params(film_profile="kodak_portra_400", print_profile=first_paper)
+        params = init_params(film_profile="kodak_portra_400", print_profile=first_print)
         params.debug.lut_mode = True
         params.io.input_primaries = in_entry.primaries
         params.io.output_primaries = out_entry.primaries
@@ -1265,8 +1265,8 @@ class TestFourLutBundle:
         # Chain through all four baked LUTs (trilinear in every stage).
         l1 = four_lut_bundle.luts[0][1]
         l2 = four_lut_bundle.luts[1][1]
-        l3 = four_lut_bundle.luts[2][1]  # paper 0
-        l4 = four_lut_bundle.luts[3][1]  # paper 0
+        l3 = four_lut_bundle.luts[2][1]  # print 0
+        l4 = four_lut_bundle.luts[3][1]  # print 0
         log_e_film_code = apply_trilinear(l1.table, samples_encoded)
         cmy_film_code = apply_trilinear(l2.table, log_e_film_code)
         log_e_print_code = apply_trilinear(l3.table, cmy_film_code)
@@ -1280,7 +1280,7 @@ class TestFourLutBundle:
 
     # ---- on-disk --------------------------------------------------------
 
-    def test_write_emits_2_shared_plus_2_per_paper_cubes(self, four_lut_spec, tmp_path):
+    def test_write_emits_2_shared_plus_2_per_print_cubes(self, four_lut_spec, tmp_path):
         bundle = BundleBuilder(four_lut_spec).build()
         builder = BundleBuilder(four_lut_spec)
         out_dir = builder.write(bundle, tmp_path / "four_lut_out")
@@ -1292,8 +1292,8 @@ class TestFourLutBundle:
         l3_cubes = [c for c in cubes if c.endswith("_l3.cube")]
         l4_cubes = [c for c in cubes if c.endswith("_l4.cube")]
         assert len(l1_cubes) == 1 and len(l2_cubes) == 1
-        assert len(l3_cubes) == len(self._FOUR_LUT_PAPERS)
-        assert len(l4_cubes) == len(self._FOUR_LUT_PAPERS)
+        assert len(l3_cubes) == len(self._FOUR_LUT_PRINTS)
+        assert len(l4_cubes) == len(self._FOUR_LUT_PRINTS)
 
     def test_bundle_json_includes_all_three_wires(self, four_lut_spec, tmp_path):
         bundle = BundleBuilder(four_lut_spec).build()
@@ -1359,7 +1359,7 @@ class TestFourLutBundle:
 
 
 class TestBundleSpecQaFields:
-    """``BundleSpec.qa`` and ``qa_paper_index`` are validated at spec
+    """``BundleSpec.qa`` and ``qa_print_index`` are validated at spec
     construction so a bad index doesn't show up halfway through a build.
     """
 
@@ -1371,29 +1371,29 @@ class TestBundleSpecQaFields:
             output_color_space="sRGB",
         )
         assert spec.qa is False
-        assert spec.qa_paper_index is None
+        assert spec.qa_print_index is None
 
-    def test_qa_paper_index_out_of_range_rejected(self):
-        with pytest.raises(ValueError, match="qa_paper_index"):
+    def test_qa_print_index_out_of_range_rejected(self):
+        with pytest.raises(ValueError, match="qa_print_index"):
             BundleSpec(
                 film_profile="kodak_portra_400",
                 print_profiles=("kodak_portra_endura",),
                 input_color_space="ACEScg",
                 output_color_space="sRGB",
                 qa=True,
-                qa_paper_index=3,
+                qa_print_index=3,
             )
 
-    def test_qa_paper_index_zero_accepted(self):
+    def test_qa_print_index_zero_accepted(self):
         spec = BundleSpec(
             film_profile="kodak_portra_400",
             print_profiles=("kodak_portra_endura",),
             input_color_space="ACEScg",
             output_color_space="sRGB",
             qa=True,
-            qa_paper_index=0,
+            qa_print_index=0,
         )
-        assert spec.qa_paper_index == 0
+        assert spec.qa_print_index == 0
 
 
 class TestBundleSpecStopsAboveGray:
@@ -1468,21 +1468,21 @@ class TestDefaultOutputDirectory:
 
 class TestQaAutoRun:
     """When ``spec.qa=True``, ``write()`` triggers the QA suite for the
-    selected paper(s) and drops reports at ``<bundle>/qa/<per-paper>/``.
+    selected print(s) and drops reports at ``<bundle>/qa/<per-print>/``.
     The cache directory is removed after each run so the bundle stays
     ship-ready.
     """
 
-    def _make_spec(self, *, qa: bool, qa_paper_index=None, papers=None):
+    def _make_spec(self, *, qa: bool, qa_print_index=None, prints=None):
         return BundleSpec(
             film_profile="kodak_portra_400",
-            print_profiles=papers or ("kodak_portra_endura",),
+            print_profiles=prints or ("kodak_portra_endura",),
             input_color_space="ACEScg",
             output_color_space="sRGB",
             topology="2lut",
             resolution=5,
             qa=qa,
-            qa_paper_index=qa_paper_index,
+            qa_print_index=qa_print_index,
         )
 
     def test_qa_false_skips_qa_subdir(self, tmp_path):
@@ -1492,14 +1492,14 @@ class TestQaAutoRun:
         out = builder.write(bundle, tmp_path / "no_qa")
         assert not (out / "qa").exists()
 
-    def test_qa_true_runs_for_each_paper(self, tmp_path):
-        papers = ("kodak_portra_endura", "fujifilm_crystal_archive_typeii")
-        spec = self._make_spec(qa=True, papers=papers)
+    def test_qa_true_runs_for_each_print(self, tmp_path):
+        prints = ("kodak_portra_endura", "fujifilm_crystal_archive_typeii")
+        spec = self._make_spec(qa=True, prints=prints)
         builder = BundleBuilder(spec)
         bundle = builder.build()
         out = builder.write(bundle, tmp_path / "qa_all")
         qa_dir = out / "qa"
-        # One report folder per paper, named with that paper substituted
+        # One report folder per print, named with that print substituted
         # into the bundle's canonical pattern.
         report_names = sorted(p.name for p in qa_dir.iterdir() if p.is_dir())
         assert len(report_names) == 2
@@ -1513,15 +1513,15 @@ class TestQaAutoRun:
                 f"cache should be deleted from {sub} after QA"
             )
 
-    def test_qa_paper_index_selects_one_paper(self, tmp_path):
-        papers = ("kodak_portra_endura", "fujifilm_crystal_archive_typeii")
-        spec = self._make_spec(qa=True, qa_paper_index=1, papers=papers)
+    def test_qa_print_index_selects_one_print(self, tmp_path):
+        prints = ("kodak_portra_endura", "fujifilm_crystal_archive_typeii")
+        spec = self._make_spec(qa=True, qa_print_index=1, prints=prints)
         builder = BundleBuilder(spec)
         bundle = builder.build()
         out = builder.write(bundle, tmp_path / "qa_one")
         qa_dir = out / "qa"
         report_dirs = [p for p in qa_dir.iterdir() if p.is_dir()]
         assert len(report_dirs) == 1
-        # The single report is for the second paper (index 1).
+        # The single report is for the second print (index 1).
         assert "crystalarchive" in report_dirs[0].name
         assert "portraendura" not in report_dirs[0].name

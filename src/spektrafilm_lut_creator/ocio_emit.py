@@ -27,7 +27,7 @@ Display + View emission (M8c) is still future work.
 
 For multi-LUT topologies the emitter also declares the bundle's
 intermediate taps (``cmy_film_<film>``, ``log_e_film_<film>``,
-``log_e_print_<film>_<paper>``) as asymmetric colorspaces. Users can
+``log_e_print_<film>_<print>``) as asymmetric colorspaces. Users can
 transform *into* them (e.g., for grain injection at the cmy_film tap)
 but not out — the .cube files aren't invertible, so the inverse
 direction is undefined. Wire constants (``d_min`` / ``d_max`` for
@@ -195,25 +195,25 @@ def emit_ocio_config(bundle: Bundle, spec: BundleSpec) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _spektrafilm_colorspace_name(film_profile: str, paper: str) -> str:
-    """Canonical name for the per-paper spektrafilm colorspace.
+def _spektrafilm_colorspace_name(film_profile: str, print_profile: str) -> str:
+    """Canonical name for the per-print spektrafilm colorspace.
 
     Mirrors the inline construction in :func:`_spektrafilm_colorspace_yaml`
     so display/view emitters can reference the same colorspace by name.
     """
     from spektrafilm_lut_creator.naming import normalize_stock
-    return f"spektrafilm_{normalize_stock(film_profile)}_{normalize_stock(paper)}"
+    return f"spektrafilm_{normalize_stock(film_profile)}_{normalize_stock(print_profile)}"
 
 
-def _spektrafilm_view_name(film_profile: str, paper: str) -> str:
-    """Human-readable View name for the per-paper spektrafilm View.
+def _spektrafilm_view_name(film_profile: str, print_profile: str) -> str:
+    """Human-readable View name for the per-print spektrafilm View.
 
     The View name is what shows up in a colorist's viewer dropdown,
     so we humanize the stock identifiers (underscores -> spaces, title
     case) and prefix with "Spektrafilm" to disambiguate from native
     Display views like "Raw".
     """
-    return f"Spektrafilm {_humanize_stock(film_profile)} / {_humanize_stock(paper)}"
+    return f"Spektrafilm {_humanize_stock(film_profile)} / {_humanize_stock(print_profile)}"
 
 
 def _humanize_stock(stock: str) -> str:
@@ -233,14 +233,14 @@ def _humanize_stock(stock: str) -> str:
 
 def _header_lines(spec: BundleSpec) -> list[str]:
     major, minor = OCIO_PROFILE_VERSION
-    papers = ", ".join(spec.print_profiles)
+    prints = ", ".join(spec.print_profiles)
     lines = [
         f"ocio_profile_version: {major}.{minor}",
         "",
         f"name: {_yaml_str(spec.name)}",
         "description: |",
         f"  Standalone OCIO 2 config for the {spec.name} bundle.",
-        f"  Spektrafilm: {spec.film_profile} -> {papers}",
+        f"  Spektrafilm: {spec.film_profile} -> {prints}",
         f"  Input: {spec.input_color_space}  Output: {spec.output_color_space}",
         f"  Reference: {REFERENCE_COLORSPACE} (AP0)",
         "  See n120_ocio_config_emission.md in spektrafilm-research for design notes.",
@@ -286,9 +286,9 @@ def _displays_block(spec: BundleSpec) -> list[str]:
     Every config declares one Display named after the bundle's output
     color space. The Display's views depend on topology:
 
-    - **1-LUT bundles** (M8c): one View per paper named
-      ``Spektrafilm <Film> / <Paper>`` whose colorspace is the matching
-      ``spektrafilm_<film>_<paper>`` — colorists pick the look from the
+    - **1-LUT bundles** (M8c): one View per print named
+      ``Spektrafilm <Film> / <Print>`` whose colorspace is the matching
+      ``spektrafilm_<film>_<print>`` — colorists pick the look from the
       viewer's View dropdown. A ``Raw`` view re-uses the bare output
       color space (no look) so the user can compare against the
       uncorrected image without leaving the config.
@@ -301,10 +301,10 @@ def _displays_block(spec: BundleSpec) -> list[str]:
     views: list[tuple[str, str]] = []
 
     if spec.topology == "1lut":
-        for paper in spec.print_profiles:
+        for print_profile in spec.print_profiles:
             views.append((
-                _spektrafilm_view_name(spec.film_profile, paper),
-                _spektrafilm_colorspace_name(spec.film_profile, paper),
+                _spektrafilm_view_name(spec.film_profile, print_profile),
+                _spektrafilm_colorspace_name(spec.film_profile, print_profile),
             ))
     # Raw view is always emitted last — provides the "no look" comparison
     # point for any topology, including 1-LUT.
@@ -333,24 +333,24 @@ def _colorspaces_block(bundle: Bundle, spec: BundleSpec) -> list[str]:
     if spec.output_color_space != REFERENCE_COLORSPACE:
         lines.extend(_output_colorspace_yaml(spec))
 
-    # Intermediates land before the final per-paper spektrafilm
+    # Intermediates land before the final per-print spektrafilm
     # colorspaces so OCIO's reference resolution sees them when the
     # final colorspaces' from_scene_reference chains are evaluated.
     # Deduplicated by name: shared intermediates (cmy_film_<film>,
-    # log_e_film_<film>) appear once even when multiple papers reference
+    # log_e_film_<film>) appear once even when multiple prints reference
     # them.
     emitted: set[str] = set()
-    for paper in spec.print_profiles:
-        for inter in _intermediate_specs(spec, bundle, paper):
+    for print_profile in spec.print_profiles:
+        for inter in _intermediate_specs(spec, bundle, print_profile):
             if inter["name"] in emitted:
                 continue
             lines.extend(_intermediate_colorspace_yaml(spec, inter))
             emitted.add(inter["name"])
 
-    # Final spektrafilm colorspace, one per paper.
-    for paper in spec.print_profiles:
-        chain = _multilut_chain_for_paper(bundle, paper)
-        lines.extend(_spektrafilm_colorspace_yaml(spec, paper, chain))
+    # Final spektrafilm colorspace, one per print.
+    for print_profile in spec.print_profiles:
+        chain = _multilut_chain_for_print(bundle, print_profile)
+        lines.extend(_spektrafilm_colorspace_yaml(spec, print_profile, chain))
     return lines
 
 
@@ -426,37 +426,37 @@ def _output_colorspace_yaml(spec: BundleSpec) -> list[str]:
 
 
 _SHARED_LUT_ROLES = frozenset({"film", "filming_expose", "filming_develop"})
-"""LUT roles that appear once per bundle (shared across all papers)."""
+"""LUT roles that appear once per bundle (shared across all prints)."""
 
-_PER_PAPER_LUT_ROLES = frozenset({
+_PER_PRINT_LUT_ROLES = frozenset({
     "combined", "print",
     "printing_combined", "printing_expose", "printing_develop_scan",
 })
-"""LUT roles that appear once per paper in the bundle."""
+"""LUT roles that appear once per print in the bundle."""
 
 
-def _multilut_chain_for_paper(bundle: Bundle, paper: str) -> list[str]:
+def _multilut_chain_for_print(bundle: Bundle, print_profile: str) -> list[str]:
     """Return the ordered list of .cube relative paths that compose the
-    full input -> output chain for ``paper``.
+    full input -> output chain for ``print_profile``.
 
     Walks ``bundle.meta.luts`` in declaration order. Shared-stage cubes
     (e.g., the film LUT in 2-LUT bundles, L1 and L2 in 4-LUT bundles)
-    come first; paper-specific cubes follow. For 1-LUT this returns a
+    come first; print-specific cubes follow. For 1-LUT this returns a
     single cube; for 4-LUT it returns four.
     """
     chain: list[str] = []
     for lut in bundle.meta.luts:
         if lut.role in _SHARED_LUT_ROLES:
             chain.append(lut.path)
-        elif lut.paper == paper and lut.role in _PER_PAPER_LUT_ROLES:
+        elif lut.print_profile == print_profile and lut.role in _PER_PRINT_LUT_ROLES:
             chain.append(lut.path)
     return chain
 
 
 def _intermediate_specs(
-    spec: BundleSpec, bundle: Bundle, paper: str
+    spec: BundleSpec, bundle: Bundle, print_profile: str
 ) -> list[dict]:
-    """Topology-aware list of intermediate colorspaces to expose for ``paper``.
+    """Topology-aware list of intermediate colorspaces to expose for ``print_profile``.
 
     Each dict has:
       - ``name``: OCIO colorspace name
@@ -467,7 +467,7 @@ def _intermediate_specs(
 
     Returns ``[]`` for 1-LUT (no intermediates exposed). For multi-LUT,
     the returned shared-tap entries (e.g. ``cmy_film_<film>``) carry
-    identical content across papers; the caller deduplicates by name.
+    identical content across prints; the caller deduplicates by name.
     """
     from spektrafilm_lut_creator.naming import normalize_stock
 
@@ -475,9 +475,9 @@ def _intermediate_specs(
         return []
 
     film_tag = normalize_stock(spec.film_profile)
-    paper_tag = normalize_stock(paper)
+    print_tag = normalize_stock(print_profile)
     wires = bundle.meta.wires
-    chain = _multilut_chain_for_paper(bundle, paper)
+    chain = _multilut_chain_for_print(bundle, print_profile)
     intermediates: list[dict] = []
 
     if spec.topology == "2lut":
@@ -523,12 +523,12 @@ def _intermediate_specs(
             "description": _cmy_film_description(wires.cmy_film),
             "chain_relpaths": [chain[0], chain[1]],
         })
-        # log_e_print is per-paper: L3's normalized output depends on
-        # the paper's exposure characteristics. Wire constants are
-        # shared across papers (n090 §7), but the cube data differs.
+        # log_e_print is per-print: L3's normalized output depends on
+        # the print's exposure characteristics. Wire constants are
+        # shared across prints (n090 §7), but the cube data differs.
         intermediates.append({
-            "name": f"log_e_print_{film_tag}_{paper_tag}",
-            "family_suffix": f"{film_tag}/{paper_tag}",
+            "name": f"log_e_print_{film_tag}_{print_tag}",
+            "family_suffix": f"{film_tag}/{print_tag}",
             "encoding": "log",
             "description": _log_e_print_description(wires.log_e_print),
             "chain_relpaths": [chain[0], chain[1], chain[2]],
@@ -571,9 +571,9 @@ def _intermediate_colorspace_yaml(spec: BundleSpec, inter: dict) -> list[str]:
 
 
 def _spektrafilm_colorspace_yaml(
-    spec: BundleSpec, paper: str, chain_relpaths: list[str]
+    spec: BundleSpec, print_profile: str, chain_relpaths: list[str]
 ) -> list[str]:
-    """Emit the final spektrafilm colorspace for a (film, paper) pair.
+    """Emit the final spektrafilm colorspace for a (film, print) pair.
 
     ``chain_relpaths`` is the ordered list of .cube files composing the
     full input -> output transform. Length 1 for 1-LUT bundles; 2 for
@@ -582,8 +582,8 @@ def _spektrafilm_colorspace_yaml(
     from spektrafilm_lut_creator.naming import normalize_stock
 
     film_tag = normalize_stock(spec.film_profile)
-    paper_tag = normalize_stock(paper)
-    cs_name = _spektrafilm_colorspace_name(spec.film_profile, paper)
+    print_tag = normalize_stock(print_profile)
+    cs_name = _spektrafilm_colorspace_name(spec.film_profile, print_profile)
     out_entry = get_color_space(spec.output_color_space)
     encoding = _encoding_for_kind(out_entry.kind)
     n_cubes = len(chain_relpaths)
@@ -594,11 +594,11 @@ def _spektrafilm_colorspace_yaml(
     lines = [
         "  - !<ColorSpace>",
         f"    name: {_yaml_str(cs_name)}",
-        f"    family: spektrafilm/{film_tag}/{paper_tag}",
+        f"    family: spektrafilm/{film_tag}/{print_tag}",
         f"    encoding: {encoding}",
         "    description: |",
         f"      Spektrafilm film simulation: {spec.film_profile} negative",
-        f"      printed on {paper} paper, output as {spec.output_color_space}.",
+        f"      printed on {print_profile}, output as {spec.output_color_space}.",
         f"      Topology: {spec.topology} ({topology_desc}).",
         "      Asymmetric: from_scene_reference defined,",
         "      to_scene_reference undefined (no inverse LUT in this bundle).",
@@ -665,11 +665,11 @@ def _log_e_film_description(wire: LogEWire | None) -> str:
 def _log_e_print_description(wire: LogEWire | None) -> str:
     if wire is None:
         return (
-            "Normalized log10(exposure) at the print paper.\n"
+            "Normalized log10(exposure) at the print.\n"
             "Wire constants unavailable; refer to bundle.json."
         )
     return (
-        "Normalized log10(exposure) at the print paper (shared across channels).\n"
+        "Normalized log10(exposure) at the print (shared across channels).\n"
         "Encoding: code = (log_e - min) / (max - min)\n"
         f"  min: {wire.min:.4f}\n"
         f"  max: {wire.max:.4f}\n"

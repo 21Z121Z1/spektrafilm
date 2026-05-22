@@ -2,7 +2,7 @@
 
 The QA suite needs to compare ``LUT(x)`` against ``pipeline(x)`` at
 many off-grid points ``x``. Running the spektrafilm pipeline is the
-expensive part; we do it once per (bundle, paper) and cache the
+expensive part; we do it once per (bundle, print) and cache the
 result for the lifetime of the QA run.
 
 What's cached:
@@ -14,7 +14,7 @@ What's cached:
   the *encoded* output space (matches what the LUT produces).
 
 The cache key is a SHA256 over the bundle spec and bundle metadata.
-Stored as a single ``.npz`` per (bundle, paper) under
+Stored as a single ``.npz`` per (bundle, print) under
 ``<out_dir>/cache/``.
 """
 from __future__ import annotations
@@ -69,10 +69,10 @@ class ReferenceSamples:
     cache_key: str
 
 
-def _cache_key(spec: BundleSpec, bundle: Bundle, paper_index: int) -> str:
-    """SHA256 over the spec + bundle metadata + paper id.
+def _cache_key(spec: BundleSpec, bundle: Bundle, print_index: int) -> str:
+    """SHA256 over the spec + bundle metadata + print id.
 
-    Sensitive to any field that changes the pipeline output. ``paper_index``
+    Sensitive to any field that changes the pipeline output. ``print_index``
     is always interpreted as the index into ``bundle.meta.stocks.prints``
     (not into ``bundle.luts``) so the key is stable across topology
     differences in cube layout.
@@ -80,10 +80,10 @@ def _cache_key(spec: BundleSpec, bundle: Bundle, paper_index: int) -> str:
     h = hashlib.sha256()
     h.update(repr(asdict(spec)).encode("utf-8"))
     if bundle.meta.stocks is not None:
-        paper_name = bundle.meta.stocks.prints[paper_index]
+        print_name = bundle.meta.stocks.prints[print_index]
     else:
-        paper_name = spec.print_profiles[paper_index]
-    h.update(paper_name.encode("utf-8"))
+        print_name = spec.print_profiles[print_index]
+    h.update(print_name.encode("utf-8"))
     h.update(json.dumps({
         "schema_version": bundle.meta.schema_version,
         "topology": bundle.meta.topology,
@@ -92,15 +92,15 @@ def _cache_key(spec: BundleSpec, bundle: Bundle, paper_index: int) -> str:
     return h.hexdigest()[:16]
 
 
-def _cache_path(cache_dir: Path, spec: BundleSpec, paper_index: int) -> Path:
-    """``cache/<paper_index>__<short_key>.npz`` under ``cache_dir``."""
-    return cache_dir / f"paper{paper_index:02d}__{spec.film_profile}.npz"
+def _cache_path(cache_dir: Path, spec: BundleSpec, print_index: int) -> Path:
+    """``cache/<print_index>__<short_key>.npz`` under ``cache_dir``."""
+    return cache_dir / f"print{print_index:02d}__{spec.film_profile}.npz"
 
 
 def compute_or_load(
     spec: BundleSpec,
     bundle: Bundle,
-    paper_index: int,
+    print_index: int,
     cache_dir: Path,
     *,
     n_samples: int = DEFAULT_OFFGRID_SAMPLES,
@@ -112,8 +112,8 @@ def compute_or_load(
     """
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    key = _cache_key(spec, bundle, paper_index)
-    path = _cache_path(cache_dir, spec, paper_index)
+    key = _cache_key(spec, bundle, print_index)
+    path = _cache_path(cache_dir, spec, print_index)
 
     if path.exists():
         try:
@@ -131,7 +131,7 @@ def compute_or_load(
             # Stale or corrupt cache; recompute.
             pass
 
-    ref = _compute(spec, bundle, paper_index, n_samples=n_samples, rng_seed=rng_seed)
+    ref = _compute(spec, bundle, print_index, n_samples=n_samples, rng_seed=rng_seed)
     np.savez(
         path,
         rng_samples_encoded=ref.rng_samples_encoded,
@@ -146,7 +146,7 @@ def compute_or_load(
 def _compute(
     spec: BundleSpec,
     bundle: Bundle,
-    paper_index: int,
+    print_index: int,
     *,
     n_samples: int,
     rng_seed: int,
@@ -165,7 +165,7 @@ def _compute(
     in_entry = get_color_space(spec.input_color_space)
     out_entry = get_color_space(spec.output_color_space)
 
-    print_stock = bundle.meta.stocks.prints[paper_index] if bundle.meta.stocks else spec.print_profiles[paper_index]
+    print_stock = bundle.meta.stocks.prints[print_index] if bundle.meta.stocks else spec.print_profiles[print_index]
 
     params = init_params(film_profile=spec.film_profile, print_profile=print_stock)
     params.debug.lut_mode = True
@@ -194,14 +194,14 @@ def _compute(
         rng_samples_linear=rng_samples_linear,
         pipeline_out_linear=image_out_linear,
         pipeline_out_encoded=image_out_encoded,
-        cache_key=_cache_key(spec, bundle, paper_index),
+        cache_key=_cache_key(spec, bundle, print_index),
     )
 
 
 def run_pipeline_at(
     spec: BundleSpec,
     bundle: Bundle,
-    paper_index: int,
+    print_index: int,
     samples_encoded: np.ndarray,
 ) -> np.ndarray:
     """Run the pipeline at arbitrary encoded-input samples, return encoded output.
@@ -221,7 +221,7 @@ def run_pipeline_at(
 
     in_entry = get_color_space(spec.input_color_space)
     out_entry = get_color_space(spec.output_color_space)
-    print_stock = bundle.meta.stocks.prints[paper_index] if bundle.meta.stocks else spec.print_profiles[paper_index]
+    print_stock = bundle.meta.stocks.prints[print_index] if bundle.meta.stocks else spec.print_profiles[print_index]
 
     params = init_params(film_profile=spec.film_profile, print_profile=print_stock)
     params.debug.lut_mode = True

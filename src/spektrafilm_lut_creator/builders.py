@@ -155,21 +155,21 @@ def _canonical_lut_filename(
     Example: ``lut_v032_portra400_supraendura.cube``
     """
     film = _normalize_stock(spec.film_profile)
-    paper = _normalize_stock(print_stock)
-    return f"lut_{version_tag}_{film}_{paper}{ext}"
+    print_tag = _normalize_stock(print_stock)
+    return f"lut_{version_tag}_{film}_{print_tag}{ext}"
 
 
 def _canonical_lut_title(spec: BundleSpec, print_stock: str, version_tag: str) -> str:
     """Compact LUT title for a combined 1-LUT: ``{version}_{film}_{print}``."""
     film = _normalize_stock(spec.film_profile)
-    paper = _normalize_stock(print_stock)
-    return f"{version_tag}_{film}_{paper}"
+    print_tag = _normalize_stock(print_stock)
+    return f"{version_tag}_{film}_{print_tag}"
 
 
 def _film_lut_filename(spec: BundleSpec, version_tag: str, *, ext: str = ".cube") -> str:
     """2-LUT film-half filename: ``lut_{version}_{film}_film.cube``.
 
-    The film LUT is shared across papers within the bundle; the
+    The film LUT is shared across prints within the bundle; the
     ``_film`` suffix marks it as the L1∘L2 half (input RGB → normalized
     cmy_film density).
     """
@@ -186,7 +186,7 @@ def _film_lut_title(spec: BundleSpec, version_tag: str) -> str:
 def _print_lut_filename(
     spec: BundleSpec, print_stock: str, version_tag: str, *, ext: str = ".cube"
 ) -> str:
-    """2-LUT print-half filename: ``lut_{version}_{film}_{paper}_print.cube``.
+    """2-LUT print-half filename: ``lut_{version}_{film}_{print}_print.cube``.
 
     The film stock appears in the print-LUT filename because the print
     LUT's input wire is the *film stock's* normalized cmy_film density
@@ -194,22 +194,22 @@ def _print_lut_filename(
     invariant in n010 §3 / n030 §3).
     """
     film = _normalize_stock(spec.film_profile)
-    paper = _normalize_stock(print_stock)
-    return f"lut_{version_tag}_{film}_{paper}_print{ext}"
+    print_tag = _normalize_stock(print_stock)
+    return f"lut_{version_tag}_{film}_{print_tag}_print{ext}"
 
 
 def _print_lut_title(spec: BundleSpec, print_stock: str, version_tag: str) -> str:
-    """2-LUT print-half title: ``{version}_{film}_{paper}_print``."""
+    """2-LUT print-half title: ``{version}_{film}_{print}_print``."""
     film = _normalize_stock(spec.film_profile)
-    paper = _normalize_stock(print_stock)
-    return f"{version_tag}_{film}_{paper}_print"
+    print_tag = _normalize_stock(print_stock)
+    return f"{version_tag}_{film}_{print_tag}_print"
 
 
 # ---------------------------------------------------------------------------
 # 4-LUT filename helpers.
 #
-# L1 / L2 are shared across papers (filming stages don't depend on the print
-# paper); L3 / L4 are per-paper. The film stock appears in every filename
+# L1 / L2 are shared across prints (filming stages don't depend on the print
+# profile); L3 / L4 are per-print. The film stock appears in every filename
 # because the cmy_film and log_e wires are calibrated to that specific film.
 # ---------------------------------------------------------------------------
 
@@ -237,30 +237,30 @@ def _l2_lut_title(spec: BundleSpec, version_tag: str) -> str:
 
 def _l3_lut_filename(spec: BundleSpec, print_stock: str, version_tag: str,
                      *, ext: str = ".cube") -> str:
-    """L3 filename: ``lut_{version}_{film}_{paper}_l3.cube``."""
+    """L3 filename: ``lut_{version}_{film}_{print}_l3.cube``."""
     film = _normalize_stock(spec.film_profile)
-    paper = _normalize_stock(print_stock)
-    return f"lut_{version_tag}_{film}_{paper}_l3{ext}"
+    print_tag = _normalize_stock(print_stock)
+    return f"lut_{version_tag}_{film}_{print_tag}_l3{ext}"
 
 
 def _l3_lut_title(spec: BundleSpec, print_stock: str, version_tag: str) -> str:
     film = _normalize_stock(spec.film_profile)
-    paper = _normalize_stock(print_stock)
-    return f"{version_tag}_{film}_{paper}_l3"
+    print_tag = _normalize_stock(print_stock)
+    return f"{version_tag}_{film}_{print_tag}_l3"
 
 
 def _l4_lut_filename(spec: BundleSpec, print_stock: str, version_tag: str,
                      *, ext: str = ".cube") -> str:
-    """L4 filename: ``lut_{version}_{film}_{paper}_l4.cube``."""
+    """L4 filename: ``lut_{version}_{film}_{print}_l4.cube``."""
     film = _normalize_stock(spec.film_profile)
-    paper = _normalize_stock(print_stock)
-    return f"lut_{version_tag}_{film}_{paper}_l4{ext}"
+    print_tag = _normalize_stock(print_stock)
+    return f"lut_{version_tag}_{film}_{print_tag}_l4{ext}"
 
 
 def _l4_lut_title(spec: BundleSpec, print_stock: str, version_tag: str) -> str:
     film = _normalize_stock(spec.film_profile)
-    paper = _normalize_stock(print_stock)
-    return f"{version_tag}_{film}_{paper}_l4"
+    print_tag = _normalize_stock(print_stock)
+    return f"{version_tag}_{film}_{print_tag}_l4"
 
 
 # ---------------------------------------------------------------------------
@@ -271,9 +271,9 @@ def _l4_lut_title(spec: BundleSpec, print_stock: str, version_tag: str) -> str:
 # every *other* (T_i, T_j) pair with j > i+1 — the contiguous sub-chains
 # that the user opts into via ``BundleSpec.include_combinations``.
 #
-# A sub-chain is "shared" (paper-independent) iff its collect tap is at
+# A sub-chain is "shared" (print-independent) iff its collect tap is at
 # or before ``cmy_film`` — i.e., the entire sub-chain lives in the
-# filming half of the pipeline, which has no per-paper variation.
+# filming half of the pipeline, which has no per-print variation.
 # ---------------------------------------------------------------------------
 
 
@@ -363,32 +363,32 @@ _TAP_RANGE_LABEL: dict[str, str] = {
 
 def _subchain_filename(
     spec: BundleSpec, version_tag: str, label: str,
-    paper: str | None, *, ext: str = ".cube",
+    print_profile: str | None, *, ext: str = ".cube",
 ) -> str:
     """Build a combination cube's bundle-relative path.
 
-    Shared cubes (paper-independent) omit the paper segment; per-paper
+    Shared cubes (print-independent) omit the print segment; per-print
     cubes include it. The path is rooted at the ``combinations/``
     subfolder so the canonical L1..LN stay visible at the bundle root.
     """
     film = _normalize_stock(spec.film_profile)
-    if paper is None:
+    if print_profile is None:
         name = f"lut_{version_tag}_{film}_{label}{ext}"
     else:
-        paper_tag = _normalize_stock(paper)
-        name = f"lut_{version_tag}_{film}_{paper_tag}_{label}{ext}"
+        print_tag = _normalize_stock(print_profile)
+        name = f"lut_{version_tag}_{film}_{print_tag}_{label}{ext}"
     return f"{_COMBINATIONS_SUBDIR}/{name}"
 
 
 def _subchain_title(
-    spec: BundleSpec, version_tag: str, label: str, paper: str | None,
+    spec: BundleSpec, version_tag: str, label: str, print_profile: str | None,
 ) -> str:
     """Compact title for a combination cube (same shape as canonical titles)."""
     film = _normalize_stock(spec.film_profile)
-    if paper is None:
+    if print_profile is None:
         return f"{version_tag}_{film}_{label}"
-    paper_tag = _normalize_stock(paper)
-    return f"{version_tag}_{film}_{paper_tag}_{label}"
+    print_tag = _normalize_stock(print_profile)
+    return f"{version_tag}_{film}_{print_tag}_{label}"
 
 
 def _lut_license_source_path() -> Path:
@@ -418,7 +418,7 @@ def _bundle_readme_text(
 ) -> str:
     """Render a quick-start README for the bundle root.
 
-    ``qa_results`` is the optional ``{paper: [Result, ...]}`` mapping
+    ``qa_results`` is the optional ``{print: [Result, ...]}`` mapping
     produced by :meth:`BundleBuilder._run_qa`. When present, a
     "## Quality" pass/fail badge block is rendered near the top of
     the README (n090 §6.1).
@@ -428,13 +428,13 @@ def _bundle_readme_text(
     output_cs = meta.color_spaces.get("output")
     film_label = meta.stocks.film if meta.stocks is not None else "the film"
     if meta.stocks is not None and meta.stocks.prints:
-        paper_label = (
+        print_label = (
             meta.stocks.prints[0]
             if len(meta.stocks.prints) == 1
-            else f"{len(meta.stocks.prints)} print papers"
+            else f"{len(meta.stocks.prints)} prints"
         )
     else:
-        paper_label = "a print paper"
+        print_label = "a print"
     lines = [
         "# spektrafilm LUT bundle",
         "",
@@ -444,11 +444,11 @@ def _bundle_readme_text(
         "",
         (
             f"A physically based simulation of {film_label} on "
-            f"{paper_label}, calibrated against published spectral dye "
+            f"{print_label}, calibrated against published spectral dye "
             "response and characteristic curves. The cube is the "
             "*neutral developed and printed* render — the technical "
             "transform a perfectly exposed negative would walk through "
-            "to land on paper."
+            "to land on the print."
         ),
         "",
         "## What this is not",
@@ -502,22 +502,22 @@ def _bundle_readme_text(
         if lut.role == "film":
             descr = "shared film half (L1∘L2: input RGB → normalized cmy_film density)"
         elif lut.role == "print":
-            descr = f"print half for {lut.paper} (L3∘L4: cmy_film → output RGB)"
+            descr = f"print half for {lut.print_profile} (L3∘L4: cmy_film → output RGB)"
         elif lut.role == "combined":
-            descr = f"full chain for {lut.paper}"
+            descr = f"full chain for {lut.print_profile}"
         elif lut.role == "filming_expose":
             descr = "shared L1 — filming.expose (input RGB → normalized log_e_film code)"
         elif lut.role == "filming_develop":
             descr = "shared L2 — filming.develop (log_e_film code → normalized cmy_film code)"
         elif lut.role == "printing_expose":
-            descr = f"L3 for {lut.paper} — printing.expose (cmy_film code → normalized log_e_print code)"
+            descr = f"L3 for {lut.print_profile} — printing.expose (cmy_film code → normalized log_e_print code)"
         elif lut.role == "printing_develop_scan":
-            descr = f"L4 for {lut.paper} — printing.develop + scanning.scan (log_e_print code → output RGB)"
+            descr = f"L4 for {lut.print_profile} — printing.develop + scanning.scan (log_e_print code → output RGB)"
         elif lut.role == "printing_combined":
-            descr = f"L3 for {lut.paper} — printing.expose + develop + scan (cmy_film code → output RGB)"
+            descr = f"L3 for {lut.print_profile} — printing.expose + develop + scan (cmy_film code → output RGB)"
         elif lut.role.startswith("subchain_"):
             ids = lut.role[len("subchain_"):]
-            scope = f"for {lut.paper}" if lut.paper else "shared"
+            scope = f"for {lut.print_profile}" if lut.print_profile else "shared"
             descr = (
                 f"L{ids} sub-chain ({scope}) — pre-collapsed canonical stages {ids} "
                 f"({_TAP_DOMAIN_LABEL.get(lut.domain, lut.domain)} → "
@@ -552,8 +552,8 @@ def _bundle_readme_text(
             "## Apply order",
             "Apply the three LUTs in order: L1 → L2 → L3.",
             "",
-            "- L1 and L2 are shared across all papers in the bundle.",
-            "- L3 is paper-specific; pick the cube matching the print stock you want.",
+            "- L1 and L2 are shared across all prints in the bundle.",
+            "- L3 is print-specific; pick the cube matching the print stock you want.",
             "",
             "Wire contracts (each cube carries [0, 1] code values; the wire describes what those codes represent physically):",
             "",
@@ -578,8 +578,8 @@ def _bundle_readme_text(
             "## Apply order",
             "Apply the four LUTs in order: L1 → L2 → L3 → L4.",
             "",
-            "- L1 and L2 are shared across all papers in the bundle.",
-            "- L3 and L4 are paper-specific; pick the pair matching the print stock you want.",
+            "- L1 and L2 are shared across all prints in the bundle.",
+            "- L3 and L4 are print-specific; pick the pair matching the print stock you want.",
             "",
             "Wire contracts (each cube carries [0, 1] code values; the wire describes what those codes represent physically):",
             "",
@@ -596,7 +596,7 @@ def _bundle_readme_text(
             "",
             "- **After L1 — `log_e_film`** (light hitting the film, log-shaped): decode via `wires/log_e_film` to get log10(E), then exponentiate to recover linear-light exposure. This is the right place for spatial effects that operate on the actual light landing on the film — **halation**, **light scattering** through the emulsion, and **lens diffusion** filters (Pro-Mist, Black Pro-Mist, etc.).",
             "- **After L2 — `cmy_film` density** (developed film density, reported *above base+fog*): decode via `wires/cmy_film` (`D = code * (d_max - d_min) + d_min`) to get physical D per channel. **Grain** belongs here — film grain originates in the silver / dye granularity that density represents, so density-modulated noise at this tap is the canonical film-grain injection point. `d_min` is reserved slightly negative (e.g. -0.2) so noise samples can dip below zero — real fog grain fluctuates around base+fog, including downward — without being clipped at the [0, 1] code boundary.",
-            "- **After L3 — `log_e_print`** (light hitting the print paper, log-shaped): decode via `wires/log_e_print` to get log10(E) at the paper. Enlarger-stage effects belong here — **enlarger diffusion filters** (soft-focus, baseboard scatter), simulated **dodge / burn masks**, and any other manipulation of the printing light.",
+            "- **After L3 — `log_e_print`** (light hitting the print, log-shaped): decode via `wires/log_e_print` to get log10(E) at the print. Enlarger-stage effects belong here — **enlarger diffusion filters** (soft-focus, baseboard scatter), simulated **dodge / burn masks**, and any other manipulation of the printing light.",
         ])
     # Combinations section (n130). Driven entirely off the bundle's
     # luts metadata: if any subchain_* entries are present, render the
@@ -652,22 +652,22 @@ def _quality_readme_section(qa_results: dict[str, list]) -> list[str]:
     """Render the README's "## Quality" pass/fail badge block (n090 §6.1).
 
     Produces one row per QA test, surfacing the test's pass/fail/info
-    status and its headline ``short_summary()``. For multi-paper
-    bundles every paper gets its own subsection so the colorist can
+    status and its headline ``short_summary()``. For multi-print
+    bundles every print gets its own subsection so the colorist can
     audit each chain independently.
     """
     badges = {"PASS": "✓ PASS", "FAIL": "✗ FAIL", "INFO": "· INFO"}
     lines = ["## Quality", ""]
-    multi_paper = len(qa_results) > 1
-    for paper, results in qa_results.items():
-        if multi_paper:
-            lines.extend([f"### {paper}", ""])
+    multi_print = len(qa_results) > 1
+    for print_profile, results in qa_results.items():
+        if multi_print:
+            lines.extend([f"### {print_profile}", ""])
         n_pass = sum(1 for r in results if r.passed is True)
         n_fail = sum(1 for r in results if r.passed is False)
         n_info = sum(1 for r in results if r.passed is None)
         lines.extend([
             f"{n_pass} pass · {n_fail} fail · {n_info} info "
-            f"— full report at `qa/<paper-folder>/report.md`.",
+            f"— full report at `qa/<print-folder>/report.md`.",
             "",
             "| Test | Status | Headline |",
             "|------|--------|----------|",
@@ -686,7 +686,7 @@ def _combinations_readme_section(
     """Render the README's "Pre-collapsed sub-chains" section.
 
     Lists every ``subchain_*`` cube in the bundle with its domain →
-    range mapping and paper-specificity. Generated from the bundle's
+    range mapping and print-specificity. Generated from the bundle's
     own metadata so the README never lists a cube that wasn't baked.
     """
     lines = [
@@ -699,7 +699,7 @@ def _combinations_readme_section(
         "single transform, for grading apps that only have one LUT slot "
         "(Resolve LUT slot, Lumix Lab, OBS, FFmpeg, Premiere).",
         "",
-        "| Cube | Maps | Paper-specific |",
+        "| Cube | Maps | Print-specific |",
         "|------|------|----------------|",
     ]
     for lut in subchain_luts:
@@ -707,8 +707,8 @@ def _combinations_readme_section(
         label = f"l{ids}"
         domain_label = _TAP_DOMAIN_LABEL.get(lut.domain, lut.domain)
         range_label = _TAP_RANGE_LABEL.get(lut.range, lut.range)
-        paper_specific = "yes" if lut.paper else "no"
-        lines.append(f"| {label} | {domain_label} → {range_label} | {paper_specific} |")
+        print_specific = "yes" if lut.print_profile else "no"
+        lines.append(f"| {label} | {domain_label} → {range_label} | {print_specific} |")
     lines.extend([
         "",
         "The canonical L1..LN cubes in the bundle root remain the recommended "
@@ -745,11 +745,11 @@ class BundleBuilder:
                 f"{spec.output_color_space!r} is not registered as an output color space"
             )
 
-        n_papers = len(spec.print_profiles)
-        paper_word = "paper" if n_papers == 1 else "papers"
+        n_prints = len(spec.print_profiles)
+        print_word = "print" if n_prints == 1 else "prints"
         print(
             f"[bake] {spec.name} "
-            f"({spec.topology}, {spec.resolution}^3, {n_papers} {paper_word})"
+            f"({spec.topology}, {spec.resolution}^3, {n_prints} {print_word})"
         )
         if spec.include_combinations and spec.topology == "1lut":
             print(
@@ -775,8 +775,8 @@ class BundleBuilder:
     def _build_1lut_combined(self, in_entry, out_entry) -> Bundle:
         """Bake one combined L1∘L2∘L3∘L4 LUT per print stock.
 
-        Each (film, paper) pair produces an independent cube; nothing is
-        shared across papers. This is the simplest deployable form —
+        Each (film, print) pair produces an independent cube; nothing is
+        shared across prints. This is the simplest deployable form —
         users apply one cube and get the full simulation.
         """
         spec = self.spec
@@ -799,7 +799,7 @@ class BundleBuilder:
                 path=rel_path,
                 domain="input_rgb",
                 range="output_rgb",
-                paper=print_stock,
+                print_profile=print_stock,
             ))
 
         meta = BundleMeta(
@@ -828,16 +828,16 @@ class BundleBuilder:
     # ---- 2-LUT (M5) ------------------------------------------------------
 
     def _build_2lut_film_print(self, in_entry, out_entry) -> Bundle:
-        """Bake one film LUT (L1∘L2) + per-paper print LUTs (L3∘L4).
+        """Bake one film LUT (L1∘L2) + per-print print LUTs (L3∘L4).
 
         The film LUT depends only on the film stock and input space;
-        it is baked once and shared across every print paper in the
-        bundle. Each paper gets its own print LUT that takes
+        it is baked once and shared across every print in the
+        bundle. Each print gets its own print LUT that takes
         normalized cmy_film density (the ``d_max``-scaled output of
         the film LUT) and produces encoded output RGB.
 
         ``d_max`` is measured by sampling the film half at a 9^3 grid
-        through the actual pipeline (with one representative paper
+        through the actual pipeline (with one representative print
         attached, since the cmy_film tap is print-independent) and
         taking the per-channel maximum × :data:`_DENSITY_MARGIN`. This
         is robust to film-stock differences and to whatever the
@@ -848,12 +848,12 @@ class BundleBuilder:
         provenance = ProvenanceMeta()
         version_tag = _normalize_version(provenance.spektrafilm_version)
 
-        # Build one pipeline against the first paper to (a) measure
+        # Build one pipeline against the first print to (a) measure
         # d_max and (b) bake the shared film LUT. The cmy_film tap is
-        # only a function of film + input, so the choice of paper here
+        # only a function of film + input, so the choice of print here
         # is immaterial.
-        first_paper = spec.print_profiles[0]
-        pipeline = self._make_pipeline(spec, in_entry, out_entry, first_paper)
+        first_print = spec.print_profiles[0]
+        pipeline = self._make_pipeline(spec, in_entry, out_entry, first_print)
         density_wire = self._compute_density_wire(pipeline, spec)
         wires = BoundaryWires(cmy_film=density_wire)
         film_lut = self._bake_film_lut(pipeline, spec, wires, version_tag)
@@ -864,25 +864,25 @@ class BundleBuilder:
             path=film_lut[0],
             domain="input_rgb",
             range="cmy_film",
-            paper=None,
+            print_profile=None,
         )]
 
-        # Bake one print LUT per paper. Per-paper combinations (l12 for 2-LUT,
+        # Bake one print LUT per print. Per-print combinations (l12 for 2-LUT,
         # which spans rgb_in → rgb_out and therefore depends on the print
-        # stock) live alongside the per-paper print LUT.
-        for paper in spec.print_profiles:
-            pipeline = self._make_pipeline(spec, in_entry, out_entry, paper)
-            print_lut = self._bake_print_lut(pipeline, spec, wires, paper, version_tag)
+        # stock) live alongside the per-print print LUT.
+        for print_profile in spec.print_profiles:
+            pipeline = self._make_pipeline(spec, in_entry, out_entry, print_profile)
+            print_lut = self._bake_print_lut(pipeline, spec, wires, print_profile, version_tag)
             bundle_luts.append(print_lut)
             lut_metas.append(LutFileMeta(
                 role="print",
                 path=print_lut[0],
                 domain="cmy_film",
                 range="output_rgb",
-                paper=paper,
+                print_profile=print_profile,
             ))
             for (path_lut, combo_meta) in self._bake_combinations(
-                pipeline, spec, wires, version_tag, paper=paper,
+                pipeline, spec, wires, version_tag, print_profile=print_profile,
             ):
                 bundle_luts.append(path_lut)
                 lut_metas.append(combo_meta)
@@ -921,18 +921,18 @@ class BundleBuilder:
         - **L1** ``rgb_in → log_e_film`` — ``filming.expose`` (shared)
         - **L2** ``log_e_film → cmy_film`` — ``filming.develop`` (shared)
         - **L3** ``cmy_film → rgb_out`` — collapses ``printing.expose +
-          printing.develop + scanning.scan`` into one cube (per paper)
+          printing.develop + scanning.scan`` into one cube (per print)
 
         The trade vs 4-LUT: the ``log_e_print`` tap is *not* exposed,
         so enlarger-stage effects (diffusion filters, dodge / burn,
         baseboard scatter) cannot be injected. In exchange the bundle
-        ships one fewer cube per paper, and the back-half stays
+        ships one fewer cube per print, and the back-half stays
         monolithic — fewer interpolation stages, lower compound error.
         Use 3-LUT when only grain (cmy_film tap) and pre-film spatial
         effects (log_e_film tap) matter; use 4-LUT when enlarger
         manipulation is in scope.
 
-        Total cubes for an N-paper bundle: ``2 + N``.
+        Total cubes for an N-print bundle: ``2 + N``.
 
         Wires recorded in ``bundle.json``:
 
@@ -944,10 +944,10 @@ class BundleBuilder:
         provenance = ProvenanceMeta()
         version_tag = _normalize_version(provenance.spektrafilm_version)
 
-        # Shared pipeline: filming.* stages are paper-independent, so the
-        # choice of paper for the shared pass is just a convenient anchor.
-        first_paper = spec.print_profiles[0]
-        pipeline_shared = self._make_pipeline(spec, in_entry, out_entry, first_paper)
+        # Shared pipeline: filming.* stages are print-independent, so the
+        # choice of print for the shared pass is just a convenient anchor.
+        first_print = spec.print_profiles[0]
+        pipeline_shared = self._make_pipeline(spec, in_entry, out_entry, first_print)
 
         # Probe wires from the same 9³ pass (cheap; pipeline runs sub-second).
         log_e_film_wire = self._compute_log_e_wire(pipeline_shared, spec, tap="log_e_film")
@@ -960,37 +960,37 @@ class BundleBuilder:
         bundle_luts: list[tuple[str, Lut]] = [l1, l2]
         lut_metas: list[LutFileMeta] = [
             LutFileMeta(role="filming_expose",
-                        path=l1[0], domain="input_rgb", range="log_e_film", paper=None),
+                        path=l1[0], domain="input_rgb", range="log_e_film", print_profile=None),
             LutFileMeta(role="filming_develop",
-                        path=l2[0], domain="log_e_film", range="cmy_film", paper=None),
+                        path=l2[0], domain="log_e_film", range="cmy_film", print_profile=None),
         ]
 
-        # Shared combinations (paper-independent sub-chains — only l12 for
+        # Shared combinations (print-independent sub-chains — only l12 for
         # 3-LUT) ride the same shared pipeline pass as L1/L2.
         for (path_lut, combo_meta) in self._bake_combinations(
-            pipeline_shared, spec, wires, version_tag, paper=None,
+            pipeline_shared, spec, wires, version_tag, print_profile=None,
         ):
             bundle_luts.append(path_lut)
             lut_metas.append(combo_meta)
 
-        # Bake the combined back-half once per paper. Math is identical to
+        # Bake the combined back-half once per print. Math is identical to
         # the 2-LUT print LUT (cmy_film code → rgb_out); only the filename
         # role differs to stay consistent with the numbered-cube convention
         # we use for topologies with ≥3 cubes.
-        for paper in spec.print_profiles:
-            pipeline_paper = self._make_pipeline(spec, in_entry, out_entry, paper)
-            l3 = self._bake_l3_combined(pipeline_paper, spec, wires,
-                                        paper, version_tag)
+        for print_profile in spec.print_profiles:
+            pipeline_print = self._make_pipeline(spec, in_entry, out_entry, print_profile)
+            l3 = self._bake_l3_combined(pipeline_print, spec, wires,
+                                        print_profile, version_tag)
             bundle_luts.append(l3)
             lut_metas.append(LutFileMeta(
                 role="printing_combined",
                 path=l3[0],
                 domain="cmy_film",
                 range="output_rgb",
-                paper=paper,
+                print_profile=print_profile,
             ))
             for (path_lut, combo_meta) in self._bake_combinations(
-                pipeline_paper, spec, wires, version_tag, paper=paper,
+                pipeline_print, spec, wires, version_tag, print_profile=print_profile,
             ):
                 bundle_luts.append(path_lut)
                 lut_metas.append(combo_meta)
@@ -1029,7 +1029,7 @@ class BundleBuilder:
         """3-LUT L3: cmy_film code → encoded output RGB.
 
         Same math as :meth:`_bake_print_lut` (2-LUT); filename uses the
-        numbered-cube convention ``lut_<v>_<film>_<paper>_l3.cube`` to
+        numbered-cube convention ``lut_<v>_<film>_<print>_l3.cube`` to
         stay consistent with the 4-LUT naming.
         """
         return self._bake_sublut(
@@ -1051,12 +1051,12 @@ class BundleBuilder:
         - **L4** ``log_e_print → rgb_out`` — ``printing.develop`` +
           ``scanning.scan``
 
-        L1 and L2 don't depend on the print paper (the filming stages
+        L1 and L2 don't depend on the print (the filming stages
         only see the film stock + input color space), so they're baked
-        **once and shared** across every paper in the bundle. L3 and
-        L4 are paper-specific.
+        **once and shared** across every print in the bundle. L3 and
+        L4 are print-specific.
 
-        Total cubes for an N-paper bundle: ``2 + 2N``.
+        Total cubes for an N-print bundle: ``2 + 2N``.
 
         Wires recorded in ``bundle.json``:
 
@@ -1069,21 +1069,21 @@ class BundleBuilder:
           input. Measured on the same 9³ probe pass.
 
         Note: the ``log_e_print`` wire is measured against the *first*
-        paper's pipeline and reused across all papers. For typical
-        spektrafilm chemistry, paper-to-paper variation in the
+        print's pipeline and reused across all prints. For typical
+        spektrafilm chemistry, print-to-print variation in the
         log_e_print range is small relative to the wire's margin
         (``_LOG_E_MARGIN`` = 0.1 log E); if a future stock falls
-        outside, raise the margin or switch to per-paper wires.
+        outside, raise the margin or switch to per-print wires.
         """
         spec = self.spec
         provenance = ProvenanceMeta()
         version_tag = _normalize_version(provenance.spektrafilm_version)
 
-        # Shared pipeline: paper-independent stages (filming.*) produce
-        # identical output regardless of which paper we attach here, so
-        # we use the first paper as a convenient anchor.
-        first_paper = spec.print_profiles[0]
-        pipeline_shared = self._make_pipeline(spec, in_entry, out_entry, first_paper)
+        # Shared pipeline: print-independent stages (filming.*) produce
+        # identical output regardless of which print we attach here, so
+        # we use the first print as a convenient anchor.
+        first_print = spec.print_profiles[0]
+        pipeline_shared = self._make_pipeline(spec, in_entry, out_entry, first_print)
 
         # Probe wires from a single 9³ pass.
         log_e_film_wire = self._compute_log_e_wire(pipeline_shared, spec, tap="log_e_film")
@@ -1101,36 +1101,36 @@ class BundleBuilder:
         bundle_luts: list[tuple[str, Lut]] = [l1, l2]
         lut_metas: list[LutFileMeta] = [
             LutFileMeta(role="filming_expose",
-                        path=l1[0], domain="input_rgb", range="log_e_film", paper=None),
+                        path=l1[0], domain="input_rgb", range="log_e_film", print_profile=None),
             LutFileMeta(role="filming_develop",
-                        path=l2[0], domain="log_e_film", range="cmy_film", paper=None),
+                        path=l2[0], domain="log_e_film", range="cmy_film", print_profile=None),
         ]
 
-        # Shared combinations (paper-independent sub-chains — l12 for
+        # Shared combinations (print-independent sub-chains — l12 for
         # 4-LUT) ride the same shared pipeline pass as L1/L2.
         for (path_lut, combo_meta) in self._bake_combinations(
-            pipeline_shared, spec, wires, version_tag, paper=None,
+            pipeline_shared, spec, wires, version_tag, print_profile=None,
         ):
             bundle_luts.append(path_lut)
             lut_metas.append(combo_meta)
 
-        # Bake L3 + L4 per paper, then the per-paper combinations against
-        # the same per-paper pipeline (l23, l34, l123, l234, l1234).
-        for paper in spec.print_profiles:
-            pipeline_paper = self._make_pipeline(spec, in_entry, out_entry, paper)
-            l3 = self._bake_l3(pipeline_paper, spec, wires, paper, version_tag)
-            l4 = self._bake_l4(pipeline_paper, spec, wires, paper, version_tag)
+        # Bake L3 + L4 per print, then the per-print combinations against
+        # the same per-print pipeline (l23, l34, l123, l234, l1234).
+        for print_profile in spec.print_profiles:
+            pipeline_print = self._make_pipeline(spec, in_entry, out_entry, print_profile)
+            l3 = self._bake_l3(pipeline_print, spec, wires, print_profile, version_tag)
+            l4 = self._bake_l4(pipeline_print, spec, wires, print_profile, version_tag)
             bundle_luts.extend([l3, l4])
             lut_metas.extend([
                 LutFileMeta(role="printing_expose",
                             path=l3[0], domain="cmy_film", range="log_e_print",
-                            paper=paper),
+                            print_profile=print_profile),
                 LutFileMeta(role="printing_develop_scan",
                             path=l4[0], domain="log_e_print", range="output_rgb",
-                            paper=paper),
+                            print_profile=print_profile),
             ])
             for (path_lut, combo_meta) in self._bake_combinations(
-                pipeline_paper, spec, wires, version_tag, paper=paper,
+                pipeline_print, spec, wires, version_tag, print_profile=print_profile,
             ):
                 bundle_luts.append(path_lut)
                 lut_metas.append(combo_meta)
@@ -1402,7 +1402,7 @@ class BundleBuilder:
         Covers both ``printing.develop`` (log_e_print → cmy_print) and
         ``scanning.scan`` (cmy_print → rgb_out). cmy_print is not
         exposed as a wire — that would push us to 6-LUT and isn't worth
-        the extra cube per paper for v1.
+        the extra cube per print for v1.
         """
         return self._bake_sublut(
             pipeline, spec, "log_e_print", "rgb_out", wires,
@@ -1414,31 +1414,31 @@ class BundleBuilder:
 
     def _bake_combinations(
         self, pipeline, spec: BundleSpec, wires: BoundaryWires,
-        version_tag: str, *, paper: str | None,
+        version_tag: str, *, print_profile: str | None,
     ) -> list[tuple[tuple[str, Lut], LutFileMeta]]:
         """Bake the topology's combination sub-chains for one pipeline pass.
 
-        ``paper=None`` selects the *shared* (paper-independent) sub-chains
+        ``print_profile=None`` selects the *shared* (print-independent) sub-chains
         and expects ``pipeline`` to be the shared-pipeline pass.
-        ``paper="..."`` selects the *per-paper* sub-chains and expects a
-        per-paper pipeline. The split keeps the call sites symmetric with
+        ``print_profile="..."`` selects the *per-print* sub-chains and expects a
+        per-print pipeline. The split keeps the call sites symmetric with
         the canonical-bake loop in each ``_build_Nlut_*`` method.
 
         Returns one ``((rel_path, Lut), LutFileMeta)`` tuple per baked
         cube. Empty when :attr:`BundleSpec.include_combinations` is
         False, when the topology has no combinations (1-LUT), or when
-        no entry in the table matches the requested paper/shared role.
+        no entry in the table matches the requested print/shared role.
         """
         if not spec.include_combinations:
             return []
         entries = _TOPOLOGY_COMBINATIONS.get(spec.topology, ())
-        matching = [e for e in entries if e.is_shared == (paper is None)]
+        matching = [e for e in entries if e.is_shared == (print_profile is None)]
         if not matching:
             return []
         baked: list[tuple[tuple[str, Lut], LutFileMeta]] = []
         for entry in matching:
-            rel_path = _subchain_filename(spec, version_tag, entry.label, paper)
-            title = _subchain_title(spec, version_tag, entry.label, paper)
+            rel_path = _subchain_filename(spec, version_tag, entry.label, print_profile)
+            title = _subchain_title(spec, version_tag, entry.label, print_profile)
             path, lut = self._bake_sublut(
                 pipeline, spec, entry.inject_tap, entry.collect_tap,
                 wires, rel_path, title,
@@ -1448,7 +1448,7 @@ class BundleBuilder:
                 path=path,
                 domain=_TAP_TO_DOMAIN[entry.inject_tap],
                 range=_TAP_TO_RANGE[entry.collect_tap],
-                paper=paper,
+                print_profile=print_profile,
             )
             baked.append(((path, lut), meta))
         return baked
@@ -1481,48 +1481,48 @@ class BundleBuilder:
     def _run_qa(
         self, bundle: Bundle, bundle_root: Path,
     ) -> dict[str, list]:
-        """Run the QA suite for the spec's selected paper(s).
+        """Run the QA suite for the spec's selected print(s).
 
-        Reports land at ``<bundle_root>/qa/<per-paper-bundle-name>/``;
-        when ``spec.qa_paper_index`` is None, every paper in the bundle
-        gets its own report folder. After each paper's run the
+        Reports land at ``<bundle_root>/qa/<per-print-bundle-name>/``;
+        when ``spec.qa_print_index`` is None, every print in the bundle
+        gets its own report folder. After each print's run the
         ``cache/`` subdirectory is removed — the reference samples are
         cheap to recompute when needed and don't belong in a shipped
         bundle.
 
-        Returns a ``{paper: [Result, ...]}`` mapping so callers can
+        Returns a ``{print: [Result, ...]}`` mapping so callers can
         surface the QA outcomes elsewhere (e.g. the bundle README's
         "## Quality" pass/fail block, n090 §6.1).
         """
         # Lazy import: qa.suite imports bundles/builders symbols transitively,
         # so eager-importing here would risk a cycle on cold module load.
         from spektrafilm_lut_creator.qa import run as run_qa
-        from spektrafilm_lut_creator.naming import per_paper_qa_folder_name
+        from spektrafilm_lut_creator.naming import per_print_qa_folder_name
 
         spec = self.spec
-        if spec.qa_paper_index is None:
-            paper_indices: tuple[int, ...] = tuple(range(len(spec.print_profiles)))
+        if spec.qa_print_index is None:
+            print_indices: tuple[int, ...] = tuple(range(len(spec.print_profiles)))
         else:
-            paper_indices = (spec.qa_paper_index,)
+            print_indices = (spec.qa_print_index,)
 
         qa_root = bundle_root / "qa"
         qa_root.mkdir(parents=True, exist_ok=True)
 
-        results_by_paper: dict[str, list] = {}
-        for idx in paper_indices:
-            paper = spec.print_profiles[idx]
-            report_name = per_paper_qa_folder_name(
+        results_by_print: dict[str, list] = {}
+        for idx in print_indices:
+            print_profile = spec.print_profiles[idx]
+            report_name = per_print_qa_folder_name(
                 film_profile=spec.film_profile,
-                print_profile=paper,
+                print_profile=print_profile,
             )
             report_dir = qa_root / report_name
-            results_by_paper[paper] = run_qa(spec, bundle, report_dir, paper_index=idx)
+            results_by_print[print_profile] = run_qa(spec, bundle, report_dir, print_index=idx)
             # The QA reference cache is regenerable scratch work — strip
             # it before the bundle is potentially zipped or shipped.
             cache_dir = report_dir / "cache"
             if cache_dir.exists():
                 shutil.rmtree(cache_dir)
-        return results_by_paper
+        return results_by_print
 
     def write(self, bundle: Bundle, out_dir: Path | None = None) -> Path:
         """Write a built bundle to ``out_dir`` and return the output path.
@@ -1546,9 +1546,9 @@ class BundleBuilder:
           target they want exactly that file.
 
         If ``spec.qa`` is True, the QA suite runs after the LUTs are
-        written and drops reports under ``<bundle>/qa/<per-paper-name>/``
-        — one folder per QA'd paper (``spec.qa_paper_index`` selects one
-        paper, ``None`` runs them all). The QA cache directories are
+        written and drops reports under ``<bundle>/qa/<per-print-name>/``
+        — one folder per QA'd print (``spec.qa_print_index`` selects one
+        print, ``None`` runs them all). The QA cache directories are
         deleted afterward so the bundle stays ship-ready.
 
         When ``spec.container == "zip"``, the populated bundle directory is

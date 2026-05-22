@@ -20,7 +20,7 @@ from spektrafilm_lut_creator.qa import run
 
 spec = BundleSpec(...)
 bundle = BundleBuilder(spec).build()
-results = run(spec, bundle, out_dir="qa/my_bundle", paper_index=0)
+results = run(spec, bundle, out_dir="qa/my_bundle", print_index=0)
 ```
 
 `run` writes:
@@ -31,7 +31,7 @@ results = run(spec, bundle, out_dir="qa/my_bundle", paper_index=0)
 - `qa/my_bundle/cache/*.npz` — pipeline reference samples (the only expensive
   build artifact; invalidated automatically when the bundle changes)
 
-To QA every paper in a multi-paper bundle, iterate over
+To QA every print in a multi-print bundle, iterate over
 `range(len(bundle.luts))` and call `run` per index.
 
 ## The eleven tests

@@ -35,38 +35,38 @@ class TestSlugResolution:
 # ---------------------------------------------------------------------------
 
 class TestListSubcommand:
-    def test_list_inputs_includes_known_spaces(self, capsys):
-        rc = cli.main(["list", "inputs"])
+    def test_list_input_includes_known_spaces(self, capsys):
+        rc = cli.main(["list", "input"])
         assert rc == 0
         names = capsys.readouterr().out.splitlines()
         assert "Panasonic V-Log" in names
         assert "ACEScg" in names
         assert "sRGB" in names
 
-    def test_list_outputs_excludes_input_only_spaces(self, capsys):
-        rc = cli.main(["list", "outputs"])
+    def test_list_output_excludes_input_only_spaces(self, capsys):
+        rc = cli.main(["list", "output"])
         assert rc == 0
         names = capsys.readouterr().out.splitlines()
         assert "sRGB" in names
         # ACEScg is input-only; must not appear under outputs.
         assert "ACEScg" not in names
 
-    def test_list_targets_includes_lumix(self, capsys):
-        rc = cli.main(["list", "targets"])
+    def test_list_target_includes_lumix(self, capsys):
+        rc = cli.main(["list", "target"])
         assert rc == 0
         names = capsys.readouterr().out.splitlines()
         assert "lumix_realtime_vlog" in names
 
-    def test_list_films_includes_known_stock(self, capsys):
-        rc = cli.main(["list", "films"])
+    def test_list_film_includes_known_stock(self, capsys):
+        rc = cli.main(["list", "film"])
         assert rc == 0
         names = capsys.readouterr().out.splitlines()
         assert "kodak_portra_400" in names
-        # A paper must not appear under films.
+        # A print must not appear under films.
         assert "kodak_portra_endura" not in names
 
-    def test_list_papers_includes_known_paper(self, capsys):
-        rc = cli.main(["list", "papers"])
+    def test_list_print_includes_known_print(self, capsys):
+        rc = cli.main(["list", "print"])
         assert rc == 0
         names = capsys.readouterr().out.splitlines()
         assert "kodak_portra_endura" in names
@@ -143,7 +143,7 @@ class TestBuildSubcommand:
         err = capsys.readouterr().err
         assert "missing --print" in err
 
-    def test_build_repeats_print_for_multi_paper(self, tmp_path):
+    def test_build_repeats_print_for_multi_print(self, tmp_path):
         rc = cli.main([
             "build",
             "--film", "kodak_portra_400",

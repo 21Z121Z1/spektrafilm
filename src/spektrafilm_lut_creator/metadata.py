@@ -120,7 +120,7 @@ class LutFileMeta:
     path: str            # relative to the bundle root
     domain: str          # source tap name (e.g. "input_rgb", "cmy_film")
     range: str           # destination tap name (e.g. "cmy_film", "output_rgb")
-    paper: str | None = None  # set for role="print"
+    print_profile: str | None = None  # set for role="print"
 
 
 @dataclass(frozen=True)

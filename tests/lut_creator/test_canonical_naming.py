@@ -75,7 +75,7 @@ class TestCanonicalFilename:
         filename = _canonical_lut_filename(spec, "kodak_supra_endura", "v032")
         assert filename == "lut_v032_portra400_supraendura.cube"
 
-    def test_per_paper_in_multi_bundle(self):
+    def test_per_print_in_multi_bundle(self):
         spec = BundleSpec(
             name="any",
             film_profile="kodak_portra_400",

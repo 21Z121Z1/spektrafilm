@@ -19,7 +19,7 @@ def test_default_bundle_meta_has_current_schema_version():
 
 def test_two_lut_bundle_construction():
     meta = BundleMeta(
-        name="portra400_5papers",
+        name="portra400_5prints",
         topology="2lut",
         resolution=33,
         stocks=StocksMeta(film="kodak_portra_400", prints=("kodak_endura", "fuji_crystal_archive")),
@@ -33,8 +33,8 @@ def test_two_lut_bundle_construction():
         luts=(
             LutFileMeta(role="film", path="film.cube",
                         domain="input_rgb", range="cmy_film"),
-            LutFileMeta(role="print", paper="kodak_endura",
-                        path="papers/kodak_endura/print.cube",
+            LutFileMeta(role="print", print_profile="kodak_endura",
+                        path="prints/kodak_endura/print.cube",
                         domain="cmy_film", range="output_rgb"),
         ),
     )
@@ -46,7 +46,7 @@ def test_two_lut_bundle_construction():
     assert meta.wires.cmy_film.d_max == (3.8, 4.1, 3.6)
     assert meta.wires.log_e_film is None
     assert len(meta.luts) == 2
-    assert meta.luts[1].paper == "kodak_endura"
+    assert meta.luts[1].print_profile == "kodak_endura"
 
 
 def test_four_lut_bundle_carries_all_intermediate_wires():

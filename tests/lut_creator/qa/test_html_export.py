@@ -17,7 +17,7 @@ def sample_report_md(tmp_path: Path) -> Path:
     md.write_text(
         "# QA report — `test_bundle`\n"
         "\n"
-        "- **Paper**: `kodak_portra_endura`\n"
+        "- **Print**: `kodak_portra_endura`\n"
         "- **Topology**: `1lut`\n"
         "\n"
         "## Summary\n"

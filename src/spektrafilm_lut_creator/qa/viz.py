@@ -611,6 +611,7 @@ def gamut_edge_stress(
     *,
     in_cs: str,
     out_cs: str,
+    gamut_compress: "OutputGamutCompressSpec | None" = None,
 ) -> Figure:
     """Granger-style RGB stress chart panels.
 
@@ -648,11 +649,23 @@ def gamut_edge_stress(
     # The per-column gradient construction (white → saturated edge →
     # black, OOG pixels black) is documented in the QA report; keeping
     # the suptitle to one line avoids stomping on the top panel.
-    fig.suptitle(
-        f"Gamut-edge stress test — {in_cs} → {out_cs}",
-        color=HI, fontsize=SUPTITLE_FS,
-    )
+    title = f"Gamut-edge stress test — {in_cs} → {out_cs}"
+    if gamut_compress is not None:
+        title += "\n" + _format_output_gamut_compress(gamut_compress)
+    fig.suptitle(title, color=HI, fontsize=SUPTITLE_FS)
     return fig
+
+
+def _format_output_gamut_compress(
+    spec: "OutputGamutCompressSpec",
+) -> str:
+    """One-line summary of the output gamut compression spec for plot
+    suptitles: ``compress: <mode> · <algorithm> · knee=(t, l, p)``.
+    ``mode='off'`` short-circuits to ``compress: off``."""
+    if spec.mode == "off":
+        return "compress: off"
+    t, l, p = spec.knee
+    return f"compress: {spec.algorithm} · knee=(t={t:g}, l={l:g}, p={p:g})"
 
 
 # ---------------------------------------------------------------------------

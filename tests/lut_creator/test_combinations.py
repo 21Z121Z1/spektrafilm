@@ -9,7 +9,7 @@ the unified ``_bake_sublut`` helper. These tests verify:
 - Each multi-LUT topology produces the right *count* and naming.
 - Combinations land in a ``combinations/`` subfolder.
 - Each combination has a matching ``LutFileMeta`` with the right
-  ``subchain_<ids>`` role, domain/range, and paper field.
+  ``subchain_<ids>`` role, domain/range, and print field.
 - Sub-chain cubes are physically equivalent to their canonical
   counterparts (4-LUT ``l1234`` == 1-LUT combined cube, byte-equal
   tables for the same spec).
@@ -34,14 +34,14 @@ _RESOLUTION = 5
 _INPUT_CS = "ACEScg"
 _OUTPUT_CS = "sRGB"
 _FILM = "kodak_portra_400"
-_PAPER = "kodak_portra_endura"
+_PRINT = "kodak_portra_endura"
 
 
-def _spec(topology: str, *, include_combinations: bool, papers=(_PAPER,)) -> BundleSpec:
+def _spec(topology: str, *, include_combinations: bool, prints=(_PRINT,)) -> BundleSpec:
     return BundleSpec(
         name=f"combo_test_{topology}",
         film_profile=_FILM,
-        print_profiles=papers,
+        print_profiles=prints,
         input_color_space=_INPUT_CS,
         output_color_space=_OUTPUT_CS,
         topology=topology,
@@ -55,7 +55,7 @@ class TestSpecDefault:
         spec = BundleSpec(
             name="x",
             film_profile=_FILM,
-            print_profiles=(_PAPER,),
+            print_profiles=(_PRINT,),
             input_color_space=_INPUT_CS,
             output_color_space=_OUTPUT_CS,
             topology="4lut",
@@ -98,17 +98,17 @@ class TestOneLutIsNoOp:
 
 class TestTwoLutCombinations:
     """2-LUT topology adds exactly one combination: l12 = rgb_in → rgb_out
-    (per-paper, since the full chain depends on the print stock)."""
+    (per-print, since the full chain depends on the print stock)."""
 
     @pytest.fixture(scope="class")
     def bundle(self):
         return BundleBuilder(_spec("2lut", include_combinations=True)).build()
 
-    def test_one_extra_cube_per_paper(self, bundle):
-        # Canonical 2-LUT: 1 film + 1 print. Plus 1 combination (l12) per paper.
-        n_papers = 1
-        n_canonical = 1 + n_papers
-        n_combinations = 1 * n_papers
+    def test_one_extra_cube_per_print(self, bundle):
+        # Canonical 2-LUT: 1 film + 1 print. Plus 1 combination (l12) per print.
+        n_prints = 1
+        n_canonical = 1 + n_prints
+        n_combinations = 1 * n_prints
         assert len(bundle.luts) == n_canonical + n_combinations
 
     def test_subchain_role_is_l12(self, bundle):
@@ -125,22 +125,22 @@ class TestTwoLutCombinations:
         sub = [e for e in bundle.meta.luts if e.role.startswith("subchain_")][0]
         assert sub.domain == "input_rgb"
         assert sub.range == "output_rgb"
-        assert sub.paper == _PAPER
+        assert sub.print_profile == _PRINT
 
 
 class TestThreeLutCombinations:
-    """3-LUT adds l12 (shared), l23 (per-paper), l123 (per-paper)."""
+    """3-LUT adds l12 (shared), l23 (per-print), l123 (per-print)."""
 
     @pytest.fixture(scope="class")
     def bundle(self):
         return BundleBuilder(_spec("3lut", include_combinations=True)).build()
 
     def test_total_extra_cubes(self, bundle):
-        # Canonical: 2 shared (L1, L2) + 1 per-paper (L3) = 3 for 1 paper.
-        # Combinations: 1 shared (l12) + 2 per-paper (l23, l123) = 3 for 1 paper.
-        n_papers = 1
-        n_canonical = 2 + n_papers
-        n_combinations = 1 + 2 * n_papers
+        # Canonical: 2 shared (L1, L2) + 1 per-print (L3) = 3 for 1 print.
+        # Combinations: 1 shared (l12) + 2 per-print (l23, l123) = 3 for 1 print.
+        n_prints = 1
+        n_canonical = 2 + n_prints
+        n_combinations = 1 + 2 * n_prints
         assert len(bundle.luts) == n_canonical + n_combinations
 
     def test_subchain_roles(self, bundle):
@@ -149,30 +149,30 @@ class TestThreeLutCombinations:
 
     def test_l12_is_shared(self, bundle):
         l12 = next(e for e in bundle.meta.luts if e.role == "subchain_12")
-        assert l12.paper is None
-        # Shared cube path omits the paper segment.
+        assert l12.print_profile is None
+        # Shared cube path omits the print segment.
         assert "portraendura" not in l12.path
 
-    def test_l23_and_l123_are_per_paper(self, bundle):
+    def test_l23_and_l123_are_per_print(self, bundle):
         for role in ("subchain_23", "subchain_123"):
             entry = next(e for e in bundle.meta.luts if e.role == role)
-            assert entry.paper == _PAPER
+            assert entry.print_profile == _PRINT
             assert "portraendura" in entry.path
 
 
 class TestFourLutCombinations:
-    """4-LUT adds 6 combinations: l12 (shared), l23/l34/l123/l234/l1234 (per-paper)."""
+    """4-LUT adds 6 combinations: l12 (shared), l23/l34/l123/l234/l1234 (per-print)."""
 
     @pytest.fixture(scope="class")
     def bundle(self):
         return BundleBuilder(_spec("4lut", include_combinations=True)).build()
 
     def test_total_extra_cubes(self, bundle):
-        # Canonical: 2 shared (L1, L2) + 2 per-paper (L3, L4) = 4 for 1 paper.
-        # Combinations: 1 shared (l12) + 5 per-paper (l23, l34, l123, l234, l1234) = 6 for 1 paper.
-        n_papers = 1
-        n_canonical = 2 + 2 * n_papers
-        n_combinations = 1 + 5 * n_papers
+        # Canonical: 2 shared (L1, L2) + 2 per-print (L3, L4) = 4 for 1 print.
+        # Combinations: 1 shared (l12) + 5 per-print (l23, l34, l123, l234, l1234) = 6 for 1 print.
+        n_prints = 1
+        n_canonical = 2 + 2 * n_prints
+        n_combinations = 1 + 5 * n_prints
         assert len(bundle.luts) == n_canonical + n_combinations
 
     def test_subchain_roles(self, bundle):
@@ -183,15 +183,15 @@ class TestFourLutCombinations:
         actual = {e.role for e in bundle.meta.luts if e.role.startswith("subchain_")}
         assert actual == expected
 
-    def test_l12_is_shared_others_are_per_paper(self, bundle):
+    def test_l12_is_shared_others_are_per_print(self, bundle):
         shared_roles = {"subchain_12"}
         for entry in bundle.meta.luts:
             if not entry.role.startswith("subchain_"):
                 continue
             if entry.role in shared_roles:
-                assert entry.paper is None, f"{entry.role} should be shared"
+                assert entry.print_profile is None, f"{entry.role} should be shared"
             else:
-                assert entry.paper == _PAPER, f"{entry.role} should be per-paper"
+                assert entry.print_profile == _PRINT, f"{entry.role} should be per-print"
 
     def test_all_subchain_cubes_clamped_to_unit(self, bundle):
         # Sub-chain LUTs must satisfy the same [0, 1] cube invariant as
@@ -240,8 +240,8 @@ class TestCanonicalUnchangedWhenCombinationsOn:
         bundle_off = BundleBuilder(_spec(topology, include_combinations=False)).build()
         bundle_on = BundleBuilder(_spec(topology, include_combinations=True)).build()
 
-        _, lut_off = _effective_lut(bundle_off, paper_index=0)
-        _, lut_on = _effective_lut(bundle_on, paper_index=0)
+        _, lut_off = _effective_lut(bundle_off, print_index=0)
+        _, lut_on = _effective_lut(bundle_on, print_index=0)
         np.testing.assert_array_equal(
             lut_off.table, lut_on.table,
             err_msg=(
@@ -255,9 +255,9 @@ class TestCanonicalUnchangedWhenCombinationsOn:
 class TestL1234EqualsOneLutCombined:
     """The 4-LUT bundle's ``l1234`` sub-chain is mathematically the same
     transform as a 1-LUT bundle's combined cube for the same (film,
-    paper, resolution, color spaces). Both go through the same
+    print, resolution, color spaces). Both go through the same
     ``_bake_sublut(inject='rgb_in', collect='rgb_out')`` against a
-    per-paper pipeline, so the cube tables must be byte-identical."""
+    per-print pipeline, so the cube tables must be byte-identical."""
 
     def test_byte_identical_to_1lut_combined(self):
         spec_4lut = _spec("4lut", include_combinations=True)
@@ -273,7 +273,7 @@ class TestL1234EqualsOneLutCombined:
 
 
 class TestL12MatchesTwoLutFilmInThreeAndFourLut:
-    """The shared l12 (rgb_in → cmy_film) is paper-independent and the
+    """The shared l12 (rgb_in → cmy_film) is print-independent and the
     same math whether the bundle is 3-LUT or 4-LUT. Both should produce
     byte-identical tables to the 2-LUT bundle's film LUT for the same
     spec."""
@@ -291,16 +291,16 @@ class TestL12MatchesTwoLutFilmInThreeAndFourLut:
         np.testing.assert_array_equal(l12.table, film.table)
 
 
-class TestMultiPaperCombinations:
-    """Per-paper combinations multiply by paper count; shared ones don't."""
+class TestMultiPrintCombinations:
+    """Per-print combinations multiply by print count; shared ones don't."""
 
-    _PAPERS = ("kodak_portra_endura", "fujifilm_crystal_archive_typeii")
+    _PRINTS = ("kodak_portra_endura", "fujifilm_crystal_archive_typeii")
 
-    def test_4lut_two_papers_combination_count(self):
-        spec = _spec("4lut", include_combinations=True, papers=self._PAPERS)
+    def test_4lut_two_prints_combination_count(self):
+        spec = _spec("4lut", include_combinations=True, prints=self._PRINTS)
         bundle = BundleBuilder(spec).build()
-        # 2 shared canonical + 2*2 per-paper canonical = 6 canonical.
-        # 1 shared combination + 5 per-paper * 2 papers = 11 combinations.
+        # 2 shared canonical + 2*2 per-print canonical = 6 canonical.
+        # 1 shared combination + 5 per-print * 2 prints = 11 combinations.
         sub_count = sum(
             1 for e in bundle.meta.luts if e.role.startswith("subchain_")
         )
@@ -308,12 +308,12 @@ class TestMultiPaperCombinations:
         # Total cubes = 6 + 11 = 17.
         assert len(bundle.luts) == 17
 
-    def test_shared_l12_not_duplicated_across_papers(self):
-        spec = _spec("4lut", include_combinations=True, papers=self._PAPERS)
+    def test_shared_l12_not_duplicated_across_prints(self):
+        spec = _spec("4lut", include_combinations=True, prints=self._PRINTS)
         bundle = BundleBuilder(spec).build()
         l12_entries = [e for e in bundle.meta.luts if e.role == "subchain_12"]
         assert len(l12_entries) == 1
-        assert l12_entries[0].paper is None
+        assert l12_entries[0].print_profile is None
 
 
 class TestReadmeContainsCombinationsSection:
@@ -348,7 +348,7 @@ class TestOcioDescriptionMentionsCombinations:
         spec = BundleSpec(
             name="combo_ocio_test",
             film_profile=_FILM,
-            print_profiles=(_PAPER,),
+            print_profiles=(_PRINT,),
             input_color_space="Panasonic V-Log",
             output_color_space=_OUTPUT_CS,
             topology="1lut",
@@ -365,7 +365,7 @@ class TestOcioDescriptionMentionsCombinations:
         spec = BundleSpec(
             name="no_combo_ocio_test",
             film_profile=_FILM,
-            print_profiles=(_PAPER,),
+            print_profiles=(_PRINT,),
             input_color_space="Panasonic V-Log",
             output_color_space=_OUTPUT_CS,
             topology="1lut",
@@ -407,7 +407,7 @@ class TestTopologyCombinationTable:
                     assert b == a + 1, f"{topology}: {ids} is not contiguous"
 
     def test_shared_iff_collect_tap_is_filming_side(self):
-        """A sub-chain is paper-independent iff its collect tap is at or
+        """A sub-chain is print-independent iff its collect tap is at or
         before ``cmy_film`` (i.e., it stays in the filming half of the
         pipeline)."""
         filming_taps = {"log_e_film", "cmy_film"}

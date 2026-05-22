@@ -22,7 +22,7 @@ The split is deliberate:
 ## What lives here
 
 - **Command-line interface** (`cli.py`) — `spektrafilm-lut build` and
-  `spektrafilm-lut list`. Accepts color spaces as canonical registry names
+  `spektrafilm-lut list KIND`. Accepts color spaces as canonical registry names
   (`"Panasonic V-Log"`) or short-tag slugs (`vlog`); the full `BundleSpec` is
   also loadable from TOML via `--from spec.toml`. CLI flags override TOML when
   both are present.

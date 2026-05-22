@@ -42,9 +42,9 @@ class QAContext:
         to re-invoke the pipeline for ad-hoc patterns.
     bundle
         The built :class:`Bundle`. Carries metadata + the LUT list.
-    paper_index
+    print_index
         Which LUT in ``bundle.luts`` this context is for.
-    paper_name
+    print_name
         Convenience: the print stock name (e.g.,
         ``"kodak_portra_endura"``).
     lut
@@ -66,8 +66,8 @@ class QAContext:
     """
     spec: BundleSpec
     bundle: Bundle
-    paper_index: int
-    paper_name: str
+    print_index: int
+    print_name: str
     lut: Lut
     grid_input: np.ndarray
     grid_output: np.ndarray
@@ -81,27 +81,27 @@ def list_tests() -> list[str]:
     return [fn.__name__ for fn in DEFAULT_SUITE]
 
 
-def _paper_name(bundle: Bundle, paper_index: int) -> str:
-    """Resolve the human-readable paper name for the QA paper index.
+def _print_name(bundle: Bundle, print_index: int) -> str:
+    """Resolve the human-readable print name for the QA print index.
 
-    The ``paper_index`` always means "which print paper", indexed into
+    The ``print_index`` always means "which print", indexed into
     ``bundle.meta.stocks.prints`` — the *bundle.luts* indexing is
     topology-dependent (1-LUT: 1:1; 2-LUT: film at 0 then prints).
     """
     if bundle.meta.stocks is not None:
         prints = bundle.meta.stocks.prints
-        if paper_index < 0 or paper_index >= len(prints):
+        if print_index < 0 or print_index >= len(prints):
             raise IndexError(
-                f"paper_index {paper_index} out of range for bundle with "
-                f"{len(prints)} papers"
+                f"print_index {print_index} out of range for bundle with "
+                f"{len(prints)} prints"
             )
-        return prints[paper_index]
+        return prints[print_index]
     # Fallback: no stocks recorded; assume 1-LUT and use the LUT path.
-    return bundle.luts[paper_index][0]
+    return bundle.luts[print_index][0]
 
 
-def _effective_lut(bundle: Bundle, paper_index: int) -> tuple[str, Lut]:
-    """Return ``(label, Lut)`` for the LUT to QA at ``paper_index``.
+def _effective_lut(bundle: Bundle, print_index: int) -> tuple[str, Lut]:
+    """Return ``(label, Lut)`` for the LUT to QA at ``print_index``.
 
     Composes the canonical L1..LN chain via trilinear interpolation
     (the host-default mode), matching what a user actually deploys
@@ -115,36 +115,36 @@ def _effective_lut(bundle: Bundle, paper_index: int) -> tuple[str, Lut]:
     into that list, so positional indexing would pick the wrong cube.
     """
     topology = bundle.meta.topology
-    paper_name = _paper_name(bundle, paper_index)
+    print_name = _print_name(bundle, print_index)
     by_path: dict[str, Lut] = {p: l for p, l in bundle.luts}
 
-    def find(role: str, paper: str | None = None) -> tuple[str, Lut]:
+    def find(role: str, print_profile: str | None = None) -> tuple[str, Lut]:
         for entry in bundle.meta.luts:
-            if entry.role == role and entry.paper == paper:
+            if entry.role == role and entry.print_profile == print_profile:
                 return entry.path, by_path[entry.path]
         raise LookupError(
-            f"no canonical LUT in bundle with role={role!r}, paper={paper!r}"
+            f"no canonical LUT in bundle with role={role!r}, print_profile={print_profile!r}"
         )
 
     if topology == "1lut":
-        path, lut = find("combined", paper_name)
+        path, lut = find("combined", print_name)
         return path, lut
     if topology == "2lut":
         _, film = find("film")
-        path, print_lut = find("print", paper_name)
+        path, print_lut = find("print", print_name)
         composed = _compose_film_print(film, print_lut, bundle.meta.resolution)
         return path, composed
     if topology == "3lut":
         _, l1 = find("filming_expose")
         _, l2 = find("filming_develop")
-        path, l3 = find("printing_combined", paper_name)
+        path, l3 = find("printing_combined", print_name)
         composed = _compose_3lut(l1, l2, l3, bundle.meta.resolution)
         return path, composed
     if topology == "4lut":
         _, l1 = find("filming_expose")
         _, l2 = find("filming_develop")
-        _, l3 = find("printing_expose", paper_name)
-        path, l4 = find("printing_develop_scan", paper_name)
+        _, l3 = find("printing_expose", print_name)
+        path, l4 = find("printing_develop_scan", print_name)
         composed = _compose_4lut(l1, l2, l3, l4, bundle.meta.resolution)
         return path, composed
     raise NotImplementedError(
@@ -219,9 +219,9 @@ def run(
     out_dir: Path | str,
     *,
     suite: Sequence[Callable[[QAContext], Result]] | None = None,
-    paper_index: int = 0,
+    print_index: int = 0,
 ) -> list[Result]:
-    """Run the QA suite against one paper's LUT chain in the bundle.
+    """Run the QA suite against one print's LUT chain in the bundle.
 
     Parameters
     ----------
@@ -234,11 +234,11 @@ def run(
     suite
         Optional alternative test list. Each item is a function
         taking a :class:`QAContext` and returning a :class:`Result`.
-    paper_index
-        Which print paper to QA. For ``1lut`` bundles this
+    print_index
+        Which print to QA. For ``1lut`` bundles this
         indexes directly into ``bundle.luts``; for ``2lut``
-        the paper_index selects which paper's chain (shared film +
-        that paper's print) to QA.
+        the print_index selects which print's chain (shared film +
+        that print's LUT) to QA.
 
     Returns
     -------
@@ -261,23 +261,23 @@ def run(
     # Materialize the effective LUT for QA. For 2-LUT bundles, this is
     # the chain (film → print) sampled at the bundle's cube resolution
     # — what users will actually deploy. For 1-LUT bundles, it's just
-    # the paper's combined LUT.
-    rel_path, lut = _effective_lut(bundle_obj, paper_index)
-    paper_name = _paper_name(bundle_obj, paper_index)
+    # the print's combined LUT.
+    rel_path, lut = _effective_lut(bundle_obj, print_index)
+    print_name = _print_name(bundle_obj, print_index)
 
     n = lut.resolution
     grid_input = cube_grid(n)
     grid_output = lut.table.reshape(n ** 3, 3)
 
-    print(f"[qa] computing reference samples for paper {paper_index} ({paper_name})...")
-    ref = reference.compute_or_load(spec_obj, bundle_obj, paper_index, cache_dir)
+    print(f"[qa] computing reference samples for print {print_index} ({print_name})...")
+    ref = reference.compute_or_load(spec_obj, bundle_obj, print_index, cache_dir)
     print(f"[qa]   cache key={ref.cache_key}  samples={ref.rng_samples_encoded.shape[0]}")
 
     ctx = QAContext(
         spec=spec_obj,
         bundle=bundle_obj,
-        paper_index=paper_index,
-        paper_name=paper_name,
+        print_index=print_index,
+        print_name=print_name,
         lut=lut,
         grid_input=grid_input,
         grid_output=grid_output,
@@ -329,7 +329,7 @@ def write_report(results: list[Result], ctx: QAContext, path: Path) -> None:
 
     The layout is the same every time:
 
-    1. Run header (bundle, paper, color spaces, resolution).
+    1. Run header (bundle, print, color spaces, resolution).
     2. Summary table — one row per test, headline number(s).
     3. Per-test sections: heading, units, summary table, figure,
        reference-values list, interpretation paragraph.
@@ -350,7 +350,7 @@ def write_report(results: list[Result], ctx: QAContext, path: Path) -> None:
 
     lines.append(f"# QA report — `{bundle.meta.name}`")
     lines.append("")
-    lines.append(f"- **Paper**: `{ctx.paper_name}`")
+    lines.append(f"- **Print**: `{ctx.print_name}`")
     lines.append(f"- **Film**: `{spec.film_profile}`")
     lines.append(f"- **Input color space**: `{spec.input_color_space}`")
     lines.append(f"- **Output color space**: `{spec.output_color_space}`")

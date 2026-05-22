@@ -138,13 +138,13 @@ def test_bundle_write_with_qa_appends_quality_block_to_readme(tmp_path):
     assert "off_grid_identity" in readme
 
 
-def test_reference_cache_invalidates_on_paper_change(spec, bundle, tmp_path):
+def test_reference_cache_invalidates_on_print_change(spec, bundle, tmp_path):
     """The cache should round-trip on a second run with the same bundle."""
-    run(spec, bundle, tmp_path, paper_index=0)
+    run(spec, bundle, tmp_path, print_index=0)
     cache_files = list((tmp_path / "cache").glob("*.npz"))
     assert cache_files, "first run should write the reference cache"
     # Second run reuses the cache; we just verify it completes.
-    results = run(spec, bundle, tmp_path, paper_index=0)
+    results = run(spec, bundle, tmp_path, print_index=0)
     assert len(results) == 14
 
 
@@ -173,7 +173,7 @@ def two_lut_bundle(two_lut_spec: BundleSpec):
 @pytest.fixture(scope="module")
 def two_lut_results(two_lut_spec, two_lut_bundle, tmp_path_factory):
     out_dir = tmp_path_factory.mktemp("qa_two_lut")
-    return run(two_lut_spec, two_lut_bundle, out_dir, paper_index=0), out_dir
+    return run(two_lut_spec, two_lut_bundle, out_dir, print_index=0), out_dir
 
 
 def test_two_lut_qa_returns_all_tests(two_lut_results):
@@ -198,23 +198,23 @@ def test_two_lut_qa_writes_report_and_figures(two_lut_results):
     assert len(figures) == len(results)
 
 
-def test_two_lut_qa_indexes_by_paper_not_lut(two_lut_spec, two_lut_bundle, tmp_path):
-    """paper_index=1 must select the SECOND paper, not the second cube in
-    bundle.luts (which is the first paper's print LUT at index 1 in a
+def test_two_lut_qa_indexes_by_print_not_lut(two_lut_spec, two_lut_bundle, tmp_path):
+    """print_index=1 must select the SECOND print, not the second cube in
+    bundle.luts (which is the first print's print LUT at index 1 in a
     2-LUT layout). This is the topology-stable indexing contract."""
-    # The bundle has 1 film + 2 print LUTs; paper_index in [0, 1].
+    # The bundle has 1 film + 2 print LUTs; print_index in [0, 1].
     out_dir = tmp_path / "p1"
-    results = run(two_lut_spec, two_lut_bundle, out_dir, paper_index=1)
+    results = run(two_lut_spec, two_lut_bundle, out_dir, print_index=1)
     assert len(results) == 14
     report = (out_dir / "report.md").read_text(encoding="utf-8")
-    # The report names the paper, which must be the second print stock.
+    # The report names the print, which must be the second print stock.
     assert "fujifilm_crystal_archive_typeii" in report
 
 
-def test_two_lut_qa_paper_index_out_of_range(two_lut_spec, two_lut_bundle, tmp_path):
-    # Bundle has 2 papers; index 2 is out of range.
+def test_two_lut_qa_print_index_out_of_range(two_lut_spec, two_lut_bundle, tmp_path):
+    # Bundle has 2 prints; index 2 is out of range.
     with pytest.raises(IndexError, match="out of range"):
-        run(two_lut_spec, two_lut_bundle, tmp_path, paper_index=2)
+        run(two_lut_spec, two_lut_bundle, tmp_path, print_index=2)
 
 
 # ---------------------------------------------------------------------------
@@ -242,7 +242,7 @@ def three_lut_bundle(three_lut_spec: BundleSpec):
 @pytest.fixture(scope="module")
 def three_lut_results(three_lut_spec, three_lut_bundle, tmp_path_factory):
     out_dir = tmp_path_factory.mktemp("qa_three_lut")
-    return run(three_lut_spec, three_lut_bundle, out_dir, paper_index=0), out_dir
+    return run(three_lut_spec, three_lut_bundle, out_dir, print_index=0), out_dir
 
 
 def test_three_lut_qa_returns_all_tests(three_lut_results):
@@ -259,13 +259,13 @@ def test_three_lut_qa_no_tests_raised(three_lut_results):
     )
 
 
-def test_three_lut_qa_indexes_by_paper_not_lut(
+def test_three_lut_qa_indexes_by_print_not_lut(
     three_lut_spec, three_lut_bundle, tmp_path,
 ):
-    """For a 3-LUT bundle, paper_index=1 must compose L1+L2+L3(paper1),
+    """For a 3-LUT bundle, print_index=1 must compose L1+L2+L3(print1),
     not literally bundle.luts[1] (which is the shared L2)."""
     out_dir = tmp_path / "p1"
-    results = run(three_lut_spec, three_lut_bundle, out_dir, paper_index=1)
+    results = run(three_lut_spec, three_lut_bundle, out_dir, print_index=1)
     assert len(results) == 14
     report = (out_dir / "report.md").read_text(encoding="utf-8")
     assert "fujifilm_crystal_archive_typeii" in report
@@ -296,7 +296,7 @@ def four_lut_bundle(four_lut_spec: BundleSpec):
 @pytest.fixture(scope="module")
 def four_lut_results(four_lut_spec, four_lut_bundle, tmp_path_factory):
     out_dir = tmp_path_factory.mktemp("qa_four_lut")
-    return run(four_lut_spec, four_lut_bundle, out_dir, paper_index=0), out_dir
+    return run(four_lut_spec, four_lut_bundle, out_dir, print_index=0), out_dir
 
 
 def test_four_lut_qa_returns_all_tests(four_lut_results):
@@ -321,11 +321,11 @@ def test_four_lut_qa_writes_report_and_figures(four_lut_results):
     assert len(figures) == len(results)
 
 
-def test_four_lut_qa_indexes_by_paper_not_lut(four_lut_spec, four_lut_bundle, tmp_path):
-    """For a 4-LUT bundle, paper_index=1 must compose L1+L2+L3(paper1)+L4(paper1),
+def test_four_lut_qa_indexes_by_print_not_lut(four_lut_spec, four_lut_bundle, tmp_path):
+    """For a 4-LUT bundle, print_index=1 must compose L1+L2+L3(print1)+L4(print1),
     not literally bundle.luts[1] (which is the shared L2)."""
     out_dir = tmp_path / "p1"
-    results = run(four_lut_spec, four_lut_bundle, out_dir, paper_index=1)
+    results = run(four_lut_spec, four_lut_bundle, out_dir, print_index=1)
     assert len(results) == 14
     report = (out_dir / "report.md").read_text(encoding="utf-8")
     assert "fujifilm_crystal_archive_typeii" in report

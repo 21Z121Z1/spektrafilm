@@ -8,7 +8,7 @@ Three layers of validation, in order of importance:
    ACES2065-1 to the spektrafilm colorspace, and the processor produces
    finite output on a sampled grid.
 3. **Cube-application consistency** — the named colorspace path
-   (ACES2065-1 -> spektrafilm_<film>_<paper>) produces the same numbers
+   (ACES2065-1 -> spektrafilm_<film>_<print>) produces the same numbers
    as the equivalent explicit transform chain (AP0 -> input encoded ->
    apply .cube directly), confirming OCIO is composing the steps the
    way the emitter intends.
@@ -40,7 +40,7 @@ pytest.importorskip(
 
 _RESOLUTION = 5
 _FILM = "kodak_portra_400"
-_PAPER = "kodak_portra_endura"
+_PRINT = "kodak_portra_endura"
 _INPUT_CS = "ACEScg"
 _OUTPUT_CS = "sRGB"
 
@@ -54,7 +54,7 @@ class TestSupportedPredicate:
         defaults = dict(
             name="t",
             film_profile=_FILM,
-            print_profiles=(_PAPER,),
+            print_profiles=(_PRINT,),
             input_color_space=_INPUT_CS,
             output_color_space=_OUTPUT_CS,
             topology="1lut",
@@ -102,7 +102,7 @@ def written_bundle(tmp_path_factory) -> tuple[Path, BundleSpec, "Bundle"]:
     spec = BundleSpec(
         name="ocio_emit_fixture",
         film_profile=_FILM,
-        print_profiles=(_PAPER,),
+        print_profiles=(_PRINT,),
         input_color_space=_INPUT_CS,
         output_color_space=_OUTPUT_CS,
         topology="1lut",
@@ -135,7 +135,7 @@ class TestConfigOnDisk:
         spec = BundleSpec(
             name="default_no_ocio",
             film_profile=_FILM,
-            print_profiles=(_PAPER,),
+            print_profiles=(_PRINT,),
             input_color_space=_INPUT_CS,
             output_color_space=_OUTPUT_CS,
             topology="1lut",
@@ -150,7 +150,7 @@ class TestConfigOnDisk:
         spec = BundleSpec(
             name="explicit_no_ocio",
             film_profile=_FILM,
-            print_profiles=(_PAPER,),
+            print_profiles=(_PRINT,),
             input_color_space=_INPUT_CS,
             output_color_space=_OUTPUT_CS,
             topology="1lut",
@@ -266,7 +266,7 @@ class TestCubeApplicationConsistency:
 # ---------------------------------------------------------------------------
 
 # Expected intermediate colorspace names for each multi-LUT topology, given
-# the (film, paper) fixture pair below. Driven by the naming convention in
+# the (film, print) fixture pair below. Driven by the naming convention in
 # ocio_emit._intermediate_specs.
 _EXPECTED_INTERMEDIATES: dict[str, list[str]] = {
     "1lut": [],
@@ -289,7 +289,7 @@ def topology_bundle(request, tmp_path_factory) -> tuple[Path, BundleSpec, "Bundl
     spec = BundleSpec(
         name=f"topo_{topo}_fixture",
         film_profile=_FILM,
-        print_profiles=(_PAPER,),
+        print_profiles=(_PRINT,),
         input_color_space=_INPUT_CS,
         output_color_space=_OUTPUT_CS,
         topology=topo,
@@ -375,17 +375,17 @@ class TestAllTopologies:
             assert f"{wires.log_e_film.max:.4f}" in text
 
 
-class TestMultiPaperFourLut:
-    """A 2-paper 4-LUT bundle exercises the dedup logic: shared
-    intermediates (cmy_film, log_e_film) appear once; per-paper
+class TestMultiPrintFourLut:
+    """A 2-print 4-LUT bundle exercises the dedup logic: shared
+    intermediates (cmy_film, log_e_film) appear once; per-print
     intermediates (log_e_print) appear N times."""
 
     @pytest.fixture(scope="class")
-    def multi_paper_4lut(self, tmp_path_factory):
+    def multi_print_4lut(self, tmp_path_factory):
         spec = BundleSpec(
-            name="multi_paper_4lut",
+            name="multi_print_4lut",
             film_profile=_FILM,
-            print_profiles=(_PAPER, "fujifilm_crystal_archive_typeii"),
+            print_profiles=(_PRINT, "fujifilm_crystal_archive_typeii"),
             input_color_space=_INPUT_CS,
             output_color_space=_OUTPUT_CS,
             topology="4lut",
@@ -394,29 +394,29 @@ class TestMultiPaperFourLut:
         )
         builder = BundleBuilder(spec)
         bundle = builder.build()
-        out_dir = tmp_path_factory.mktemp("multi_paper_4lut")
+        out_dir = tmp_path_factory.mktemp("multi_print_4lut")
         builder.write(bundle, out_dir / spec.name)
         return (out_dir / spec.name), spec, bundle
 
-    def test_shared_intermediates_deduped(self, multi_paper_4lut):
+    def test_shared_intermediates_deduped(self, multi_print_4lut):
         import PyOpenColorIO as ocio
-        bundle_dir, _spec, _bundle = multi_paper_4lut
+        bundle_dir, _spec, _bundle = multi_print_4lut
         config = ocio.Config.CreateFromFile(str(bundle_dir / "config.ocio"))
         names = [cs.getName() for cs in config.getColorSpaces()]
         assert names.count("cmy_film_portra400") == 1
         assert names.count("log_e_film_portra400") == 1
 
-    def test_per_paper_intermediates_distinct(self, multi_paper_4lut):
+    def test_per_print_intermediates_distinct(self, multi_print_4lut):
         import PyOpenColorIO as ocio
-        bundle_dir, _spec, _bundle = multi_paper_4lut
+        bundle_dir, _spec, _bundle = multi_print_4lut
         config = ocio.Config.CreateFromFile(str(bundle_dir / "config.ocio"))
         names = {cs.getName() for cs in config.getColorSpaces()}
         assert "log_e_print_portra400_portraendura" in names
         assert "log_e_print_portra400_crystalarchive" in names
 
-    def test_papers_produce_distinct_output(self, multi_paper_4lut):
+    def test_prints_produce_distinct_output(self, multi_print_4lut):
         import PyOpenColorIO as ocio
-        bundle_dir, _spec, _bundle = multi_paper_4lut
+        bundle_dir, _spec, _bundle = multi_print_4lut
         config = ocio.Config.CreateFromFile(str(bundle_dir / "config.ocio"))
         rng = np.random.default_rng(seed=2)
         samples = rng.uniform(0.1, 0.9, size=(32, 3)).astype(np.float32)
@@ -428,11 +428,11 @@ class TestMultiPaperFourLut:
         config.getProcessor(
             "ACES2065-1", "spektrafilm_portra400_crystalarchive"
         ).getDefaultCPUProcessor().applyRGB(out_b)
-        # Different papers must produce numerically different output —
+        # Different prints must produce numerically different output —
         # otherwise the OCIO chain isn't actually routing through the
-        # per-paper L3/L4 cubes.
+        # per-print L3/L4 cubes.
         assert not np.allclose(out_a, out_b, atol=1e-3), (
-            "papers produced identical output; per-paper chain may be broken"
+            "prints produced identical output; per-print chain may be broken"
         )
 
 
@@ -441,27 +441,27 @@ class TestMultiPaperFourLut:
 # ---------------------------------------------------------------------------
 
 class TestDisplayAndViews:
-    """1-LUT bundles expose each paper as a View on the output Display.
+    """1-LUT bundles expose each print as a View on the output Display.
     Multi-LUT bundles keep the minimal stub (Raw view only) so the value
     proposition stays "expose intermediates via colorspaces"."""
 
-    def test_one_lut_single_paper_emits_spektrafilm_view(self, written_bundle):
+    def test_one_lut_single_print_emits_spektrafilm_view(self, written_bundle):
         import PyOpenColorIO as ocio
         bundle_dir, _spec, _bundle = written_bundle
         config = ocio.Config.CreateFromFile(str(bundle_dir / "config.ocio"))
         views = list(config.getViews(_OUTPUT_CS))
-        # One per-paper spektrafilm view + Raw fallback.
+        # One per-print spektrafilm view + Raw fallback.
         assert "Raw" in views
         spektrafilm_views = [v for v in views if v.startswith("Spektrafilm ")]
         assert len(spektrafilm_views) == 1
         assert "Kodak Portra 400" in spektrafilm_views[0]
         assert "Kodak Portra Endura" in spektrafilm_views[0]
 
-    def test_one_lut_multi_paper_emits_view_per_paper(self, tmp_path):
+    def test_one_lut_multi_print_emits_view_per_print(self, tmp_path):
         spec = BundleSpec(
-            name="multi_paper_views",
+            name="multi_print_views",
             film_profile=_FILM,
-            print_profiles=(_PAPER, "fujifilm_crystal_archive_typeii"),
+            print_profiles=(_PRINT, "fujifilm_crystal_archive_typeii"),
             input_color_space=_INPUT_CS,
             output_color_space=_OUTPUT_CS,
             topology="1lut",
@@ -476,7 +476,7 @@ class TestDisplayAndViews:
         )
         views = list(config.getViews(_OUTPUT_CS))
         spektrafilm_views = [v for v in views if v.startswith("Spektrafilm ")]
-        # N papers -> N spektrafilm views, plus Raw.
+        # N prints -> N spektrafilm views, plus Raw.
         assert len(spektrafilm_views) == 2
         assert "Raw" in views
 
@@ -500,7 +500,7 @@ class TestDisplayAndViews:
         spec = BundleSpec(
             name=f"gating_{topo}",
             film_profile=_FILM,
-            print_profiles=(_PAPER,),
+            print_profiles=(_PRINT,),
             input_color_space=_INPUT_CS,
             output_color_space=_OUTPUT_CS,
             topology=topo,
@@ -563,7 +563,7 @@ class TestExtendedColorSpaceCoverage:
         spec = BundleSpec(
             name=f"coverage_{input_cs.split()[0]}_{output_cs.split()[0]}".lower(),
             film_profile=_FILM,
-            print_profiles=(_PAPER,),
+            print_profiles=(_PRINT,),
             input_color_space=input_cs,
             output_color_space=output_cs,
             topology="1lut",

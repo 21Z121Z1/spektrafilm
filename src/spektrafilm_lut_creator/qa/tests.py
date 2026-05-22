@@ -924,7 +924,7 @@ def spectral_locus_envelope(ctx: "QAContext") -> Result:
         f"input:     {ctx.spec.input_color_space}\n"
         f"output:    {out_cs}\n"
         f"film:      {ctx.spec.film_profile}\n"
-        f"paper:     {ctx.paper_name}\n"
+        f"print:     {ctx.print_name}\n"
         f"\n"
         f"cube res:  {n}³ = {n**3} cells\n"
         f"valid:     {n_total} ({n_total/max(n**3,1):.0%})\n"
@@ -1450,12 +1450,12 @@ def _run_unbounded_pipeline_for_rim(
     spec = ctx.spec
     in_entry = get_color_space(spec.input_color_space)
     out_entry = get_color_space(spec.output_color_space)
-    paper = (
-        ctx.bundle.meta.stocks.prints[ctx.paper_index]
-        if ctx.bundle.meta.stocks else spec.print_profiles[ctx.paper_index]
+    print_profile = (
+        ctx.bundle.meta.stocks.prints[ctx.print_index]
+        if ctx.bundle.meta.stocks else spec.print_profiles[ctx.print_index]
     )
 
-    params = init_params(film_profile=spec.film_profile, print_profile=paper)
+    params = init_params(film_profile=spec.film_profile, print_profile=print_profile)
     params.debug.lut_mode = True
     params.io.input_primaries = in_entry.primaries
     params.io.output_primaries = out_entry.primaries
@@ -1674,9 +1674,9 @@ def output_gamut_edge_stress(ctx: "QAContext") -> Result:
     out_cs = spec.output_color_space
     in_entry = get_color_space(in_cs)
     out_entry = get_color_space(out_cs)
-    paper = (
-        ctx.bundle.meta.stocks.prints[ctx.paper_index]
-        if ctx.bundle.meta.stocks else spec.print_profiles[ctx.paper_index]
+    print_profile = (
+        ctx.bundle.meta.stocks.prints[ctx.print_index]
+        if ctx.bundle.meta.stocks else spec.print_profiles[ctx.print_index]
     )
 
     # Build the runtime pipeline once and share it across the three
@@ -1684,7 +1684,7 @@ def output_gamut_edge_stress(ctx: "QAContext") -> Result:
     # gamut_clip / input_gamut_compress / output_gamut_compress
     # settings mirror the bundle's bake-time configuration so the
     # stress test renders what the bundle would actually produce.
-    params = init_params(film_profile=spec.film_profile, print_profile=paper)
+    params = init_params(film_profile=spec.film_profile, print_profile=print_profile)
     params.debug.lut_mode = True
     params.io.input_primaries = in_entry.primaries
     params.io.output_primaries = out_entry.primaries
@@ -1704,7 +1704,10 @@ def output_gamut_edge_stress(ctx: "QAContext") -> Result:
         panels.append((cs, img, stats))
         summary[f"{cs}_oog_fraction_saturated_row"] = stats["oog_fraction_saturated_row"]
 
-    fig = viz.gamut_edge_stress(panels, in_cs=in_cs, out_cs=out_cs)
+    fig = viz.gamut_edge_stress(
+        panels, in_cs=in_cs, out_cs=out_cs,
+        gamut_compress=spec.output_gamut_compress,
+    )
     path = _save(ctx, fig, "output_gamut_edge_stress")
 
     return Result(

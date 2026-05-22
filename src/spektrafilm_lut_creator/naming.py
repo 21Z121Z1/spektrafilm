@@ -7,15 +7,15 @@ without importing ``builders`` (which would create a cycle —
 
 The canonical bundle name shape is::
 
-    spektrafilm_<version>_<film>[_<paper>]_<topology>_<input>_<output>
+    spektrafilm_<version>_<film>[_<print>]_<topology>_<input>_<output>
 
-For single-paper bundles ``<paper>`` is the normalized paper stock
-tag. For multi-paper bundles it becomes ``<N>paperpack`` (e.g.
-``3paperpack``) — the count communicates the pack's scope without
-falsely naming after one paper. Every tag is normalized:
+For single-print bundles ``<print>`` is the normalized print stock
+tag. For multi-print bundles it becomes ``<N>printpack`` (e.g.
+``3printpack``) — the count communicates the pack's scope without
+falsely naming after one print. Every tag is normalized:
 
 - ``<version>``: ``0.3.2`` → ``v032``
-- ``<film>`` / ``<paper>``: brand prefix stripped, first two
+- ``<film>`` / ``<print>``: brand prefix stripped, first two
   underscore-separated tokens fused (``kodak_portra_400`` →
   ``portra400``; ``fujifilm_crystal_archive_typeii`` →
   ``crystalarchive``)
@@ -98,10 +98,10 @@ def default_bundle_name(
 ) -> str:
     """Compute the canonical default bundle name from a spec's components.
 
-    The paper slot carries the normalized paper tag for single-paper
-    bundles and ``<N>paperpack`` (e.g. ``3paperpack``) for multi-paper
+    The print slot carries the normalized print tag for single-print
+    bundles and ``<N>printpack`` (e.g. ``3printpack``) for multi-print
     bundles — keeps the count discoverable from the filename without
-    misleadingly naming the pack after one of its papers.
+    misleadingly naming the pack after one of its prints.
     """
     # Lazy import to avoid a cycle with the registry (color_spaces
     # imports nothing from this package's core layout but its registry
@@ -118,22 +118,22 @@ def default_bundle_name(
     if len(print_profiles) == 1:
         parts.append(normalize_stock(print_profiles[0]))
     else:
-        parts.append(f"{len(print_profiles)}paperpack")
+        parts.append(f"{len(print_profiles)}printpack")
     parts.extend([topo_tag, in_tag, out_tag])
     return "_".join(parts)
 
 
-def per_paper_qa_folder_name(
+def per_print_qa_folder_name(
     film_profile: str,
     print_profile: str,
 ) -> str:
-    """Folder name for one paper's QA report inside ``<bundle>/qa/``.
+    """Folder name for one print's QA report inside ``<bundle>/qa/``.
 
-    Shape: ``<film>_<paper>`` (e.g. ``portra160_portraendura``). The
+    Shape: ``<film>_<print>`` (e.g. ``portra160_portraendura``). The
     parent bundle directory already carries the spektrafilm version,
     topology, and color-space pair; the QA folder only needs to
-    disambiguate by what changes *within* a bundle — the paper.
+    disambiguate by what changes *within* a bundle — the print.
     """
     film_tag = normalize_stock(film_profile)
-    paper_tag = normalize_stock(print_profile)
-    return f"{film_tag}_{paper_tag}"
+    print_tag = normalize_stock(print_profile)
+    return f"{film_tag}_{print_tag}"

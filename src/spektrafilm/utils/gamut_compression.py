@@ -130,28 +130,72 @@ class OutputGamutCompressSpec:
         ``validate_compression_against_references.py``). Available as
         an opt-in for users who want behavior matching downstream
         Resolve/Nuke gamut-compress tools.
+
+        ``"jzazbz"`` — JzCzhz chroma reduction, structurally identical
+        to ``oklch`` but in the JzAzBz perceptual space (Safdar 2017)
+        with the reference white luminance fixed at 100 cd/m² (SDR
+        diffuse white). JzAzBz handles the blue/cyan hue region more
+        gracefully than OkLab, which has a documented hue twist there
+        — cyan can drift toward blue under heavy oklch compression on
+        sRGB / Rec.2020 outputs. Use this if you see that artifact.
+        Default knee is currently a placeholder mirroring the OkLch
+        defaults; the JzAzBz Cz envelope still needs to be measured
+        per output space before final defaults can be picked.
+
+        ``"oklrab"`` — OkLab with Ottosson's 2023 rebased lightness
+        ``Lr`` (a monotonic 1D remap of ``L`` so the lightness scale
+        is closer to CIELAB ``L*``). Same chromatic axes ``(a, b)`` as
+        ``oklch``; only the ``C_max(L, h)`` table is indexed by ``Lr``
+        instead of ``L``. The knee response is then perceptually more
+        uniform across light and dark regions because equal increments
+        in ``Lr`` correspond to closer-to-equal perceived lightness
+        changes. Same per-pixel cost as ``oklch`` (one extra scalar
+        operation per sample for the ``L → Lr`` remap).
+
+        ``"cam16ucs"`` — CIECAM16 Uniform Color Space chroma reduction
+        (Li & Luo 2017, CIE-endorsed). Same JpCphp polar shape as
+        ``oklch`` / ``jzazbz``, but in CAM16-UCS, which models
+        chromatic adaptation and viewing-condition response explicitly
+        and has the cleanest constant-hue lines of the three across
+        the full gamut — including the blue region where OkLab drifts.
+        Viewing conditions are fixed at typical display review
+        (``L_A = 64 cd/m²``, ``Y_b = 20``, Average surround). Heavier
+        per-pixel than OkLab or JzAzBz (full CAM forward/inverse), so
+        bake time grows ~4–6× on the compression stage; pick this when
+        you want the smoothest principled chroma reduction and can
+        afford the cost.
     knee :
         ``(threshold, limit, power)`` of the Reinhard knee. Default
-        ``(0.815, 1.0, 1.2)`` matches the ACES RGC v1.3 cyan threshold
-        and power; the limit is reduced from 1.147 to 1.0 so the knee's
-        asymptote lands at the output gamut boundary itself (cube edge)
-        rather than past it — the LUT cube must contain values in
-        [0, 1] without needing a hard clip. Same reasoning as the
-        input side (see n100 §5.2).
+        ``(0.95, 1.0, 2.0)`` is gentle by design: the knee only starts
+        at 95% of the way to the boundary and softens through it with
+        ``p=2``, so most legitimate in-gamut chroma the film produces
+        is untouched and only the last 5% rolls off. This differs from
+        the input-side default ``(0.815, 1.0, 1.2)`` because the input
+        boundary is the visible spectral locus (which only non-physical
+        camera overshoots reach), whereas the output boundary is the
+        destination RGB cube — many real, in-gamut film colors live
+        right up against it. Limit stays at 1.0 so the asymptote sits
+        on the cube edge and the LUT cube remains in [0, 1] without
+        needing a hard clip. The knee operates on the unitless
+        normalized chroma ``C / C_max`` and is reused unchanged across
+        ``oklch`` and ``jzazbz``.
     """
 
     mode: Literal["off", "soft"] = "soft"
-    algorithm: Literal["aces_rgc", "oklch"] = "oklch"
-    knee: tuple[float, float, float] = (0.815, 1.0, 1.2)
+    algorithm: Literal[
+        "aces_rgc", "oklch", "oklrab", "jzazbz", "cam16ucs",
+    ] = "oklch"
+    knee: tuple[float, float, float] = (0.95, 1.0, 2.0)
 
     def __post_init__(self) -> None:
         if self.mode not in ("off", "soft"):
             raise ValueError(
                 f"mode must be 'off' or 'soft', got {self.mode!r}"
             )
-        if self.algorithm not in ("aces_rgc", "oklch"):
+        valid_algos = ("aces_rgc", "oklch", "oklrab", "jzazbz", "cam16ucs")
+        if self.algorithm not in valid_algos:
             raise ValueError(
-                f"algorithm must be 'aces_rgc' or 'oklch', "
+                f"algorithm must be one of {valid_algos}, "
                 f"got {self.algorithm!r}"
             )
         t, l, p = self.knee
@@ -569,41 +613,89 @@ def compress_rgb_aces_rgc(
 # ---------------------------------------------------------------------------
 
 
-_OKLCH_OUTPUT_CMAX_CACHE: dict[
-    str, tuple[np.ndarray, np.ndarray, np.ndarray]
+_OUTPUT_CMAX_CACHE: dict[
+    tuple[str, str], tuple[np.ndarray, np.ndarray, np.ndarray]
 ] = {}
 
+# JzAzBz operates on absolute XYZ in cd/m². For SDR output we anchor
+# diffuse white at 100 cd/m² — pixels at linear RGB=1.0 correspond to
+# Y = 100 cd/m². Configurable in future via spec; constant for now.
+_JZAZBZ_Y_W_CDM2 = 100.0
 
-def _build_oklch_output_c_max_table(
+# CAM16-UCS viewing conditions: typical display review per CIE 159
+# guidance — L_A = 64 cd/m² (a fifth of typical room max), Y_b = 20
+# (mid-gray surround), Average surround (the colour-science default).
+# Adapting whitepoint is the output color space's whitepoint at Y=1.
+_CAM16UCS_L_A = 64.0
+_CAM16UCS_Y_B = 20.0
+
+
+def _output_cs_whitepoint_xyz(output_color_space: str) -> np.ndarray:
+    """The output color space's whitepoint as XYZ at Y=1 — needed as
+    ``XYZ_w`` for CAM16's forward/inverse, kept in lockstep with the
+    normalized-XYZ convention used everywhere else in this module."""
+    cs = colour.RGB_COLOURSPACES[output_color_space]
+    xy = np.asarray(cs.whitepoint, dtype=float)
+    return _xy_to_xyz_unit_y(xy)
+
+
+# Ottosson 2023: OkLab "Lr" — a 1D nonlinear remap of OkLab's L so the
+# lightness scale tracks CIELAB L* more closely.
+# https://bottosson.github.io/posts/colorpicker/
+_OKLRAB_K1 = 0.206
+_OKLRAB_K2 = 0.03
+_OKLRAB_K3 = (1.0 + _OKLRAB_K1) / (1.0 + _OKLRAB_K2)
+
+
+def _oklab_L_to_oklrab_Lr(L: np.ndarray) -> np.ndarray:
+    """Forward Lr from OkLab L (Ottosson 2023). Monotonic on [0, 1],
+    fixes Lr(0)=0 and Lr(1)≈1; outside that range the formula stays
+    real and continuous."""
+    k1, k2, k3 = _OKLRAB_K1, _OKLRAB_K2, _OKLRAB_K3
+    t = k3 * L - k1
+    return 0.5 * (t + np.sqrt(t * t + 4.0 * k2 * k3 * L))
+
+
+def _oklrab_Lr_to_oklab_L(Lr: np.ndarray) -> np.ndarray:
+    """Inverse of :func:`_oklab_L_to_oklrab_Lr`."""
+    k1, k2, k3 = _OKLRAB_K1, _OKLRAB_K2, _OKLRAB_K3
+    return (Lr * (Lr + k1)) / (k3 * (Lr + k2))
+
+
+def _build_polar_perceptual_c_max_table(
     output_color_space: str,
+    *,
+    polar_to_xyz_unit: callable,
+    L_grid: np.ndarray,
+    chroma_initial_upper: float,
+    n_h: int,
+    n_bisect: int,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Bisect to find max Oklch chroma at each (L, h) such that the
-    resulting linear RGB in ``output_color_space`` is inside [0, 1]^3.
+    """Bisect to find max chroma at each (L, h) such that the resulting
+    linear RGB in ``output_color_space`` is inside [0, 1]^3.
 
-    Per output color space; cached after the first call. Sampling
-    matches the input-side ``_build_oklch_c_max_table`` (64 × 720)
-    so resolution and per-cell error characteristics are consistent.
+    The perceptual space (OkLab, JzAzBz, …) is parameterized by
+    ``polar_to_xyz_unit``: a callable ``(L, a, b) → XYZ`` returning
+    XYZ normalized so diffuse white has Y=1 (i.e. the convention
+    ``colour.XYZ_to_RGB`` expects with ``apply_cctf_decoding=False``).
+    Any absolute-luminance scaling (e.g. JzAzBz's Y_w in cd/m²) is the
+    callable's responsibility.
     """
     cs = colour.RGB_COLOURSPACES[output_color_space]
     white = np.asarray(cs.whitepoint, dtype=float)
 
-    n_L = _OKLCH_CMAX_TABLE_N_L
-    n_h = _OKLCH_CMAX_TABLE_N_H
-    n_bisect = _OKLCH_CMAX_TABLE_N_BISECT
-
-    L_grid = np.linspace(0.02, 1.0, n_L)
     h_grid = np.linspace(-np.pi, np.pi, n_h, endpoint=False)
     L_mesh, h_mesh = np.meshgrid(L_grid, h_grid, indexing="ij")
 
     lo = np.zeros_like(L_mesh)
-    hi = np.full_like(L_mesh, 0.5)  # 0.5 covers all realistic chromas
+    hi = np.full_like(L_mesh, chroma_initial_upper)
 
     for _ in range(n_bisect):
         mid = (lo + hi) * 0.5
         a = mid * np.cos(h_mesh)
         b = mid * np.sin(h_mesh)
         lab = np.stack([L_mesh, a, b], axis=-1).reshape(-1, 3)
-        xyz = np.asarray(colour.Oklab_to_XYZ(lab))
+        xyz = polar_to_xyz_unit(lab)
         rgb = np.asarray(colour.XYZ_to_RGB(
             xyz, colourspace=output_color_space,
             illuminant=white, apply_cctf_encoding=False,
@@ -619,14 +711,85 @@ def _build_oklch_output_c_max_table(
     return L_grid, h_grid, lo
 
 
-def _get_oklch_output_c_max_table(
-    output_color_space: str,
+def _get_output_c_max_table(
+    space: str, output_color_space: str,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    if output_color_space not in _OKLCH_OUTPUT_CMAX_CACHE:
-        _OKLCH_OUTPUT_CMAX_CACHE[output_color_space] = (
-            _build_oklch_output_c_max_table(output_color_space)
-        )
-    return _OKLCH_OUTPUT_CMAX_CACHE[output_color_space]
+    """Return the cached ``C_max(L, h)`` table for ``space`` against
+    ``output_color_space``. ``space`` is ``"oklch"`` or ``"jzazbz"``.
+    """
+    key = (space, output_color_space)
+    if key not in _OUTPUT_CMAX_CACHE:
+        if space == "oklch":
+            _OUTPUT_CMAX_CACHE[key] = _build_polar_perceptual_c_max_table(
+                output_color_space,
+                polar_to_xyz_unit=lambda lab: np.asarray(
+                    colour.Oklab_to_XYZ(lab),
+                ),
+                L_grid=np.linspace(0.02, 1.0, _OKLCH_CMAX_TABLE_N_L),
+                chroma_initial_upper=0.5,
+                n_h=_OKLCH_CMAX_TABLE_N_H,
+                n_bisect=_OKLCH_CMAX_TABLE_N_BISECT,
+            )
+        elif space == "oklrab":
+            # Polar coord is (Lr, a, b); reconstruct (L, a, b) by
+            # inverting the Lr remap, then OkLab → XYZ as usual.
+            _OUTPUT_CMAX_CACHE[key] = _build_polar_perceptual_c_max_table(
+                output_color_space,
+                polar_to_xyz_unit=lambda lab: np.asarray(
+                    colour.Oklab_to_XYZ(np.stack([
+                        _oklrab_Lr_to_oklab_L(lab[..., 0]),
+                        lab[..., 1], lab[..., 2],
+                    ], axis=-1)),
+                ),
+                # Lr is monotonic on [0, 1] with Lr(0)=0 and Lr(1)≈1,
+                # so the same grid bounds as oklch are appropriate.
+                L_grid=np.linspace(0.02, 1.0, _OKLCH_CMAX_TABLE_N_L),
+                chroma_initial_upper=0.5,
+                n_h=_OKLCH_CMAX_TABLE_N_H,
+                n_bisect=_OKLCH_CMAX_TABLE_N_BISECT,
+            )
+        elif space == "jzazbz":
+            _OUTPUT_CMAX_CACHE[key] = _build_polar_perceptual_c_max_table(
+                output_color_space,
+                # colour.Jzazbz_to_XYZ returns absolute XYZ in cd/m² —
+                # divide by Y_w so the result is normalized (Y=1 at
+                # diffuse white) for XYZ_to_RGB.
+                polar_to_xyz_unit=lambda jab: np.asarray(
+                    colour.Jzazbz_to_XYZ(jab),
+                ) / _JZAZBZ_Y_W_CDM2,
+                # Diffuse white at Y_w=100 → Jz ≈ 0.167; grid spans
+                # near-black through above-white with margin so the
+                # rare super-white sample still hits a sane lookup.
+                L_grid=np.linspace(0.002, 0.18, _OKLCH_CMAX_TABLE_N_L),
+                # Max realistic Cz at Y_w=100 is ~0.14 (e.g. sRGB pure
+                # red is 0.135); 0.3 leaves bisection headroom.
+                chroma_initial_upper=0.3,
+                n_h=_OKLCH_CMAX_TABLE_N_H,
+                n_bisect=_OKLCH_CMAX_TABLE_N_BISECT,
+            )
+        elif space == "cam16ucs":
+            xyz_w = _output_cs_whitepoint_xyz(output_color_space)
+            _OUTPUT_CMAX_CACHE[key] = _build_polar_perceptual_c_max_table(
+                output_color_space,
+                polar_to_xyz_unit=lambda jab: np.asarray(
+                    colour.CAM16UCS_to_XYZ(
+                        jab, XYZ_w=xyz_w,
+                        L_A=_CAM16UCS_L_A, Y_b=_CAM16UCS_Y_B,
+                    ),
+                ),
+                # Jp ≈ 100 at diffuse white; grid spans near-black to
+                # a hair above white so rare super-white samples still
+                # hit a sane lookup (their max chroma will be ~0).
+                L_grid=np.linspace(1.0, 110.0, _OKLCH_CMAX_TABLE_N_L),
+                # Max Cp at primary corners is ~75 (sRGB red); 150
+                # gives bisection headroom for wider output gamuts.
+                chroma_initial_upper=150.0,
+                n_h=_OKLCH_CMAX_TABLE_N_H,
+                n_bisect=_OKLCH_CMAX_TABLE_N_BISECT,
+            )
+        else:
+            raise ValueError(f"unknown perceptual space {space!r}")
+    return _OUTPUT_CMAX_CACHE[key]
 
 
 def compress_rgb_oklch_chroma(
@@ -676,7 +839,7 @@ def compress_rgb_oklch_chroma(
     h = np.arctan2(b, a)
 
     # Compress C against the per-output-space C_max(L, h).
-    c_max_lookup_table = _get_oklch_output_c_max_table(output_color_space)
+    c_max_lookup_table = _get_output_c_max_table("oklch", output_color_space)
     C_max = _c_max_lookup(L, h, *c_max_lookup_table)
     safe_C_max = np.fmax(C_max, 1e-9)
     d_norm = C / safe_C_max
@@ -690,6 +853,185 @@ def compress_rgb_oklch_chroma(
     b_new = C_new * np.sin(h)
     lab_new = np.stack([L, a_new, b_new], axis=-1)
     xyz_new = np.asarray(colour.Oklab_to_XYZ(lab_new))
+    rgb_new = np.asarray(colour.XYZ_to_RGB(
+        xyz_new, colourspace=output_color_space,
+        illuminant=white, apply_cctf_encoding=False,
+    ))
+    return rgb_new
+
+
+def compress_rgb_oklrab_chroma(
+    rgb: np.ndarray,
+    output_color_space: str,
+    *,
+    threshold: float,
+    limit: float,
+    power: float,
+) -> np.ndarray:
+    """Oklrab chroma reduction to the output RGB cube.
+
+    Identical to :func:`compress_rgb_oklch_chroma` except the per-pixel
+    ``C_max`` lookup is indexed by Ottosson's rebased lightness ``Lr``
+    (a 1D nonlinear remap of OkLab ``L``) instead of raw ``L``. Because
+    the ``a, b`` axes are unchanged and the chroma compression doesn't
+    touch ``L``, the round-trip reduces to: compute ``Lr`` once for the
+    lookup, then run the same OkLab forward/inverse with ``L``
+    preserved.
+    """
+    rgb = np.asarray(rgb, dtype=float)
+    cs = colour.RGB_COLOURSPACES[output_color_space]
+    white = np.asarray(cs.whitepoint, dtype=float)
+
+    xyz = np.asarray(colour.RGB_to_XYZ(
+        rgb, colourspace=output_color_space,
+        illuminant=white, apply_cctf_decoding=False,
+    ))
+    lab = np.asarray(colour.XYZ_to_Oklab(xyz))
+    L = lab[..., 0]
+    a = lab[..., 1]
+    b = lab[..., 2]
+    Lr = _oklab_L_to_oklrab_Lr(L)
+    C = np.hypot(a, b)
+    h = np.arctan2(b, a)
+
+    c_max_lookup_table = _get_output_c_max_table("oklrab", output_color_space)
+    C_max = _c_max_lookup(Lr, h, *c_max_lookup_table)
+    safe_C_max = np.fmax(C_max, 1e-9)
+    d_norm = C / safe_C_max
+    d_compressed = reinhard_knee(
+        d_norm, threshold=threshold, limit=limit, power=power,
+    )
+    C_new = d_compressed * safe_C_max
+
+    a_new = C_new * np.cos(h)
+    b_new = C_new * np.sin(h)
+    # L is preserved (the knee touches only C), so OkLab → XYZ closes
+    # the round-trip with the original lightness.
+    lab_new = np.stack([L, a_new, b_new], axis=-1)
+    xyz_new = np.asarray(colour.Oklab_to_XYZ(lab_new))
+    rgb_new = np.asarray(colour.XYZ_to_RGB(
+        xyz_new, colourspace=output_color_space,
+        illuminant=white, apply_cctf_encoding=False,
+    ))
+    return rgb_new
+
+
+def compress_rgb_jzazbz_chroma(
+    rgb: np.ndarray,
+    output_color_space: str,
+    *,
+    threshold: float,
+    limit: float,
+    power: float,
+) -> np.ndarray:
+    """JzCzhz chroma reduction to the output RGB cube.
+
+    Same algorithm shape as :func:`compress_rgb_oklch_chroma` but in
+    JzAzBz (Safdar 2017) instead of OkLab. Reference white luminance
+    is fixed at 100 cd/m² (``_JZAZBZ_Y_W_CDM2``): linear RGB=1 maps to
+    Y=100 cd/m² before the JzAzBz forward, undone after the inverse.
+
+    Use this when oklch's known blue-region hue twist produces visible
+    cyan→blue drift on a target output gamut (commonly sRGB and
+    Rec.2020). JzAzBz keeps perceived hue stable across the
+    magenta↔cyan arc at the cost of a heavier per-pixel transform
+    (PQ encoding + matrix vs OkLab's cube-root + matrix).
+    """
+    rgb = np.asarray(rgb, dtype=float)
+    cs = colour.RGB_COLOURSPACES[output_color_space]
+    white = np.asarray(cs.whitepoint, dtype=float)
+
+    # RGB → XYZ (cd/m² at Y_w) → JzAzBz → polar.
+    xyz = np.asarray(colour.RGB_to_XYZ(
+        rgb, colourspace=output_color_space,
+        illuminant=white, apply_cctf_decoding=False,
+    ))
+    jab = np.asarray(colour.XYZ_to_Jzazbz(xyz * _JZAZBZ_Y_W_CDM2))
+    Jz = jab[..., 0]
+    az = jab[..., 1]
+    bz = jab[..., 2]
+    Cz = np.hypot(az, bz)
+    hz = np.arctan2(bz, az)
+
+    # Compress Cz against the per-output-space Cz_max(Jz, hz).
+    c_max_lookup_table = _get_output_c_max_table("jzazbz", output_color_space)
+    Cz_max = _c_max_lookup(Jz, hz, *c_max_lookup_table)
+    safe_Cz_max = np.fmax(Cz_max, 1e-9)
+    d_norm = Cz / safe_Cz_max
+    d_compressed = reinhard_knee(
+        d_norm, threshold=threshold, limit=limit, power=power,
+    )
+    Cz_new = d_compressed * safe_Cz_max
+
+    # JzCzhz → JzAzBz → XYZ → RGB.
+    az_new = Cz_new * np.cos(hz)
+    bz_new = Cz_new * np.sin(hz)
+    jab_new = np.stack([Jz, az_new, bz_new], axis=-1)
+    xyz_new = np.asarray(colour.Jzazbz_to_XYZ(jab_new)) / _JZAZBZ_Y_W_CDM2
+    rgb_new = np.asarray(colour.XYZ_to_RGB(
+        xyz_new, colourspace=output_color_space,
+        illuminant=white, apply_cctf_encoding=False,
+    ))
+    return rgb_new
+
+
+def compress_rgb_cam16ucs_chroma(
+    rgb: np.ndarray,
+    output_color_space: str,
+    *,
+    threshold: float,
+    limit: float,
+    power: float,
+) -> np.ndarray:
+    """CAM16-UCS chroma reduction to the output RGB cube.
+
+    Same algorithm shape as :func:`compress_rgb_oklch_chroma` but in
+    CIECAM16-UCS (Li & Luo 2017). The adapting whitepoint ``XYZ_w`` is
+    the output color space's whitepoint at Y=1; viewing conditions are
+    fixed at ``L_A = 64 cd/m²``, ``Y_b = 20``, Average surround — the
+    canonical "display review" setup.
+
+    Heavier per-pixel than OkLab or JzAzBz (each call runs the CAM16
+    forward and inverse), but produces the cleanest constant-hue
+    constraint of the three perceptual options — useful when smoothness
+    around the blue/cyan arc matters more than bake time.
+    """
+    rgb = np.asarray(rgb, dtype=float)
+    cs = colour.RGB_COLOURSPACES[output_color_space]
+    white = np.asarray(cs.whitepoint, dtype=float)
+    xyz_w = _output_cs_whitepoint_xyz(output_color_space)
+
+    # RGB → XYZ → CAM16-UCS → polar.
+    xyz = np.asarray(colour.RGB_to_XYZ(
+        rgb, colourspace=output_color_space,
+        illuminant=white, apply_cctf_decoding=False,
+    ))
+    jab = np.asarray(colour.XYZ_to_CAM16UCS(
+        xyz, XYZ_w=xyz_w, L_A=_CAM16UCS_L_A, Y_b=_CAM16UCS_Y_B,
+    ))
+    Jp = jab[..., 0]
+    ap = jab[..., 1]
+    bp = jab[..., 2]
+    Cp = np.hypot(ap, bp)
+    hp = np.arctan2(bp, ap)
+
+    # Compress Cp against the per-output-space Cp_max(Jp, hp).
+    c_max_lookup_table = _get_output_c_max_table("cam16ucs", output_color_space)
+    Cp_max = _c_max_lookup(Jp, hp, *c_max_lookup_table)
+    safe_Cp_max = np.fmax(Cp_max, 1e-9)
+    d_norm = Cp / safe_Cp_max
+    d_compressed = reinhard_knee(
+        d_norm, threshold=threshold, limit=limit, power=power,
+    )
+    Cp_new = d_compressed * safe_Cp_max
+
+    # JpCphp → CAM16-UCS → XYZ → RGB.
+    ap_new = Cp_new * np.cos(hp)
+    bp_new = Cp_new * np.sin(hp)
+    jab_new = np.stack([Jp, ap_new, bp_new], axis=-1)
+    xyz_new = np.asarray(colour.CAM16UCS_to_XYZ(
+        jab_new, XYZ_w=xyz_w, L_A=_CAM16UCS_L_A, Y_b=_CAM16UCS_Y_B,
+    ))
     rgb_new = np.asarray(colour.XYZ_to_RGB(
         xyz_new, colourspace=output_color_space,
         illuminant=white, apply_cctf_encoding=False,
@@ -715,8 +1057,8 @@ def compress_rgb(
         returns ``rgb`` unchanged.
     output_color_space :
         Name of the destination color space (e.g. ``"sRGB"``).
-        Required when ``spec.algorithm == "oklch"`` because that
-        algorithm needs to build / look up the per-color-space
+        Required for ``"oklch"`` / ``"jzazbz"`` / ``"cam16ucs"`` because
+        those algorithms build / look up the per-color-space
         ``C_max(L, h)`` table. Ignored for ``"aces_rgc"``, which
         operates purely in destination RGB.
     """
@@ -727,12 +1069,18 @@ def compress_rgb(
         return compress_rgb_aces_rgc(
             rgb, threshold=threshold, limit=limit, power=power,
         )
-    if spec.algorithm == "oklch":
+    perceptual_fns = {
+        "oklch": compress_rgb_oklch_chroma,
+        "oklrab": compress_rgb_oklrab_chroma,
+        "jzazbz": compress_rgb_jzazbz_chroma,
+        "cam16ucs": compress_rgb_cam16ucs_chroma,
+    }
+    if spec.algorithm in perceptual_fns:
         if output_color_space is None:
             raise ValueError(
-                "output_color_space is required when algorithm='oklch'"
+                f"output_color_space is required when algorithm={spec.algorithm!r}"
             )
-        return compress_rgb_oklch_chroma(
+        return perceptual_fns[spec.algorithm](
             rgb, output_color_space=output_color_space,
             threshold=threshold, limit=limit, power=power,
         )

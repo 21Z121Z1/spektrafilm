@@ -3,9 +3,9 @@
 # Spectral film simulations of analog photography
 
 > [!IMPORTANT] 
-> This project is in rapid development, some areas are still being
-> built and will change fast. The core functionality of the tech demo is
-> maturing. Alpha LUT export has landed; more features for easy integration in 
+> This project is in rapid development, some areas are still being built and
+> will change fast. The core functionality of the tech demo is maturing but not
+> finished. Alpha LUT export has landed; more features for easy integration in
 > third party software will follow.
 > 
 
@@ -55,7 +55,7 @@ export is very slow at the moment.
 >  alternative options. I am very open to collaboration and integration, but I
 >  want to ensure that spektrafilm remains open source and for the community. 
 >
-> LUTs are on a strict *commercial use, no resale* custom [license](SPEKTRAFILM_LICENSE.txt).
+> LUTs are on a strict "*commercial use, free share, no resale*" custom [license](SPEKTRAFILM_LICENSE.txt).
 >
 >  This helps sustain open color science. Thanks!
 
@@ -193,12 +193,17 @@ spektrafilm-lut build \
 	--film kodak_portra_400 \
 	--print kodak_portra_endura \
 	--input vlog --output srgb \
-	--topology 1lut --resolution 33 \
-	--qa --ocio-config \
+	--topology 1lut \
+   --resolution 33 \
+	--qa \
+   --ocio-config \
 	--out ./build/lut_bundles/
 
-spektrafilm-lut list films         # discover registered profiles
-spektrafilm-lut list inputs        # discover input color spaces
+spektrafilm-lut list film         # discover registered profiles
+spektrafilm-lut list print        # discover registered profiles
+spektrafilm-lut list input        # discover input color spaces
+spektrafilm-lut list output       # discover output color spaces
+spektrafilm-lut list target       # discover supported target (eg lumix realtime)
 ```
 
 For complex specs (nested gamut-compression settings, multi-paper

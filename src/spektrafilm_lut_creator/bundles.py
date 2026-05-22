@@ -24,6 +24,15 @@ _VALID_GAMUT_CLIPS = frozenset({"hard", "soft"})
 _VALID_CONTAINERS = frozenset({"directory", "zip"})
 
 
+def _coerce_gamut_spec(value, spec_cls):
+    """``"off"`` → ``spec_cls(mode='off')``; any other string is treated
+    as the ``algorithm`` field, leaving the knee and mode at their
+    defaults. The spec dataclass itself validates the algorithm name."""
+    if value == "off":
+        return spec_cls(mode="off")
+    return spec_cls(algorithm=value)
+
+
 @dataclass(frozen=True)
 class BundleSpec:
     """User-facing description of a LUT bundle to build.
@@ -32,12 +41,12 @@ class BundleSpec:
     The bundle's
     on-disk name defaults to the canonical pattern from
     :func:`spektrafilm_lut_creator.naming.default_bundle_name`
-    (``spektrafilm_<version>_<film>[_<paper>]_<topology>_<in>_<out>``)
+    (``spektrafilm_<version>_<film>[_<print>]_<topology>_<in>_<out>``)
     when ``name`` is left as the empty string. Pass an explicit
     ``name`` to override.
 
     ``print_profiles`` is a tuple of one or more print stocks. For
-    multi-paper bundles, the auto-name omits the paper segment (the
+    multi-print bundles, the auto-name omits the print segment (the
     bundle covers all of them — naming after one is misleading).
     """
     film_profile: str
@@ -71,26 +80,27 @@ class BundleSpec:
     qa: bool = False
     """Whether :class:`BundleBuilder.write` should auto-run the QA suite
     after writing the bundle. The reports land at
-    ``<bundle>/qa/<per-paper-bundle-name>/`` (one folder per QA'd paper);
+    ``<bundle>/qa/<per-print-bundle-name>/`` (one folder per QA'd print);
     the QA cache is deleted after the run so the bundle directory stays
     ship-ready."""
-    qa_paper_index: int | None = None
-    """Which paper(s) to QA when :attr:`qa` is True. ``None`` (the
-    default) runs QA for every paper in :attr:`print_profiles`; an
-    explicit integer runs QA for only that paper. Validated against the
-    bundle's paper count up-front so a wrong index fails fast at spec
+    qa_print_index: int | None = None
+    """Which print(s) to QA when :attr:`qa` is True. ``None`` (the
+    default) runs QA for every print in :attr:`print_profiles`; an
+    explicit integer runs QA for only that print. Validated against the
+    bundle's print count up-front so a wrong index fails fast at spec
     construction rather than partway through a long build."""
     input_gamut_compress: GamutCompressSpec = field(default_factory=GamutCompressSpec)
     """Input gamut compression spec (algorithm + Reinhard knee parameters)
     used when baking the per-film tc_lut. Default is the ACES Reference
     Gamut Compression v1.3 cyan threshold and power with the asymptote
     limit reduced to 1.0 so the knee converges exactly at the spectral
-    locus boundary (see spektrafilm-research n100 §5). Pass
-    ``GamutCompressSpec(mode='off')`` to disable; pass
-    ``GamutCompressSpec(algorithm='oklch')`` to use the perceptual-
-    chroma-axis variant. The chosen spec is forwarded to
-    ``params.io.input_gamut_compress`` so GUI users and bundle bakes
-    share the same code path."""
+    locus boundary (see spektrafilm-research n100 §5). A bare string is
+    accepted in place of the full dataclass:
+    ``input_gamut_compress="xy"`` / ``"oklch"`` constructs the spec
+    with default knee parameters; ``"off"`` disables compression. Pass
+    a :class:`GamutCompressSpec` directly for custom knee tuning. The
+    chosen spec is forwarded to ``params.io.input_gamut_compress`` so
+    GUI users and bundle bakes share the same code path."""
     stops_above_gray: float | None = None
     """How many stops above middle gray (0.18 linear) the source's
     encoded 1.0 should correspond to in the film's frame.
@@ -124,15 +134,14 @@ class BundleSpec:
     colorimetric round-trip; the bundle README discloses the
     effective gain."""
     output_gamut_compress: OutputGamutCompressSpec = field(default_factory=OutputGamutCompressSpec)
-    """Output gamut compression spec (ACES Reference Gamut Compression
-    v1.3 in destination RGB). Default compresses out-of-output-gamut
-    samples — chromaticities the film simulation reaches that fall
-    outside ``output_color_space`` — smoothly onto the output primaries
-    cube via a per-channel Reinhard knee on the achromatic distance.
-    The cinema-industry standard for output gamut mapping (same
-    operation as OCIO ``FixedFunctionTransform(style=ACES_GamutComp13)``).
-    The existing ``gamut_clip`` knob remains as the final safety net.
-    Pass ``OutputGamutCompressSpec(mode='off')`` to disable."""
+    """Output gamut compression spec. Default ``oklch`` algorithm with
+    the ACES RGC cyan threshold and power, limit reduced to 1.0 so the
+    knee asymptotes at the output cube edge (no hard clip needed). For
+    convenience, a bare string is accepted in place of the full
+    dataclass: ``output_gamut_compress="oklch"`` (or ``"jzazbz"``,
+    ``"aces_rgc"``) constructs the spec with default knee parameters;
+    ``"off"`` disables compression. Pass an
+    :class:`OutputGamutCompressSpec` directly for custom knee tuning."""
     ocio_config: bool = False
     """Whether the bundle includes a standalone OCIO 2 config file
     (``config.ocio``) alongside its LUT files. Opt-in: most bundles
@@ -144,7 +153,7 @@ class BundleSpec:
     include_combinations: bool = False
     """Whether the bundle also ships every contiguous sub-chain of the
     canonical LUTs as pre-collapsed single cubes in a ``combinations/``
-    subfolder. For a 4-LUT bundle that's 6 extra cubes per paper
+    subfolder. For a 4-LUT bundle that's 6 extra cubes per print
     (``l12``, ``l23``, ``l34``, ``l123``, ``l234``, ``l1234``); for
     3-LUT 3 extras; for 2-LUT 1 extra (``l12``); for 1-LUT a no-op.
     Combinations let single-LUT-slot grading apps (Resolve LUT slot,
@@ -155,6 +164,19 @@ class BundleSpec:
     directly. See studies/a40_lut_system/n130_sub_chain_combinations.md."""
 
     def __post_init__(self):
+        # String shorthand for the gamut-compression specs:
+        # ``"off"`` → mode='off', anything else is treated as an
+        # algorithm name and constructs the spec with default knee.
+        if isinstance(self.input_gamut_compress, str):
+            object.__setattr__(
+                self, "input_gamut_compress",
+                _coerce_gamut_spec(self.input_gamut_compress, GamutCompressSpec),
+            )
+        if isinstance(self.output_gamut_compress, str):
+            object.__setattr__(
+                self, "output_gamut_compress",
+                _coerce_gamut_spec(self.output_gamut_compress, OutputGamutCompressSpec),
+            )
         if self.topology not in _VALID_TOPOLOGIES:
             raise ValueError(
                 f"topology must be one of {sorted(_VALID_TOPOLOGIES)}, "
@@ -177,9 +199,9 @@ class BundleSpec:
                 output_color_space=self.output_color_space,
             ))
         # For 1lut topology with multiple print profiles, the builder
-        # bakes one (film, print) cube per paper and packs them all
+        # bakes one (film, print) cube per print and packs them all
         # into the same bundle. The 2lut / 4lut topologies share the
-        # film half across papers; for 1lut each combination is
+        # film half across prints; for 1lut each combination is
         # independent.
         if self.resolution < 2:
             raise ValueError(f"resolution must be >= 2, got {self.resolution}")
@@ -193,12 +215,12 @@ class BundleSpec:
                 f"container must be one of {sorted(_VALID_CONTAINERS)}, "
                 f"got {self.container!r}"
             )
-        if self.qa_paper_index is not None:
-            n_papers = len(self.print_profiles)
-            if not 0 <= self.qa_paper_index < n_papers:
+        if self.qa_print_index is not None:
+            n_prints = len(self.print_profiles)
+            if not 0 <= self.qa_print_index < n_prints:
                 raise ValueError(
-                    f"qa_paper_index={self.qa_paper_index} is out of range for a bundle "
-                    f"with {n_papers} paper(s); valid range is [0, {n_papers - 1}] or None"
+                    f"qa_print_index={self.qa_print_index} is out of range for a bundle "
+                    f"with {n_prints} print(s); valid range is [0, {n_prints - 1}] or None"
                 )
         if self.target is not None:
             # Deferred to avoid the module-level circular dependency

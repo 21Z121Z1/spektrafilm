@@ -5,8 +5,8 @@ Two subcommands:
 - ``build`` — produce one bundle. Flags cover the common
   :class:`BundleSpec` fields; ``--from spec.toml`` loads a full spec
   from disk. CLI flags override TOML values when both are present.
-- ``list`` — print the registry contents (films, papers, inputs,
-  outputs, targets) one name per line, suitable for shell pipelines.
+- ``list KIND`` — print registry contents (film, print, input, output,
+  target) one name per line, suitable for shell pipelines.
 
 Color-space arguments accept either the canonical registry name
 (``"Panasonic V-Log"``) or its short-tag slug (``vlog``). Slugs are
@@ -34,6 +34,9 @@ from spektrafilm_lut_creator.bundles import BundleSpec
 from spektrafilm_lut_creator.builders import BundleBuilder
 
 
+_LIST_KINDS = ("film", "print", "input", "output", "target")
+
+
 def main(argv: list[str] | None = None) -> int:
     """Entry point. Returns a shell exit code."""
     parser = _build_parser()
@@ -41,7 +44,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "build":
         return _cmd_build(args)
     if args.command == "list":
-        return _cmd_list(args)
+        return _cmd_list(args.kind)
     parser.print_help(sys.stderr)
     return 2
 
@@ -64,7 +67,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "Build one LUT bundle. Required: --film, --print, --input, "
             "--output. Color spaces accept canonical names "
             "(\"Panasonic V-Log\") or short-tag slugs (vlog) — see "
-            "`spektrafilm-lut list inputs/outputs`."
+            "`spektrafilm-lut list input` / `list output`."
         ),
     )
     build.add_argument(
@@ -77,8 +80,8 @@ def _build_parser() -> argparse.ArgumentParser:
     build.add_argument("--name", help="Bundle name; auto-computed when omitted.")
     build.add_argument("--film", help="Film profile slug, e.g. kodak_portra_400.")
     build.add_argument(
-        "--print", dest="prints", action="append", metavar="PAPER",
-        help="Print paper profile slug. Repeat for multi-paper bundles.",
+        "--print", dest="prints", action="append", metavar="PRINT",
+        help="Print profile slug. Repeat for multi-print bundles.",
     )
     build.add_argument(
         "--input", dest="input_cs",
@@ -124,8 +127,8 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Run the QA suite after writing the bundle.",
     )
     build.add_argument(
-        "--qa-paper-index", type=int, metavar="I",
-        help="Run QA only for paper I (default: all papers in the bundle).",
+        "--qa-print-index", type=int, metavar="I",
+        help="Run QA only for print I (default: all prints in the bundle).",
     )
     build.add_argument(
         "--ocio-config", action="store_true",
@@ -151,9 +154,8 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Print one name per line, sorted; suitable for shell pipelines.",
     )
     listing.add_argument(
-        "kind",
-        choices=("films", "papers", "inputs", "outputs", "targets"),
-        help="What to list.",
+        "kind", choices=_LIST_KINDS, metavar="KIND",
+        help=f"What to list. One of: {', '.join(_LIST_KINDS)}.",
     )
 
     return parser
@@ -253,7 +255,7 @@ def _merge_cli_overrides(fields: dict, args: argparse.Namespace) -> None:
         "container": "container",
         "gamut_clip": "gamut_clip",
         "stops_above_gray": "stops_above_gray",
-        "qa_paper_index": "qa_paper_index",
+        "qa_print_index": "qa_print_index",
     }
     for cli_attr, field_name in cli_to_field.items():
         value = getattr(args, cli_attr, None)
@@ -286,7 +288,7 @@ def resolve_color_space(value: str, *, role: str) -> str:
         return slugs[value]
     raise ValueError(
         f"unknown {role} color space {value!r}. "
-        f"Try `spektrafilm-lut list {role}s`."
+        f"Try `spektrafilm-lut list {role}`."
     )
 
 
@@ -302,16 +304,16 @@ def _slug_table() -> dict[str, str]:
 # `list` subcommand.
 # ---------------------------------------------------------------------------
 
-def _cmd_list(args: argparse.Namespace) -> int:
-    if args.kind == "films":
+def _cmd_list(kind: str) -> int:
+    if kind == "film":
         names = _list_profiles_by_stage("filming")
-    elif args.kind == "papers":
+    elif kind == "print":
         names = _list_profiles_by_stage("printing")
-    elif args.kind == "inputs":
+    elif kind == "input":
         names = color_spaces.list_input_spaces()
-    elif args.kind == "outputs":
+    elif kind == "output":
         names = color_spaces.list_output_spaces()
-    elif args.kind == "targets":
+    elif kind == "target":
         names = delivery_targets.list_targets()
     else:  # argparse enforces choices, this branch is unreachable
         return 2
