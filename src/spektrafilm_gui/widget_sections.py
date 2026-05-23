@@ -641,6 +641,9 @@ class SimulationSection(DataclassSection):
                 'output_primaries',
                 'saving_color_space',
                 'saving_cctf_encoding',
+                'output_gamut_compress_active',
+                'output_gamut_compress_algorithm',
+                'output_gamut_compress_knee',
             },
         )
 
@@ -769,6 +772,9 @@ class OutputSection(QWidget):
                     _spec_row('simulation', 'output_primaries', simulation_section.output_primaries),
                     _spec_row('simulation', 'saving_color_space', simulation_section.saving_color_space),
                     _spec_row('simulation', 'saving_cctf_encoding', simulation_section.saving_cctf_encoding),
+                    _spec_row('simulation', 'output_gamut_compress_active', simulation_section.output_gamut_compress_active),
+                    _spec_row('simulation', 'output_gamut_compress_algorithm', simulation_section.output_gamut_compress_algorithm),
+                    _spec_row('simulation', 'output_gamut_compress_knee', simulation_section.output_gamut_compress_knee),
                 ],
                 expanded=False,
             ),

@@ -339,7 +339,7 @@ def compute_hanatos2025_tc_lut(sensitivity, hanatos2025_adaptation, gamut_compre
         As before.
     gamut_compress :
         Optional ``spektrafilm.utils.gamut_compression.GamutCompressSpec``.
-        When provided and ``gamut_compress.mode != "off"``, the returned
+        When provided and ``gamut_compress.active``, the returned
         LUT has the input gamut compression baked into it via remap-resample
         (see n100 §3.1): a runtime lookup ``new_lut[xy]`` returns the same
         raw value the uncompressed LUT would have returned for
@@ -371,7 +371,7 @@ def compute_hanatos2025_tc_lut(sensitivity, hanatos2025_adaptation, gamut_compre
                                                        illuminant_xy=xy_illu)
         raw_lut *= 2**surface
 
-    if gamut_compress is not None and gamut_compress.mode != "off":
+    if gamut_compress is not None and gamut_compress.active:
         # Bake compression into the LUT at build time. The reference
         # illuminant matches what _rgb_to_tc_b uses at runtime, so the
         # compression's achromatic axis is the film's white.

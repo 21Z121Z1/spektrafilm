@@ -6,7 +6,9 @@ from enum import Enum
 from spektrafilm_gui.options import (
     AutoExposureMethods,
     DiffusionFilterFamilies,
+    InputGamutCompressAlgorithms,
     NapariInterpolationModes,
+    OutputGamutCompressAlgorithms,
     RGBColorSpaces,
     RGBtoRAWMethod,
     RawWhiteBalance,
@@ -36,6 +38,7 @@ GUI_SECTION_ENUMS: dict[str, dict[str, type[Enum]]] = {
     "input_image": {
         "input_primaries": RGBColorSpaces,
         "spectral_upsampling_method": RGBtoRAWMethod,
+        "input_gamut_compress_algorithm": InputGamutCompressAlgorithms,
     },
     "load_raw": {
         "white_balance": RawWhiteBalance,
@@ -52,6 +55,7 @@ GUI_SECTION_ENUMS: dict[str, dict[str, type[Enum]]] = {
         "output_primaries": RGBColorSpaces,
         "saving_color_space": RGBColorSpaces,
         "diffusion_filter_family": DiffusionFilterFamilies,
+        "output_gamut_compress_algorithm": OutputGamutCompressAlgorithms,
     },
 }
 
@@ -287,6 +291,21 @@ GUI_WIDGET_SPECS = {
         "saving_cctf_encoding": WidgetSpec(
             label="Saving CCTF encoding",
             tooltip="Add or not the CCTF to the saved image file",
+        ),
+        "output_gamut_compress_active": WidgetSpec(
+            label="Gamut compress active",
+            tooltip="Soft-compress simulation output back into the output color space's RGB cube before the final clip. Keeps wide-gamut film output (V-Log → sRGB worst case) hue-preserving instead of hard-clipping at the cube edge.",
+        ),
+        "output_gamut_compress_algorithm": WidgetSpec(
+            label="Gamut compress algorithm",
+            tooltip="oklch (default): perceptual chroma reduction in OkLab, preserves hue + lightness. aces_rgc: per-channel ACES RGC v1.3, matches Resolve/Nuke/OCIO. oklrab/jzazbz/cam16ucs: alternative perceptual spaces.",
+        ),
+        "output_gamut_compress_knee": WidgetSpec(
+            label="Gamut compress knee",
+            tooltip="Reinhard knee (threshold, limit, power). Default (0.95, 1.0, 2.0) is gentle — only the last 5% to the cube edge is rolled off, leaving most legitimate film chroma untouched.",
+            min_value=0.0,
+            step=0.05,
+            decimals=3,
         ),
         "auto_preview": WidgetSpec(label="Auto preview", tooltip="trigger the preview after every change of gui parameters, use mouse scrollwheel on parameters field, read preview tooltip for details"),
         "scan_film": WidgetSpec(label="Scan film", tooltip="Show a scan of the negative instead of the print"),
@@ -584,6 +603,21 @@ GUI_WIDGET_SPECS = {
             tooltip="Filter IR light, (amplitude, wavelength cutoff in nm, sigma in nm). Changing this enlarger filters neutral will be affected.",
             min_value=0,
             step=1,
+        ),
+        "input_gamut_compress_active": WidgetSpec(
+            label="Gamut compress active",
+            tooltip="Soft-compress input chromaticities onto the visible spectral locus before Hanatos 2025 spectral upsampling. Required for wide-gamut inputs (V-Gamut, ACEScg, AP0) — without it, out-of-locus samples produce extrapolation noise.",
+        ),
+        "input_gamut_compress_algorithm": WidgetSpec(
+            label="Gamut compress algorithm",
+            tooltip="xy: radial compression in CIE 1931 chromaticity (ACES RGC family, hue-preserving). oklch: perceptual chroma reduction at constant Oklch (L, h).",
+        ),
+        "input_gamut_compress_knee": WidgetSpec(
+            label="Gamut compress knee",
+            tooltip="Reinhard knee (threshold, limit, power). Defaults (0.815, 1.0, 1.2) match the ACES RGC v1.3 cyan parameters with limit reduced to 1.0 so the knee asymptotes at the spectral locus boundary.",
+            min_value=0.0,
+            step=0.05,
+            decimals=3,
         ),
     },
     "load_raw": {

@@ -24,15 +24,6 @@ _VALID_GAMUT_CLIPS = frozenset({"hard", "soft"})
 _VALID_CONTAINERS = frozenset({"directory", "zip"})
 
 
-def _coerce_gamut_spec(value, spec_cls):
-    """``"off"`` → ``spec_cls(mode='off')``; any other string is treated
-    as the ``algorithm`` field, leaving the knee and mode at their
-    defaults. The spec dataclass itself validates the algorithm name."""
-    if value == "off":
-        return spec_cls(mode="off")
-    return spec_cls(algorithm=value)
-
-
 @dataclass(frozen=True)
 class BundleSpec:
     """User-facing description of a LUT bundle to build.
@@ -94,13 +85,11 @@ class BundleSpec:
     used when baking the per-film tc_lut. Default is the ACES Reference
     Gamut Compression v1.3 cyan threshold and power with the asymptote
     limit reduced to 1.0 so the knee converges exactly at the spectral
-    locus boundary (see spektrafilm-research n100 §5). A bare string is
-    accepted in place of the full dataclass:
-    ``input_gamut_compress="xy"`` / ``"oklch"`` constructs the spec
-    with default knee parameters; ``"off"`` disables compression. Pass
-    a :class:`GamutCompressSpec` directly for custom knee tuning. The
-    chosen spec is forwarded to ``params.io.input_gamut_compress`` so
-    GUI users and bundle bakes share the same code path."""
+    locus boundary (see spektrafilm-research n100 §5). Pass a
+    :class:`GamutCompressSpec` (or a TOML table whose fields match the
+    dataclass) for custom knee tuning or to disable via ``active=False``.
+    The chosen spec is forwarded to ``params.io.input_gamut_compress``
+    so GUI users and bundle bakes share the same code path."""
     stops_above_gray: float | None = None
     """How many stops above middle gray (0.18 linear) the source's
     encoded 1.0 should correspond to in the film's frame.
@@ -136,12 +125,10 @@ class BundleSpec:
     output_gamut_compress: OutputGamutCompressSpec = field(default_factory=OutputGamutCompressSpec)
     """Output gamut compression spec. Default ``oklch`` algorithm with
     the ACES RGC cyan threshold and power, limit reduced to 1.0 so the
-    knee asymptotes at the output cube edge (no hard clip needed). For
-    convenience, a bare string is accepted in place of the full
-    dataclass: ``output_gamut_compress="oklch"`` (or ``"jzazbz"``,
-    ``"aces_rgc"``) constructs the spec with default knee parameters;
-    ``"off"`` disables compression. Pass an
-    :class:`OutputGamutCompressSpec` directly for custom knee tuning."""
+    knee asymptotes at the output cube edge (no hard clip needed). Pass
+    an :class:`OutputGamutCompressSpec` (or a TOML table whose fields
+    match the dataclass) for custom knee tuning or to disable via
+    ``active=False``."""
     ocio_config: bool = False
     """Whether the bundle includes a standalone OCIO 2 config file
     (``config.ocio``) alongside its LUT files. Opt-in: most bundles
@@ -164,19 +151,6 @@ class BundleSpec:
     directly. See studies/a40_lut_system/n130_sub_chain_combinations.md."""
 
     def __post_init__(self):
-        # String shorthand for the gamut-compression specs:
-        # ``"off"`` → mode='off', anything else is treated as an
-        # algorithm name and constructs the spec with default knee.
-        if isinstance(self.input_gamut_compress, str):
-            object.__setattr__(
-                self, "input_gamut_compress",
-                _coerce_gamut_spec(self.input_gamut_compress, GamutCompressSpec),
-            )
-        if isinstance(self.output_gamut_compress, str):
-            object.__setattr__(
-                self, "output_gamut_compress",
-                _coerce_gamut_spec(self.output_gamut_compress, OutputGamutCompressSpec),
-            )
         if self.topology not in _VALID_TOPOLOGIES:
             raise ValueError(
                 f"topology must be one of {sorted(_VALID_TOPOLOGIES)}, "

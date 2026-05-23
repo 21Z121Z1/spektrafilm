@@ -25,6 +25,9 @@ class InputImageState:
     spectral_gaussian_blur: float
     filter_uv: tuple[float, float, float]
     filter_ir: tuple[float, float, float]
+    input_gamut_compress_active: bool
+    input_gamut_compress_algorithm: str
+    input_gamut_compress_knee: tuple[float, float, float]
 
 
 @dataclass(slots=True)
@@ -154,6 +157,9 @@ class SimulationState:
     output_primaries: str
     saving_color_space: str
     saving_cctf_encoding: bool
+    output_gamut_compress_active: bool
+    output_gamut_compress_algorithm: str
+    output_gamut_compress_knee: tuple[float, float, float]
     auto_preview: bool
     scan_film: bool
 
@@ -222,6 +228,9 @@ def gui_state_from_params(
             spectral_gaussian_blur=params.settings.spectral_gaussian_blur,
             filter_uv=tuple(params.camera.filter_uv),
             filter_ir=tuple(params.camera.filter_ir),
+            input_gamut_compress_active=bool(params.io.input_gamut_compress.active),
+            input_gamut_compress_algorithm=params.io.input_gamut_compress.algorithm,
+            input_gamut_compress_knee=tuple(params.io.input_gamut_compress.knee),
         ),
         load_raw=LoadRawState(
             white_balance='as_shot',
@@ -331,6 +340,9 @@ def gui_state_from_params(
             output_primaries="sRGB",
             saving_color_space="sRGB",
             saving_cctf_encoding=params.io.output_cctf_encoding,
+            output_gamut_compress_active=bool(params.io.output_gamut_compress.active),
+            output_gamut_compress_algorithm=params.io.output_gamut_compress.algorithm,
+            output_gamut_compress_knee=tuple(params.io.output_gamut_compress.knee),
             auto_preview=True,
             scan_film=params.io.scan_film,
         ),

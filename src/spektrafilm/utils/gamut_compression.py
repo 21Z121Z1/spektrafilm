@@ -45,8 +45,8 @@ class GamutCompressSpec:
 
     Attributes
     ----------
-    mode :
-        ``"soft"`` applies the Reinhard-knee compression; ``"off"``
+    active :
+        ``True`` applies the Reinhard-knee compression; ``False``
         disables compression and passes input chromaticities through
         unchanged (the LUT bake then behaves as it did before this
         feature landed).
@@ -67,15 +67,11 @@ class GamutCompressSpec:
         to 1.0 (see module docstring and n100 §5.2).
     """
 
-    mode: Literal["off", "soft"] = "soft"
+    active: bool = True
     algorithm: Literal["xy", "oklch"] = "xy"
     knee: tuple[float, float, float] = (0.815, 1.0, 1.2)
 
     def __post_init__(self) -> None:
-        if self.mode not in ("off", "soft"):
-            raise ValueError(
-                f"mode must be 'off' or 'soft', got {self.mode!r}"
-            )
         if self.algorithm not in ("xy", "oklch"):
             raise ValueError(
                 f"algorithm must be 'xy' or 'oklch', got {self.algorithm!r}"
@@ -102,8 +98,8 @@ class OutputGamutCompressSpec:
 
     Attributes
     ----------
-    mode :
-        ``"soft"`` applies the Reinhard-knee compression; ``"off"``
+    active :
+        ``True`` applies the Reinhard-knee compression; ``False``
         disables compression and passes output RGB through unchanged
         (the existing per-channel ``gamut_clip`` in scanning.py is then
         the only output-side safety net).
@@ -181,17 +177,13 @@ class OutputGamutCompressSpec:
         ``oklch`` and ``jzazbz``.
     """
 
-    mode: Literal["off", "soft"] = "soft"
+    active: bool = True
     algorithm: Literal[
         "aces_rgc", "oklch", "oklrab", "jzazbz", "cam16ucs",
     ] = "oklch"
     knee: tuple[float, float, float] = (0.95, 1.0, 2.0)
 
     def __post_init__(self) -> None:
-        if self.mode not in ("off", "soft"):
-            raise ValueError(
-                f"mode must be 'off' or 'soft', got {self.mode!r}"
-            )
         valid_algos = ("aces_rgc", "oklch", "oklrab", "jzazbz", "cam16ucs")
         if self.algorithm not in valid_algos:
             raise ValueError(
@@ -522,13 +514,13 @@ def compress_xy(
         in the spektrafilm runtime, this is the film's reference
         illuminant xy.
     spec :
-        Configuration. With ``spec.mode == "off"`` returns ``xy``
+        Configuration. With ``spec.active`` False returns ``xy``
         unchanged.
     locus :
         Optional spectral locus polygon override. Defaults to
         :func:`spectral_locus_xy` (CIE 1931 2° at 5 nm sampling).
     """
-    if spec.mode == "off":
+    if not spec.active:
         return np.asarray(xy, dtype=float)
     threshold, limit, power = spec.knee
     if spec.algorithm == "xy":
@@ -1053,7 +1045,7 @@ def compress_rgb(
         RGB array in the destination output primaries (linear),
         shape ``(..., 3)``.
     spec :
-        Output compression configuration. ``spec.mode == "off"``
+        Output compression configuration. ``spec.active`` False
         returns ``rgb`` unchanged.
     output_color_space :
         Name of the destination color space (e.g. ``"sRGB"``).
@@ -1062,7 +1054,7 @@ def compress_rgb(
         ``C_max(L, h)`` table. Ignored for ``"aces_rgc"``, which
         operates purely in destination RGB.
     """
-    if spec.mode == "off":
+    if not spec.active:
         return np.asarray(rgb, dtype=float)
     threshold, limit, power = spec.knee
     if spec.algorithm == "aces_rgc":
@@ -1131,12 +1123,12 @@ def remap_tc_lut_for_compression(
         ``_rgb_to_tc_b`` so the compression operates around the same
         white the runtime evaluates against.
     spec :
-        Compression configuration. ``spec.mode == "off"`` returns
+        Compression configuration. ``spec.active`` False returns
         ``tc_lut`` unchanged.
     locus :
         Optional spectral locus override (see :func:`compress_xy`).
     """
-    if spec.mode == "off":
+    if not spec.active:
         return tc_lut
 
     # Import here to avoid a circular module-load between

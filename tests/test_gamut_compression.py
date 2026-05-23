@@ -30,13 +30,13 @@ from spektrafilm.utils.gamut_compression import (
 class TestGamutCompressSpec:
     def test_default_is_aces_cyan_with_limit_one(self):
         s = GamutCompressSpec()
-        assert s.mode == "soft"
+        assert s.active is True
         assert s.algorithm == "xy"
         assert s.knee == (0.815, 1.0, 1.2)
 
-    def test_off_mode_constructs(self):
-        s = GamutCompressSpec(mode="off")
-        assert s.mode == "off"
+    def test_inactive_constructs(self):
+        s = GamutCompressSpec(active=False)
+        assert s.active is False
 
     def test_oklch_algorithm_constructs(self):
         s = GamutCompressSpec(algorithm="oklch")
@@ -45,10 +45,6 @@ class TestGamutCompressSpec:
     def test_custom_knee_constructs(self):
         s = GamutCompressSpec(knee=(0.7, 1.5, 1.5))
         assert s.knee == (0.7, 1.5, 1.5)
-
-    def test_invalid_mode_raises(self):
-        with pytest.raises(ValueError, match="mode must be"):
-            GamutCompressSpec(mode="hard")
 
     def test_invalid_algorithm_raises(self):
         with pytest.raises(ValueError, match="algorithm must be"):
@@ -71,7 +67,7 @@ class TestGamutCompressSpec:
     def test_frozen_dataclass(self):
         s = GamutCompressSpec()
         with pytest.raises(Exception):
-            s.mode = "off"  # type: ignore[misc]
+            s.active = False  # type: ignore[misc]
 
 
 class TestSpectralLocus:
@@ -129,8 +125,8 @@ class TestCompressXy:
         self.white = np.array([1 / 3, 1 / 3])
         self.spec = GamutCompressSpec()
 
-    def test_off_mode_is_identity(self):
-        spec = GamutCompressSpec(mode="off")
+    def test_inactive_is_identity(self):
+        spec = GamutCompressSpec(active=False)
         xy = np.array([[0.7, 0.2], [0.1, 0.8]])
         out = compress_xy(xy, self.white, spec)
         np.testing.assert_array_equal(out, xy)
@@ -174,15 +170,15 @@ class TestRemapTcLutForCompression:
             axis=-1,
         ).astype(float)
 
-    def test_off_mode_is_exact_identity(self):
+    def test_inactive_is_exact_identity(self):
         lut = self._dummy_lut()
-        spec = GamutCompressSpec(mode="off")
+        spec = GamutCompressSpec(active=False)
         out = remap_tc_lut_for_compression(
             lut, np.array([1 / 3, 1 / 3]), spec,
         )
         assert np.array_equal(out, lut)
 
-    def test_soft_mode_preserves_shape_and_dtype(self):
+    def test_active_preserves_shape_and_dtype(self):
         lut = self._dummy_lut()
         spec = GamutCompressSpec()
         out = remap_tc_lut_for_compression(
@@ -191,7 +187,7 @@ class TestRemapTcLutForCompression:
         assert out.shape == lut.shape
         assert out.dtype == lut.dtype
 
-    def test_soft_mode_changes_some_cells(self):
+    def test_active_changes_some_cells(self):
         """The compression should remap at least some cells (those near
         the OOG corners), proving the remap actually fires."""
         lut = self._dummy_lut()
@@ -229,7 +225,7 @@ class TestOutputGamutCompressSpec:
         ``(0.815, 1.0, 1.2)``. aces_rgc / jzazbz remain available as
         opt-in."""
         s = OutputGamutCompressSpec()
-        assert s.mode == "soft"
+        assert s.active is True
         assert s.algorithm == "oklch"
         assert s.knee == (0.95, 1.0, 2.0)
 
@@ -249,12 +245,8 @@ class TestOutputGamutCompressSpec:
         s = OutputGamutCompressSpec(algorithm="oklrab")
         assert s.algorithm == "oklrab"
 
-    def test_off_mode_constructs(self):
-        OutputGamutCompressSpec(mode="off")
-
-    def test_invalid_mode_raises(self):
-        with pytest.raises(ValueError, match="mode must be"):
-            OutputGamutCompressSpec(mode="hard")
+    def test_inactive_constructs(self):
+        OutputGamutCompressSpec(active=False)
 
     def test_invalid_algorithm_raises(self):
         with pytest.raises(ValueError, match="algorithm must be"):
@@ -271,7 +263,7 @@ class TestOutputGamutCompressSpec:
     def test_frozen_dataclass(self):
         s = OutputGamutCompressSpec()
         with pytest.raises(Exception):
-            s.mode = "off"  # type: ignore[misc]
+            s.active = False  # type: ignore[misc]
 
 
 class TestCompressRgbAcesRgc:
@@ -338,13 +330,13 @@ class TestCompressRgbAcesRgc:
 
 
 class TestCompressRgbDispatcher:
-    def test_off_mode_identity(self):
+    def test_inactive_identity(self):
         rgb = np.array([1.5, -0.1, -0.05])
-        spec = OutputGamutCompressSpec(mode="off")
+        spec = OutputGamutCompressSpec(active=False)
         out = compress_rgb(rgb, spec)
         np.testing.assert_array_equal(out, rgb)
 
-    def test_soft_mode_pulls_negatives_inside(self):
+    def test_active_pulls_negatives_inside(self):
         # Default algorithm is "oklch" which needs output_color_space.
         rgb = np.array([1.5, -0.1, -0.05])
         spec = OutputGamutCompressSpec()

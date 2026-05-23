@@ -3,6 +3,10 @@ from __future__ import annotations
 from spektrafilm_gui.state import GuiState
 from spektrafilm.runtime.api import init_params
 from spektrafilm.runtime.params_schema import RuntimePhotoParams
+from spektrafilm.utils.gamut_compression import (
+    GamutCompressSpec,
+    OutputGamutCompressSpec,
+)
 
 
 def build_params_from_state(state: GuiState) -> RuntimePhotoParams:
@@ -75,6 +79,16 @@ def _apply_io(params: RuntimePhotoParams, state: GuiState) -> None:
     params.io.output_primaries = state.simulation.output_primaries
     params.io.output_cctf_encoding = True
     params.io.scan_film = state.simulation.scan_film
+    params.io.input_gamut_compress = GamutCompressSpec(
+        active=bool(state.input_image.input_gamut_compress_active),
+        algorithm=state.input_image.input_gamut_compress_algorithm,
+        knee=tuple(state.input_image.input_gamut_compress_knee),
+    )
+    params.io.output_gamut_compress = OutputGamutCompressSpec(
+        active=bool(state.simulation.output_gamut_compress_active),
+        algorithm=state.simulation.output_gamut_compress_algorithm,
+        knee=tuple(state.simulation.output_gamut_compress_knee),
+    )
 
 
 def _apply_halation(params: RuntimePhotoParams, state: GuiState) -> None:

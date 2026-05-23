@@ -204,10 +204,10 @@ class TestBuildSubcommand:
             resolution = 5
 
             [input_gamut_compress]
-            mode = "off"
+            active = false
 
             [output_gamut_compress]
-            mode = "off"
+            active = false
         """).strip(), encoding="utf-8")
         rc = cli.main([
             "build", "--from", str(spec_file), "--out", str(tmp_path / "out"),

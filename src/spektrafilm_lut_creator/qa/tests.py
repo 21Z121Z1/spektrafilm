@@ -366,7 +366,7 @@ def output_gamut_compression(ctx: "QAContext") -> Result:
     rim_compressed = (
         compress_rgb(rim_unbounded, compression_spec,
                      output_color_space=out_primaries_name)
-        if compression_spec.mode != "off" else rim_unbounded.copy()
+        if compression_spec.active else rim_unbounded.copy()
     )
 
     hsv = np.asarray(colour.RGB_to_HSV(rim_samples), dtype=float)
@@ -389,7 +389,7 @@ def output_gamut_compression(ctx: "QAContext") -> Result:
         "input_hull_volume": float(hull["input_hull_volume"]),
         "output_hull_volume": float(hull["output_hull_volume"]),
         "compression_ratio": float(hull["compression_ratio"]),
-        "compression_mode": compression_spec.mode,
+        "compression_active": compression_spec.active,
         "compression_algorithm": compression_spec.algorithm,
         "rim_oog_fraction": oog_fraction,
         "rim_oog_samples": int(oog_mask.sum()),
@@ -999,7 +999,7 @@ def _in_triangle(xy: np.ndarray, tri: np.ndarray) -> np.ndarray:
 # every bundle's qa/ folder so colorists can see exactly what the input
 # gamut compression is doing for their input space (compression preview)
 # and confirm the compression is smooth (circumferential probe). Driven
-# by ctx.spec.input_gamut_compress; with mode="off" both tests still
+# by ctx.spec.input_gamut_compress; with active=False both tests still
 # produce a figure but it just says "compression disabled".
 # ---------------------------------------------------------------------------
 
@@ -1120,7 +1120,7 @@ def input_gamut_compression_preview(ctx: "QAContext") -> Result:
 
     # Compress the entire cube once; we'll only draw arrows on the
     # bright OOG subset (the population the knee was sized for).
-    if spec.mode != "off":
+    if spec.active:
         xy_out = compress_xy(xy, ref_xy_arr, spec)
     else:
         xy_out = xy.copy()
@@ -1165,7 +1165,7 @@ def input_gamut_compression_preview(ctx: "QAContext") -> Result:
         ax.scatter(xy[oog_mask, 0], xy[oog_mask, 1], c=oog_color,
                    s=4, alpha=0.45, edgecolors="none", zorder=3,
                    label="OOG (original)")
-    if oog_bright_mask.any() and spec.mode != "off":
+    if oog_bright_mask.any() and spec.active:
         ax.scatter(xy_out[oog_bright_mask, 0], xy_out[oog_bright_mask, 1],
                    c=moved_color, s=5, alpha=0.85, edgecolors="none",
                    zorder=4, label="compressed")
@@ -1185,13 +1185,13 @@ def input_gamut_compression_preview(ctx: "QAContext") -> Result:
         )
 
     # Stats panel in the upper left, monospace so the columns line up.
-    if oog_bright_mask.any() and spec.mode != "off":
+    if oog_bright_mask.any() and spec.active:
         disp = np.linalg.norm(
             xy_out[oog_bright_mask] - xy[oog_bright_mask], axis=-1,
         )
         text = (
             f"algorithm:    {spec.algorithm}\n"
-            f"mode:         {spec.mode}\n"
+            f"active:       {spec.active}\n"
             f"threshold:    {spec.knee[0]}\n"
             f"limit:        {spec.knee[1]}\n"
             f"power:        {spec.knee[2]}\n"
@@ -1203,10 +1203,10 @@ def input_gamut_compression_preview(ctx: "QAContext") -> Result:
             f"p99 disp:     {np.percentile(disp, 99):.4f}\n"
             f"mean disp:    {disp.mean():.4f}"
         )
-    elif spec.mode == "off":
+    elif not spec.active:
         text = (
             f"algorithm:    {spec.algorithm}\n"
-            f"mode:         off\n"
+            f"active:       False\n"
             f"\n"
             f"input:        {ctx.spec.input_color_space}\n"
             f"OOG fraction: {oog_fraction:.1%}\n"
@@ -1247,7 +1247,7 @@ def input_gamut_compression_preview(ctx: "QAContext") -> Result:
     return Result(
         name="input_gamut_compression_preview",
         summary={
-            "mode": spec.mode,
+            "active": spec.active,
             "algorithm": spec.algorithm,
             "knee_threshold": float(spec.knee[0]),
             "knee_limit": float(spec.knee[1]),
@@ -1396,7 +1396,7 @@ def input_gamut_compression_smoothness(ctx: "QAContext") -> Result:
     return Result(
         name="input_gamut_compression_smoothness",
         summary={
-            "mode": spec.mode,
+            "active": spec.active,
             "algorithm": spec.algorithm,
             "knee_threshold": float(spec.knee[0]),
             "knee_limit": float(spec.knee[1]),
@@ -1466,7 +1466,7 @@ def _run_unbounded_pipeline_for_rim(
     # always clips; this is QA-only.
     params.io.gamut_clip = "off"
     params.io.input_gamut_compress = spec.input_gamut_compress
-    params.io.output_gamut_compress = OutputGamutCompressSpec(mode="off")
+    params.io.output_gamut_compress = OutputGamutCompressSpec(active=False)
     params = digest_params(params)
     pipeline = SimulationPipeline(params)
 

@@ -660,9 +660,9 @@ def _format_output_gamut_compress(
     spec: "OutputGamutCompressSpec",
 ) -> str:
     """One-line summary of the output gamut compression spec for plot
-    suptitles: ``compress: <mode> · <algorithm> · knee=(t, l, p)``.
-    ``mode='off'`` short-circuits to ``compress: off``."""
-    if spec.mode == "off":
+    suptitles: ``compress: <algorithm> · knee=(t, l, p)``.
+    ``active=False`` short-circuits to ``compress: off``."""
+    if not spec.active:
         return "compress: off"
     t, l, p = spec.knee
     return f"compress: {spec.algorithm} · knee=(t={t:g}, l={l:g}, p={p:g})"
@@ -1096,7 +1096,7 @@ def _render_xy_compression_panel(
     if compression_active and rim_oog_mask.any():
         text = (
             f"algorithm:    {compression_spec.algorithm}\n"
-            f"mode:         {compression_spec.mode}\n"
+            f"active:       {compression_spec.active}\n"
             f"threshold:    {compression_spec.knee[0]}\n"
             f"limit:        {compression_spec.knee[1]}\n"
             f"power:        {compression_spec.knee[2]}\n"
