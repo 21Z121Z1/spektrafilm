@@ -1,4 +1,4 @@
-![spektrafilm banner](img/readme/banner.png)
+![spektrafilm banner](img/readme/banner.jpg)
 
 # Spectral film simulations of analog photography
 
