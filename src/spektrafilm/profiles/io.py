@@ -43,6 +43,36 @@ def _empty_tensor() -> np.ndarray:
     return np.empty((0, 3, 3), dtype=float)
 
 
+def _empty_layer_matrix() -> np.ndarray:
+    return np.empty((3, 0), dtype=float)
+
+
+@dataclass
+class DensityCurvesModel:
+    """Parametric model of the density curves.
+
+    `centers`, `amplitudes`, `sigmas` are 2D arrays shaped (n_channels, n_layers).
+    n_layers can be 2, 3, ... — set by the array shape.
+    """
+    model_type: str = 'cdfs'
+    centers: np.ndarray = field(default_factory=_empty_layer_matrix)
+    amplitudes: np.ndarray = field(default_factory=_empty_layer_matrix)
+    sigmas: np.ndarray = field(default_factory=_empty_layer_matrix)
+
+    def __post_init__(self):
+        self.centers = np.asarray(self.centers, dtype=float)
+        self.amplitudes = np.asarray(self.amplitudes, dtype=float)
+        self.sigmas = np.asarray(self.sigmas, dtype=float)
+
+    @property
+    def n_channels(self) -> int:
+        return self.centers.shape[0] if self.centers.ndim == 2 else 0
+
+    @property
+    def n_layers(self) -> int:
+        return self.centers.shape[1] if self.centers.ndim == 2 else 0
+
+
 @dataclass
 class ProfileMetadata:
     version: str = field(default_factory=_package_version)
@@ -95,6 +125,7 @@ class ProfileData:
     log_exposure: np.ndarray = field(default_factory=_empty_vector)
     density_curves: np.ndarray = field(default_factory=_empty_matrix)
     density_curves_layers: np.ndarray = field(default_factory=_empty_tensor)
+    density_curves_model: DensityCurvesModel = field(default_factory=DensityCurvesModel)
 
     def __post_init__(self):
         self.wavelengths = np.asarray(self.wavelengths, dtype=float)
@@ -111,6 +142,11 @@ class ProfileData:
         self.log_exposure = np.asarray(self.log_exposure, dtype=float)
         self.density_curves = np.asarray(self.density_curves, dtype=float)
         self.density_curves_layers = np.asarray(self.density_curves_layers, dtype=float)
+        if not isinstance(self.density_curves_model, DensityCurvesModel):
+            if isinstance(self.density_curves_model, Mapping):
+                self.density_curves_model = DensityCurvesModel(**dict(self.density_curves_model))
+            else:
+                raise TypeError('density_curves_model must be a DensityCurvesModel or Mapping')
 
 
 @dataclass
@@ -313,6 +349,7 @@ load_processed_profile = load_profile
 save_processed_profile = save_profile
 
 __all__ = [
+    "DensityCurvesModel",
     "Profile",
     "ProfileData",
     "ProfileInfo",
