@@ -25,7 +25,6 @@ class InputImageState:
     spectral_gaussian_blur: float
     filter_uv: tuple[float, float, float]
     filter_ir: tuple[float, float, float]
-    input_gamut_compress_active: bool
     input_gamut_compress_algorithm: str
     input_gamut_compress_knee: tuple[float, float, float]
 
@@ -97,6 +96,21 @@ class CouplersState:
 
 
 @dataclass(slots=True)
+class CurvesState:
+    active: bool
+    gamma_factor: float
+    fast_uniformity: float
+    mid_uniformity: float
+    slow_uniformity: float
+    fast_warmth: float
+    fast_tint: float
+    mid_warmth: float
+    mid_tint: float
+    slow_warmth: float
+    slow_tint: float
+
+
+@dataclass(slots=True)
 class GlareState:
     active: bool
     percent: float
@@ -109,7 +123,6 @@ class SpecialState:
     film_channel_swap: tuple[int, int, int]
     film_gamma_factor: float
     print_channel_swap: tuple[int, int, int]
-    print_gamma_factor: float
 
 
 @dataclass(slots=True)
@@ -157,7 +170,6 @@ class SimulationState:
     output_primaries: str
     saving_color_space: str
     saving_cctf_encoding: bool
-    output_gamut_compress_active: bool
     output_gamut_compress_algorithm: str
     output_gamut_compress_knee: tuple[float, float, float]
     auto_preview: bool
@@ -181,6 +193,7 @@ class GuiState:
     preflashing: PreflashingState
     halation: HalationState
     couplers: CouplersState
+    curves: CurvesState
     glare: GlareState
     special: SpecialState
     simulation: SimulationState
@@ -201,6 +214,7 @@ def clone_gui_state(state: GuiState) -> GuiState:
         preflashing=clone_state_section(state.preflashing),
         halation=clone_state_section(state.halation),
         couplers=clone_state_section(state.couplers),
+        curves=clone_state_section(state.curves),
         glare=clone_state_section(state.glare),
         special=clone_state_section(state.special),
         simulation=clone_state_section(state.simulation),
@@ -228,8 +242,11 @@ def gui_state_from_params(
             spectral_gaussian_blur=params.settings.spectral_gaussian_blur,
             filter_uv=tuple(params.camera.filter_uv),
             filter_ir=tuple(params.camera.filter_ir),
-            input_gamut_compress_active=bool(params.io.input_gamut_compress.active),
-            input_gamut_compress_algorithm=params.io.input_gamut_compress.algorithm,
+            input_gamut_compress_algorithm=(
+                params.io.input_gamut_compress.algorithm
+                if params.io.input_gamut_compress.active
+                else 'off'
+            ),
             input_gamut_compress_knee=tuple(params.io.input_gamut_compress.knee),
         ),
         load_raw=LoadRawState(
@@ -284,6 +301,19 @@ def gui_state_from_params(
             gamma_interlayer_b_to_rg=tuple(params.film_render.dir_couplers.gamma_interlayer_b_to_rg),
             diffusion_size_um=params.film_render.dir_couplers.diffusion_size_um,
         ),
+        curves=CurvesState(
+            active=params.print_render.density_curves_morph.active,
+            gamma_factor=params.print_render.density_curves_morph.gamma_factor,
+            fast_uniformity=params.print_render.density_curves_morph.fast_uniformity,
+            mid_uniformity=params.print_render.density_curves_morph.mid_uniformity,
+            slow_uniformity=params.print_render.density_curves_morph.slow_uniformity,
+            fast_warmth=params.print_render.density_curves_morph.fast_warmth,
+            fast_tint=params.print_render.density_curves_morph.fast_tint,
+            mid_warmth=params.print_render.density_curves_morph.mid_warmth,
+            mid_tint=params.print_render.density_curves_morph.mid_tint,
+            slow_warmth=params.print_render.density_curves_morph.slow_warmth,
+            slow_tint=params.print_render.density_curves_morph.slow_tint,
+        ),
         glare=GlareState(
             active=params.print_render.glare.active,
             percent=params.print_render.glare.percent,
@@ -294,7 +324,6 @@ def gui_state_from_params(
             film_channel_swap=(0, 1, 2),
             film_gamma_factor=params.film_render.density_curve_gamma,
             print_channel_swap=(0, 1, 2),
-            print_gamma_factor=params.print_render.density_curve_gamma,
         ),
         simulation=SimulationState(
             film_stock=film_stock,
@@ -340,7 +369,6 @@ def gui_state_from_params(
             output_primaries="sRGB",
             saving_color_space="sRGB",
             saving_cctf_encoding=params.io.output_cctf_encoding,
-            output_gamut_compress_active=bool(params.io.output_gamut_compress.active),
             output_gamut_compress_algorithm=params.io.output_gamut_compress.algorithm,
             output_gamut_compress_knee=tuple(params.io.output_gamut_compress.knee),
             auto_preview=True,

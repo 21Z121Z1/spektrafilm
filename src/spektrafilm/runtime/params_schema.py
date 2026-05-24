@@ -7,6 +7,7 @@ from spektrafilm.utils.gamut_compression import (
     GamutCompressSpec,
     OutputGamutCompressSpec,
 )
+from spektrafilm.utils.morph_density_curves import PrintCurvesMorphParams
 
 
 
@@ -158,8 +159,10 @@ class FilmRenderingParams:
 
 @dataclass
 class PrintRenderingParams:
-    density_curve_gamma: float = 1.0
     glare: GlareParams = field(default_factory=GlareParams)
+    density_curves_morph: PrintCurvesMorphParams = field(
+        default_factory=lambda: PrintCurvesMorphParams(active=False)
+    )
 
 
 @dataclass

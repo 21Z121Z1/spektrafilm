@@ -194,7 +194,7 @@ class TestBuildSubcommand:
         meta = json.loads((bundle_dirs[0] / "bundle.json").read_text(encoding="utf-8"))
         assert meta["resolution"] == 7
 
-    def test_build_toml_with_nested_gamut_compress_table(self, tmp_path):
+    def test_build_toml_with_input_table_and_output_off_string(self, tmp_path):
         spec_file = tmp_path / "spec.toml"
         spec_file.write_text(textwrap.dedent("""
             film_profile = "kodak_portra_400"
@@ -202,11 +202,9 @@ class TestBuildSubcommand:
             input_color_space = "vlog"
             output_color_space = "srgb"
             resolution = 5
+            output_gamut_compress = "off"
 
             [input_gamut_compress]
-            active = false
-
-            [output_gamut_compress]
             active = false
         """).strip(), encoding="utf-8")
         rc = cli.main([

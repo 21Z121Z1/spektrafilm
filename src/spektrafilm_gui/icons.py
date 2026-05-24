@@ -29,6 +29,7 @@ _SECTION_HEADER_ICONS = {
     'grain': 'tabler:grain',
     'halation': 'tabler:time-duration-0',
     'couplers': 'tabler:chart-sankey',
+    'curves': 'tabler:ease-in-out-control-points',
     'glare': 'tabler:background',
     'preflash': 'tabler:sparkles',
     'diffusion': 'tabler:artboard',

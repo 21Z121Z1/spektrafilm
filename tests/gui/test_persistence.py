@@ -33,7 +33,7 @@ def test_gui_state_round_trip_preserves_tuple_fields() -> None:
 def test_save_and_load_gui_state_file(tmp_path: Path) -> None:
     state = make_test_gui_state()
     state.simulation.print_exposure = 1.4
-    state.special.print_gamma_factor = 1.2
+    state.curves.gamma_factor_mid = 1.2
     state.display.gray_18_canvas = True
     state.display.white_padding = 0.12
     destination = tmp_path / 'gui_state.json'

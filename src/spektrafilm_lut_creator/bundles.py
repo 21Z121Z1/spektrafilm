@@ -122,13 +122,13 @@ class BundleSpec:
     With ``stops_above_gray`` set the LUT is no longer a strict
     colorimetric round-trip; the bundle README discloses the
     effective gain."""
-    output_gamut_compress: OutputGamutCompressSpec = field(default_factory=OutputGamutCompressSpec)
+    output_gamut_compress: OutputGamutCompressSpec | str = field(default_factory=OutputGamutCompressSpec)
     """Output gamut compression spec. Default ``oklch`` algorithm with
     the ACES RGC cyan threshold and power, limit reduced to 1.0 so the
     knee asymptotes at the output cube edge (no hard clip needed). Pass
-    an :class:`OutputGamutCompressSpec` (or a TOML table whose fields
-    match the dataclass) for custom knee tuning or to disable via
-    ``active=False``."""
+    an :class:`OutputGamutCompressSpec` for custom knee tuning, or pass
+    an algorithm string directly (for example ``"cam16ucs"`` or
+    ``"off"``). TOML config loading still accepts a matching table."""
     ocio_config: bool = False
     """Whether the bundle includes a standalone OCIO 2 config file
     (``config.ocio``) alongside its LUT files. Opt-in: most bundles
@@ -151,6 +151,17 @@ class BundleSpec:
     directly. See studies/a40_lut_system/n130_sub_chain_combinations.md."""
 
     def __post_init__(self):
+        if isinstance(self.output_gamut_compress, str):
+            object.__setattr__(
+                self,
+                "output_gamut_compress",
+                OutputGamutCompressSpec(algorithm=self.output_gamut_compress),
+            )
+        if not isinstance(self.output_gamut_compress, OutputGamutCompressSpec):
+            raise TypeError(
+                "output_gamut_compress must be an OutputGamutCompressSpec "
+                "or algorithm string"
+            )
         if self.topology not in _VALID_TOPOLOGIES:
             raise ValueError(
                 f"topology must be one of {sorted(_VALID_TOPOLOGIES)}, "

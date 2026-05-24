@@ -6,6 +6,7 @@ from spektrafilm_gui.widget_sections import (
     CameraSection,
     CameraDiffusionSection,
     CouplersSection,
+    CurvesSection,
     DataclassSection,
     DisplaySection,
     DiffusionSection,
@@ -55,6 +56,7 @@ class WidgetBundle:
     camera_diffusion: CameraDiffusionSection
     halation: HalationSection
     couplers: CouplersSection
+    curves: CurvesSection
     glare: GlareSection
     special: SpecialSection
     simulation: SimulationSection
@@ -89,6 +91,7 @@ def create_widget_bundle() -> WidgetBundle:
         camera_diffusion=CameraDiffusionSection(simulation),
         halation=HalationSection(),
         couplers=CouplersSection(),
+        curves=CurvesSection(),
         glare=glare,
         special=special,
         simulation=simulation,

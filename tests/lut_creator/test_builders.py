@@ -26,6 +26,7 @@ from spektrafilm_lut_creator.color_spaces import (
 )
 from spektrafilm_lut_creator.formats import get_format
 from spektrafilm_lut_creator.grid import cube_grid, grid_as_image
+from spektrafilm.utils.gamut_compression import OutputGamutCompressSpec
 
 
 _RESOLUTION = 5  # small enough to run quickly, large enough to exercise the cube layout
@@ -67,6 +68,19 @@ class TestBuilderConstruction:
                 topology="6-lut-something",
                 resolution=5,
             )
+
+    def test_accepts_output_gamut_compress_off_string(self):
+        spec = BundleSpec(
+            name="x",
+            film_profile="kodak_portra_400",
+            print_profiles=("kodak_portra_endura",),
+            input_color_space=_INPUT_CS,
+            output_color_space=_OUTPUT_CS,
+            output_gamut_compress="off",
+            resolution=5,
+        )
+
+        assert spec.output_gamut_compress == OutputGamutCompressSpec(algorithm="off")
 
     def test_rejects_input_role_mismatch(self):
         # ACEScg is registered input-only; using it as the bundle's output

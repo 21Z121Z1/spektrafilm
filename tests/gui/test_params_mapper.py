@@ -6,6 +6,7 @@ import numpy as np
 
 from spektrafilm.model.illuminants import Illuminants
 from spektrafilm.model.stocks import FilmStocks, PrintPapers
+from spektrafilm.utils.gamut_compression import GamutCompressSpec
 from spektrafilm_gui.params_mapper import build_params_from_state
 import spektrafilm_gui.state as state_module
 from spektrafilm_gui.state import (
@@ -14,7 +15,9 @@ from spektrafilm_gui.state import (
     PROJECT_DEFAULT_GUI_STATE,
     build_default_gui_state,
     clone_gui_state,
+    gui_state_from_params,
 )
+from spektrafilm.runtime.api import init_params
 
 
 def make_state():
@@ -149,6 +152,32 @@ def test_build_params_uses_preview_tuned_lut_settings() -> None:
     assert params.settings.use_scanner_lut is True
     assert params.settings.lut_resolution == 17
     assert params.settings.use_fast_stats is True
+
+
+def test_build_params_maps_input_gamut_compress_off_to_inactive_runtime_spec() -> None:
+    state = make_state()
+    state.input_image.input_gamut_compress_algorithm = 'off'
+
+    params = build_params_from_state(state)
+
+    assert params.io.input_gamut_compress.active is False
+    assert params.io.input_gamut_compress.algorithm == 'xy'
+
+
+def test_gui_state_from_params_maps_inactive_input_gamut_compress_to_off() -> None:
+    params = init_params(
+        film_profile=FilmStocks.kodak_gold_200.value,
+        print_profile=PrintPapers.kodak_supra_endura.value,
+    )
+    params.io.input_gamut_compress = GamutCompressSpec(active=False)
+
+    state = gui_state_from_params(
+        params,
+        film_stock=FilmStocks.kodak_gold_200.value,
+        print_paper=PrintPapers.kodak_supra_endura.value,
+    )
+
+    assert state.input_image.input_gamut_compress_algorithm == 'off'
 
 
 def test_build_default_gui_state_uses_runtime_defaults() -> None:

@@ -176,7 +176,6 @@ class TestRuntimeApi:
             params.film_render.dir_couplers.active = True
             params.film_render.dir_couplers.amount = 1.0
             params.print_render.glare.active = False
-            params.print_render.density_curve_gamma = 1.0
             return params
 
         image = np.array([[[0.184, 0.184, 0.184]]], dtype=np.float64)

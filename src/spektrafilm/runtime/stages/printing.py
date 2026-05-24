@@ -4,7 +4,7 @@ import numpy as np
 from opt_einsum import contract
 
 from spektrafilm.model.diffusion import apply_diffusion_filter_um
-from spektrafilm.model.emulsion import compute_density_spectral, develop_simple
+from spektrafilm.model.develop import compute_density_spectral, develop_print_morph
 from spektrafilm.model.illuminants import standard_illuminant
 from spektrafilm.utils.conversions import density_to_light
 
@@ -62,11 +62,12 @@ class PrintingStage:
 
     def develop(self, log_raw: np.ndarray) -> np.ndarray:
                 
-        return develop_simple(
+        return develop_print_morph(
             log_raw,
             self._print.data.log_exposure,
-            self._print.data.density_curves,
-            gamma_factor=self._print_render.density_curve_gamma,
+            self._print.data.density_curves_model,
+            density_curves_morph=self._print_render.density_curves_morph,
+            profile_type=self._print.info.type,
         )
 
     # private methods

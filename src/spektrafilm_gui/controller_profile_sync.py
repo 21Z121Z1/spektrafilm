@@ -64,6 +64,19 @@ PROFILE_SYNC_FIELDS: dict[str, tuple[str, ...]] = {
         'gamma_interlayer_b_to_rg',
         'diffusion_size_um',
     ),
+    'curves': (
+        'active',
+        'gamma_factor',
+        'fast_uniformity',
+        'mid_uniformity',
+        'slow_uniformity',
+        'fast_warmth',
+        'fast_tint',
+        'mid_warmth',
+        'mid_tint',
+        'slow_warmth',
+        'slow_tint',
+    ),
     'glare': (
         'active',
         'percent',
@@ -72,7 +85,6 @@ PROFILE_SYNC_FIELDS: dict[str, tuple[str, ...]] = {
     ),
     'special': (
         'film_gamma_factor',
-        'print_gamma_factor',
     ),
     'simulation': (
         'film_stock',

@@ -6,7 +6,7 @@ from opt_einsum import contract
 
 from spektrafilm.config import STANDARD_OBSERVER_CMFS
 from spektrafilm.model.diffusion import apply_gaussian_blur, apply_unsharp_mask
-from spektrafilm.model.emulsion import compute_density_spectral
+from spektrafilm.model.develop import compute_density_spectral
 from spektrafilm.model.glare import add_glare
 from spektrafilm.model.illuminants import standard_illuminant
 from spektrafilm.utils.conversions import density_to_light

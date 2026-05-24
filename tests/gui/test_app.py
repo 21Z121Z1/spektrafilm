@@ -450,7 +450,6 @@ def test_connect_auto_preview_signals_covers_hidden_linked_controls_and_footer_t
                 'filter_uv',
                 'filter_ir',
                 'film_gamma_factor',
-                'print_gamma_factor',
                 'film_format_mm',
                 'camera_lens_blur_um',
                 'camera_diffusion_filter_active',

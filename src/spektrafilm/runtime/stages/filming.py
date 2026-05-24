@@ -5,7 +5,7 @@ import numpy as np
 from spektrafilm.model.illuminants import standard_illuminant
 from spektrafilm.model.color_filters import compute_band_pass_filter
 from spektrafilm.model.diffusion import apply_diffusion_filter_um, apply_gaussian_blur_um, apply_halation_um, boost_highlights
-from spektrafilm.model.emulsion import compute_density_spectral, develop, develop_simple
+from spektrafilm.model.develop import compute_density_spectral, develop, develop_simple
 from spektrafilm.utils.autoexposure import measure_autoexposure_ev
 from spektrafilm.utils.spectral_upsampling import rgb_to_raw_hanatos2025, rgb_to_raw_mallett2019
 

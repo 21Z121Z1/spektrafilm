@@ -53,13 +53,17 @@ class DiffusionFilterFamilies(Enum):
 
 
 class InputGamutCompressAlgorithms(Enum):
+    off = "off"
     xy = "xy"
     oklch = "oklch"
 
 
 class OutputGamutCompressAlgorithms(Enum):
+    off = "off"
     oklch = "oklch"
     aces_rgc = "aces_rgc"
     oklrab = "oklrab"
     jzazbz = "jzazbz"
     cam16ucs = "cam16ucs"
+
+

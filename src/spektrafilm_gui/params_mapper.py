@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from spektrafilm.utils.morph_density_curves import PrintCurvesMorphParams
 from spektrafilm_gui.state import GuiState
 from spektrafilm.runtime.api import init_params
 from spektrafilm.runtime.params_schema import RuntimePhotoParams
@@ -22,6 +23,7 @@ def build_params_from_state(state: GuiState) -> RuntimePhotoParams:
     _apply_halation(params, state)
     _apply_grain(params, state)
     _apply_couplers(params, state)
+    _apply_curves(params, state)
     _apply_enlarger(params, state)
     _apply_scanner(params, state)
     _apply_settings(params, state)
@@ -38,7 +40,6 @@ def _apply_special(params: RuntimePhotoParams, state: GuiState) -> None:
         params.print = swap_channels(params.print, state.special.print_channel_swap)
 
     params.film_render.density_curve_gamma = state.special.film_gamma_factor
-    params.print_render.density_curve_gamma = state.special.print_gamma_factor
 
 
 def _apply_glare(params: RuntimePhotoParams, state: GuiState) -> None:
@@ -70,6 +71,7 @@ def _apply_camera(params: RuntimePhotoParams, state: GuiState) -> None:
 
 
 def _apply_io(params: RuntimePhotoParams, state: GuiState) -> None:
+    input_gamut_compress_algorithm = state.input_image.input_gamut_compress_algorithm
     params.io.upscale_factor = state.input_image.upscale_factor
     params.io.crop = state.input_image.crop
     params.io.crop_center = state.input_image.crop_center
@@ -80,12 +82,11 @@ def _apply_io(params: RuntimePhotoParams, state: GuiState) -> None:
     params.io.output_cctf_encoding = True
     params.io.scan_film = state.simulation.scan_film
     params.io.input_gamut_compress = GamutCompressSpec(
-        active=bool(state.input_image.input_gamut_compress_active),
-        algorithm=state.input_image.input_gamut_compress_algorithm,
+        active=input_gamut_compress_algorithm != 'off',
+        algorithm='xy' if input_gamut_compress_algorithm == 'off' else input_gamut_compress_algorithm,
         knee=tuple(state.input_image.input_gamut_compress_knee),
     )
     params.io.output_gamut_compress = OutputGamutCompressSpec(
-        active=bool(state.simulation.output_gamut_compress_active),
         algorithm=state.simulation.output_gamut_compress_algorithm,
         knee=tuple(state.simulation.output_gamut_compress_knee),
     )
@@ -135,6 +136,22 @@ def _apply_couplers(params: RuntimePhotoParams, state: GuiState) -> None:
     params.film_render.dir_couplers.gamma_interlayer_g_to_rb = tuple(state.couplers.gamma_interlayer_g_to_rb)
     params.film_render.dir_couplers.gamma_interlayer_b_to_rg = tuple(state.couplers.gamma_interlayer_b_to_rg)
     params.film_render.dir_couplers.diffusion_size_um = state.couplers.diffusion_size_um
+
+
+def _apply_curves(params: RuntimePhotoParams, state: GuiState) -> None:
+    params.print_render.density_curves_morph = PrintCurvesMorphParams(
+        active=bool(state.curves.active),
+        gamma_factor=float(state.curves.gamma_factor),
+        fast_uniformity=float(state.curves.fast_uniformity),
+        mid_uniformity=float(state.curves.mid_uniformity),
+        slow_uniformity=float(state.curves.slow_uniformity),
+        fast_warmth=float(state.curves.fast_warmth),
+        fast_tint=float(state.curves.fast_tint),
+        mid_warmth=float(state.curves.mid_warmth),
+        mid_tint=float(state.curves.mid_tint),
+        slow_warmth=float(state.curves.slow_warmth),
+        slow_tint=float(state.curves.slow_tint),
+    )
 
 
 def _apply_enlarger(params: RuntimePhotoParams, state: GuiState) -> None:

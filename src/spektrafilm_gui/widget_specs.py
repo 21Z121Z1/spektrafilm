@@ -46,6 +46,7 @@ GUI_SECTION_ENUMS: dict[str, dict[str, type[Enum]]] = {
     "display": {
         "output_interpolation": NapariInterpolationModes,
     },
+    "curves": {},
     "simulation": {
         "film_stock": FilmStocks,
         "auto_exposure_method": AutoExposureMethods,
@@ -292,17 +293,13 @@ GUI_WIDGET_SPECS = {
             label="Saving CCTF encoding",
             tooltip="Add or not the CCTF to the saved image file",
         ),
-        "output_gamut_compress_active": WidgetSpec(
-            label="Gamut compress active",
-            tooltip="Soft-compress simulation output back into the output color space's RGB cube before the final clip. Keeps wide-gamut film output (V-Log → sRGB worst case) hue-preserving instead of hard-clipping at the cube edge.",
-        ),
         "output_gamut_compress_algorithm": WidgetSpec(
             label="Gamut compress algorithm",
-            tooltip="oklch (default): perceptual chroma reduction in OkLab, preserves hue + lightness. aces_rgc: per-channel ACES RGC v1.3, matches Resolve/Nuke/OCIO. oklrab/jzazbz/cam16ucs: alternative perceptual spaces.",
+            tooltip="off: disable output gamut compression. oklch (default): perceptual chroma reduction in OkLab, preserves hue + lightness. aces_rgc: per-channel ACES RGC v1.3, matches Resolve/Nuke/OCIO. oklrab/jzazbz/cam16ucs: alternative perceptual spaces.",
         ),
         "output_gamut_compress_knee": WidgetSpec(
             label="Gamut compress knee",
-            tooltip="Reinhard knee (threshold, limit, power). Default (0.95, 1.0, 2.0) is gentle — only the last 5% to the cube edge is rolled off, leaving most legitimate film chroma untouched.",
+            tooltip="Reinhard knee (threshold, limit, power). Default (0.95, 1.0, 2.0) is gentle -- only the last 5% to the cube edge is rolled off, leaving most legitimate film chroma untouched.",
             min_value=0.0,
             step=0.05,
             decimals=3,
@@ -338,6 +335,79 @@ GUI_WIDGET_SPECS = {
             step=128,
         ),
     },
+    "curves": {
+        "active": WidgetSpec(tooltip="Enable print density-curve morphing."),
+        "gamma_factor": WidgetSpec(
+            label="Gamma factor",
+            tooltip="Global coupled gamma multiplier for the print density curves.",
+            min_value=0.5,
+            max_value=1.5,
+            step=0.05,
+        ),
+        "fast_uniformity": WidgetSpec(
+            label="Fast uniformity",
+            tooltip="Uniformity multiplier for the fast sub-layer.",
+            min_value=0.5,
+            max_value=1.5,
+            step=0.05,
+        ),
+        "mid_uniformity": WidgetSpec(
+            label="Mid uniformity",
+            tooltip="Uniformity multiplier for the mid sub-layer.",
+            min_value=0.5,
+            max_value=1.5,
+            step=0.05,
+        ),
+        "slow_uniformity": WidgetSpec(
+            label="Slow uniformity",
+            tooltip="Uniformity multiplier for the slow sub-layer.",
+            min_value=0.5,
+            max_value=1.5,
+            step=0.05,
+        ),
+        "fast_warmth": WidgetSpec(
+            label="Fast warmth",
+            tooltip="Warmth offset for the fast sub-layer.",
+            min_value=-0.40,
+            max_value=0.40,
+            step=0.02,
+        ),
+        "fast_tint": WidgetSpec(
+            label="Fast tint",
+            tooltip="Tint offset for the fast sub-layer.",
+            min_value=-0.40,
+            max_value=0.40,
+            step=0.02,
+        ),
+        "mid_warmth": WidgetSpec(
+            label="Mid warmth",
+            tooltip="Warmth offset for the mid sub-layer.",
+            min_value=-0.40,
+            max_value=0.40,
+            step=0.02,
+        ),
+        "mid_tint": WidgetSpec(
+            label="Mid tint",
+            tooltip="Tint offset for the mid sub-layer.",
+            min_value=-0.40,
+            max_value=0.40,
+            step=0.02,
+        ),
+        "slow_warmth": WidgetSpec(
+            label="Slow warmth",
+            tooltip="Warmth offset for the slow sub-layer.",
+            min_value=-0.40,
+            max_value=0.40,
+            step=0.02,
+        ),
+        "slow_tint": WidgetSpec(
+            label="Slow tint",
+            tooltip="Tint offset for the slow sub-layer.",
+            min_value=-0.40,
+            max_value=0.40,
+            step=0.02,
+        ),
+    },
     "special": {
         "film_gamma_factor": WidgetSpec(
             label="Film gamma factor",
@@ -346,12 +416,6 @@ GUI_WIDGET_SPECS = {
             min_value=0,
         ),
         "film_channel_swap": WidgetSpec(label="Film channel swap"),
-        "print_gamma_factor": WidgetSpec(
-            label="Print gamma factor",
-            tooltip="Gamma factor of the print paper, < 1 reduce contrast, > 1 increase contrast",
-            step=0.05,
-            min_value=0,
-        ),
         "print_channel_swap": WidgetSpec(label="Print channel swap",
         min_value=0,
         max_value=2,
@@ -604,13 +668,9 @@ GUI_WIDGET_SPECS = {
             min_value=0,
             step=1,
         ),
-        "input_gamut_compress_active": WidgetSpec(
-            label="Gamut compress active",
-            tooltip="Soft-compress input chromaticities onto the visible spectral locus before Hanatos 2025 spectral upsampling. Required for wide-gamut inputs (V-Gamut, ACEScg, AP0) — without it, out-of-locus samples produce extrapolation noise.",
-        ),
         "input_gamut_compress_algorithm": WidgetSpec(
             label="Gamut compress algorithm",
-            tooltip="xy: radial compression in CIE 1931 chromaticity (ACES RGC family, hue-preserving). oklch: perceptual chroma reduction at constant Oklch (L, h).",
+            tooltip="off: disable input gamut compression. xy: radial compression in CIE 1931 chromaticity (ACES RGC family, hue-preserving). oklch: perceptual chroma reduction at constant Oklch (L, h).",
         ),
         "input_gamut_compress_knee": WidgetSpec(
             label="Gamut compress knee",

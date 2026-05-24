@@ -389,7 +389,6 @@ def output_gamut_compression(ctx: "QAContext") -> Result:
         "input_hull_volume": float(hull["input_hull_volume"]),
         "output_hull_volume": float(hull["output_hull_volume"]),
         "compression_ratio": float(hull["compression_ratio"]),
-        "compression_active": compression_spec.active,
         "compression_algorithm": compression_spec.algorithm,
         "rim_oog_fraction": oog_fraction,
         "rim_oog_samples": int(oog_mask.sum()),
@@ -1466,7 +1465,7 @@ def _run_unbounded_pipeline_for_rim(
     # always clips; this is QA-only.
     params.io.gamut_clip = "off"
     params.io.input_gamut_compress = spec.input_gamut_compress
-    params.io.output_gamut_compress = OutputGamutCompressSpec(active=False)
+    params.io.output_gamut_compress = OutputGamutCompressSpec(algorithm="off")
     params = digest_params(params)
     pipeline = SimulationPipeline(params)
 

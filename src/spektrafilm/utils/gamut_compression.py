@@ -98,12 +98,11 @@ class OutputGamutCompressSpec:
 
     Attributes
     ----------
-    active :
-        ``True`` applies the Reinhard-knee compression; ``False``
-        disables compression and passes output RGB through unchanged
-        (the existing per-channel ``gamut_clip`` in scanning.py is then
-        the only output-side safety net).
     algorithm :
+        ``"off"`` disables output gamut compression and passes output
+        RGB through unchanged (the existing per-channel ``gamut_clip``
+        in scanning.py is then the only output-side safety net).
+
         ``"oklch"`` (default) — perceptual-hue-preserving chroma
         reduction in OkLab. Convert output RGB → OkLab → OkLch
         (L, C, h), look up ``C_max(L, h)`` for the output color
@@ -177,14 +176,13 @@ class OutputGamutCompressSpec:
         ``oklch`` and ``jzazbz``.
     """
 
-    active: bool = True
     algorithm: Literal[
-        "aces_rgc", "oklch", "oklrab", "jzazbz", "cam16ucs",
+        "off", "aces_rgc", "oklch", "oklrab", "jzazbz", "cam16ucs",
     ] = "oklch"
     knee: tuple[float, float, float] = (0.95, 1.0, 2.0)
 
     def __post_init__(self) -> None:
-        valid_algos = ("aces_rgc", "oklch", "oklrab", "jzazbz", "cam16ucs")
+        valid_algos = ("off", "aces_rgc", "oklch", "oklrab", "jzazbz", "cam16ucs")
         if self.algorithm not in valid_algos:
             raise ValueError(
                 f"algorithm must be one of {valid_algos}, "
@@ -199,6 +197,10 @@ class OutputGamutCompressSpec:
             raise ValueError(f"knee limit must be > 0, got {l}")
         if not (p > 0.0):
             raise ValueError(f"knee power must be > 0, got {p}")
+
+    @property
+    def active(self) -> bool:
+        return self.algorithm != "off"
 
 
 # ---------------------------------------------------------------------------
@@ -1045,8 +1047,8 @@ def compress_rgb(
         RGB array in the destination output primaries (linear),
         shape ``(..., 3)``.
     spec :
-        Output compression configuration. ``spec.active`` False
-        returns ``rgb`` unchanged.
+        Output compression configuration. ``algorithm='off'`` returns
+        ``rgb`` unchanged.
     output_color_space :
         Name of the destination color space (e.g. ``"sRGB"``).
         Required for ``"oklch"`` / ``"jzazbz"`` / ``"cam16ucs"`` because
@@ -1054,7 +1056,7 @@ def compress_rgb(
         ``C_max(L, h)`` table. Ignored for ``"aces_rgc"``, which
         operates purely in destination RGB.
     """
-    if not spec.active:
+    if spec.algorithm == "off":
         return np.asarray(rgb, dtype=float)
     threshold, limit, power = spec.knee
     if spec.algorithm == "aces_rgc":
