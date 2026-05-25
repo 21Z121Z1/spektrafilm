@@ -472,3 +472,136 @@ def dynamic_range_stats(
     }
 
 
+# ---------------------------------------------------------------------------
+# Noise propagation through the LUT.
+# ---------------------------------------------------------------------------
+
+def noise_sensitivity_field(
+    table: np.ndarray,
+    input_samples_encoded: np.ndarray,
+    *,
+    in_cs: str,
+    out_cs: str,
+    sigma_in_encoded: float = 0.005,
+    eps: float = 5e-3,
+) -> dict:
+    """Propagate isotropic encoded-input noise through the LUT to OkLab.
+
+    For each input sample ``x`` (encoded RGB in ``in_cs``), build the
+    composed Jacobian ``J = ∂OkLab_out / ∂encoded_in`` by central
+    differences on the trilinear LUT evaluator followed by an OkLab
+    transform on the output. With input noise modelled as isotropic
+    ``Σ_in = σ²·I`` in encoded RGB, the output noise covariance in
+    OkLab is the standard first-order propagation:
+
+        Σ_out(x) ≈ J(x) · Σ_in · J(x)ᵀ
+
+    The largest singular value ``σ₁(J)`` is the worst-case noise gain
+    at ``x``; its right singular vector is the input direction the LUT
+    amplifies most. The 2×2 a*b* sub-covariance of ``Σ_out``
+    eigendecomposes into the "noise ellipse" whose orientation reveals
+    chromatic amplification — orange surfaces with red speckle show up
+    as an ellipse pointing toward the red axis.
+
+    Parameters
+    ----------
+    table
+        LUT table, shape ``(N, N, N, 3)`` indexed ``[b, g, r, :]``.
+    input_samples_encoded
+        ``(M, 3)`` encoded RGB sample positions in ``in_cs``. Must be
+        ``eps`` away from the [0, 1] boundary on every axis or central
+        differences will clamp (handled gracefully — boundary samples
+        get a one-sided approximation since ``apply_trilinear`` clamps,
+        but precision degrades).
+    in_cs, out_cs
+        Color-space registry names for the LUT input and output.
+    sigma_in_encoded
+        Standard deviation of isotropic input noise in encoded units.
+        Default 0.005 (~1/200 — modest sensor noise; about 1.3 stops
+        of SNR for 8-bit footage).
+    eps
+        Finite-difference step in encoded units.
+
+    Returns
+    -------
+    dict
+        ``input_oklab``: pre-LUT OkLab positions, shape ``(M, 3)``.
+        ``output_oklab``: post-LUT OkLab positions, shape ``(M, 3)``.
+        ``output_encoded``: post-LUT encoded RGB, shape ``(M, 3)``.
+        ``jacobian``: ``J = ∂OkLab/∂encoded_in``, shape ``(M, 3, 3)``.
+        ``cov_oklab``: output covariance in OkLab, shape ``(M, 3, 3)``.
+        ``sigma1``: largest singular value of J per sample, shape ``(M,)``.
+        ``anisotropy``: ``σ₁/σ₃`` per sample, shape ``(M,)``.
+        ``sigma_L``: marginal std of L* under noise, shape ``(M,)``.
+        ``sigma_ab``: marginal std on the a*b* plane, shape ``(M,)``.
+        ``sigma_in_encoded``: echoes the input noise scale used.
+
+    References
+    ----------
+    - Garcia, Prasad, Foi (2020), *Geometry of Noise in Color and
+      Spectral Image Sensors*, Sensors. https://pmc.ncbi.nlm.nih.gov/articles/PMC7471994/
+    - Wang, Aristova, Hardeberg (2010), *Evaluating the effect of noise
+      on 3D LUT-based color transformations*, CGIV.
+    - DXOMark color-depth (CCM noise propagation), color-sensitivity score.
+    """
+    from spektrafilm_lut_creator.qa import evaluators
+    from spektrafilm_lut_creator.color_spaces import to_xyz as _to_xyz
+
+    samples = np.asarray(input_samples_encoded, dtype=float)
+    M = samples.shape[0]
+
+    def _to_oklab(encoded_rgb: np.ndarray) -> np.ndarray:
+        return np.asarray(
+            colour.XYZ_to_Oklab(_to_xyz(encoded_rgb, out_cs)), dtype=float,
+        )
+
+    out_center_encoded = np.asarray(
+        evaluators.apply_trilinear(table, samples), dtype=float,
+    )
+    output_oklab = _to_oklab(out_center_encoded)
+
+    # Central differences in encoded input space — six LUT-then-OkLab
+    # evaluations on (M, 3) batches each. ``J[:, k, i]`` is the
+    # partial of OkLab output channel k w.r.t. encoded input channel i.
+    J = np.zeros((M, 3, 3), dtype=float)
+    for i in range(3):
+        shift = np.zeros(3)
+        shift[i] = eps
+        oklab_plus = _to_oklab(
+            np.asarray(evaluators.apply_trilinear(table, samples + shift), dtype=float)
+        )
+        oklab_minus = _to_oklab(
+            np.asarray(evaluators.apply_trilinear(table, samples - shift), dtype=float)
+        )
+        J[:, :, i] = (oklab_plus - oklab_minus) / (2.0 * eps)
+
+    sigma2 = float(sigma_in_encoded) ** 2
+    # Σ_out = J · Σ_in · Jᵀ = σ² · J·Jᵀ
+    cov_oklab = sigma2 * np.einsum("mij,mkj->mik", J, J)
+
+    sv = np.linalg.svd(J, compute_uv=False)
+    sigma1 = np.asarray(sv[:, 0], dtype=float)
+    sigma3 = np.asarray(sv[:, 2], dtype=float)
+    anisotropy = sigma1 / np.clip(sigma3, 1e-9, None)
+
+    sigma_L = np.sqrt(np.clip(cov_oklab[:, 0, 0], 0.0, None))
+    sigma_ab = np.sqrt(np.clip(cov_oklab[:, 1, 1] + cov_oklab[:, 2, 2], 0.0, None))
+
+    input_oklab = np.asarray(
+        colour.XYZ_to_Oklab(_to_xyz(samples, in_cs)), dtype=float,
+    )
+
+    return {
+        "input_oklab": input_oklab,
+        "output_oklab": output_oklab,
+        "output_encoded": out_center_encoded,
+        "jacobian": J,
+        "cov_oklab": cov_oklab,
+        "sigma1": sigma1,
+        "anisotropy": anisotropy,
+        "sigma_L": sigma_L,
+        "sigma_ab": sigma_ab,
+        "sigma_in_encoded": float(sigma_in_encoded),
+    }
+
+
