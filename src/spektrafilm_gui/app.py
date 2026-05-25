@@ -104,7 +104,7 @@ class _WarmupTask(QRunnable):
     def run(self) -> None:
         try:
             self._warmup_fn()
-        except (AttributeError, ImportError, LookupError, OSError, RuntimeError, TypeError, ValueError):
+        except BaseException:
             return
 
 

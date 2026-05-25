@@ -107,7 +107,45 @@ def test_build_params_maps_runtime_strings() -> None:
     assert params.settings.preview_max_size == 1024
     assert params.settings.float_precision == 'float64'
     assert params.io.output_color_space == 'ACES2065-1'
-    assert params.io.output_cctf_encoding is True
+    assert params.io.output_cctf_encoding is False
+    assert params.io.output_clip_min is False
+    assert params.io.output_clip_max is False
+
+
+def test_build_params_forces_acescg_input_and_output_scene_linear_contract() -> None:
+    state = make_state()
+    state.input_image.input_color_space = 'ACEScg'
+    state.input_image.apply_cctf_decoding = True
+    state.simulation.output_color_space = 'ACEScg'
+    state.simulation.hdr_exr_output = False
+
+    params = build_params_from_state(state)
+
+    assert params.io.input_color_space == 'ACEScg'
+    assert params.io.input_cctf_decoding is False
+    assert params.io.output_color_space == 'ACEScg'
+    assert params.io.output_cctf_encoding is False
+    assert params.io.output_clip_min is False
+    assert params.io.output_clip_max is False
+
+
+def test_build_params_applies_aces_reference_workflow() -> None:
+    state = make_state()
+    state.simulation.color_management_workflow = 'aces_reference'
+    state.input_image.input_color_space = 'Display P3'
+    state.input_image.apply_cctf_decoding = True
+    state.simulation.output_color_space = 'sRGB'
+    state.simulation.hdr_exr_output = False
+
+    params = build_params_from_state(state)
+
+    assert params.settings.color_management_workflow == 'aces_reference'
+    assert params.io.input_color_space == 'ACEScg'
+    assert params.io.input_cctf_decoding is False
+    assert params.io.output_color_space == 'ACEScg'
+    assert params.io.output_cctf_encoding is False
+    assert params.io.output_clip_min is False
+    assert params.io.output_clip_max is False
 
 
 def test_build_params_maps_enlarger_diffusion_filter() -> None:
@@ -194,7 +232,7 @@ def test_build_default_gui_state_uses_runtime_defaults() -> None:
     assert state.simulation.scan_black_level == 0.01
     assert state.display.use_display_transform is True
     assert state.display.gray_18_canvas is True
-    assert state.simulation.auto_exposure_method == 'center_weighted'
+    assert state.simulation.auto_exposure_method == 'scene_linear'
     assert state.display.white_padding == 0.03
     assert state.display.preview_max_size == 640
     assert state.display.output_interpolation == 'spline36'

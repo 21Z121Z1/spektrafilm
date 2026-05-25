@@ -1,4 +1,4 @@
-"""Benchmark GPU (MLX/Metal) vs CPU (Numba) performance for SpektraFilm."""
+"""Benchmark available GPU backends vs CPU (Numba) performance for SpektraFilm."""
 import sys, os, time, gc
 import numpy as np
 
@@ -20,6 +20,11 @@ try:
     HAS_MLX = mx.metal.is_available()
 except Exception:
     HAS_MLX = False
+
+try:
+    HAS_CUPY = select_backend("cupy").supports_gpu
+except Exception:
+    HAS_CUPY = False
 
 FLOAT32_IMG = 'img/test/portrait_leaves_32bit_linear_prophoto_rgb.tif'
 WARM_IMG = None  # small image for warmup
@@ -238,7 +243,7 @@ def bench_cmy_to_log_xyz(label, backend, sizes, num_runs=10):
 
 def bench_lut_3d(label, backend, sizes, num_runs=10):
     print(f"\n--- 3D LUT Trilinear: {label} ---")
-    from spektrafilm.gpu.kernels.lut import apply_lut_trilinear_3d_mlx, apply_lut_trilinear_3d_numpy
+    from spektrafilm.gpu.kernels.lut import apply_lut_trilinear_3d_backend, apply_lut_trilinear_3d_numpy
 
     lut_size = 17
     lut = np.random.rand(lut_size, lut_size, lut_size, 3).astype(np.float32)
@@ -248,15 +253,14 @@ def bench_lut_3d(label, backend, sizes, num_runs=10):
         image = np.random.rand(h, w, 3).astype(np.float32)
 
         if backend and backend.supports_gpu:
-            mx_be = backend.mx
-            _ = apply_lut_trilinear_3d_mlx(lut, image, mx=mx_be)
-            mx.eval(mx_be)
+            _ = apply_lut_trilinear_3d_backend(lut, backend.asarray(image), backend)
+            backend.eval(_)
 
             times = []
             for _ in range(num_runs):
                 t0 = time.perf_counter()
-                out = apply_lut_trilinear_3d_mlx(lut, image, mx=mx_be)
-                mx.eval(out)
+                out = apply_lut_trilinear_3d_backend(lut, backend.asarray(image), backend)
+                backend.eval(out)
                 t1 = time.perf_counter()
                 times.append(t1 - t0)
         else:
@@ -313,8 +317,8 @@ def main():
     print("=" * 70)
     print("SpektraFilm GPU vs CPU Performance Benchmark")
     print("=" * 70)
-    print(f"Hardware: Apple M1 Pro, 16GB")
     print(f"MLX available: {HAS_MLX}")
+    print(f"CuPy available: {HAS_CUPY}")
     print()
 
     # Warmup Numba
@@ -330,7 +334,10 @@ def main():
     print("END-TO-END PIPELINE (1000x667 image)")
     print("=" * 70)
     cpu_best, cpu_avg, _ = bench_pipeline("CPU (Numba)", "cpu")
-    gpu_best, gpu_avg, _ = bench_pipeline("GPU (MLX/Metal)", "mlx")
+    gpu_backend = select_backend("auto")
+    gpu_best = gpu_avg = None
+    if gpu_backend.supports_gpu:
+        gpu_best, gpu_avg, _ = bench_pipeline(f"GPU ({gpu_backend.name})", gpu_backend.name)
 
     if cpu_best and gpu_best:
         speedup = cpu_best / gpu_best
@@ -343,40 +350,40 @@ def main():
 
     # Gaussian filter
     cpu_backend = select_backend("cpu")
-    gpu_backend = select_backend("mlx")
+    gpu_backend = select_backend("auto")
 
     SIZES_MICRO = [256, 512, 1000, 2000]
 
     bench_gaussian_filter("CPU (Numba)", cpu_backend, SIZES_MICRO, [1.0, 5.0], num_runs=10)
 
-    if HAS_MLX:
-        bench_gaussian_filter("GPU (Metal)", gpu_backend, SIZES_MICRO, [1.0, 5.0], num_runs=10)
+    if gpu_backend.supports_gpu:
+        bench_gaussian_filter(f"GPU ({gpu_backend.name})", gpu_backend, SIZES_MICRO, [1.0, 5.0], num_runs=10)
 
     # Density interpolation
     SIZES_DENSE = [256, 512, 1000, 2000]
     bench_density_interp("CPU (Numba)", cpu_backend, SIZES_DENSE, num_runs=10)
-    if HAS_MLX:
-        bench_density_interp("GPU (Metal)", gpu_backend, SIZES_DENSE, num_runs=10)
+    if gpu_backend.supports_gpu:
+        bench_density_interp(f"GPU ({gpu_backend.name})", gpu_backend, SIZES_DENSE, num_runs=10)
 
     # Highlight boost
     bench_boost_hlight("CPU (Numba)", cpu_backend, SIZES_DENSE, num_runs=10)
-    if HAS_MLX:
-        bench_boost_hlight("GPU (Metal)", gpu_backend, SIZES_DENSE, num_runs=10)
+    if gpu_backend.supports_gpu:
+        bench_boost_hlight(f"GPU ({gpu_backend.name})", gpu_backend, SIZES_DENSE, num_runs=10)
 
     # CMY -> log_XYZ
     bench_cmy_to_log_xyz("CPU (Numba)", cpu_backend, SIZES_DENSE, num_runs=10)
-    if HAS_MLX:
-        bench_cmy_to_log_xyz("GPU (Metal)", gpu_backend, SIZES_DENSE, num_runs=10)
+    if gpu_backend.supports_gpu:
+        bench_cmy_to_log_xyz(f"GPU ({gpu_backend.name})", gpu_backend, SIZES_DENSE, num_runs=10)
 
     # 3D LUT
     bench_lut_3d("CPU (NumPy)", cpu_backend, SIZES_DENSE, num_runs=10)
-    if HAS_MLX:
-        bench_lut_3d("GPU (Metal)", gpu_backend, SIZES_DENSE, num_runs=10)
+    if gpu_backend.supports_gpu:
+        bench_lut_3d(f"GPU ({gpu_backend.name})", gpu_backend, SIZES_DENSE, num_runs=10)
 
     # FFT convolve
     bench_fft_convolve("CPU (SciPy)", cpu_backend, [256, 512, 1000], num_runs=5)
-    if HAS_MLX:
-        bench_fft_convolve("GPU (MLX)", gpu_backend, [256, 512, 1000], num_runs=5)
+    if gpu_backend.supports_gpu:
+        bench_fft_convolve(f"GPU ({gpu_backend.name})", gpu_backend, [256, 512, 1000], num_runs=5)
 
     print("\n" + "=" * 70)
     print("BENCHMARK COMPLETE")

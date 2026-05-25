@@ -1,0 +1,6 @@
+scene_y=0.184 -> look_y = 0.4647
+scene_y=1.0 -> look_y = 0.8387
+scene_y=2.0 -> look_y = 0.8898
+scene_y=4.0 -> look_y = 0.9067
+scene_y=8.0 -> look_y = 0.9103
+scene_y=16.0 -> look_y = 0.9108

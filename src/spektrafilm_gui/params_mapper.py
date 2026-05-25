@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from spektrafilm_gui.state import GuiState
+from spektrafilm.color_management import apply_color_management_workflow_to_io, is_aces_scene_linear_space
 from spektrafilm.runtime.api import init_params
 from spektrafilm.runtime.params_schema import RuntimePhotoParams
 
@@ -71,13 +72,23 @@ def _apply_io(params: RuntimePhotoParams, state: GuiState) -> None:
     params.io.crop_center = state.input_image.crop_center
     params.io.crop_size = state.input_image.crop_size
     params.io.input_color_space = state.input_image.input_color_space
-    params.io.input_cctf_decoding = state.input_image.apply_cctf_decoding
+    params.io.input_cctf_decoding = (
+        False
+        if is_aces_scene_linear_space(params.io.input_color_space)
+        else state.input_image.apply_cctf_decoding
+    )
     params.io.output_color_space = state.simulation.output_color_space
     hdr_output = bool(getattr(state.simulation, "hdr_exr_output", False))
-    params.io.output_cctf_encoding = not hdr_output
-    params.io.output_clip_min = True
-    params.io.output_clip_max = not hdr_output
+    if is_aces_scene_linear_space(params.io.output_color_space):
+        params.io.output_cctf_encoding = False
+        params.io.output_clip_min = False
+        params.io.output_clip_max = False
+    else:
+        params.io.output_cctf_encoding = not hdr_output
+        params.io.output_clip_min = True
+        params.io.output_clip_max = not hdr_output
     params.io.scan_film = state.simulation.scan_film
+    apply_color_management_workflow_to_io(params.io, state.simulation.color_management_workflow)
 
 
 def _apply_halation(params: RuntimePhotoParams, state: GuiState) -> None:
@@ -158,6 +169,7 @@ def _apply_scanner(params: RuntimePhotoParams, state: GuiState) -> None:
 
 
 def _apply_settings(params: RuntimePhotoParams, state: GuiState) -> None:
+    params.settings.color_management_workflow = state.simulation.color_management_workflow
     params.settings.rgb_to_raw_method = state.input_image.spectral_upsampling_method
     params.settings.preview_max_size = state.display.preview_max_size
     params.settings.compute_backend = state.simulation.compute_backend

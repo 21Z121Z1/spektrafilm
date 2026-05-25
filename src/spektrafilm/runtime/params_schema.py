@@ -44,7 +44,7 @@ class DiffusionFilterParams:
 class CameraParams:
     exposure_compensation_ev: float = 0.0
     auto_exposure: bool = True
-    auto_exposure_method: str = "center_weighted"
+    auto_exposure_method: str = "scene_linear"
     lens_blur_um: float = 0.0
     film_format_mm: float = 35.0
     filter_uv: tuple[float, float, float] = (0.0, 410.0, 8.0)
@@ -196,6 +196,7 @@ class DebugParams:
 
 @dataclass
 class SettingsParams:
+    color_management_workflow: str = "manual"
     compute_backend: str = "auto"
     float_precision: str = "float32"
     gpu_precision: str = "float32"

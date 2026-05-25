@@ -85,7 +85,7 @@ class RecordingNumpyGpuBackend:
 
 @pytest.mark.parametrize(
     "color_space",
-    ["sRGB", "Display P3", "ProPhoto RGB", "ITU-R BT.2020", "Adobe RGB (1998)", "ACES2065-1"],
+    ["sRGB", "Display P3", "ProPhoto RGB", "ITU-R BT.2020", "Adobe RGB (1998)", "ACES2065-1", "ACEScg"],
 )
 def test_backend_cctf_encoding_matches_colour_reference(color_space: str) -> None:
     backend = RecordingNumpyGpuBackend()
@@ -112,7 +112,7 @@ def test_backend_cctf_encoding_matches_colour_reference(color_space: str) -> Non
 
 @pytest.mark.parametrize(
     "color_space",
-    ["sRGB", "Display P3", "ProPhoto RGB", "ITU-R BT.2020", "Adobe RGB (1998)", "DCI-P3", "ACES2065-1"],
+    ["sRGB", "Display P3", "ProPhoto RGB", "ITU-R BT.2020", "Adobe RGB (1998)", "DCI-P3", "ACES2065-1", "ACEScg"],
 )
 def test_backend_cctf_decoding_matches_colour_reference(color_space: str) -> None:
     backend = RecordingNumpyGpuBackend()

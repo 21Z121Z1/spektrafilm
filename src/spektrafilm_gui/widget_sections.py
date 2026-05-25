@@ -25,6 +25,7 @@ from spektrafilm_gui.state import (
     GlareState,
     GrainState,
     HalationState,
+    HdrExportState,
     InputImageState,
     LoadRawState,
     PreflashingState,
@@ -637,6 +638,7 @@ class SimulationSection(DataclassSection):
                 'saving_color_space',
                 'saving_cctf_encoding',
                 'hdr_exr_output',
+                'color_management_workflow',
             },
         )
 
@@ -762,6 +764,7 @@ class OutputSection(QWidget):
             _build_linked_form_section(
                 'Output',
                 [
+                    _spec_row('simulation', 'color_management_workflow', simulation_section.color_management_workflow),
                     _spec_row('simulation', 'output_color_space', simulation_section.output_color_space),
                     _spec_row('simulation', 'hdr_exr_output', simulation_section.hdr_exr_output),
                     _spec_row('simulation', 'saving_color_space', simulation_section.saving_color_space),
@@ -770,6 +773,30 @@ class OutputSection(QWidget):
                 expanded=False,
             ),
         )
+
+
+class HdrExportSection(SimpleDataclassSection):
+    STATE_CLS = HdrExportState
+    SECTION_NAME = 'hdr_export'
+    TITLE = 'HDR Export Settings'
+    COLLAPSED_BY_DEFAULT = True
+    ENUM_FIELDS_KEY = 'hdr_export'
+
+    def _add_extra_rows_after(self, form: QFormLayout) -> None:
+        super()._add_extra_rows_after(form)
+        self.hdr_mapping_mode.currentTextChanged.connect(self._sync_mode)
+        self._sync_mode(self.hdr_mapping_mode.value)
+
+    def _sync_mode(self, mode: str) -> None:
+        is_generic = (mode == "generic")
+        for widget in (
+            self.hdr_diffuse_lift_strength,
+            self.graft_strength,
+            self.paper_rolloff_exposure_scale,
+            self.paper_rolloff_k,
+            self.max_headroom,
+        ):
+            widget.setEnabled(is_generic)
 
 
 class ExposureControlSection(QWidget):

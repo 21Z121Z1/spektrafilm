@@ -9,6 +9,7 @@ import numpy as np
 from qtpy import QtCore
 
 from spektrafilm.color_management import ColorEncoding
+from spektrafilm.runtime.pipeline import HDRSceneEnergyMetadata, SimulationPipelineResult
 from spektrafilm.utils.io import resolve_icc_profile_bytes
 
 
@@ -35,6 +36,7 @@ class SimulationResult:
     output_encoding: ColorEncoding
     use_display_transform: bool
     status_message: str
+    hdr_scene_energy: HDRSceneEnergyMetadata | None = None
 
 
 class SimulationWorkerSignals(QObject):
@@ -52,7 +54,7 @@ class SimulationWorker(QRunnable):
     def run(self) -> None:
         try:
             result = self._execute_request(self._request)
-        except (AttributeError, LookupError, OSError, RuntimeError, TypeError, ValueError) as exc:
+        except BaseException as exc:
             self.signals.failed.emit(f'{type(exc).__name__}: {exc}')
             return
         self.signals.finished.emit(result)
@@ -290,7 +292,13 @@ def execute_simulation_request(
     run_simulation_fn: Callable[[np.ndarray, object], np.ndarray],
     prepare_output_display_image_fn: Callable[..., tuple[np.ndarray, str]],
 ) -> SimulationResult:
-    scan = run_simulation_fn(request.image, request.params)
+    simulation_output = run_simulation_fn(request.image, request.params)
+    if hasattr(simulation_output, "image") and hasattr(simulation_output, "hdr_scene_energy"):
+        scan = simulation_output.image
+        hdr_scene_energy = simulation_output.hdr_scene_energy
+    else:
+        scan = simulation_output
+        hdr_scene_energy = None
     scan_display, display_status = prepare_output_display_image_fn(
         scan,
         output_encoding=request.output_encoding,
@@ -303,4 +311,5 @@ def execute_simulation_request(
         output_encoding=request.output_encoding,
         use_display_transform=request.use_display_transform,
         status_message=display_status,
+        hdr_scene_energy=hdr_scene_energy,
     )

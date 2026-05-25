@@ -18,7 +18,7 @@ class Simulator:
     """
 
     def __init__(self, params: RuntimePhotoParams):
-        if _params_may_use_metal(params):
+        if _params_may_require_serial_runtime(params):
             with serialized_metal_runtime():
                 self._pipeline = SimulationPipeline(params) # should stay private
         else:
@@ -26,21 +26,30 @@ class Simulator:
 
     def process(self, image):
         """Process the input image through the simulation pipeline and return the final result."""
-        if self._uses_metal_runtime():
+        if self._uses_serial_runtime():
             with serialized_metal_runtime():
                 result = self._pipeline.process(image)
-                self._synchronize_metal_runtime()
+                self._synchronize_serial_runtime()
                 return result
         return self._pipeline.process(image)
 
+    def process_with_metadata(self, image):
+        """Process the input image and return rendered output plus runtime metadata."""
+        if self._uses_serial_runtime():
+            with serialized_metal_runtime():
+                result = self._pipeline.process_with_metadata(image)
+                self._synchronize_serial_runtime()
+                return result
+        return self._pipeline.process_with_metadata(image)
+
     def update_params(self, params):
         """Update the parameters of the simulation pipeline."""
-        if self._uses_metal_runtime() or _params_may_use_metal(params):
+        if self._uses_serial_runtime() or _params_may_require_serial_runtime(params):
             with serialized_metal_runtime():
                 try:
                     self._pipeline.update(params)
                 finally:
-                    self._synchronize_metal_runtime()
+                    self._synchronize_serial_runtime()
             return
         self._pipeline.update(params)
 
@@ -48,20 +57,20 @@ class Simulator:
         """Soft update parameters by only changing the provided fields, keeping the rest unchanged.
         only selected safe parameters can be updated with this method
         """
-        if self._uses_metal_runtime():
+        if self._uses_serial_runtime():
             with serialized_metal_runtime():
                 try:
                     self._pipeline.soft_update(**kwargs)
                 finally:
-                    self._synchronize_metal_runtime()
+                    self._synchronize_serial_runtime()
             return
         self._pipeline.soft_update(**kwargs)
 
-    def _uses_metal_runtime(self) -> bool:
+    def _uses_serial_runtime(self) -> bool:
         backend = getattr(self._pipeline, "_array_backend", None)
-        return bool(getattr(backend, "supports_gpu", False))
+        return bool(getattr(backend, "requires_serial_runtime", False))
 
-    def _synchronize_metal_runtime(self) -> None:
+    def _synchronize_serial_runtime(self) -> None:
         backend = getattr(self._pipeline, "_array_backend", None)
         synchronize = getattr(backend, "synchronize", None)
         if callable(synchronize):
@@ -87,7 +96,7 @@ class Simulator:
 ######################################################################################
 # Convenience functions for single-call simulation without needing to instantiate the Simulator class.
 
-def _params_may_use_metal(params: RuntimePhotoParams) -> bool:
+def _params_may_require_serial_runtime(params: RuntimePhotoParams) -> bool:
     settings = getattr(params, "settings", None)
     compute_backend = str(getattr(settings, "compute_backend", "auto")).strip().lower()
     float_precision = str(getattr(settings, "float_precision", "float32")).strip().lower()

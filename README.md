@@ -176,6 +176,8 @@ python scripts/regenerate_test_baselines.py
 
 你可以直接从 `import raw` 部分导入相机 RAW 文件。选择白平衡模式（`as shot`、`daylight`、`tungsten` 或 `custom`），使用 `custom` 时设置色温和色调，然后点击 `select file`。RAW 导入器使用 `rawpy`，并将图像转换为当前的 `input color space` 和 `apply CCTF decoding` 设置。你可以使用 `reprocess raw` 重新加载同一文件并使用新设置重新处理。
 
+RAW 导入的像素仍是 rawpy/LibRaw 输出范围归一化后的线性 RGB：`gamma=(1, 1)`、`no_auto_bright=True`、`output_bps=16`，随后除以 `65535`。这不是物理 diffuse white calibration。导入器会同时记录 HDR 诊断 sidecar，包括 rawpy RGB 百分位、接近裁切的比例、可用 raw sensor black/white 统计、自动 diffuse-white 估计和 headroom 估计。这个估计用于后续 scene-energy / HDR rendition 工作；它会被标记为自动估计，不能替代用户选白卡或灰卡的真实校准。
+
 > [!TIP]
 > 将鼠标悬停在控件上可查看有用的工具提示。
 
@@ -184,8 +186,11 @@ python scripts/regenerate_test_baselines.py
 > [!IMPORTANT]
 > `file loader` 使用 OpenImageIO 导入 16 位和 32 位图像文件作为新图层。PNG、TIFF 和 EXR 已知可用，其他格式也可能支持。
 
+在 `Output` 面板中，`Color workflow` 默认为 `manual`，保留独立的输入、输出和保存色彩空间控制。选择 `aces_reference` 后，运行前会把当前输入解释为其标记的源色彩空间并转换到场景线性 `ACEScg`，模拟输出也保持为未裁切的线性 `ACEScg`。保存时默认把该工作空间转换为线性 `ACES2065-1`，用于 EXR 交换/归档；PNG/JPEG 仍要求带 CCTF 的显示编码数据，线性 ACES 应保存为 EXR。
+
 请注意这是一个高度实验性的项目，GUI 中的许多控件几乎没有文档说明。请通过悬停查看工具提示，或直接探索代码。
 调整 `exposure_compensation_ev` 可改变负片曝光。按下 `scan_film` 和 `PREVIEW/SCAN` 可查看虚拟扫描效果。
+`Camera auto exposure` 默认使用 `scene_linear` 测光：以线性 `0.184` 作为中灰目标，用稳健的 log-average 统计处理中间调，并允许 ACES/scene-linear 输入保留大于 `1.0` 的 HDR 高光而不让少量高光主导曝光。这个功能只决定虚拟相机曝光，不等同于物理 diffuse-white calibration；需要精确 HDR 场景能量时仍应使用灰卡/白卡或后续校准信号。
 
 微调光晕时，调整 `scattering size`、`scattering strength`、`halation size` 和 `halation strength`。每项各有三个控件，定义对三个颜色通道（RGB）的影响。`scattering size` 和 `halation size` 表示高斯模糊的 sigma 值，`scattering strength` 和 `halation strength` 指散射或光晕光的百分比。
 `y filter shift` 和 `m filter shift` 是彩色放大机虚拟黄色和品红滤光片的控件。它们是从中性位置偏移的步数——即使在使用正确参考光源拍摄的 18% 灰卡在最终印相中完全中性的起始设置。
@@ -235,22 +240,33 @@ spektrafilm is developed in my free time, often during late nights after my rese
 
 当前核心运行链路基于 Python + NumPy/SciPy/colour-science + Numba。已有的 CPU 优化包括 `fast_interp`、`fast_gaussian_filter` 等 Numba 热点内核，以及 `SpectralLUTService` 的 3D LUT 加速。下一步 GPU 化的策略是"保留 CPU 为数值基准，逐步替换高 ROI 内核"，而非全量重写。
 
-- **Apple Silicon 优先采用 MLX** 作为 Python 侧 GPU 后端原型，使用 `mlx.core.fast.metal_kernel` 补齐 2D/3D LUT、PCHIP 插值、随机颗粒等自定义内核。
+- **Apple Silicon 继续使用 MLX/Metal**，并新增 **CuPy** 后端用于 CUDA/ROCm 设备。MLX 负责已有的 Metal custom kernel；CuPy 负责通用数组、矩阵、LUT、插值、Gaussian/FFT 卷积等可移植 GPU 热点。
 - 第一批 GPU 加速目标：LUT 采样、RGB 到 raw 转换、密度/光谱矩阵计算、扫描输出、Gaussian/FFT 卷积。
-- CPU 路径保持默认可用，GPU 路径以 `compute_backend = "auto" | "cpu" | "mlx"` 形式接入。
+- CPU 路径保持默认可用，GPU 路径以 `compute_backend = "auto" | "cpu" | "mlx" | "cupy" | "cuda"` 形式接入。`auto` 会优先尝试 MLX，再尝试 CuPy，最后回退 CPU。
+- Apple GPU 可安装 `spektrafilm[gpu-apple]`；NVIDIA CUDA 12 可安装 `spektrafilm[gpu-cuda12]`。其他 CUDA/ROCm 组合请按 CuPy 官方说明安装与驱动匹配的 CuPy 包。
 
-> ✅ **已完成**：MLX Metal kernel 实现 2D LUT 三次插值（Mitchell-Netravali）、密度层 GPU 插值、CCTF 解码、RGB→XYZ 变换；`mlx_backend.asarray` 优化避免多余拷贝；密度曲线/颗粒模块接入后端分发机制。
+> ✅ **已完成**：MLX Metal kernel 实现 2D LUT 三次插值（Mitchell-Netravali）、密度层 GPU 插值、CCTF 解码、RGB→XYZ 变换；新增 CuPy 后端选择和 CUDA/ROCm 数组路径；密度曲线、LUT、Gaussian/FFT 卷积模块接入通用后端分发机制。
 
-### 2. HDR EXR 输出
+### 2. HDR EXR 与 HDR 照片输出
 
-当前模拟输出在扫描阶段会被裁切到 `0..1` 范围（SDR）。目标是让 `.exr` 输出保留 scene-linear 的高光数据，RGB 通道可大于 `1.0`。
+默认 SDR 预览、SDR 导出、胶片/印相/扫描运行时和 `look_rgb` 生成路径保持不变。HDR 输出是显式导出路径：它观察当前的 SDR look，但不会修改 SDR 渲染本身。
 
-- 拆解 `_apply_cctf_encoding_and_clip`，根据 `ColorEncoding` 的 `transfer` 和裁切策略决定行为。
-- EXR 保存时强制使用线性数据，不做 CCTF 编码，不做上限裁切。
-- 写入 `chromaticities` 色彩空间元数据，避免下游应用误读。
-- PNG/JPEG 和 napari 预览保持现有 SDR 行为不变。
+- **Scene-linear Archive EXR** 是默认 `.exr` 模式：直接写出输出图层中已经渲染好的线性浮点数据，不做 CCTF 编码，不做高光上限裁切，并写入 `whiteLuminance=203`。如果相纸/扫描 look 把纸白压到 `0.8` 附近，归档 EXR 中的视觉纸白也可能低于 `1.0`；这不是错误，也不表示从该 look 中恢复了原始相机场景能量。
+- **HDR Rendition EXR** 是单独的显式模式：写出与 HEIC/HDR 照片相同的 authored HDR rendition。不要把它和归档 EXR 混用；前者是显示/交付 rendition，后者是当前运行时浮点输出归档。
+- HEIC/HEIF 保存时通过 macOS CoreImage 生成 authored SDR base + authored HDR rendition + gain map。系统编码器从 SDR/HDR 两个 authored rendition 的差异推导 gain map，因此 HDR rendition 是完整连续曲线，不是只在局部高光上打补丁。
+- `HDR Mapping` 有 `generic` 和 `profile_aware` 两种模式。`generic` 保留旧的 diffuse lift + highlight rolloff 行为。`profile_aware` 使用采样出的胶片/相纸曲线对：`S_profile(scene_y)` 表示 SDR 胶片/印相/扫描 look 曲线，`H_profile(scene_y)` 表示同一 profile 的 authored HDR 目标曲线。阴影和大多数中间调尽量贴近 SDR，diffuse white 附近平滑锚定到 HDR 参考白，高光区域逐步保留更多 scene-energy 分离。
+- HDR 高光结构来自运行时记录的 per-pixel `scene_luminance` sidecar。`look_rgb` 只负责胶片/相纸颜色和纹理外观；它已经经过相纸肩部、扫描和可能的裁切，不能单独推断物理 HDR headroom。缺少 sidecar 时，profile-aware 路径不会从 `look_rgb` 伪造 headroom。
+- 运行时在自动曝光、裁切和缩放之后记录 scene-energy luminance sidecar；`Simulator.process()` 仍只返回 NumPy 图像，`process_with_metadata()` 才返回渲染图像和可选 HDR sidecar。自动曝光 EV 会影响 sidecar 的 scene-energy 坐标，同时 sidecar 仍按 diffuse-white 策略归一化。
+- Curve-profile v2 数据位于 `src/spektrafilm/data/hdr_curve_profiles/`。每个 film/paper 组合有完整样本 JSON，记录 `luminance_y`、max/min channel、RGB、通道 spread、polarity、fit/safety 指标和 HDR defaults。重新生成：
 
-> ✅ **已完成**：EXR `whiteLuminance` 元数据写入（cd/m²）；16-bit PNG 导出（含 ICC profile）；ICC profile 在元数据拷贝过程中的保留与校验；色度匹配分离主色与白点精度阈值。
+```bash
+uv run python tools/export_hdr_curve_profiles.py
+```
+
+- 反转片或其他 decreasing/nonmonotonic/unsafe 曲线不会走 increasing profile-aware HDR 映射；它们会 fallback 到 generic mapping 并带诊断。这样可以避免把反向或不安全的曲线强行套进单调递增 HDR 曲线模型。
+- 自动 diffuse-white/headroom 是图像统计估计，不是物理校准。若需要严格的相机无关校准，仍应使用白卡、灰卡或已知漫反射区域作为锚点；没有场景参考时，任意 RAW 图像无法唯一确定真实漫反射白。
+
+> ✅ **已完成**：EXR `whiteLuminance=203` 元数据写入（cd/m²）；16-bit PNG 导出（含 ICC profile）；ICC profile 在元数据拷贝过程中的保留与校验；色度匹配分离主色与白点精度阈值；HEIC/HEIF HDR 照片以 authored SDR/HDR 线性 rendition 导出并通过 CoreImage `ExpandToHDR` headroom 验证。
 
 ### 3. 色彩管理系统重构
 
@@ -262,6 +278,7 @@ spektrafilm is developed in my free time, often during late nights after my rese
 - 为输出保存建立色彩空间 + 传递函数 + 文件格式的兼容性检查。
 
 > ✅ **已完成**：`ColorEncoding` 元数据在 napari 输出图层间的持久化与回读；中灰参考路径修复——根据 `input_cctf_decoding` 对中灰值进行 CCTF 编码后再进光谱流程；显示变换对无 ICC profile 的线性场景色彩空间（如 ACES2065-1）提供明确的后备信息提示；HDR EXR 输出时默认禁用 CCTF 编码。
+> ✅ **已完成**：新增 `aces_reference` 色彩管理流程，按 ACES 最佳实践使用 `ACEScg` 作为场景线性工作空间、`ACES2065-1` 作为 EXR 交换/归档默认保存空间，并在运行前对带标记输入做工作空间转换。
 
 ### 4. 融合实施路线
 

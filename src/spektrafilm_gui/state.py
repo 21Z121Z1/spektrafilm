@@ -108,6 +108,17 @@ class SpecialState:
 
 
 @dataclass(slots=True)
+class HdrExportState:
+    hdr_mapping_mode: str
+    exr_mode: str
+    hdr_diffuse_lift_strength: float
+    graft_strength: float
+    paper_rolloff_exposure_scale: float
+    paper_rolloff_k: float
+    max_headroom: float
+
+
+@dataclass(slots=True)
 class SimulationState:
     film_stock: str
     film_format_mm: float
@@ -156,6 +167,7 @@ class SimulationState:
     auto_preview: bool
     scan_film: bool
     hdr_exr_output: bool = False
+    color_management_workflow: str = "manual"
 
 
 @dataclass(slots=True)
@@ -179,6 +191,8 @@ class GuiState:
     special: SpecialState
     simulation: SimulationState
     display: DisplayState
+    hdr_export: HdrExportState
+
 
 
 def clone_state_section(section: StateSection) -> StateSection:
@@ -199,6 +213,7 @@ def clone_gui_state(state: GuiState) -> GuiState:
         special=clone_state_section(state.special),
         simulation=clone_state_section(state.simulation),
         display=clone_state_section(state.display),
+        hdr_export=clone_state_section(state.hdr_export),
     )
 
 
@@ -334,6 +349,7 @@ def gui_state_from_params(
             scan_film=params.io.scan_film,
             hdr_exr_output=not bool(params.io.output_cctf_encoding)
             and not bool(getattr(params.io, "output_clip_max", True)),
+            color_management_workflow=getattr(params.settings, "color_management_workflow", "manual"),
         ),
         display=DisplayState(
             use_display_transform=True,
@@ -341,6 +357,15 @@ def gui_state_from_params(
             output_interpolation='spline36',
             white_padding=0.03,
             preview_max_size=params.settings.preview_max_size,
+        ),
+        hdr_export=HdrExportState(
+            hdr_mapping_mode='generic',
+            exr_mode='scene_linear_archive',
+            hdr_diffuse_lift_strength=1.0,
+            graft_strength=0.5,
+            paper_rolloff_exposure_scale=2.5,
+            paper_rolloff_k=5.5,
+            max_headroom=16.0,
         ),
     )
 

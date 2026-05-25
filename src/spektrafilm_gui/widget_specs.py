@@ -5,8 +5,11 @@ from enum import Enum
 
 from spektrafilm_gui.options import (
     AutoExposureMethods,
+    ColorManagementWorkflows,
     ComputeBackends,
     DiffusionFilterFamilies,
+    EXRModes,
+    HDRMappingModes,
     NapariInterpolationModes,
     RGBColorSpaces,
     RGBtoRAWMethod,
@@ -48,6 +51,7 @@ GUI_SECTION_ENUMS: dict[str, dict[str, type[Enum]]] = {
     "simulation": {
         "film_stock": FilmStocks,
         "auto_exposure_method": AutoExposureMethods,
+        "color_management_workflow": ColorManagementWorkflows,
         "compute_backend": ComputeBackends,
         "camera_diffusion_filter_family": DiffusionFilterFamilies,
         "print_paper": PrintPapers,
@@ -58,6 +62,10 @@ GUI_SECTION_ENUMS: dict[str, dict[str, type[Enum]]] = {
     },
     "special": {
         "runtime_float_precision": RuntimeFloatPrecisions,
+    },
+    "hdr_export": {
+        "hdr_mapping_mode": HDRMappingModes,
+        "exr_mode": EXRModes,
     },
 }
 
@@ -74,7 +82,11 @@ GUI_WIDGET_SPECS = {
         ),
         "auto_exposure": WidgetSpec(
             label="Camera auto exposure",
-            tooltip="Use the auto-exposure feature of the virtual camera",
+            tooltip="Use the virtual camera meter before film exposure.",
+        ),
+        "auto_exposure_method": WidgetSpec(
+            label="Auto exposure meter",
+            tooltip="scene_linear uses a robust log-average meter for linear, ACES, and HDR inputs; the other modes keep camera-style reflected metering.",
         ),
         "film_format_mm": WidgetSpec(
             label="Film format mm",
@@ -86,7 +98,11 @@ GUI_WIDGET_SPECS = {
         ),
         "compute_backend": WidgetSpec(
             label="Compute backend",
-            tooltip="Select CPU, automatic fallback, or the optional Apple GPU/MLX backend.",
+            tooltip="Select CPU, automatic GPU fallback, Apple MLX/Metal, or CuPy for CUDA/ROCm devices.",
+        ),
+        "color_management_workflow": WidgetSpec(
+            label="Color workflow",
+            tooltip="manual keeps individual color controls; aces_reference converts inputs to ACEScg, renders scene-linear ACEScg, and defaults EXR saving to ACES2065-1.",
         ),
         "camera_lens_blur_um": WidgetSpec(
             label="Camera lens blur um",
@@ -292,15 +308,21 @@ GUI_WIDGET_SPECS = {
             step=0.05,
             min_value=0,
         ),
-        "output_color_space": WidgetSpec(label="Output color space", tooltip="Output color space of the simulation"),
-        "saving_color_space": WidgetSpec(label="Saving color space", tooltip="Color space of the saved image file"),
+        "output_color_space": WidgetSpec(
+            label="Output color space",
+            tooltip="Output color space of the simulation. ACES2065-1 and ACEScg remain scene-linear and unclipped.",
+        ),
+        "saving_color_space": WidgetSpec(
+            label="Saving color space",
+            tooltip="Color space of the saved image file. Save linear ACES as EXR.",
+        ),
         "saving_cctf_encoding": WidgetSpec(
             label="Saving CCTF encoding",
             tooltip="Add or not the CCTF to the saved image file",
         ),
         "hdr_exr_output": WidgetSpec(
-            label="HDR EXR output",
-            tooltip="Keep runtime output scene-linear for EXR saving; disables output CCTF and highlight clipping. Preview remains SDR.",
+            label="HDR output",
+            tooltip="Keep runtime output scene-linear for EXR and HEIC HDR saving; disables output CCTF and highlight clipping. Preview remains SDR.",
         ),
         "auto_preview": WidgetSpec(label="Auto preview", tooltip="trigger the preview after every change of gui parameters, use mouse scrollwheel on parameters field, read preview tooltip for details"),
         "scan_film": WidgetSpec(label="Scan film", tooltip="Show a scan of the negative instead of the print"),
@@ -563,7 +585,7 @@ GUI_WIDGET_SPECS = {
         ),
         "input_color_space": WidgetSpec(
             label="Input color space",
-            tooltip="Color space of the input image, will be internally converted to sRGB and negative values clipped",
+            tooltip="Color space of the input image. ACES2065-1 and ACEScg are treated as scene-linear inputs.",
         ),
         "apply_cctf_decoding": WidgetSpec(
             label="Apply CCTF decoding",
@@ -608,6 +630,51 @@ GUI_WIDGET_SPECS = {
             step=0.01,
         ),
         "lens_correction": WidgetSpec(label="Lens correction", tooltip="Apply lens corrections"),
+    },
+    "hdr_export": {
+        "hdr_mapping_mode": WidgetSpec(
+            label="HDR mapping",
+            tooltip="generic preserves the legacy export mapping; profile_aware uses sampled film/paper SDR/HDR curve pairs when safe.",
+        ),
+        "exr_mode": WidgetSpec(
+            label="EXR mode",
+            tooltip="scene_linear_archive writes the rendered float output; hdr_rendition writes the authored HDR rendition used for HDR photo export.",
+        ),
+        "hdr_diffuse_lift_strength": WidgetSpec(
+            label="Diffuse lift strength",
+            tooltip="Strength of HDR diffuse lift to brighten midtones relative to SDR paper white (0.0 = SDR contrast, 1.0 = full HDR lift).",
+            min_value=0.0,
+            max_value=1.0,
+            step=0.05,
+        ),
+        "graft_strength": WidgetSpec(
+            label="Specular graft strength",
+            tooltip="Strength of the HDR highlight specular detail added above the diffuse baseline.",
+            min_value=0.0,
+            max_value=1.0,
+            step=0.05,
+        ),
+        "paper_rolloff_exposure_scale": WidgetSpec(
+            label="Rolloff exposure scale",
+            tooltip="Stretches the highlight rolloff region. Larger values map highlights into the shoulder earlier and gentler.",
+            min_value=1.0,
+            max_value=10.0,
+            step=0.1,
+        ),
+        "paper_rolloff_k": WidgetSpec(
+            label="Rolloff steepness (k)",
+            tooltip="Steepness of the highlight compression logistic curve. Lower values flatten contrast more aggressively.",
+            min_value=1.0,
+            max_value=10.0,
+            step=0.1,
+        ),
+        "max_headroom": WidgetSpec(
+            label="Max headroom",
+            tooltip="Absolute ceiling for HDR brightness relative to diffuse white.",
+            min_value=1.0,
+            max_value=20.0,
+            step=0.25,
+        ),
     },
 }
 

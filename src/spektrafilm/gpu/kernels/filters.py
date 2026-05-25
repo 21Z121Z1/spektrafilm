@@ -23,6 +23,14 @@ def _backend_supports_gpu(backend) -> bool:
     return backend is not None and bool(getattr(backend, "supports_gpu", False))
 
 
+def _backend_supports_mlx_custom_kernels(backend) -> bool:
+    return _backend_supports_gpu(backend) and hasattr(backend, "mx")
+
+
+def _backend_supports_cupy(backend) -> bool:
+    return _backend_supports_gpu(backend) and hasattr(backend, "cp")
+
+
 def _get_gaussian_fir_kernel(mx):
     """Return the cached MLX/Metal separable FIR Gaussian kernel."""
     global _GAUSSIAN_FIR_KERNEL
@@ -292,6 +300,33 @@ def _promote_image_to_3d(image: Any):
     raise ValueError(f"Unsupported image dimension: {len(shape)}")
 
 
+def _gaussian_filter_cupy(
+    image: Any,
+    sigma: Any,
+    backend,
+    *,
+    truncate: float = 3.0,
+) -> Any:
+    import cupyx.scipy.ndimage as cupy_ndimage
+
+    cp = backend.cp
+    image_3d, squeeze = _promote_image_to_3d(backend.asarray(image))
+    channels = int(image_3d.shape[-1])
+    sigmas = _normalize_sigma_for_channels(sigma, channels)
+    out = cp.empty_like(image_3d)
+    for channel, sigma_ch in enumerate(sigmas):
+        if float(sigma_ch) <= 0.0:
+            out[..., channel] = image_3d[..., channel]
+        else:
+            out[..., channel] = cupy_ndimage.gaussian_filter(
+                image_3d[..., channel],
+                float(sigma_ch),
+                mode="reflect",
+                truncate=float(truncate),
+            )
+    return out[..., 0] if squeeze else out
+
+
 def gaussian_filter_small_backend(
     image: Any,
     sigma: Any,
@@ -301,11 +336,16 @@ def gaussian_filter_small_backend(
 ) -> Any:
     """Small-sigma Gaussian FIR with SciPy reflect boundary semantics.
 
-    For GPU backends this uses a cached MLX custom Metal kernel. For CPU
-    fallback it delegates to the existing Numba FIR implementation.
+    MLX uses a cached custom Metal kernel. CuPy uses cupyx.scipy.ndimage on
+    device arrays. CPU fallback delegates to the existing Numba FIR
+    implementation.
     """
     if not _backend_supports_gpu(backend):
         return fast_gaussian_filter_small(image, sigma, truncate=truncate)
+    if _backend_supports_cupy(backend):
+        return _gaussian_filter_cupy(image, sigma, backend, truncate=truncate)
+    if not _backend_supports_mlx_custom_kernels(backend):
+        return backend.asarray(fast_gaussian_filter_small(backend.to_numpy(image), sigma, truncate=truncate))
 
     image_3d, squeeze = _promote_image_to_3d(backend.asarray(image))
     channels = int(image_3d.shape[-1])
@@ -351,6 +391,10 @@ def gaussian_filter_large_backend(
     """Large-sigma YVV Gaussian matching ``fast_gaussian_filter`` dispatch."""
     if not _backend_supports_gpu(backend):
         return fast_gaussian_filter(image, sigma)
+    if _backend_supports_cupy(backend):
+        return _gaussian_filter_cupy(image, sigma, backend)
+    if not _backend_supports_mlx_custom_kernels(backend):
+        return backend.asarray(fast_gaussian_filter(backend.to_numpy(image), sigma))
 
     image_3d, squeeze = _promote_image_to_3d(backend.asarray(image))
     channels = int(image_3d.shape[-1])
@@ -393,6 +437,12 @@ def reflect_pad_hw_backend(image: Any, pad: int, backend=None) -> Any:
         return image
     if not _backend_supports_gpu(backend):
         return np.pad(np.asarray(image), ((pad, pad), (pad, pad), (0, 0)), mode="reflect")
+    if _backend_supports_cupy(backend):
+        return backend.cp.pad(backend.asarray(image), ((pad, pad), (pad, pad), (0, 0)), mode="reflect")
+    if not _backend_supports_mlx_custom_kernels(backend):
+        return backend.asarray(
+            np.pad(backend.to_numpy(image), ((pad, pad), (pad, pad), (0, 0)), mode="reflect")
+        )
 
     image_mx = backend.asarray(image)
     if len(tuple(image_mx.shape)) != 3:
@@ -414,6 +464,39 @@ def reflect_pad_hw_backend(image: Any, pad: int, backend=None) -> Any:
     return outputs[0]
 
 
+def _gaussian_filter_mlx_mixed_backend(
+    image: Any,
+    sigmas: np.ndarray,
+    backend,
+    *,
+    truncate: float = 3.0,
+) -> Any:
+    image_3d, squeeze = _promote_image_to_3d(backend.asarray(image))
+    channels = int(image_3d.shape[-1])
+    if sigmas.shape[0] != channels:
+        raise ValueError(f"sigma length {sigmas.shape[0]} does not match channel count {channels}")
+
+    filtered_channels = []
+    for channel, sigma_ch in enumerate(sigmas):
+        sigma_value = float(sigma_ch)
+        channel_image = image_3d[..., channel]
+        if sigma_value <= 0.0:
+            filtered = channel_image
+        elif sigma_value >= 3.0:
+            filtered = gaussian_filter_large_backend(channel_image, sigma_value, backend)
+        else:
+            filtered = gaussian_filter_small_backend(
+                channel_image,
+                sigma_value,
+                backend,
+                truncate=truncate,
+            )
+        filtered_channels.append(filtered)
+
+    out = backend.mx.stack(filtered_channels, axis=-1)
+    return out[..., 0] if squeeze else out
+
+
 def gaussian_filter_backend(
     image: Any,
     sigma: Any,
@@ -426,17 +509,27 @@ def gaussian_filter_backend(
     The GPU path uses the small-sigma FIR kernel for sigma < 3 px and the
     same Young-van Vliet IIR approximation as the CPU path when every channel
     is in the large-sigma regime. Mixed small/large per-channel sigma arrays
-    still fall back to the CPU reference to avoid changing channel semantics.
+    are split per channel on MLX so they stay on-device without changing
+    channel semantics.
     """
     if not _backend_supports_gpu(backend):
         return fast_gaussian_filter(image, sigma, truncate=truncate)
+    if _backend_supports_cupy(backend):
+        return _gaussian_filter_cupy(image, sigma, backend, truncate=truncate)
+    if not _backend_supports_mlx_custom_kernels(backend):
+        return backend.asarray(fast_gaussian_filter(backend.to_numpy(image), sigma, truncate=truncate))
 
     channels = int(image.shape[-1]) if len(tuple(image.shape)) == 3 else 1
     sigmas = _normalize_sigma_for_channels(sigma, channels)
     if np.min(sigmas) >= 3.0:
         return gaussian_filter_large_backend(image, sigmas, backend)
     if np.max(sigmas) >= 3.0:
-        return backend.asarray(fast_gaussian_filter(backend.to_numpy(image), sigma, truncate=truncate))
+        return _gaussian_filter_mlx_mixed_backend(
+            image,
+            sigmas,
+            backend,
+            truncate=truncate,
+        )
     return gaussian_filter_small_backend(image, sigmas, backend, truncate=truncate)
 
 
@@ -497,17 +590,48 @@ def fft_convolve_same_backend(image: Any, kernel: Any, backend=None) -> Any:
                 mode="same",
             )
         return output
+    if _backend_supports_cupy(backend):
+        import cupyx.scipy.signal as cupy_signal
+
+        cp = backend.cp
+        image_cp = backend.asarray(image)
+        kernel_cp = cp.asarray(kernel, dtype=image_cp.dtype)
+        output = cp.empty_like(image_cp)
+        for channel in range(int(image_cp.shape[2])):
+            output[:, :, channel] = cupy_signal.fftconvolve(
+                image_cp[:, :, channel],
+                kernel_cp[:, :, channel],
+                mode="same",
+            )
+        return output
+    if not _backend_supports_mlx_custom_kernels(backend):
+        from scipy.signal import fftconvolve
+
+        image_np = backend.to_numpy(image)
+        kernel_np = np.asarray(kernel)
+        output = np.empty_like(image_np)
+        for channel in range(image_np.shape[2]):
+            output[:, :, channel] = fftconvolve(
+                image_np[:, :, channel],
+                kernel_np[:, :, channel],
+                mode="same",
+            )
+        return backend.asarray(output)
+
+    import scipy.fft
 
     mx = backend.mx
     image_mx = backend.asarray(image)
     kernel_mx = mx.array(np.asarray(kernel, dtype=np.float32), dtype=mx.float32)
     image_h, image_w, channels = (int(v) for v in image_mx.shape)
     kernel_h, kernel_w = int(kernel_mx.shape[0]), int(kernel_mx.shape[1])
-    fft_h = image_h + kernel_h - 1
-    fft_w = image_w + kernel_w - 1
+    fft_h = scipy.fft.next_fast_len(image_h + kernel_h - 1)
+    fft_w = scipy.fft.next_fast_len(image_w + kernel_w - 1)
     image_fft = mx.fft.fft2(image_mx, s=(fft_h, fft_w), axes=(0, 1))
     kernel_fft = mx.fft.fft2(kernel_mx, s=(fft_h, fft_w), axes=(0, 1))
     convolved = mx.real(mx.fft.ifft2(image_fft * kernel_fft, axes=(0, 1)))
+    mx.eval(convolved)
+    mx.metal.clear_cache()
     start_y = (kernel_h - 1) // 2
     start_x = (kernel_w - 1) // 2
     return convolved[start_y:start_y + image_h, start_x:start_x + image_w, :channels]

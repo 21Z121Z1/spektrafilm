@@ -1,7 +1,7 @@
 """Backend-portable per-pixel colour operations.
 
-All public kernel functions accept and return backend arrays (NumPy *or*
-MLX).  Pre-computed matrices / constants are ordinary NumPy arrays that
+All public kernel functions accept and return backend arrays (NumPy, MLX, or
+CuPy).  Pre-computed matrices / constants are ordinary NumPy arrays that
 the caller converts once via ``backend.asarray()`` and caches.
 
 CPU-only helpers (matrix extraction) are at the top; per-pixel kernels
@@ -198,7 +198,7 @@ def cctf_decoding_transfer_backend(rgb: Any, color_space: str, backend) -> Any:
         return _cctf_decoding_adobe_rgb_1998(rgb, backend)
     if color_space == "DCI-P3":
         return _cctf_decoding_dci_p3(rgb, backend)
-    if color_space == "ACES2065-1":
+    if color_space in {"ACES2065-1", "ACEScg"}:
         return rgb
 
     raise NotImplementedError(
@@ -249,7 +249,7 @@ def cctf_encoding_backend(rgb: Any, color_space: str, backend) -> Any:
         return _cctf_encoding_bt2020(rgb, backend)
     if color_space == "Adobe RGB (1998)":
         return _cctf_encoding_adobe_rgb_1998(rgb, backend)
-    if color_space == "ACES2065-1":
+    if color_space in {"ACES2065-1", "ACEScg"}:
         return rgb
 
     raise NotImplementedError(

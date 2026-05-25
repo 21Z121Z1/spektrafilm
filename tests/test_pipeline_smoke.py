@@ -205,7 +205,7 @@ def test_auto_exposure_normalizes_bright_inputs(default_params) -> None:
     default_params.camera.auto_exposure = True
     default_params.enlarger.print_exposure_compensation = False
 
-    for method in ('center_weighted', 'median'):
+    for method in ('scene_linear', 'center_weighted', 'median'):
         default_params.camera.auto_exposure_method = method
         result = simulate(bright_patch, default_params)
         _assert_valid_output(result, shape=(8, 8, 3))
@@ -215,8 +215,26 @@ def test_auto_exposure_normalizes_bright_inputs(default_params) -> None:
     manual_result = simulate(bright_patch, default_params)
 
     default_params.camera.auto_exposure = True
-    default_params.camera.auto_exposure_method = 'center_weighted'
+    default_params.camera.auto_exposure_method = 'scene_linear'
     auto_result = simulate(bright_patch, default_params)
 
     assert np.mean(auto_result) < np.mean(manual_result)
     assert 0.45 < np.mean(auto_result) < 0.51
+
+
+def test_scene_linear_auto_exposure_keeps_middle_gray_stable_with_hdr_highlights(default_params) -> None:
+    gray = _tile_rgb((0.184, 0.184, 0.184), 16)
+    scene = _tile_rgb((0.184, 0.184, 0.184), 16)
+    scene[:, 12:16, :] = 16.0
+
+    default_params.io.input_color_space = 'ACEScg'
+    default_params.io.input_cctf_decoding = True
+    default_params.enlarger.print_exposure_compensation = False
+    default_params.camera.auto_exposure = False
+    gray_result = simulate(gray, default_params)
+
+    default_params.camera.auto_exposure = True
+    default_params.camera.auto_exposure_method = 'scene_linear'
+    scene_result = simulate(scene, default_params)
+
+    np.testing.assert_allclose(scene_result[8, 8, :], gray_result[8, 8, :], atol=0.05)

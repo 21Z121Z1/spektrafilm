@@ -216,6 +216,76 @@ def apply_lut_cubic_2d_numpy(lut: np.ndarray, image: np.ndarray) -> np.ndarray:
     )
 
 
+def _mitchell_weight_cupy(t: Any, cp):
+    t = cp.abs(t)
+    inner = (1.0 / 6.0) * (7.0 * t * t * t - 12.0 * t * t + (16.0 / 3.0))
+    outer = (1.0 / 6.0) * ((-7.0 / 3.0) * t * t * t + 12.0 * t * t - 20.0 * t + (32.0 / 3.0))
+    return cp.where(t < 1.0, inner, cp.where(t < 2.0, outer, 0.0))
+
+
+def _reflect_lut_index_cupy(index: Any, size: int, cp):
+    return cp.where(index < 0, -index, cp.where(index >= size, 2 * (size - 1) - index, index))
+
+
+def apply_lut_cubic_2d_cupy(lut: Any, image: Any, *, cp=None):
+    """Apply a normalized 2D LUT with Mitchell-Netravali cubic interpolation using CuPy."""
+    if cp is None:
+        import cupy as cp
+
+    lut = cp.asarray(lut, dtype=cp.float32)
+    image = cp.asarray(image, dtype=cp.float32)
+    size = int(lut.shape[0])
+    if lut.ndim != 3:
+        raise ValueError("2D LUT must have shape LxLxC")
+    if size == 0 or int(lut.shape[1]) != size:
+        raise ValueError("2D LUT must have equal non-empty dimensions")
+    if image.ndim != 3 or int(image.shape[-1]) != 2:
+        raise ValueError("2D LUT coordinates must have shape HxWx2")
+
+    channels = int(lut.shape[2])
+    if size == 1:
+        return cp.broadcast_to(lut[0, 0], image.shape[:-1] + (channels,))
+
+    upper = float(size - 1)
+    coord = cp.clip(image, 0.0, 1.0) * upper
+    x = coord[..., 0]
+    y = coord[..., 1]
+
+    x_floor = cp.floor(x)
+    y_floor = cp.floor(y)
+    x_base = cp.where(x >= upper, size - 2, x_floor).astype(cp.int32)
+    y_base = cp.where(y >= upper, size - 2, y_floor).astype(cp.int32)
+    x_frac = cp.where(x >= upper, 1.0, x - x_floor)
+    y_frac = cp.where(y >= upper, 1.0, y - y_floor)
+
+    wx = [_mitchell_weight_cupy(x_frac + 1.0 - i, cp) for i in range(4)]
+    wy = [_mitchell_weight_cupy(y_frac + 1.0 - j, cp) for j in range(4)]
+
+    output_shape = image.shape[:-1] + (channels,)
+    acc = cp.zeros(output_shape, dtype=cp.float32)
+    weight_sum = cp.zeros(image.shape[:-1] + (1,), dtype=cp.float32)
+    for i in range(4):
+        xi = _reflect_lut_index_cupy(x_base - 1 + i, size, cp).astype(cp.int32)
+        for j in range(4):
+            yj = _reflect_lut_index_cupy(y_base - 1 + j, size, cp).astype(cp.int32)
+            weight = (wx[i] * wy[j])[..., None]
+            acc = acc + weight * lut[xi, yj]
+            weight_sum = weight_sum + weight
+
+    return cp.where(weight_sum != 0.0, acc / weight_sum, acc)
+
+
+def apply_lut_cubic_2d_backend(lut: Any, image: Any, backend):
+    """Dispatch 2D cubic LUT sampling to the selected GPU backend."""
+    if backend is not None and getattr(backend, "supports_gpu", False):
+        if hasattr(backend, "mx"):
+            return apply_lut_cubic_2d_mlx(lut, image, mx=backend.mx)
+        if hasattr(backend, "cp"):
+            return apply_lut_cubic_2d_cupy(lut, image, cp=backend.cp)
+        return backend.asarray(apply_lut_cubic_2d_numpy(lut, backend.to_numpy(image)))
+    return apply_lut_cubic_2d_numpy(lut, image)
+
+
 # ---------------------------------------------------------------------------
 # 3D LUT trilinear interpolation
 # ---------------------------------------------------------------------------
@@ -318,6 +388,66 @@ def apply_lut_trilinear_3d_numpy(lut: np.ndarray, image: np.ndarray) -> np.ndarr
     c0 = c00 + fg * (c10 - c00)
     c1 = c01 + fg * (c11 - c01)
     return c0 + fb * (c1 - c0)
+
+
+def apply_lut_trilinear_3d_cupy(lut: Any, image: Any, *, cp=None):
+    """Apply a normalized 3D LUT with trilinear interpolation using CuPy ops."""
+    if cp is None:
+        import cupy as cp
+
+    lut = cp.asarray(lut, dtype=cp.float32)
+    image = cp.asarray(image, dtype=cp.float32)
+    size = int(lut.shape[0])
+    if lut.ndim != 4 or int(lut.shape[-1]) != 3:
+        raise ValueError("3D LUT must have shape LxLxLx3")
+    if size == 0 or int(lut.shape[1]) != size or int(lut.shape[2]) != size:
+        raise ValueError("3D LUT must have equal non-empty dimensions")
+    if size == 1:
+        return cp.broadcast_to(lut[0, 0, 0], image.shape[:-1] + (3,))
+
+    coord = cp.clip(image, 0.0, 1.0) * float(size - 1)
+    idx0 = cp.floor(coord).astype(cp.int32)
+    idx1 = cp.minimum(idx0 + 1, size - 1)
+    frac = coord - idx0.astype(cp.float32)
+
+    r0 = idx0[..., 0]
+    g0 = idx0[..., 1]
+    b0 = idx0[..., 2]
+    r1 = idx1[..., 0]
+    g1 = idx1[..., 1]
+    b1 = idx1[..., 2]
+
+    fr = frac[..., 0:1]
+    fg = frac[..., 1:2]
+    fb = frac[..., 2:3]
+
+    c000 = lut[r0, g0, b0]
+    c100 = lut[r1, g0, b0]
+    c010 = lut[r0, g1, b0]
+    c110 = lut[r1, g1, b0]
+    c001 = lut[r0, g0, b1]
+    c101 = lut[r1, g0, b1]
+    c011 = lut[r0, g1, b1]
+    c111 = lut[r1, g1, b1]
+
+    c00 = c000 + fr * (c100 - c000)
+    c10 = c010 + fr * (c110 - c010)
+    c01 = c001 + fr * (c101 - c001)
+    c11 = c011 + fr * (c111 - c011)
+    c0 = c00 + fg * (c10 - c00)
+    c1 = c01 + fg * (c11 - c01)
+    return c0 + fb * (c1 - c0)
+
+
+def apply_lut_trilinear_3d_backend(lut: Any, image: Any, backend):
+    """Dispatch 3D trilinear LUT sampling to the selected GPU backend."""
+    if backend is not None and getattr(backend, "supports_gpu", False):
+        if hasattr(backend, "mx"):
+            return apply_lut_trilinear_3d_mlx(lut, image, mx=backend.mx)
+        if hasattr(backend, "cp"):
+            return apply_lut_trilinear_3d_cupy(lut, image, cp=backend.cp)
+        return backend.asarray(apply_lut_trilinear_3d_numpy(lut, backend.to_numpy(image)))
+    return apply_lut_trilinear_3d_numpy(lut, image)
 
 
 # ---------------------------------------------------------------------------
