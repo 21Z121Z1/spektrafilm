@@ -2,7 +2,7 @@
 
 Mirrors the CPU functions in ``spektrafilm.model.emulsion`` and
 ``spektrafilm.utils.conversions`` but works through an ``ArrayBackend``
-so the same code runs on NumPy and MLX.
+so the same code runs on NumPy, MLX, and CuPy where the operation is portable.
 """
 from __future__ import annotations
 
@@ -19,8 +19,18 @@ def _backend_supports_gpu(backend) -> bool:
     return (
         backend is not None
         and bool(getattr(backend, "supports_gpu", False))
+    )
+
+
+def _backend_supports_mlx_custom_kernels(backend) -> bool:
+    return (
+        _backend_supports_gpu(backend)
         and hasattr(backend, "mx")
     )
+
+
+def _backend_supports_cupy(backend) -> bool:
+    return _backend_supports_gpu(backend) and hasattr(backend, "cp")
 
 
 def _get_interp_density_curves_kernel(mx):
@@ -154,6 +164,93 @@ def _as_channel_gamma(gamma_factor: Any) -> np.ndarray:
     raise ValueError("gamma_factor must be a scalar or a length-3 sequence")
 
 
+def _interp_1d_cupy(x: Any, xp: Any, fp: Any, cp) -> Any:
+    k = int(xp.shape[0])
+    if bool(cp.asnumpy(xp[0] > xp[-1])):
+        return cp.where(x <= xp[0], fp[0], cp.where(x >= xp[-1], fp[-1], fp[0]))
+    idx = cp.searchsorted(xp, x, side="right")
+    idx = cp.clip(idx, 1, k - 1)
+    low = idx - 1
+    x0 = xp[low]
+    x1 = xp[idx]
+    y0 = fp[low]
+    y1 = fp[idx]
+    inv_dx = cp.where(x1 != x0, 1.0 / (x1 - x0), 0.0)
+    t = (x - x0) * inv_dx
+    out = y0 + t * (y1 - y0)
+    return cp.where(x <= xp[0], fp[0], cp.where(x >= xp[-1], fp[-1], out))
+
+
+def _interpolate_exposure_to_density_cupy(
+    log_exposure_rgb: Any,
+    log_exposure: Any,
+    density_curves: Any,
+    gamma_factor: Any,
+    backend,
+) -> Any:
+    cp = backend.cp
+    values = backend.asarray(log_exposure_rgb)
+    gamma = _as_channel_gamma(gamma_factor)
+    x_axis = np.asarray(log_exposure, dtype=np.float32)[:, None] / gamma[None, :].astype(np.float32)
+    y_vals = np.asarray(density_curves, dtype=np.float32)
+    if x_axis.shape != y_vals.shape or x_axis.ndim != 2 or x_axis.shape[1] != 3:
+        raise ValueError("log_exposure and density_curves must produce Kx3 interpolation tables")
+
+    x_axis_cp = cp.asarray(x_axis, dtype=cp.float32)
+    y_vals_cp = cp.asarray(y_vals, dtype=cp.float32)
+    out = cp.empty(values.shape, dtype=values.dtype)
+    for channel in range(3):
+        out[..., channel] = _interp_1d_cupy(
+            values[..., channel],
+            x_axis_cp[:, channel],
+            y_vals_cp[:, channel],
+            cp,
+        )
+    return out
+
+
+def _interpolate_density_cmy_layers_cupy(
+    density_cmy: Any,
+    density_curves: Any,
+    density_curves_layers: Any,
+    *,
+    positive_film: bool,
+    backend,
+) -> Any:
+    cp = backend.cp
+    values = backend.asarray(density_cmy)
+    density_curves_np = np.asarray(density_curves, dtype=np.float32)
+    density_curves_layers_np = np.asarray(density_curves_layers, dtype=np.float32)
+    if density_curves_np.ndim != 2 or density_curves_np.shape[1] != 3:
+        raise ValueError("density_curves must have shape Kx3")
+    if density_curves_layers_np.ndim != 3 or density_curves_layers_np.shape[1:] != (3, 3):
+        raise ValueError("density_curves_layers must have shape Kx3x3")
+    if density_curves_layers_np.shape[0] != density_curves_np.shape[0]:
+        raise ValueError("density_curves and density_curves_layers must have the same length")
+    if values.shape[-1] != 3:
+        raise ValueError("density_cmy must have 3 channels in the last dimension")
+
+    x_axis = density_curves_np
+    y_vals = density_curves_layers_np
+    if positive_film:
+        values = -values
+        x_axis = -x_axis
+
+    x_axis_cp = cp.asarray(x_axis, dtype=cp.float32)
+    y_vals_cp = cp.asarray(y_vals, dtype=cp.float32)
+    output_shape = tuple(values.shape[:-1]) + tuple(density_curves_layers_np.shape[1:])
+    out = cp.empty(output_shape, dtype=values.dtype)
+    for channel in range(3):
+        for layer in range(3):
+            out[..., layer, channel] = _interp_1d_cupy(
+                values[..., channel],
+                x_axis_cp[:, channel],
+                y_vals_cp[:, layer, channel],
+                cp,
+            )
+    return out
+
+
 def interpolate_exposure_to_density_backend(
     log_exposure_rgb: Any,
     log_exposure: Any,
@@ -163,9 +260,10 @@ def interpolate_exposure_to_density_backend(
 ) -> Any:
     """Backend-aware equivalent of ``fast_interp`` for density curves.
 
-    The MLX path uses a custom Metal kernel with the same endpoint clamp and
-    right-biased exact-match behaviour as ``spektrafilm.utils.fast_interp``.
-    The CPU path intentionally delegates to the existing Numba reference.
+    MLX uses a custom Metal kernel and CuPy uses device-side searchsorted
+    interpolation, both with the same endpoint clamp and right-biased
+    exact-match behaviour as ``spektrafilm.utils.fast_interp``. The CPU path
+    intentionally delegates to the existing Numba reference.
     """
     if not _backend_supports_gpu(backend):
         from spektrafilm.model.density_curves import interpolate_exposure_to_density
@@ -175,6 +273,25 @@ def interpolate_exposure_to_density_backend(
             np.asarray(density_curves),
             np.asarray(log_exposure),
             gamma_factor,
+        )
+    if _backend_supports_cupy(backend):
+        return _interpolate_exposure_to_density_cupy(
+            log_exposure_rgb,
+            log_exposure,
+            density_curves,
+            gamma_factor,
+            backend,
+        )
+    if not _backend_supports_mlx_custom_kernels(backend):
+        from spektrafilm.model.density_curves import interpolate_exposure_to_density
+
+        return backend.asarray(
+            interpolate_exposure_to_density(
+                backend.to_numpy(log_exposure_rgb),
+                np.asarray(density_curves),
+                np.asarray(log_exposure),
+                gamma_factor,
+            )
         )
 
     if log_exposure_rgb.shape[-1] != 3:
@@ -219,6 +336,25 @@ def interpolate_density_cmy_layers_backend(
             np.asarray(density_curves),
             np.asarray(density_curves_layers),
             positive_film=positive_film,
+        )
+    if _backend_supports_cupy(backend):
+        return _interpolate_density_cmy_layers_cupy(
+            density_cmy,
+            density_curves,
+            density_curves_layers,
+            positive_film=positive_film,
+            backend=backend,
+        )
+    if not _backend_supports_mlx_custom_kernels(backend):
+        from spektrafilm.model.density_curves import _interp_density_cmy_layers_cpu
+
+        return backend.asarray(
+            _interp_density_cmy_layers_cpu(
+                backend.to_numpy(density_cmy),
+                np.asarray(density_curves),
+                np.asarray(density_curves_layers),
+                positive_film=positive_film,
+            )
         )
 
     density_curves_np = np.asarray(density_curves, dtype=np.float32)

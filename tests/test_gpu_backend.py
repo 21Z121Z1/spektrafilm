@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import sys
+import types
+
 import numpy as np
 import pytest
 
 from spektrafilm.gpu.backend import BackendUnavailableError, backend_summary, select_backend
+from spektrafilm.gpu.mlx_backend import MlxBackend
 from spektrafilm.gpu.numpy_backend import NumpyBackend
 
 
@@ -42,7 +46,7 @@ def test_select_backend_rejects_unknown_backend_name() -> None:
 def test_select_backend_auto_returns_usable_backend() -> None:
     backend = select_backend("auto")
 
-    assert backend.name in {"cpu", "mlx"}
+    assert backend.name in {"cpu", "mlx", "cupy"}
     assert isinstance(backend.supports_gpu, bool)
 
 
@@ -53,4 +57,35 @@ def test_select_backend_mlx_is_strict_when_requested() -> None:
         return
 
     assert backend.name == "mlx"
+    assert backend.supports_gpu
+
+
+def test_mlx_backend_rejects_false_positive_metal_availability(monkeypatch) -> None:
+    fake_mlx = types.ModuleType("mlx")
+    fake_core = types.ModuleType("mlx.core")
+    fake_core.float32 = object()
+    fake_core.float16 = object()
+    fake_core.metal = types.SimpleNamespace(is_available=lambda: True)
+
+    def fail_array(*_args, **_kwargs):
+        raise RuntimeError("No Metal device available")
+
+    fake_core.array = fail_array
+    fake_core.eval = lambda *_values: None
+    fake_mlx.core = fake_core
+    monkeypatch.setitem(sys.modules, "mlx", fake_mlx)
+    monkeypatch.setitem(sys.modules, "mlx.core", fake_core)
+
+    with pytest.raises(BackendUnavailableError, match="usable Apple Metal device"):
+        MlxBackend()
+
+
+@pytest.mark.parametrize("backend_name", ["cupy", "cuda"])
+def test_select_backend_cupy_aliases_are_strict_when_requested(backend_name: str) -> None:
+    try:
+        backend = select_backend(backend_name)
+    except BackendUnavailableError:
+        return
+
+    assert backend.name == "cupy"
     assert backend.supports_gpu

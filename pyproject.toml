@@ -37,6 +37,8 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest"]
 gpu-apple = ["mlx>=0.31"]
+gpu-cuda12 = ["cupy-cuda12x>=13"]
+gpu-cupy-source = ["cupy>=13"]
 
 [project.scripts]
 spektrafilm = "spektrafilm_gui.app:main"

@@ -225,17 +225,29 @@ def set_output_layer_metadata(
     output_cctf_encoding: bool,
     output_encoding: object,
     use_display_transform: bool,
+    hdr_scene_luminance: np.ndarray | None,
+    hdr_scene_energy_metadata: object | None,
     output_float_data_key: str,
     output_color_space_key: str,
     output_cctf_encoding_key: str,
     output_color_encoding_key: str,
     output_display_transform_key: str,
+    hdr_scene_luminance_key: str,
+    hdr_scene_energy_metadata_key: str,
 ) -> None:
     layer.metadata[output_float_data_key] = np.asarray(float_image, dtype=np.float32)
     layer.metadata[output_color_space_key] = output_color_space
     layer.metadata[output_cctf_encoding_key] = output_cctf_encoding
     layer.metadata[output_color_encoding_key] = output_encoding
     layer.metadata[output_display_transform_key] = use_display_transform
+    if hdr_scene_luminance is None:
+        layer.metadata.pop(hdr_scene_luminance_key, None)
+    else:
+        layer.metadata[hdr_scene_luminance_key] = np.asarray(hdr_scene_luminance, dtype=np.float32)
+    if hdr_scene_energy_metadata is None:
+        layer.metadata.pop(hdr_scene_energy_metadata_key, None)
+    else:
+        layer.metadata[hdr_scene_energy_metadata_key] = hdr_scene_energy_metadata
 
 
 def set_output_layer_interpolation(layer: NapariImageLayer, mode: str) -> None:
@@ -272,6 +284,8 @@ class ViewerLayerService:
     output_cctf_encoding_key: str
     output_color_encoding_key: str
     output_display_transform_key: str
+    hdr_scene_luminance_key: str = 'hdr_scene_luminance'
+    hdr_scene_energy_metadata_key: str = 'hdr_scene_energy_metadata'
     _output_animations: dict[int, _LayerAnimationHandle] = field(default_factory=dict, init=False, repr=False)
     _output_animation_generation: int = field(default=0, init=False, repr=False)
 
@@ -370,6 +384,8 @@ class ViewerLayerService:
         output_cctf_encoding: bool,
         output_encoding: object,
         use_display_transform: bool,
+        hdr_scene_luminance: np.ndarray | None = None,
+        hdr_scene_energy_metadata: object | None = None,
         output_interpolation_mode: str = 'spline36',
     ) -> None:
         existing_layer = self.image_layer(OUTPUT_LAYER_NAME)
@@ -409,11 +425,15 @@ class ViewerLayerService:
             output_cctf_encoding=output_cctf_encoding,
             output_encoding=output_encoding,
             use_display_transform=use_display_transform,
+            hdr_scene_luminance=hdr_scene_luminance,
+            hdr_scene_energy_metadata=hdr_scene_energy_metadata,
             output_float_data_key=self.output_float_data_key,
             output_color_space_key=self.output_color_space_key,
             output_cctf_encoding_key=self.output_cctf_encoding_key,
             output_color_encoding_key=self.output_color_encoding_key,
             output_display_transform_key=self.output_display_transform_key,
+            hdr_scene_luminance_key=self.hdr_scene_luminance_key,
+            hdr_scene_energy_metadata_key=self.hdr_scene_energy_metadata_key,
         )
         set_output_layer_interpolation(layer, output_interpolation_mode)
         image_world_size = self.current_image_world_size()

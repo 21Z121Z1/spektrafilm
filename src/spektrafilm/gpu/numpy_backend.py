@@ -13,6 +13,7 @@ class NumpyBackend:
 
     name: str = "cpu"
     supports_gpu: bool = False
+    requires_serial_runtime: bool = False
 
     def asarray(self, value: Any, dtype: Any | None = None) -> np.ndarray:
         return np.asarray(value, dtype=dtype)

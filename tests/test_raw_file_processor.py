@@ -109,6 +109,39 @@ def test_process_raw_file_daylight_uses_linear_output_and_colour_conversion(monk
     assert captured['colour']['apply_cctf_encoding'] is False
 
 
+def test_process_raw_file_can_return_hdr_import_diagnostics(monkeypatch):
+    raw_image = np.array(
+        [[[6554, 6554, 6554], [32768, 32768, 32768], [65535, 65535, 65535]]],
+        dtype=np.uint16,
+    )
+    _stub_raw_reader(monkeypatch, raw_image)
+
+    result = raw_file_processor.load_and_process_raw_file(
+        'example.dng',
+        white_balance='daylight',
+        return_diagnostics=True,
+    )
+
+    assert isinstance(result, raw_file_processor.RawProcessingResult)
+    expected = raw_image.astype(np.float32) / 65535.0
+    np.testing.assert_allclose(result.image, expected)
+    assert result.diagnostics.rawpy_rgb_max == pytest.approx(1.0)
+    assert result.diagnostics.rawpy_rgb_p99 > 0.5
+    assert result.diagnostics.diffuse_white_estimate > 0.0
+    assert result.diagnostics.headroom_estimate >= 1.0
+    assert result.diagnostics.method in {'auto_percentile', 'auto_floor_low_key'}
+
+
+def test_estimate_raw_hdr_import_diagnostics_uses_low_key_floor() -> None:
+    image = np.full((4, 4, 3), 0.01, dtype=np.float32)
+
+    diagnostics = raw_file_processor.estimate_raw_hdr_import_diagnostics(image)
+
+    assert diagnostics.diffuse_white_estimate == pytest.approx(0.10)
+    assert diagnostics.method == 'auto_floor_low_key'
+    assert diagnostics.confidence == 'low'
+
+
 def test_process_raw_file_preserves_requested_output_dtype(monkeypatch):
     raw_image = np.full((1, 1, 3), 16384, dtype=np.uint16)
     captured = {}
@@ -167,6 +200,51 @@ def test_process_raw_file_preserves_requested_output_dtype(monkeypatch):
     np.testing.assert_allclose(result, expected_linear + 0.25)
     assert result.dtype == np.float64
     assert captured['image'].dtype == np.float64
+
+
+def test_process_raw_file_converts_linear_aces2065_to_acescg_without_cctf(monkeypatch):
+    raw_image = np.full((1, 1, 3), 16384, dtype=np.uint16)
+    captured = {}
+
+    class Reader:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            return False
+
+        def postprocess(self, **kwargs):
+            captured['postprocess'] = kwargs
+            return raw_image
+
+    def fake_rgb_to_rgb(image, **kwargs):
+        captured['image'] = image
+        captured['colour'] = kwargs
+        return image + 0.125
+
+    monkeypatch.setattr(
+        raw_file_processor,
+        'rawpy',
+        SimpleNamespace(
+            imread=lambda path: Reader(),
+            ColorSpace=SimpleNamespace(ACES='ACES'),
+        ),
+    )
+    monkeypatch.setattr(raw_file_processor.colour, 'RGB_to_RGB', fake_rgb_to_rgb)
+
+    result = raw_file_processor.load_and_process_raw_file(
+        'example.nef',
+        output_colorspace='ACEScg',
+        output_cctf_encoding=True,
+    )
+
+    expected_linear = raw_image.astype(np.float32) / 65535.0
+    np.testing.assert_allclose(captured['image'], expected_linear)
+    np.testing.assert_allclose(result, expected_linear + 0.125)
+    assert captured['colour']['input_colourspace'] == raw_file_processor.colour.RGB_COLOURSPACES['ACES2065-1']
+    assert captured['colour']['output_colourspace'] == raw_file_processor.colour.RGB_COLOURSPACES['ACEScg']
+    assert captured['colour']['apply_cctf_decoding'] is False
+    assert captured['colour']['apply_cctf_encoding'] is False
 
 
 def test_process_raw_file_as_shot_uses_camera_white_balance(monkeypatch):

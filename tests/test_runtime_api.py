@@ -21,6 +21,95 @@ class TestRuntimeApi:
 
         np.testing.assert_allclose(new_result, direct_result, atol=1e-12)
 
+    def test_simulator_process_with_metadata_preserves_process_array_api(self, monkeypatch):
+        rendered = np.full((1, 2, 3), 0.25, dtype=np.float32)
+        scene_luminance = np.array([[0.5, 3.0]], dtype=np.float32)
+        metadata = pipeline_module.HDRSceneEnergyMetadata(
+            scene_luminance=scene_luminance,
+            diffuse_white_estimate=0.5,
+            headroom_estimate=6.0,
+            auto_exposure_ev=1.0,
+            method='auto_percentile',
+            confidence='medium',
+        )
+
+        class FakePipeline:
+            def __init__(self, _params):
+                self._array_backend = SimpleNamespace(requires_serial_runtime=False)
+
+            def process(self, image):
+                assert image == 'frame'
+                return rendered
+
+            def process_with_metadata(self, image):
+                assert image == 'frame'
+                return pipeline_module.SimulationPipelineResult(
+                    image=rendered,
+                    hdr_scene_energy=metadata,
+                )
+
+        monkeypatch.setattr(process_module, 'SimulationPipeline', FakePipeline)
+        params = SimpleNamespace(
+            settings=SimpleNamespace(compute_backend='cpu', float_precision='float32'),
+        )
+
+        simulator = process_module.Simulator(params)
+
+        np.testing.assert_allclose(simulator.process('frame'), rendered)
+        result = simulator.process_with_metadata('frame')
+        np.testing.assert_allclose(result.image, rendered)
+        assert result.hdr_scene_energy is metadata
+
+    def test_pipeline_process_with_metadata_uses_auto_exposed_scene_luminance(self, monkeypatch):
+        pipeline = object.__new__(pipeline_module.SimulationPipeline)
+        pipeline.timings = {}
+        pipeline._last_elapsed_time = None
+        pipeline._runtime_dtype = np.dtype(np.float32)
+        pipeline._array_backend = SimpleNamespace(
+            supports_gpu=False,
+            to_numpy=lambda value: value,
+        )
+        pipeline.debug = SimpleNamespace(debug_mode='off')
+        pipeline.io = SimpleNamespace(input_color_space='sRGB', input_cctf_decoding=False)
+
+        auto_exposed = np.full((1, 100, 3), 0.5, dtype=np.float32)
+        auto_exposed[0, -1, :] = 4.0
+        pipeline._filming_stage = SimpleNamespace(
+            auto_exposure_with_ev=lambda image: (auto_exposed, 2.0),
+        )
+        pipeline._resize_service = SimpleNamespace(crop_and_rescale=lambda image: image)
+        monkeypatch.setattr(pipeline, '_process_runtime_array', lambda image: image * 0.25)
+        monkeypatch.setattr(pipeline, '_runtime_array', lambda image: image)
+
+        result = pipeline_module.SimulationPipeline.process_with_metadata(
+            pipeline,
+            np.full((1, 100, 3), 0.125, dtype=np.float32),
+        )
+
+        np.testing.assert_allclose(result.image, auto_exposed * 0.25)
+        assert result.hdr_scene_energy.auto_exposure_ev == pytest.approx(2.0)
+        assert result.hdr_scene_energy.headroom_estimate > 1.0
+        assert result.hdr_scene_energy.scene_luminance.shape == (1, 100)
+        assert float(result.hdr_scene_energy.scene_luminance[0, -1]) > 1.0
+
+    def test_hdr_scene_energy_sidecar_tracks_auto_exposure_ev_direction(self):
+        post_auto = np.full((2, 2, 3), 0.25, dtype=np.float32)
+
+        baseline = pipeline_module._hdr_scene_energy_metadata(
+            post_auto,
+            input_color_space='sRGB',
+            apply_cctf_decoding=False,
+            auto_exposure_ev=0.0,
+        )
+        lifted = pipeline_module._hdr_scene_energy_metadata(
+            post_auto,
+            input_color_space='sRGB',
+            apply_cctf_decoding=False,
+            auto_exposure_ev=1.0,
+        )
+
+        assert float(np.median(lifted.scene_luminance)) > float(np.median(baseline.scene_luminance))
+
     def test_runtime_float_precision_controls_cpu_output_dtype(self, small_rgb_image, default_params):
         params = copy.deepcopy(default_params)
         params.settings.compute_backend = 'cpu'
@@ -30,9 +119,10 @@ class TestRuntimeApi:
 
         assert result.dtype == np.float64
 
-    def test_float64_runtime_precision_rejects_explicit_mlx_backend(self, default_params):
+    @pytest.mark.parametrize("backend_name", ["mlx", "cupy", "cuda"])
+    def test_float64_runtime_precision_rejects_explicit_gpu_backend(self, default_params, backend_name):
         params = copy.deepcopy(default_params)
-        params.settings.compute_backend = 'mlx'
+        params.settings.compute_backend = backend_name
         params.settings.float_precision = 'float64'
 
         with pytest.raises(ValueError, match='float64 runtime precision'):
@@ -77,6 +167,7 @@ class TestRuntimeApi:
 
         class FakeBackend:
             supports_gpu = True
+            requires_serial_runtime = True
 
             def synchronize(self):
                 events.append('sync')
@@ -100,6 +191,40 @@ class TestRuntimeApi:
 
         assert result == 'processed-frame'
         assert events == ['lock-enter', 'process', 'sync', 'lock-exit']
+
+    def test_non_serial_gpu_process_does_not_use_metal_lock(self, monkeypatch):
+        events: list[str] = []
+
+        @contextmanager
+        def fake_serialized_metal_runtime():
+            raise AssertionError('non-Metal GPU backends should not use the Metal runtime lock')
+
+        class FakeBackend:
+            supports_gpu = True
+            requires_serial_runtime = False
+
+            def synchronize(self):
+                events.append('sync')
+
+        class FakePipeline:
+            def __init__(self, _params):
+                self._array_backend = FakeBackend()
+
+            def process(self, image):
+                events.append('process')
+                return f'processed-{image}'
+
+        monkeypatch.setattr(process_module, 'serialized_metal_runtime', fake_serialized_metal_runtime)
+        monkeypatch.setattr(process_module, 'SimulationPipeline', FakePipeline)
+        params = SimpleNamespace(
+            settings=SimpleNamespace(compute_backend='cupy', float_precision='float32'),
+        )
+
+        simulator = process_module.Simulator(params)
+        result = simulator.process('frame')
+
+        assert result == 'processed-frame'
+        assert events == ['process']
 
     def test_mlx_pipeline_tiles_large_images_on_gpu(self, monkeypatch):
         pipeline = object.__new__(pipeline_module.SimulationPipeline)

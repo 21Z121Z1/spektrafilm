@@ -31,6 +31,13 @@ def _mlx_backend_or_skip():
         pytest.skip(str(exc))
 
 
+def _cupy_backend_or_skip():
+    try:
+        return select_backend("cupy")
+    except BackendUnavailableError as exc:
+        pytest.skip(str(exc))
+
+
 def test_density_spectral_backend_matches_cpu_reference() -> None:
     backend = NumpyBackend()
     density_cmy = np.array(
@@ -231,6 +238,80 @@ def test_interpolate_density_cmy_layers_mlx_matches_cpu_reference_when_available
         density_curves,
         density_curves_layers,
         positive_film=False,
+    )
+
+    np.testing.assert_allclose(backend.to_numpy(actual), expected, rtol=2e-6, atol=2e-6)
+
+
+def test_interpolate_exposure_to_density_cupy_matches_cpu_reference_when_available() -> None:
+    backend = _cupy_backend_or_skip()
+    log_exposure = np.linspace(-3.0, 2.0, 9, dtype=np.float32)
+    density_curves = np.stack(
+        [
+            np.linspace(0.05, 1.40, 9),
+            np.linspace(0.08, 1.30, 9) ** 1.05,
+            np.linspace(0.10, 1.20, 9) ** 1.10,
+        ],
+        axis=1,
+    ).astype(np.float32)
+    log_raw = np.array(
+        [
+            [[-2.5, -2.0, -1.5], [-1.0, -0.5, 0.0]],
+            [[0.5, 1.0, 1.5], [1.8, -2.2, 0.25]],
+        ],
+        dtype=np.float32,
+    )
+    gamma = np.array([1.0, 1.1, 0.9], dtype=np.float32)
+
+    actual = interpolate_exposure_to_density_backend(
+        backend.asarray(log_raw),
+        log_exposure,
+        density_curves,
+        gamma,
+        backend=backend,
+    )
+    expected = interpolate_exposure_to_density(
+        log_raw,
+        density_curves,
+        log_exposure,
+        gamma,
+    )
+
+    np.testing.assert_allclose(backend.to_numpy(actual), expected, rtol=2e-6, atol=2e-6)
+
+
+def test_interpolate_density_cmy_layers_cupy_matches_cpu_reference_when_available() -> None:
+    backend = _cupy_backend_or_skip()
+    density_cmy = np.array(
+        [
+            [[0.15, 0.25, 0.35], [0.40, 0.50, 0.60]],
+            [[0.70, 0.80, 0.90], [1.00, 1.10, 1.20]],
+        ],
+        dtype=np.float32,
+    )
+    density_curves = np.column_stack([
+        np.linspace(0.0, 2.1, 10),
+        np.linspace(0.0, 1.9, 10),
+        np.linspace(0.0, 1.7, 10),
+    ]).astype(np.float32)
+    density_curves_layers = np.stack([
+        density_curves * np.array([0.55, 0.50, 0.45], dtype=np.float32),
+        density_curves * np.array([0.30, 0.33, 0.35], dtype=np.float32),
+        density_curves * np.array([0.15, 0.17, 0.20], dtype=np.float32),
+    ], axis=1)
+
+    actual = interpolate_density_cmy_layers_backend(
+        backend.asarray(density_cmy),
+        density_curves,
+        density_curves_layers,
+        positive_film=True,
+        backend=backend,
+    )
+    expected = interp_density_cmy_layers(
+        density_cmy,
+        density_curves,
+        density_curves_layers,
+        positive_film=True,
     )
 
     np.testing.assert_allclose(backend.to_numpy(actual), expected, rtol=2e-6, atol=2e-6)

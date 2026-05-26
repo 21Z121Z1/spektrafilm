@@ -35,7 +35,7 @@ class TestInitParamsDefaults:
 
         assert params.camera.exposure_compensation_ev == 0.0
         assert params.camera.auto_exposure is True
-        assert params.camera.auto_exposure_method == 'center_weighted'
+        assert params.camera.auto_exposure_method == 'scene_linear'
         assert params.camera.lens_blur_um == 0.0
         assert params.camera.film_format_mm == 35.0
 

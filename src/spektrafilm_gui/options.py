@@ -11,6 +11,12 @@ class RGBColorSpaces(Enum):
     ITU_R_BT2020 = "ITU-R BT.2020"
     ProPhotoRGB = "ProPhoto RGB"
     ACES2065_1 = "ACES2065-1"
+    ACEScg = "ACEScg"
+
+
+class ColorManagementWorkflows(Enum):
+    manual = "manual"
+    aces_reference = "aces_reference"
 
 
 class RGBtoRAWMethod(Enum):
@@ -26,19 +32,41 @@ class RawWhiteBalance(Enum):
 
 
 class AutoExposureMethods(Enum):
-    median = "median"
+    scene_linear = "scene_linear"
     center_weighted = "center_weighted"
+    matrix = "matrix"
+    multi_zone = "multi_zone"
+    partial = "partial"
+    highlight_weighted = "highlight_weighted"
+    median = "median"
+    average = "average"
 
 
 class ComputeBackends(Enum):
     auto = "auto"
     cpu = "cpu"
     mlx = "mlx"
+    cupy = "cupy"
 
 
 class RuntimeFloatPrecisions(Enum):
     float32 = "float32"
     float64 = "float64"
+
+
+class HDRMappingModes(Enum):
+    generic = "generic"
+    profile_aware = "profile_aware"
+
+
+class ProfileHDRModes(Enum):
+    strict_preserving = "strict_preserving"
+    modern_recovery_peak_budget = "modern_recovery_peak_budget"
+
+
+class EXRModes(Enum):
+    scene_linear_archive = "scene_linear_archive"
+    hdr_rendition = "hdr_rendition"
 
 
 class NapariInterpolationModes(Enum):

@@ -151,6 +151,10 @@ def test_warmup_task_swallows_background_failures() -> None:
     app_module._WarmupTask(warmup_fn=lambda: (_ for _ in ()).throw(RuntimeError('boom'))).run()
 
 
+def test_warmup_task_swallows_base_exception_boundary_failures() -> None:
+    app_module._WarmupTask(warmup_fn=lambda: (_ for _ in ()).throw(KeyboardInterrupt('stop'))).run()
+
+
 def test_warmup_launch_input_path_primes_first_image_load(monkeypatch) -> None:
     captured: dict[str, object] = {}
     fake_state = SimpleNamespace(
@@ -497,9 +501,11 @@ def test_connect_auto_preview_signals_covers_hidden_linked_controls_and_footer_t
                 'scan_unsharp_mask',
                 'auto_preview',
                 'scan_film',
+                'color_management_workflow',
                 'output_color_space',
                 'saving_color_space',
                 'saving_cctf_encoding',
+                'hdr_exr_output',
             },
         )
         for field_info in fields(type(state_section)):
@@ -525,6 +531,7 @@ def test_connect_auto_preview_signals_covers_hidden_linked_controls_and_footer_t
     assert widgets.simulation.scan_unsharp_mask._editors[0].valueChanged.connected == [controller.request_auto_preview]
     assert widgets.display.output_interpolation.currentTextChanged.connected == []
     assert widgets.display.preview_max_size.valueChanged.connected == []
+    assert widgets.simulation.color_management_workflow.currentTextChanged.connected == [controller.request_auto_preview]
     assert widgets.simulation.output_color_space.currentTextChanged.connected == [controller.request_auto_preview]
     assert widgets.simulation.bottom_auto_preview.toggled.connected == [controller.request_auto_preview]
     assert widgets.simulation.bottom_scan_film.toggled.connected == [controller.request_auto_preview]

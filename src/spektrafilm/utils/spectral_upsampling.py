@@ -544,17 +544,6 @@ def rgb_to_raw_hanatos2025_backend(
             input_policy=input_policy,
         )
 
-    if not hasattr(backend, "mx"):
-        return rgb_to_raw_hanatos2025(
-            rgb, sensitivity, color_space, apply_cctf_decoding,
-            reference_illuminant,
-            sensitivity_adaptation=sensitivity_adaptation,
-            bandpass_params=bandpass_params,
-            surface_params=surface_params,
-            tc_lut=tc_lut,
-            input_policy=input_policy,
-        )
-
     input_policy = _resolve_input_policy(input_policy)
     if input_policy != DEFAULT_SPECTRAL_INPUT_POLICY:
         return rgb_to_raw_hanatos2025(
@@ -575,9 +564,11 @@ def rgb_to_raw_hanatos2025_backend(
 
     try:
         from spektrafilm.gpu.kernels.color import cctf_decoding_transfer_backend, rgb_to_xyz
-        from spektrafilm.gpu.kernels.lut import apply_lut_cubic_2d_mlx
+        from spektrafilm.gpu.kernels.lut import apply_lut_cubic_2d_backend
 
-        mx = backend.mx
+        xp = getattr(backend, "mx", None) or getattr(backend, "cp", None)
+        if xp is None:
+            raise NotImplementedError
         rgb_b = backend.asarray(rgb)
         if apply_cctf_decoding:
             rgb_b = cctf_decoding_transfer_backend(rgb_b, color_space, backend)
@@ -593,7 +584,7 @@ def rgb_to_raw_hanatos2025_backend(
         one_minus_x = 1.0 - xy_x
         tc_x = backend.clip(one_minus_x * one_minus_x, 0.0, 1.0)
         tc_y = backend.clip(xy_y / backend.fmax(one_minus_x, 1e-10), 0.0, 1.0)
-        tc = mx.stack([tc_x, tc_y], axis=-1)
+        tc = xp.stack([tc_x, tc_y], axis=-1)
 
         if tc_lut is None:
             if sensitivity_adaptation:
@@ -605,7 +596,7 @@ def rgb_to_raw_hanatos2025_backend(
                 )
             else:
                 tc_lut = compute_hanatos2025_tc_lut(sensitivity)
-        raw = apply_lut_cubic_2d_mlx(tc_lut, tc, mx=mx)
+        raw = apply_lut_cubic_2d_backend(tc_lut, tc, backend)
         return raw * b_safe[..., None]
     except NotImplementedError:
         pass

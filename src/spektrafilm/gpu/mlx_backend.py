@@ -11,6 +11,7 @@ class MlxBackend:
     name = "mlx"
     supports_gpu = True
     fallback_reason = None
+    requires_serial_runtime = True
 
     def __init__(self, *, precision: str = "float32"):
         try:
@@ -34,6 +35,16 @@ class MlxBackend:
         self.mx = mx
         self.precision = precision
         self.default_dtype = mx.float32 if precision == "float32" else mx.float16
+        self._probe_device()
+
+    def _probe_device(self) -> None:
+        try:
+            probe = self.mx.array([0.0], dtype=self.default_dtype)
+            self.mx.eval(probe)
+        except Exception as exc:
+            raise BackendUnavailableError(
+                "compute_backend='mlx' requires a usable Apple Metal device."
+            ) from exc
 
     @staticmethod
     def _is_mlx_array(value: Any) -> bool:

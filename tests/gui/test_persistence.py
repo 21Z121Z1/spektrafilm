@@ -93,3 +93,12 @@ def test_gui_state_from_dict_uses_default_for_missing_optional_display_field() -
     restored = gui_state_from_dict(data)
 
     assert restored.display.output_interpolation == 'spline36'
+
+
+def test_gui_state_from_dict_defaults_missing_color_management_workflow() -> None:
+    data = gui_state_to_dict(PROJECT_DEFAULT_GUI_STATE)
+    del data['simulation']['color_management_workflow']
+
+    restored = gui_state_from_dict(data)
+
+    assert restored.simulation.color_management_workflow == 'manual'

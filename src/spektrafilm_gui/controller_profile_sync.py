@@ -72,6 +72,7 @@ PROFILE_SYNC_FIELDS: dict[str, tuple[str, ...]] = {
         'print_gamma_factor',
     ),
     'simulation': (
+        'color_management_workflow',
         'film_stock',
         'film_format_mm',
         'camera_lens_blur_um',

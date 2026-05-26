@@ -36,7 +36,11 @@ class FilmingStage:
     # public methods
 
     @timeit("auto_exposure")
-    def auto_exposure(self, image: np.ndarray) -> float:
+    def auto_exposure(self, image: np.ndarray) -> np.ndarray:
+        autoexposed_image, _autoexposure_ev = self.auto_exposure_with_ev(image)
+        return autoexposed_image
+
+    def auto_exposure_with_ev(self, image: np.ndarray) -> tuple[np.ndarray, float]:
         if self._camera.auto_exposure:
             small_preview = self._resize_service.small_preview(image)
             autoexposure_ev = measure_autoexposure_ev(
@@ -45,8 +49,8 @@ class FilmingStage:
                 self._io.input_cctf_decoding,
                 method=self._camera.auto_exposure_method,
             )
-            return image * 2 ** autoexposure_ev
-        return image
+            return image * 2 ** autoexposure_ev, float(autoexposure_ev)
+        return image, 0.0
 
     @timeit("expose")
     def expose(self, image: np.ndarray) -> np.ndarray:

@@ -351,6 +351,43 @@ wheels = [
 ]
 
 [[package]]
+name = "cuda-pathfinder"
+version = "1.5.4"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/11/d0/c177e29701cf1d3008d7d2b16b5fc626592ce13bd535f8795c5f57187e0e/cuda_pathfinder-1.5.4-py3-none-any.whl", hash = "sha256:9563d3175ce1828531acf4b94e1c1c7d67208c347ca002493e2654878b26f4b7", size = 51657 },
+]
+
+[[package]]
+name = "cupy"
+version = "14.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cuda-pathfinder" },
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/09/93/1bb40192a0b1dd49bdb37461f841d6efde16b5df5510e99bf88f7de05d45/cupy-14.1.0.tar.gz", hash = "sha256:bf72bdffcaabf70490350d9c76a4a79b1e923a933d894691b7f5115dc0d9879d", size = 3953415 }
+
+[[package]]
+name = "cupy-cuda12x"
+version = "14.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cuda-pathfinder" },
+    { name = "numpy" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/dc/69/57ac08d11fa2826644898009acc81c29d2628d2beb30a95cc057d4390da3/cupy_cuda12x-14.1.0-cp313-cp313-manylinux2014_aarch64.whl", hash = "sha256:44c12a92216fbc65c6f4ebc055c801ab43eaf8c9316bd1a9ef9b91ad8c1d57db", size = 143920077 },
+    { url = "https://files.pythonhosted.org/packages/23/a1/6b83754040db8f2e3dfefa7671144f4c2f105adbe9da76ce76a61a5c5df8/cupy_cuda12x-14.1.0-cp313-cp313-manylinux2014_x86_64.whl", hash = "sha256:e9f2006077082ef04cec7ac6a897730b21fe51ebbd2b020bef503ccf5ccd7b4d", size = 133071609 },
+    { url = "https://files.pythonhosted.org/packages/ee/94/d8e3d720cf4b3c8e31e5a7e4afc598bd84e46e8002f70cbddaf02652cd68/cupy_cuda12x-14.1.0-cp313-cp313-win_amd64.whl", hash = "sha256:3dba5342eff14b534104c5caeec0ed80699244cbc03d7cc93c4573f6c94cdae9", size = 95219626 },
+    { url = "https://files.pythonhosted.org/packages/ba/ec/9a1ebe6a16c906f7c866d346716dbfb26506075609b95acf20a1a6781b9c/cupy_cuda12x-14.1.0-cp314-cp314-manylinux2014_aarch64.whl", hash = "sha256:cc78d1f0ebc1c4e77e81c6d293cbc2402c5bf4bd6d86f586e5816fe7f69b3c91", size = 143788622 },
+    { url = "https://files.pythonhosted.org/packages/59/ff/831460649d69cc2c22b634b1027771e56406c119b432abacfd18226e15e0/cupy_cuda12x-14.1.0-cp314-cp314-manylinux2014_x86_64.whl", hash = "sha256:f6e50046ef5923243273852f97812d35dba5726c9d32390e1c89530a03a3491f", size = 132406357 },
+    { url = "https://files.pythonhosted.org/packages/41/9f/1bf6d007ad90b050e5bc2e480135bd3afe748bae90867b17448e56d1536a/cupy_cuda12x-14.1.0-cp314-cp314-win_amd64.whl", hash = "sha256:f0dd1cffe925ccbb823e4cd7b10e7b5b41813804c754e2192225892c785f18d9", size = 95793926 },
+    { url = "https://files.pythonhosted.org/packages/86/50/6dab7e3e10fc711c07703be460a34edb87ac1841fa10c247c22cf8b5f144/cupy_cuda12x-14.1.0-cp314-cp314t-manylinux2014_aarch64.whl", hash = "sha256:3a30f8f08135295ffa23378268c848eacb2d204af26ed46194540c741de2b38f", size = 144093044 },
+    { url = "https://files.pythonhosted.org/packages/58/5c/e5aa39d6c1a3189c456323cb8a44ce3dbb2d2d516b606433dd9dfe6a10dd/cupy_cuda12x-14.1.0-cp314-cp314t-manylinux2014_x86_64.whl", hash = "sha256:1670cfcf2ba4fc7b0eff39851c1618e1ba0b92259e49fd68249339530022b27c", size = 132635331 },
+]
+
+[[package]]
 name = "cycler"
 version = "0.12.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2268,10 +2305,18 @@ dev = [
 gpu-apple = [
     { name = "mlx" },
 ]
+gpu-cuda12 = [
+    { name = "cupy-cuda12x" },
+]
+gpu-cupy-source = [
+    { name = "cupy" },
+]
 
 [package.metadata]
 requires-dist = [
     { name = "colour-science", specifier = "~=0.4.6" },
+    { name = "cupy", marker = "extra == 'gpu-cupy-source'", specifier = ">=13" },
+    { name = "cupy-cuda12x", marker = "extra == 'gpu-cuda12'", specifier = ">=13" },
     { name = "exiv2", specifier = "~=0.18.1" },
     { name = "lensfunpy", specifier = "~=1.18.0" },
     { name = "lmfit", specifier = "~=1.3.2" },
@@ -2293,7 +2338,7 @@ requires-dist = [
     { name = "scikit-image", specifier = "~=0.26" },
     { name = "scipy", specifier = "~=1.17" },
 ]
-provides-extras = ["dev", "gpu-apple"]
+provides-extras = ["dev", "gpu-apple", "gpu-cuda12", "gpu-cupy-source"]
 
 [[package]]
 name = "sphinx"
