@@ -190,10 +190,21 @@ class HDRPhotoMapping:
             raise ValueError("profile_hdr_recovery_ratio must be a finite non-negative value.")
         if (
             not math.isfinite(self.profile_hdr_recovery_knee_ev)
+            or self.profile_hdr_recovery_knee_ev < 0.0
             or not math.isfinite(self.profile_hdr_recovery_full_ev)
             or self.profile_hdr_recovery_knee_ev >= self.profile_hdr_recovery_full_ev
         ):
-            raise ValueError("profile_hdr_recovery_knee_ev must be finite and strictly less than profile_hdr_recovery_full_ev.")
+            raise ValueError("profile_hdr_recovery_knee_ev must be finite, non-negative, and strictly less than profile_hdr_recovery_full_ev.")
+        if not math.isfinite(self.profile_hdr_max_chroma_gain) or self.profile_hdr_max_chroma_gain < 1.0:
+            raise ValueError("profile_hdr_max_chroma_gain must be a finite value >= 1.")
+        if not math.isfinite(self.profile_hdr_path_to_white_strength) or not (0.0 <= self.profile_hdr_path_to_white_strength <= 1.0):
+            raise ValueError("profile_hdr_path_to_white_strength must be a finite value in [0, 1].")
+        if (
+            not math.isfinite(self.profile_hdr_path_to_white_start_ev)
+            or not math.isfinite(self.profile_hdr_path_to_white_end_ev)
+            or self.profile_hdr_path_to_white_start_ev >= self.profile_hdr_path_to_white_end_ev
+        ):
+            raise ValueError("profile_hdr_path_to_white_start_ev must be finite and strictly less than profile_hdr_path_to_white_end_ev.")
 
 
 @dataclass(frozen=True, slots=True)

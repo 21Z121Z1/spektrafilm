@@ -555,6 +555,7 @@ class GuiController:
             if scene_energy_metadata is not None and hasattr(scene_energy_metadata, 'scene_rgb'):
                 scene_rgb = scene_energy_metadata.scene_rgb
             if hasattr(gui_state, 'hdr_export'):
+                path_to_white_enabled = getattr(gui_state.hdr_export, 'path_to_white_enabled', True)
                 hdr_mapping_kwargs = {
                     "hdr_mapping_mode": getattr(gui_state.hdr_export, 'hdr_mapping_mode', 'generic'),
                     "film": gui_state.simulation.film_stock,
@@ -564,7 +565,8 @@ class GuiController:
                     "paper_rolloff_exposure_scale": gui_state.hdr_export.paper_rolloff_exposure_scale,
                     "paper_rolloff_k": gui_state.hdr_export.paper_rolloff_k,
                     "max_headroom": gui_state.hdr_export.max_headroom,
-                    "hdr_highlight_path_to_white": 1.0 if getattr(gui_state.hdr_export, 'path_to_white_enabled', True) else 0.0,
+                    "hdr_highlight_path_to_white": 1.0 if path_to_white_enabled else 0.0,
+                    "profile_hdr_path_to_white_strength": 0.0 if not path_to_white_enabled else 0.30,
                     "profile_hdr_mode": getattr(gui_state.hdr_export, 'profile_hdr_mode', 'strict_preserving'),
                     "profile_hdr_target_peak_ev": getattr(gui_state.hdr_export, 'profile_hdr_target_peak_ev', 2.03),
                     "profile_hdr_recovery_ratio": getattr(gui_state.hdr_export, 'profile_hdr_recovery_ratio', 0.50),

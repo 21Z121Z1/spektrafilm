@@ -450,6 +450,28 @@ def test_mapping_validation_rejects_invalid_gain_map_mode() -> None:
         hdr_photo.HDRPhotoMapping(gain_map_mode="invalid")  # type: ignore
 
 
+def test_mapping_validation_rejects_invalid_max_chroma_gain() -> None:
+    with pytest.raises(ValueError, match="profile_hdr_max_chroma_gain"):
+        hdr_photo.HDRPhotoMapping(profile_hdr_max_chroma_gain=0.5)
+
+
+def test_mapping_validation_rejects_invalid_path_to_white_strength() -> None:
+    with pytest.raises(ValueError, match="profile_hdr_path_to_white_strength"):
+        hdr_photo.HDRPhotoMapping(profile_hdr_path_to_white_strength=-0.1)
+    with pytest.raises(ValueError, match="profile_hdr_path_to_white_strength"):
+        hdr_photo.HDRPhotoMapping(profile_hdr_path_to_white_strength=1.5)
+
+
+def test_mapping_validation_rejects_reversed_path_to_white_ev_range() -> None:
+    with pytest.raises(ValueError, match="profile_hdr_path_to_white_start_ev"):
+        hdr_photo.HDRPhotoMapping(profile_hdr_path_to_white_start_ev=3.0, profile_hdr_path_to_white_end_ev=1.0)
+
+
+def test_mapping_validation_rejects_negative_recovery_knee_ev() -> None:
+    with pytest.raises(ValueError, match="profile_hdr_recovery_knee_ev"):
+        hdr_photo.HDRPhotoMapping(profile_hdr_recovery_knee_ev=-0.5, profile_hdr_recovery_full_ev=1.0)
+
+
 def test_save_hdr_photo_heic_gain_map_mode_dispatch(monkeypatch, tmp_path) -> None:
     image = np.array([[[1.0, 1.0, 1.0], [4.0, 4.0, 4.0]]], dtype=np.float32)
     output_path = tmp_path / "out.heic"
@@ -1350,3 +1372,56 @@ def test_gain_map_max_matches_actual_h_over_s() -> None:
 
     import pytest
     assert renditions.headroom == pytest.approx(expected_headroom, rel=1e-3)
+
+
+# ---------------------------------------------------------------------------
+# Extended HDRPhotoMapping __post_init__ validation tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "kwargs, match",
+    [
+        ({"diffuse_white": 0.0}, "diffuse_white"),
+        ({"diffuse_white": -1.0}, "diffuse_white"),
+        ({"sdr_paper_white": 0.0}, "sdr_paper_white"),
+        ({"sdr_paper_white": 1.0}, "sdr_paper_white"),
+        ({"max_headroom": 1.0}, "max_headroom"),
+        ({"max_headroom": -1.0}, "max_headroom"),
+        ({"shoulder_strength": 0.0}, "shoulder_strength"),
+        ({"shoulder_strength": -1.0}, "shoulder_strength"),
+        ({"paper_rolloff_start": 0.0}, "paper_rolloff_start"),
+        ({"paper_rolloff_k": -1.0}, "paper_rolloff_k"),
+        ({"paper_rolloff_exposure_scale": 0.0}, "paper_rolloff_exposure_scale"),
+        ({"paper_rolloff_strength": -1.0}, "paper_rolloff_strength"),
+        ({"graft_strength": -0.1}, "graft_strength"),
+        ({"graft_strength": 1.5}, "graft_strength"),
+        ({"hdr_diffuse_white_target": 0.0}, "hdr_diffuse_white_target"),
+        ({"hdr_diffuse_lift_start": 1.0, "hdr_diffuse_lift_end": 0.5}, "hdr_diffuse_lift_start"),
+        ({"hdr_diffuse_lift_strength": -0.1}, "hdr_diffuse_lift_strength"),
+        ({"hdr_diffuse_lift_strength": 1.5}, "hdr_diffuse_lift_strength"),
+        ({"look_diffuse_white_reference": 0.0}, "look_diffuse_white_reference"),
+        ({"look_diffuse_white_reference": -1.0}, "look_diffuse_white_reference"),
+        ({"hdr_highlight_color_mode": "invalid"}, "hdr_highlight_color_mode"),
+        ({"hdr_highlight_gamut": "invalid"}, "hdr_highlight_gamut"),
+        ({"hdr_highlight_saturation_boost": -1.0}, "hdr_highlight_saturation_boost"),
+        ({"hdr_highlight_chroma_limit": -1.0}, "hdr_highlight_chroma_limit"),
+        ({"hdr_highlight_path_to_white": -1.0}, "hdr_highlight_path_to_white"),
+        ({"profile_curve_mode": "invalid"}, "profile_curve_mode"),
+        ({"profile_hdr_peak_ev": 0.0}, "profile_hdr_peak_ev"),
+        ({"profile_hdr_strength": -0.1}, "profile_hdr_strength"),
+        ({"profile_hdr_strength": 1.5}, "profile_hdr_strength"),
+        ({"profile_hdr_softness_ev": 0.0}, "profile_hdr_softness_ev"),
+        ({"diffuse_white_override": 0.0}, "diffuse_white_override"),
+        ({"diffuse_white_override": -1.0}, "diffuse_white_override"),
+        ({"profile_hdr_mode": "invalid"}, "profile_hdr_mode"),
+        ({"profile_hdr_target_peak_ev": 0.0}, "profile_hdr_target_peak_ev"),
+        ({"profile_hdr_normalize_percentile": 0.0}, "profile_hdr_normalize_percentile"),
+        ({"profile_hdr_normalize_percentile": 101.0}, "profile_hdr_normalize_percentile"),
+        ({"profile_hdr_recovery_ratio": -0.1}, "profile_hdr_recovery_ratio"),
+        ({"hdr_mapping_mode": "invalid"}, "hdr_mapping_mode"),
+    ],
+)
+def test_mapping_validation_rejects_invalid_values(kwargs: dict, match: str) -> None:
+    with pytest.raises(ValueError, match=match):
+        hdr_photo.HDRPhotoMapping(**kwargs)

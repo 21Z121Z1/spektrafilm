@@ -50,11 +50,10 @@
 
 ## 包结构
 
-代码库按 [src/spektrafilm](src/spektrafilm)、[src/spektrafilm_gui](src/spektrafilm_gui) 和 [src/spektrafilm_profile_creator](src/spektrafilm_profile_creator) 三个包组织：
+代码库按 [src/spektrafilm](src/spektrafilm) 和 [src/spektrafilm_gui](src/spektrafilm_gui) 两个包组织：
 
 1. [src/spektrafilm](src/spektrafilm)：运行时模拟管线和已处理配置文件的消费。
 2. [src/spektrafilm_gui](src/spektrafilm_gui)：基于运行时包构建的桌面 GUI。
-3. [src/spektrafilm_profile_creator](src/spektrafilm_profile_creator)：原始曲线处理和配置文件生成/拟合工作流。
 
 标准导入接口：
 
