@@ -1,19 +1,21 @@
+import logging
 import numpy as np
-import scipy
+import scipy.special
 import colour
-import scipy.interpolate
 import matplotlib.pyplot as plt
 from spektrafilm.config import SPECTRAL_SHAPE
 from spektrafilm.utils.io import load_dichroic_filters, load_filter
+
+_log = logging.getLogger(__name__)
 
 ################################################################################
 # Color Filter class
 ################################################################################
 
-def create_combined_dichroic_filter(wavelength,
-                                    transitions,
-                                    edges,
-                                    ):
+def create_combined_dichroic_filter(wavelength: np.ndarray,
+                                    transitions: list[float],
+                                    edges: list[float],
+                                    ) -> np.ndarray:
     # data from https://qd-europe.com/se/en/product/dichroic-filters-and-sets/
     dichroics = np.zeros((np.size(wavelength),3))
     dichroics[:,2] = scipy.special.erf( (wavelength-edges[0])/transitions[0])
@@ -85,10 +87,10 @@ class GenericFilter():
 ################################################################################
 # Band pass filter
 
-def sigmoid_erf(x, center, width=1):
+def sigmoid_erf(x: np.ndarray, center: float, width: float = 1.0) -> np.ndarray:
     return scipy.special.erf((x-center)/width)*0.5+0.5
 
-def compute_band_pass_filter(filter_uv=[1, 410, 8], filter_ir=[1, 675, 15]):
+def compute_band_pass_filter(filter_uv: list[float] = [1, 410, 8], filter_ir: list[float] = [1, 675, 15]) -> np.ndarray:
     amp_uv = filter_uv[0]
     wl_uv = filter_uv[1]
     width_uv = filter_uv[2]
@@ -108,16 +110,29 @@ def compute_band_pass_filter(filter_uv=[1, 410, 8], filter_ir=[1, 675, 15]):
         
 
 # color filter variables
-dichroic_filters = DichroicFilters()
-thorlabs_dichroic_filters = DichroicFilters(brand='thorlabs')
-edmund_optics_dichroic_filters = DichroicFilters(brand='edmund_optics')
-durst_digital_light_dicrhoic_filters = DichroicFilters(brand='durst_digital_light')
-custom_dichroic_filters = DichroicFilters(brand='custom')
-schott_kg1_heat_filter = GenericFilter(name='KG1', type='heat_absorbing', brand='schott')
-schott_kg3_heat_filter = GenericFilter(name='KG3', type='heat_absorbing', brand='schott')
-schott_kg5_heat_filter = GenericFilter(name='KG5', type='heat_absorbing', brand='schott')
-generic_lens_transmission = GenericFilter(name='canon_24_f28_is', type='lens_transmission',
-                                          brand='canon', data_in_percentage=True)
+try:
+    dichroic_filters = DichroicFilters()
+    thorlabs_dichroic_filters = DichroicFilters(brand='thorlabs')
+    edmund_optics_dichroic_filters = DichroicFilters(brand='edmund_optics')
+    durst_digital_light_dicrhoic_filters = DichroicFilters(brand='durst_digital_light')
+    custom_dichroic_filters = DichroicFilters(brand='custom')
+    schott_kg1_heat_filter = GenericFilter(name='KG1', type='heat_absorbing', brand='schott')
+    schott_kg3_heat_filter = GenericFilter(name='KG3', type='heat_absorbing', brand='schott')
+    schott_kg5_heat_filter = GenericFilter(name='KG5', type='heat_absorbing', brand='schott')
+    generic_lens_transmission = GenericFilter(name='canon_24_f28_is', type='lens_transmission',
+                                              brand='canon', data_in_percentage=True)
+except (FileNotFoundError, OSError) as exc:
+    _log.warning("Filter data files not found at import time: %s. "
+                 "Filter-based features will not work until the data files are installed.", exc)
+    dichroic_filters = None
+    thorlabs_dichroic_filters = None
+    edmund_optics_dichroic_filters = None
+    durst_digital_light_dicrhoic_filters = None
+    custom_dichroic_filters = None
+    schott_kg1_heat_filter = None
+    schott_kg3_heat_filter = None
+    schott_kg5_heat_filter = None
+    generic_lens_transmission = None
 
 
 ################################################################################

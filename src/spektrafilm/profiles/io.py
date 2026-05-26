@@ -2,6 +2,7 @@ import copy
 import importlib.resources as pkg_resources
 import json
 import logging
+import re
 from dataclasses import dataclass, field, is_dataclass, replace
 from typing import Any, Mapping
 
@@ -9,6 +10,8 @@ _log = logging.getLogger(__name__)
 
 import numpy as np
 
+
+_SAFE_NAME_RE = re.compile(r'^[A-Za-z0-9_-]+$')
 
 PROFILE_TYPES = frozenset({'negative', 'positive'})
 PROFILE_SUPPORTS = frozenset({'film', 'paper'})
@@ -281,7 +284,14 @@ def _validate_profile(profile, stock):
     if not valid:
         raise ValueError(f"Invalid profile '{stock}'")
 
+def _validate_stock_name(stock: str) -> None:
+    if not _SAFE_NAME_RE.match(stock):
+        raise ValueError(
+            f"Invalid stock name {stock!r}: must contain only letters, digits, hyphens, and underscores."
+        )
+
 def save_profile(profile, suffix=''):
+    _validate_stock_name(profile.info.stock + suffix)
     profile = copy.deepcopy(profile)
     profile.info.stock = profile.info.stock + suffix
     package = pkg_resources.files('spektrafilm.data.profiles')
@@ -292,6 +302,7 @@ def save_profile(profile, suffix=''):
         json.dump(_json_safe(profile_to_dict(profile)), file, indent=4, allow_nan=False)
 
 def load_profile(stock):
+    _validate_stock_name(stock)
     package = pkg_resources.files('spektrafilm.data.profiles')
     filename = stock + '.json'
     resource = package / filename

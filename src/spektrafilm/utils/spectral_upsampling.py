@@ -1,4 +1,5 @@
 import importlib.resources
+import logging
 import struct
 import warnings
 from dataclasses import dataclass
@@ -15,6 +16,8 @@ import scipy.special
 from spektrafilm.utils.fast_interp_lut import apply_lut_cubic_2d
 from spektrafilm.config import SPECTRAL_SHAPE, STANDARD_OBSERVER_CMFS
 from spektrafilm.model.illuminants import standard_illuminant
+
+_log = logging.getLogger(__name__)
 
 
 NegativeRGBPolicy = Literal["clip", "warn", "error", "compress"]
@@ -337,6 +340,8 @@ def eval_poly3_warp_log_exposure_surface(params, illuminant_xy) -> np.ndarray:
     # Warp xy coordinate with the mobius warp, which is a radial compression towards the illuminant chromaticity.
     # This is to better sample the spectra of chromaticities close to the illuminant
     # and stabilize the surface for large chromaticity shifts.
+    if HANATOS2025_SPECTRA_LUT is None:
+        raise RuntimeError("Hanatos2025 spectra LUT is not loaded. Ensure the data file is installed.")
     surface_size = HANATOS2025_SPECTRA_LUT.shape[0]
     tc_base = np.linspace(0,1,surface_size)
     tc = np.stack(np.meshgrid(tc_base, tc_base, indexing='ij'), axis=-1)
@@ -437,9 +442,15 @@ def rgb_to_raw_mallett2019(RGB, sensitivity,
 ################################################################################
 # Using hanatos irradiance spectra generation
 
-HANATOS2025_SPECTRA_LUT = _load_hanatos2025_spectra_lut()
+try:
+    HANATOS2025_SPECTRA_LUT = _load_hanatos2025_spectra_lut()
+except (FileNotFoundError, OSError) as exc:
+    _log.warning("Hanatos2025 spectra LUT not found: %s. Hanatos2025 spectral upsampling will not work.", exc)
+    HANATOS2025_SPECTRA_LUT = None
 
 def compute_hanatos2025_tc_lut(sensitivity, spectra_lut=HANATOS2025_SPECTRA_LUT):
+    if spectra_lut is None:
+        raise RuntimeError("Hanatos2025 spectra LUT is not loaded. Ensure the data file is installed.")
     raw_lut = contract('ijl,lm->ijm', spectra_lut, sensitivity)
     return raw_lut
 
@@ -629,6 +640,8 @@ def rgb_to_smooth_spectrum(
     input_policy: SpectralInputPolicy | None = None,
 ):
     # direct interpolation of the spectra lut, to be used only for smooth spectra close to white
+    if HANATOS2025_SPECTRA_LUT is None:
+        raise RuntimeError("Hanatos2025 spectra LUT is not loaded. Ensure the data file is installed.")
     tc_w, b_w = _rgb_to_tc_b(
         rgb,
         color_space=color_space,

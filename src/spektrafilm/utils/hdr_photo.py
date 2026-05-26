@@ -991,3 +991,162 @@ def _swift_command() -> list[str]:
 
 def _encoder_script_path() -> Path:
     return Path(pkg_resources.files("spektrafilm.data.macos").joinpath("hdr_heif_encoder.swift"))
+
+
+# ---------------------------------------------------------------------------
+# ISO 21496-1 Gain Map Metadata
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class ISO21496GainMapMetadata:
+    """ISO 21496-1 gain map metadata for cross-platform HDR encoding.
+
+    Stores the parameters needed to embed a gain map in JPEG (via MPF) or
+    HEIC/HEIF files.  The gain map itself encodes per-pixel
+    ``log2(hdr_luminance / sdr_luminance)`` so that HDR-capable viewers can
+    reconstruct the full dynamic range while SDR viewers see the base image.
+    """
+
+    gain_map_min: float
+    gain_map_max: float
+    gamma: float
+    offset_sdr: float
+    offset_hdr: float
+    hdr_capacity_min: float
+    hdr_capacity_max: float
+
+
+def build_iso_21496_1_gain_map_metadata(
+    renditions: HDRPhotoRenditions,
+    *,
+    sdr_white_luminance: float = 100.0,
+    hdr_white_luminance: float | None = None,
+) -> ISO21496GainMapMetadata:
+    """Build ISO 21496-1 gain map metadata from HDR renditions.
+
+    Parameters
+    ----------
+    renditions : HDRPhotoRenditions
+        Output of :func:`prepare_hdr_photo_renditions`.
+    sdr_white_luminance : float
+        SDR reference white luminance in cd/m² (default 100 nits).
+    hdr_white_luminance : float, optional
+        HDR peak luminance in cd/m².  Defaults to
+        ``sdr_white_luminance * headroom``.
+
+    Returns
+    -------
+    ISO21496GainMapMetadata
+        Metadata fields ready for XMP embedding.
+    """
+
+    if hdr_white_luminance is None:
+        hdr_white_luminance = sdr_white_luminance * renditions.headroom
+
+    headroom = max(float(renditions.headroom), 1.0 + 1e-6)
+    gain_map_max = math.log2(headroom)
+    gamma = 1.0
+
+    return ISO21496GainMapMetadata(
+        gain_map_min=0.0,
+        gain_map_max=gain_map_max,
+        gamma=gamma,
+        offset_sdr=1.0 / 1023.0,
+        offset_hdr=1.0 / 1023.0,
+        hdr_capacity_min=1.0,
+        hdr_capacity_max=headroom,
+    )
+
+
+def encode_gain_map_log2(
+    sdr_rgb: np.ndarray,
+    hdr_rgb: np.ndarray,
+    *,
+    headroom: float | None = None,
+) -> np.ndarray:
+    """Encode a gain map as ``log2(hdr_luma / sdr_luma)`` per pixel.
+
+    The result is normalised to [0, 1] where 0 = no gain (SDR) and
+    1 = full headroom gain.
+
+    Parameters
+    ----------
+    sdr_rgb : np.ndarray
+        SDR base image, shape ``(H, W, 3)``, range [0, 1].
+    hdr_rgb : np.ndarray
+        HDR rendition, shape ``(H, W, 3)``, range [0, headroom].
+    headroom : float, optional
+        Maximum headroom.  If ``None``, derived from ``hdr_rgb``.
+
+    Returns
+    -------
+    np.ndarray
+        Gain map, shape ``(H, W)``, float32, range [0, 1].
+    """
+
+    sdr = np.maximum(np.asarray(sdr_rgb, dtype=np.float32), _EPS32)
+    hdr = np.maximum(np.asarray(hdr_rgb, dtype=np.float32), _EPS32)
+
+    sdr_luma = luminance_y(sdr)
+    hdr_luma = luminance_y(hdr)
+
+    if headroom is None:
+        headroom = float(np.max(hdr_luma))
+
+    log_gain = np.log2(hdr_luma / sdr_luma)
+    max_log_gain = math.log2(max(headroom, 1.0 + 1e-6))
+    gain_map = np.clip(log_gain / max(max_log_gain, _EPS32), 0.0, 1.0)
+    return gain_map.astype(np.float32, copy=False)
+
+
+def build_gain_map_xmp_packet(
+    metadata: ISO21496GainMapMetadata,
+    *,
+    image_width: int,
+    image_height: int,
+    gain_map_width: int,
+    gain_map_height: int,
+) -> str:
+    """Build an XMP packet containing ISO 21496-1 gain map metadata.
+
+    Parameters
+    ----------
+    metadata : ISO21496GainMapMetadata
+        Gain map parameters from :func:`build_iso_21496_1_gain_map_metadata`.
+    image_width, image_height : int
+        Dimensions of the SDR base image.
+    gain_map_width, gain_map_height : int
+        Dimensions of the gain map (may differ from the base image).
+
+    Returns
+    -------
+    str
+        UTF-8 XMP packet suitable for embedding in JPEG APP1 or HEIC metadata.
+    """
+
+    return (
+        '<?xpacket begin="\xef\xbb\xbf" id="W5M0MpCehiHzreSzNTczkc9d"?>\n'
+        '<x:xmpmeta xmlns:x="adobe:ns:meta/">\n'
+        '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">\n'
+        '<rdf:Description rdf:about=""\n'
+        '  xmlns:hdrgm="http://ns.adobe.com/hdr-gain-map/1.0/"\n'
+        '  xmlns:xmpGImg="http://ns.adobe.com/xap/1.0/g/img/">\n'
+        f'  <hdrgm:Version>1.0</hdrgm:Version>\n'
+        f'  <hdrgm:GainMapMin>{metadata.gain_map_min:.6g}</hdrgm:GainMapMin>\n'
+        f'  <hdrgm:GainMapMax>{metadata.gain_map_max:.6g}</hdrgm:GainMapMax>\n'
+        f'  <hdrgm:Gamma>{metadata.gamma:.6g}</hdrgm:Gamma>\n'
+        f'  <hdrgm:OffsetSDR>{metadata.offset_sdr:.6g}</hdrgm:OffsetSDR>\n'
+        f'  <hdrgm:OffsetHDR>{metadata.offset_hdr:.6g}</hdrgm:OffsetHDR>\n'
+        f'  <hdrgm:HDRCapacityMin>{metadata.hdr_capacity_min:.6g}</hdrgm:HDRCapacityMin>\n'
+        f'  <hdrgm:HDRCapacityMax>{metadata.hdr_capacity_max:.6g}</hdrgm:HDRCapacityMax>\n'
+        f'  <hdrgm:BaseRenditionIsHDR>False</hdrgm:BaseRenditionIsHDR>\n'
+        f'  <hdrgm:GainMapImage>\n'
+        f'    <xmpGImg:width>{gain_map_width}</xmpGImg:width>\n'
+        f'    <xmpGImg:height>{gain_map_height}</xmpGImg:height>\n'
+        f'  </hdrgm:GainMapImage>\n'
+        '</rdf:Description>\n'
+        '</rdf:RDF>\n'
+        '</x:xmpmeta>\n'
+        '<?xpacket end="w"?>'
+    )

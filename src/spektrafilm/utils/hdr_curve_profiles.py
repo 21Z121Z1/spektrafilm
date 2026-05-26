@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import re
 from dataclasses import dataclass
@@ -11,6 +12,8 @@ from typing import Any, Final
 import numpy as np
 
 from spektrafilm.utils.math_ops import smoothstep as _smoothstep
+
+_log = logging.getLogger(__name__)
 
 _LUMA_COEFFS: Final = np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
 _EPS: Final = 1e-8
@@ -437,7 +440,8 @@ def load_hdr_curve_profiles(
             profile = _profile_from_entry(root, entry)
             profiles[(profile.film, profile.paper)] = profile
         return profiles
-    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        _log.warning("Failed to load HDR curve profiles from %s: %s", summary_path, exc)
         return {}
 
 

@@ -1,5 +1,4 @@
 import numpy as np
-from scipy.ndimage import gaussian_filter
 
 from spektrafilm.utils.fast_stats import fast_lognormal_from_mean_std
 from spektrafilm.utils.fast_gaussian_filter import fast_gaussian_filter
@@ -16,7 +15,7 @@ def add_glare(xyz: np.ndarray, illuminant_xyz: np.ndarray, glare) -> np.ndarray:
         xyz = xyz + glare_amount[:, :, None] * illuminant_xyz[None, None, :]
     return xyz
 
-def compute_random_glare_amount(amount, roughness, blur, shape):
+def compute_random_glare_amount(amount: float, roughness: float, blur: float, shape: tuple[int, ...]) -> np.ndarray:
     random_glare = fast_lognormal_from_mean_std(amount*np.ones(shape),
                                                 roughness*amount*np.ones(shape))
     # random_glare = gaussian_filter(random_glare, blur)

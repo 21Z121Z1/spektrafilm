@@ -4,6 +4,8 @@ import binascii
 import datetime
 import importlib.resources as pkg_resources
 import json
+import logging
+import re
 import struct
 import zlib
 from dataclasses import dataclass
@@ -21,6 +23,8 @@ import scipy.interpolate
 
 from spektrafilm.color_management import ColorEncoding, Transfer, is_aces_scene_linear_space
 from spektrafilm.utils.dtypes import validate_float_dtype
+
+_log = logging.getLogger(__name__)
 from spektrafilm.utils.hdr_photo import (
     HDRPhotoMapping,
     HDR_REFERENCE_WHITE_LUMINANCE_NITS,
@@ -66,7 +70,8 @@ def read_image_metadata(filename: str) -> ImageMetadata | None:
     try:
         image = exiv2.ImageFactory.open(filename)
         image.readMetadata()
-    except (OSError, RuntimeError, exiv2.extras.Exiv2Error):
+    except (OSError, RuntimeError, exiv2.extras.Exiv2Error) as exc:
+        _log.warning("Failed to read image metadata from %s: %s", filename, exc)
         return None
 
     return ImageMetadata(
@@ -349,7 +354,8 @@ def load_image_payload(filename: str) -> ImagePayload:
     pixels = load_image_oiio(filename)
     try:
         color_encoding = read_image_color_encoding(filename)
-    except (OSError, RuntimeError, TypeError, ValueError):
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        _log.warning("Failed to read color encoding from %s: %s", filename, exc)
         color_encoding = None
     return ImagePayload(
         pixels=pixels,
@@ -504,7 +510,7 @@ def load_image_oiio(filename, *, dtype=np.float32):
         # Read the image data using the chosen type
         pixels = in_img.read_image(read_type)
         if pixels is None:
-            raise Exception("Failed to read image data from " + filename)
+            raise OSError("Failed to read image data from " + filename)
 
         # Convert image payloads to the runtime dtype. 50MP+ scans should use
         # float32 unless the caller explicitly needs float64.
@@ -800,14 +806,28 @@ def save_neutral_print_filters(neutral_print_filters):
 def read_neutral_print_filters():
     package = pkg_resources.files('spektrafilm.data.filters')
     resource = package / NEUTRAL_PRINT_FILTERS_FILENAME
-    with resource.open("r") as file:
-        return json.load(file)
+    try:
+        with resource.open("r") as file:
+            return json.load(file)
+    except (FileNotFoundError, json.JSONDecodeError) as exc:
+        raise OSError(f"Failed to read neutral print filters: {exc}") from exc
 
 ################################################################################
 # Profiles
 ################################################################################
 
+_SAFE_PATH_COMPONENT_RE = re.compile(r'^[A-Za-z0-9_-]+$')
+
+
+def _validate_path_component(value: str, label: str) -> None:
+    if not _SAFE_PATH_COMPONENT_RE.match(value):
+        raise ValueError(
+            f"Invalid {label} {value!r}: must contain only letters, digits, hyphens, and underscores."
+        )
+
+
 def load_dichroic_filters(wavelengths, brand='thorlabs'):
+    _validate_path_component(brand, "brand")
     channels = ['c','m','y']
     filters = np.zeros((np.size(wavelengths), 3))
     for i, channel in enumerate(channels):
@@ -823,6 +843,9 @@ def load_dichroic_filters(wavelengths, brand='thorlabs'):
     return filters
 
 def load_filter(wavelengths, name='KG3', brand='schott', filter_type='heat_absorbing', percent_transmittance=False):
+    _validate_path_component(name, "filter name")
+    _validate_path_component(brand, "brand")
+    _validate_path_component(filter_type, "filter type")
     transmittance = np.zeros_like(wavelengths)
     package = pkg_resources.files('spektrafilm.data.filters.'+filter_type)
     filename = brand+'/'+name+'.csv'

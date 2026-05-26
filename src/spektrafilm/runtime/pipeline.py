@@ -87,7 +87,11 @@ def _scene_luminance_y(
             apply_cctf_decoding=apply_cctf_decoding,
         )
         luminance = np.asarray(xyz[..., 1], dtype=np.float32)
-    except (AttributeError, KeyError, LookupError, RuntimeError, TypeError, ValueError):
+    except (KeyError, ValueError) as exc:
+        _log.warning(
+            "Failed to compute scene luminance via %s, falling back to Rec.709 luma: %s",
+            input_color_space, exc,
+        )
         luminance = np.tensordot(
             rgb,
             np.array([0.2126, 0.7152, 0.0722], dtype=np.float32),
@@ -158,7 +162,6 @@ def _hdr_scene_energy_metadata(
 
 
 def characterize_pipeline_profile(pipeline: 'SimulationPipeline') -> tuple[np.ndarray, np.ndarray]:
-    import copy
     from spektrafilm.runtime.params_builder import digest_params
     p = copy.deepcopy(pipeline._params)
     p.debug.deactivate_spatial_effects = True
@@ -331,13 +334,13 @@ class SimulationPipeline:
         finally:
             self._last_elapsed_time = perf_counter() - start
 
-    def get_timings(self):
+    def get_timings(self) -> dict[str, float]:
         return self.timings
 
-    def get_total_elapsed_time(self):
+    def get_total_elapsed_time(self) -> float | None:
         return self._last_elapsed_time
 
-    def format_timings(self):
+    def format_timings(self) -> str:
         return format_timings(
             self.get_timings(),
             total_elapsed_time=self.get_total_elapsed_time(),

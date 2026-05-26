@@ -1,6 +1,5 @@
 import numpy as np
 import scipy
-import scipy.ndimage
 from spektrafilm.model.density_curves import interp_density_cmy_layers
 from spektrafilm.runtime.params_schema import GrainParams
 from spektrafilm.utils.fast_stats import fast_binomial, fast_poisson, fast_lognormal_from_mean_std

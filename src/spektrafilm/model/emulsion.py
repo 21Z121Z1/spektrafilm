@@ -16,22 +16,22 @@ ProfileType: TypeAlias = Literal['negative', 'positive']
 # Emulsion helpers
 
 def compute_density_spectral(
-    channel_density,
-    density_cmy,
-    base_density=None,
-):
+    channel_density: FloatArray,
+    density_cmy: FloatArray,
+    base_density: FloatArray | None = None,
+) -> FloatArray:
     density_spectral = contract('ijk, lk->ijl', density_cmy, np.asarray(channel_density))
     if base_density is not None:
         density_spectral += np.asarray(base_density)
     return density_spectral
 
 def develop_simple(
-    log_raw,
-    log_exposure,
-    density_curves,
-    gamma_factor=1.0,
+    log_raw: FloatArray,
+    log_exposure: FloatArray,
+    density_curves: FloatArray,
+    gamma_factor: float = 1.0,
     backend=None,
-):
+) -> FloatArray:
     density_cmy = interpolate_exposure_to_density_backend(
         log_raw,
         log_exposure,

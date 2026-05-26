@@ -1,10 +1,9 @@
 import numpy as np
 import colour
-from opt_einsum import contract
 
 from spektrafilm.config import SPECTRAL_SHAPE
 
-def density_to_light(density, light):
+def density_to_light(density: np.ndarray, light: np.ndarray) -> np.ndarray:
     """
     Convert density to light transmittance.
 
@@ -24,7 +23,7 @@ def density_to_light(density, light):
     transmitted[np.isnan(transmitted)] = 0
     return transmitted
 
-def compute_aces_conversion_matrix(sensitivity, illuminant):            
+def compute_aces_conversion_matrix(sensitivity: np.ndarray, illuminant: np.ndarray) -> np.ndarray:            
     """
     Computes the ACES (Academy Color Encoding System) conversion matrix.
 
@@ -44,51 +43,3 @@ def compute_aces_conversion_matrix(sensitivity, illuminant):
     M, _ = colour.matrix_idt(msds, illuminant)
     aces_to_raw_conversion_matrix = np.linalg.inv(M)
     return aces_to_raw_conversion_matrix
-
-def rgb_to_raw_aces_idt(
-    RGB,
-    illuminant,
-    sensitivity,
-    midgray_rgb=None,
-    color_space='sRGB',
-    apply_cctf_decoding=True,
-    aces_conversion_matrix=None,
-    input_policy=None,
-):  # color_space default is legacy; callers pass explicitly.
-    """
-    Converts RGB values to raw values using ACES IDT (Input Device Transform).
-
-    Parameters:
-    RGB (array-like): The input RGB values.
-    illuminant (array-like): The illuminant data.
-    sensitivity (array-like): The sensitivity data.
-    midgray_rgb (array-like, optional): Linear mid-gray normalisation value. Defaults to [[[0.184, 0.184, 0.184]]].
-    color_space (str, optional): The color space of the input RGB values. Default is 'sRGB'.
-    apply_cctf_decoding (bool, optional): Whether to apply the CCTF decoding. Default is True.
-    aces_conversion_matrix (array-like, optional): The ACES conversion matrix. Default is an empty list.
-    input_policy (SpectralInputPolicy, optional): Policy for negative ACES values before raw conversion.
-
-    Returns:
-    tuple: A tuple containing:
-        - raw (array-like): The raw values.
-        - raw_midgray (array-like): The raw mid-gray values.
-    """
-    if midgray_rgb is None:
-        midgray_rgb = np.array([[[0.184, 0.184, 0.184]]], dtype=float)
-
-    aces = colour.RGB_to_RGB(RGB, color_space, 'ACES2065-1',
-                    apply_cctf_decoding=apply_cctf_decoding,
-                    apply_cctf_encoding=False)
-    if input_policy is not None:
-        from spektrafilm.utils.spectral_upsampling import _handle_negative_rgb, _resolve_input_policy
-
-        aces = _handle_negative_rgb(
-            aces,
-            _resolve_input_policy(input_policy),
-            context="ACES IDT ACES2065-1 RGB",
-        )
-    if aces_conversion_matrix is None:
-        aces_conversion_matrix = compute_aces_conversion_matrix(sensitivity, illuminant)
-    raw = contract('ijk,lk->ijl',aces,aces_conversion_matrix)/midgray_rgb
-    raw_midgray = np.array([[[1,1,1]]])
-    return raw, raw_midgray

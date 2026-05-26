@@ -83,7 +83,7 @@ class ColorReferenceService:
         elif self._scan_film and self._film.info.type == 'positive':
             density_midgray = -np.log10(0.184)
             self._update_cmy_black_white_references(in_print=False)
-            midgray_corrected = self._correction_fucntion()[1]
+            midgray_corrected = self._correction_function()[1]
             density_midgray_corrected = -np.log10(midgray_corrected)
             density_curve_av = np.nanmean(self._film.data.density_curves, axis=1)
             density_min_av = np.nanmean(self._film.data.base_density)
@@ -103,7 +103,7 @@ class ColorReferenceService:
         elif self._print.info.type == 'negative':
             density_midgray = -np.log10(0.184)
             self._update_cmy_black_white_references(in_print=True)
-            midgray_corrected = self._correction_fucntion()[1]
+            midgray_corrected = self._correction_function()[1]
             density_midgray_corrected = -np.log10(midgray_corrected)
             density_curve_av = np.nanmean(self._print.data.density_curves, axis=1)
             density_min_av = np.nanmean(self._print.data.base_density)
@@ -125,21 +125,21 @@ class ColorReferenceService:
         if self._scan_film and self._film.info.type == 'negative':
             return xyz # do not correct negative film scans
         else:
-            correction_func, _ = self._correction_fucntion()
+            correction_func, _ = self._correction_function()
             y = xyz[:, :, 1]
             y_corrected = correction_func(y)
             scale = y_corrected / (y + 1e-10)
             return xyz * scale[:, :, None]
 
 
-    def _correction_fucntion(self):
+    def _correction_function(self):
         white_level = self._white_level
         black_level = self._black_level
         if self._black_correction and not self._white_correction:
             white_level = self._y_white
         if self._white_correction and not self._black_correction:
             black_level = self._y_black
-        if self._black_correction or self._white_correction:                           
+        if self._black_correction or self._white_correction:
             m = (white_level - black_level) / (self._y_white - self._y_black + 1e-10)
             q = black_level - m * self._y_black
             def correction_func(y):
@@ -149,8 +149,11 @@ class ColorReferenceService:
                 if self._output_clip_max:
                     value = np.minimum(value, 1.0)
                 return value
-        midgray_black_white_corrected = (0.184 - q)/m
-        return correction_func, midgray_black_white_corrected
+            midgray_black_white_corrected = (0.184 - q)/m
+            return correction_func, midgray_black_white_corrected
+        def correction_func(y):
+            return y
+        return correction_func, 0.184
 
 # private functions
     
