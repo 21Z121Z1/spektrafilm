@@ -170,7 +170,6 @@ def _cctf_decoding_romm_rgb(rgb: Any, backend) -> Any:
 
 def _cctf_decoding_bt2020(rgb: Any, backend) -> Any:
     alpha = 1.099
-    beta = 0.018
     nonlinear = _signed_power((rgb + (alpha - 1.0)) / alpha, 1.0 / 0.45, backend)
     return backend.where(rgb <= 0.081, rgb / 4.5, nonlinear)
 

@@ -2,7 +2,6 @@ import logging
 import numpy as np
 import scipy.special
 import colour
-import matplotlib.pyplot as plt
 from spektrafilm.config import SPECTRAL_SHAPE
 from spektrafilm.utils.io import load_dichroic_filters, load_filter
 
@@ -36,6 +35,7 @@ class DichroicFilters():
             self.filters = load_dichroic_filters(self.wavelengths, brand)
             
     def plot(self):
+        import matplotlib.pyplot as plt
         colors = ['tab:cyan', 'tab:pink', 'gold']
         _, ax = plt.subplots()
         for i in range(3):
@@ -141,11 +141,17 @@ def color_enlarger(light_source, filter_cc_values=(0,65,55),
                    filters=custom_dichroic_filters):
     # Filter values are in Kodak CC units proportional to density, 100 units means 1.0 density, or 90% reduction in transmittance
     # cc_filter_values are in CMY order
+    if filters is None:
+        raise RuntimeError(
+            "Dichroic filter data files not found. "
+            "color_enlarger() requires filter data to be installed."
+        )
     filter_cc_values = np.array(filter_cc_values)
     filtered_illuminant = filters.apply_cc(light_source, filter_cc_values=filter_cc_values)
     return filtered_illuminant
 
 if __name__=="__main__":
+    import matplotlib.pyplot as plt
     from spektrafilm.model.illuminants import standard_illuminant
     from spektrafilm.profiles.io import load_profile
     

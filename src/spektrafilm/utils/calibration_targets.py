@@ -1,5 +1,4 @@
 import numpy as np
-import matplotlib.pyplot as plt
 import copy
 
 from spektrafilm.runtime.api import init_params, simulate
@@ -7,7 +6,7 @@ from spektrafilm.runtime.api import init_params, simulate
 class CalibrationTarget:
     def __init__(self,
                  image,
-                 base_params=init_params(),
+                 base_params=None,
                  crop_center=(0.5, 0.5),
                  crop_size=(0.2, 1.0),
                  steps=7,
@@ -19,6 +18,8 @@ class CalibrationTarget:
         self.image = image
         if rotate:
             self.image = np.rot90(self.image)
+        if base_params is None:
+            base_params = init_params()
         self.base_params = base_params
         self.stack = stack
         self.steps = steps
@@ -50,35 +51,45 @@ class CalibrationTarget:
             return fig
         else: return strip
     
-    def negative_exposure_ramp(self, values=[-3, -2, -1, 0, 1, 2, 3]):
+    def negative_exposure_ramp(self, values=None):
+        if values is None:
+            values = [-3, -2, -1, 0, 1, 2, 3]
         self.clean_params(steps=np.size(values))
         self.title = 'Negative Exposure EV'
         for p, v in zip(self.params, values):
             p.camera.exposure_compensation_ev = v
             p.label = f'{v:.0f}'
         
-    def print_exposure_ramp(self, values=[0.3, 0.5, 0.7, 1.0, 1.5, 2.0, 3.0]):
+    def print_exposure_ramp(self, values=None):
+        if values is None:
+            values = [0.3, 0.5, 0.7, 1.0, 1.5, 2.0, 3.0]
         self.clean_params(steps=np.size(values))
         self.title = 'Print Exposure'
         for p, v in zip(self.params, values):
             p.enlarger.print_exposure = v
             p.label = f'{v:.2f}'
     
-    def grain_ramp(self, values=[0.05, 0.1, 0.2, 0.4, 0.8, 1.6]):
+    def grain_ramp(self, values=None):
+        if values is None:
+            values = [0.05, 0.1, 0.2, 0.4, 0.8, 1.6]
         self.clean_params(steps=np.size(values))
         self.title = 'Grain Particle Area (um$^2$)'
         for p, v in zip(self.params, values):
             p.film_render.grain.agx_particle_area_um2 = v
             p.label = f'{v:.2f}'
             
-    def dir_couplers_ramp(self, values=[0.0, 0.5, 1.0, 1.5, 2.0]):
+    def dir_couplers_ramp(self, values=None):
+        if values is None:
+            values = [0.0, 0.5, 1.0, 1.5, 2.0]
         self.clean_params(steps=np.size(values))
         self.title = 'DIR Couplers Inhibition Strength'
         for p, v in zip(self.params, values):
             p.film_render.dir_couplers.amount = v
             p.label = f'{v:.2f}'
     
-    def glare_ramp(self, values=[0.02, 0.05, 0.1, 0.2, 0.4]):
+    def glare_ramp(self, values=None):
+        if values is None:
+            values = [0.02, 0.05, 0.1, 0.2, 0.4]
         self.clean_params(steps=np.size(values))
         self.title = 'Amount of Glare Light (%)'
         for p, v in zip(self.params, values):
@@ -103,6 +114,7 @@ class CalibrationTarget:
         return strip, labels
 
     def _plot(self, strip, n_conditions, labels, title, stack='h', lines=False):
+        import matplotlib.pyplot as plt
         ticks = np.double(np.arange(n_conditions)) + 0.5
         ticks /= n_conditions
         fig, ax = plt.subplots()
@@ -136,6 +148,7 @@ class CalibrationTarget:
 
 
 if __name__ == '__main__':
+    import matplotlib.pyplot as plt
     from spektrafilm.utils.io import load_image_oiio
     
     image = load_image_oiio('img/targets/cc11.tiff')

@@ -285,7 +285,7 @@ def _read_exif_metadata(raw_path: str | PathLike[str]) -> ExifData:
         image = exiv2.ImageFactory.open(str(raw_path))
         image.readMetadata()
         exif = image.exifData()
-    except (OSError, RuntimeError, exiv2.Exiv2Error):
+    except (OSError, RuntimeError, exiv2.Exiv2Error, exiv2.extras.Exiv2Error):
         return ExifData(
             make="",
             model="",

@@ -285,7 +285,7 @@ def build_dynamic_curve_profile(
     )
 
 def _slug(value: str) -> str:
-    return re.sub(r"[^A-Za-z0-9_.-]+", "_", value).strip("_")
+    return re.sub(r"_+", "_", re.sub(r"[^A-Za-z0-9_.-]+", "_", value)).strip("_")
 
 
 def _summary_entry(sample: dict[str, object], sample_path: str) -> dict[str, object]:

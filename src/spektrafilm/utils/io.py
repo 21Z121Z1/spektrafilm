@@ -70,7 +70,7 @@ def read_image_metadata(filename: str) -> ImageMetadata | None:
     try:
         image = exiv2.ImageFactory.open(filename)
         image.readMetadata()
-    except (OSError, RuntimeError, exiv2.extras.Exiv2Error) as exc:
+    except (OSError, RuntimeError, exiv2.Exiv2Error, exiv2.extras.Exiv2Error) as exc:
         _log.warning("Failed to read image metadata from %s: %s", filename, exc)
         return None
 
@@ -863,8 +863,12 @@ NEUTRAL_PRINT_FILTERS_FILENAME = 'neutral_print_filters.json'
 def save_neutral_print_filters(neutral_print_filters):
     package = pkg_resources.files('spektrafilm.data.filters')
     resource = package / NEUTRAL_PRINT_FILTERS_FILENAME
-    with resource.open("w") as file:
-        json.dump(neutral_print_filters, file, indent=4)
+    try:
+        with resource.open("w") as file:
+            json.dump(neutral_print_filters, file, indent=4)
+    except OSError as exc:
+        _log.error("Failed to write neutral print filters: %s", exc)
+        raise
 
 
 def read_neutral_print_filters():
@@ -873,7 +877,7 @@ def read_neutral_print_filters():
     try:
         with resource.open("r") as file:
             return json.load(file)
-    except (FileNotFoundError, json.JSONDecodeError) as exc:
+    except json.JSONDecodeError as exc:
         raise OSError(f"Failed to read neutral print filters: {exc}") from exc
 
 ################################################################################
