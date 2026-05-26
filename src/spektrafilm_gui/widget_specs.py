@@ -10,6 +10,7 @@ from spektrafilm_gui.options import (
     DiffusionFilterFamilies,
     EXRModes,
     HDRMappingModes,
+    ProfileHDRModes,
     NapariInterpolationModes,
     RGBColorSpaces,
     RGBtoRAWMethod,
@@ -66,6 +67,7 @@ GUI_SECTION_ENUMS: dict[str, dict[str, type[Enum]]] = {
     "hdr_export": {
         "hdr_mapping_mode": HDRMappingModes,
         "exr_mode": EXRModes,
+        "profile_hdr_mode": ProfileHDRModes,
     },
 }
 
@@ -678,6 +680,24 @@ GUI_WIDGET_SPECS = {
         "path_to_white_enabled": WidgetSpec(
             label="Enable Path to White",
             tooltip="Reduce saturation of extremely bright highlights to simulate film bleaching. Disable to keep colors fully saturated up to clipping.",
+        ),
+        "profile_hdr_mode": WidgetSpec(
+            label="Profile HDR mode",
+            tooltip="strict_preserving uses the original profile-relative gain; modern_recovery_peak_budget recovers shoulder-compressed highlights with a fixed EV budget.",
+        ),
+        "profile_hdr_target_peak_ev": WidgetSpec(
+            label="Target peak EV",
+            tooltip="Maximum profile-relative HDR headroom budget in EV. Set to 2.03 for typical iPhone HDR.",
+            min_value=0.5,
+            max_value=4.0,
+            step=0.05,
+        ),
+        "profile_hdr_recovery_ratio": WidgetSpec(
+            label="Recovery ratio",
+            tooltip="Fraction of compressed EV to recover (0=no recovery, 1=full recovery).",
+            min_value=0.0,
+            max_value=1.0,
+            step=0.05,
         ),
     },
 }

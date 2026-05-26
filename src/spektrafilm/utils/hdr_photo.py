@@ -15,6 +15,7 @@ import numpy as np
 from spektrafilm.utils.hdr_curve_profiles import (
     FilmPrintHDRCurveProfile,
     ProfilePreservingHDRCurveResult,
+    ProfileHDRCurveResult,
     build_profile_hdr_curve,
     build_profile_preserving_hdr_curve,
     evaluate_profile_sdr_curve,
@@ -111,6 +112,15 @@ class HDRPhotoMapping:
     profile_hdr_path_to_white_strength: float = 0.30
     diffuse_white_override: float | None = None
 
+    # --- Modern recovery peak budget parameters ---
+    profile_hdr_mode: Literal["strict_preserving", "modern_recovery_peak_budget"] = "strict_preserving"
+    profile_hdr_target_peak_ev: float = 2.03
+    profile_hdr_normalize_percentile: float = 99.9
+    profile_hdr_budget_hard_cap: bool = True
+    profile_hdr_recovery_ratio: float = 0.50
+    profile_hdr_recovery_knee_ev: float = 0.10
+    profile_hdr_recovery_full_ev: float = 1.10
+
     def __post_init__(self) -> None:
         if self.hdr_mapping_mode not in _HDR_MAPPING_MODES:
             raise ValueError(f"hdr_mapping_mode must be one of {_HDR_MAPPING_MODES!r}.")
@@ -168,6 +178,12 @@ class HDRPhotoMapping:
             raise ValueError("profile_hdr_softness_ev must be a finite positive value.")
         if self.diffuse_white_override is not None and (not math.isfinite(self.diffuse_white_override) or self.diffuse_white_override <= 0.0):
             raise ValueError("diffuse_white_override must be a finite positive value if provided.")
+        if self.profile_hdr_mode not in ("strict_preserving", "modern_recovery_peak_budget"):
+            raise ValueError("profile_hdr_mode must be 'strict_preserving' or 'modern_recovery_peak_budget'.")
+        if not math.isfinite(self.profile_hdr_target_peak_ev) or self.profile_hdr_target_peak_ev <= 0.0:
+            raise ValueError("profile_hdr_target_peak_ev must be a finite positive value.")
+        if not math.isfinite(self.profile_hdr_recovery_ratio) or not (0.0 <= self.profile_hdr_recovery_ratio <= 1.0):
+            raise ValueError("profile_hdr_recovery_ratio must be a finite value in [0, 1].")
 
 
 @dataclass(frozen=True, slots=True)
@@ -671,14 +687,15 @@ def _apply_hdr_color_recovery(
 
 
 def build_hdr_debug_sidecar(
-    curve_result: ProfilePreservingHDRCurveResult,
+    curve_result: ProfilePreservingHDRCurveResult | ProfileHDRCurveResult,
     *,
     mapping: HDRPhotoMapping | None = None,
     extra: dict | None = None,
 ) -> dict:
     """Build a JSON-serializable debug sidecar from a curve diagnostics result.
 
-    Accepts the :class:`ProfilePreservingHDRCurveResult` returned by
+    Accepts :class:`ProfilePreservingHDRCurveResult` or
+    :class:`ProfileHDRCurveResult` returned by
     ``build_profile_preserving_hdr_curve(..., return_diagnostics=True)`` so
     that no values are re-computed.
     """
@@ -693,11 +710,12 @@ def build_hdr_debug_sidecar(
             "p999": float(np.percentile(flat, 99.9)),
         }
 
+    is_modern = isinstance(curve_result, ProfileHDRCurveResult)
+
     sidecar: dict = {
-        "mode": "profile_preserving",
+        "mode": "modern_recovery_peak_budget" if is_modern else "profile_preserving",
         "diffuse_white": curve_result.diffuse_white,
         "look_white": curve_result.look_white,
-        "visual_peak": curve_result.visual_peak,
         "percentiles": {
             "s_profile": _pcts(curve_result.s_profile),
             "h_profile": _pcts(curve_result.h_profile),
@@ -705,16 +723,40 @@ def build_hdr_debug_sidecar(
             "slope": _pcts(curve_result.slope),
         },
     }
+
+    if is_modern:
+        sidecar["target_peak_ev"] = curve_result.target_peak_ev
+        sidecar["raw_peak_ev_before_budget"] = curve_result.raw_peak_ev_before_budget
+        sidecar["actual_peak_ev_after_budget"] = curve_result.actual_peak_ev_after_budget
+        sidecar["budget_scale"] = curve_result.budget_scale
+        sidecar["percentiles"]["raw_gain_ev"] = _pcts(curve_result.raw_gain_ev)
+        sidecar["percentiles"]["compressed_ev"] = _pcts(curve_result.compressed_ev)
+        sidecar["percentiles"]["final_h_ev"] = _pcts(curve_result.final_h_ev)
+    else:
+        sidecar["visual_peak"] = curve_result.visual_peak
+
     if mapping is not None:
-        sidecar["mapping"] = {
-            "profile_hdr_peak_ev": mapping.profile_hdr_peak_ev,
-            "profile_hdr_strength": mapping.profile_hdr_strength,
-            "profile_hdr_knee_ev": mapping.profile_hdr_knee_ev,
-            "profile_hdr_softness_ev": mapping.profile_hdr_softness_ev,
-            "profile_hdr_slope_full": mapping.profile_hdr_slope_full,
-            "profile_hdr_slope_zero": mapping.profile_hdr_slope_zero,
-            "profile_hdr_soft_clip_softness": mapping.profile_hdr_soft_clip_softness,
+        mapping_info: dict = {
+            "profile_hdr_mode": getattr(mapping, "profile_hdr_mode", "strict_preserving"),
         }
+        if is_modern:
+            mapping_info.update({
+                "profile_hdr_target_peak_ev": mapping.profile_hdr_target_peak_ev,
+                "profile_hdr_recovery_ratio": mapping.profile_hdr_recovery_ratio,
+                "profile_hdr_recovery_knee_ev": mapping.profile_hdr_recovery_knee_ev,
+                "profile_hdr_recovery_full_ev": mapping.profile_hdr_recovery_full_ev,
+            })
+        else:
+            mapping_info.update({
+                "profile_hdr_peak_ev": mapping.profile_hdr_peak_ev,
+                "profile_hdr_strength": mapping.profile_hdr_strength,
+                "profile_hdr_knee_ev": mapping.profile_hdr_knee_ev,
+                "profile_hdr_softness_ev": mapping.profile_hdr_softness_ev,
+                "profile_hdr_slope_full": mapping.profile_hdr_slope_full,
+                "profile_hdr_slope_zero": mapping.profile_hdr_slope_zero,
+                "profile_hdr_soft_clip_softness": mapping.profile_hdr_soft_clip_softness,
+            })
+        sidecar["mapping"] = mapping_info
     if extra:
         sidecar.update(extra)
     return sidecar

@@ -797,6 +797,13 @@ class HdrExportSection(SimpleDataclassSection):
             self.max_headroom,
         ):
             widget.setEnabled(is_generic)
+        is_profile_aware = (mode == "profile_aware")
+        for widget in (
+            self.profile_hdr_mode,
+            self.profile_hdr_target_peak_ev,
+            self.profile_hdr_recovery_ratio,
+        ):
+            widget.setEnabled(is_profile_aware)
 
 
 class ExposureControlSection(QWidget):

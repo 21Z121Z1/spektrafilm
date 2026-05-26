@@ -117,6 +117,9 @@ class HdrExportState:
     paper_rolloff_k: float
     max_headroom: float
     path_to_white_enabled: bool = True
+    profile_hdr_mode: str = "strict_preserving"
+    profile_hdr_target_peak_ev: float = 2.03
+    profile_hdr_recovery_ratio: float = 0.50
 
 
 @dataclass(slots=True)
@@ -368,6 +371,9 @@ def gui_state_from_params(
             paper_rolloff_k=5.5,
             max_headroom=16.0,
             path_to_white_enabled=True,
+            profile_hdr_mode='strict_preserving',
+            profile_hdr_target_peak_ev=2.03,
+            profile_hdr_recovery_ratio=0.50,
         ),
     )
 

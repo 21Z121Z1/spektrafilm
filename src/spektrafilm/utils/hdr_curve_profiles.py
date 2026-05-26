@@ -537,6 +537,28 @@ class ProfilePreservingHDRCurveResult:
     visual_peak: float
 
 
+@dataclass(frozen=True, slots=True)
+class ProfileHDRCurveResult:
+    """Extended diagnostics for ``modern_recovery_peak_budget`` mode."""
+
+    s_profile: np.ndarray
+    h_profile: np.ndarray
+    gain_ev: np.ndarray
+    raw_gain_ev: np.ndarray
+    slope: np.ndarray
+    scene_ev: np.ndarray
+    profile_ev: np.ndarray
+    raw_h_ev: np.ndarray
+    final_h_ev: np.ndarray
+    compressed_ev: np.ndarray
+    diffuse_white: float
+    look_white: float
+    target_peak_ev: float
+    raw_peak_ev_before_budget: float
+    actual_peak_ev_after_budget: float
+    budget_scale: float
+
+
 def profile_slope_loglog(
     scene_y: np.ndarray,
     s_profile: np.ndarray,
@@ -574,6 +596,159 @@ def profile_slope_loglog(
         slope.astype(np.float64),
     ).astype(np.float32)
     return np.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0).reshape(scene_y.shape)
+
+
+def budget_recovery_gain_ev(
+    p_ev: np.ndarray,
+    raw_gain_ev: np.ndarray,
+    target_peak_ev: float = 2.03,
+    *,
+    normalize_percentile: float = 99.9,
+    hard_cap: bool = True,
+    return_info: bool = False,
+) -> np.ndarray | tuple[np.ndarray, dict]:
+    """Scale *raw_gain_ev* so the final ``p_ev + gain_ev`` fits within *target_peak_ev*.
+
+    Budget only scales ``raw_gain_ev``; the profile baseline ``p_ev`` is never
+    touched.  If ``p_ev`` itself already exceeds the target, the effective
+    target is raised to accommodate.
+
+    Parameters
+    ----------
+    p_ev:
+        Profile-relative EV baseline (``log2(s / look_white)``).
+    raw_gain_ev:
+        Raw recovery gain in EV (pre-budget).
+    target_peak_ev:
+        Desired maximum of ``p_ev + gain_ev``.
+    normalize_percentile:
+        Percentile used to measure the raw peak.
+    hard_cap:
+        If *True*, clamp each element so that
+        ``p_ev[i] + gain_ev[i] <= target_peak_ev`` strictly.
+    return_info:
+        If *True*, return ``(gain_ev, info_dict)``.
+    """
+    p = np.asarray(p_ev, dtype=np.float32)
+    raw = np.maximum(np.asarray(raw_gain_ev, dtype=np.float32), 0.0)
+    target = float(target_peak_ev)
+
+    # If the baseline already exceeds the target, raise the effective target.
+    max_baseline = float(np.max(p))
+    effective_target = max(target, max_baseline)
+
+    raw_h = p + raw
+    raw_peak = float(np.percentile(raw_h, min(normalize_percentile, 100.0)))
+
+    if raw_peak <= effective_target or raw_peak <= 0.0:
+        # Budget not needed.
+        gain = raw.copy()
+        scale = 1.0
+        applied = False
+    else:
+        # Find scale so that percentile(p + raw * scale) ≈ effective_target.
+        # Since p + raw * scale is monotone in scale, binary search works.
+        lo, hi = 0.0, 1.0
+        for _ in range(64):
+            mid = (lo + hi) * 0.5
+            candidate_peak = float(np.percentile(p + raw * mid, min(normalize_percentile, 100.0)))
+            if candidate_peak > effective_target:
+                hi = mid
+            else:
+                lo = mid
+        scale = (lo + hi) * 0.5
+        gain = raw * np.float32(scale)
+        applied = True
+
+    if hard_cap:
+        headroom = np.maximum(np.float32(effective_target) - p, np.float32(0.0))
+        gain = np.minimum(gain, headroom)
+
+    actual_peak = float(np.percentile(p + gain, min(normalize_percentile, 100.0)))
+
+    if return_info:
+        info = {
+            "budget_scale": scale,
+            "budget_was_applied": applied,
+            "raw_peak_ev_before_budget": raw_peak,
+            "actual_peak_ev_after_budget": actual_peak,
+            "effective_target_peak_ev": effective_target,
+        }
+        return gain.astype(np.float32), info
+    return gain.astype(np.float32)
+
+
+def profile_modern_recovery_budgeted_gain_ev(
+    scene_y: np.ndarray,
+    s_profile: np.ndarray,
+    *,
+    diffuse_white: float,
+    look_white: float,
+    recovery_ratio: float = 0.50,
+    recovery_knee_ev: float = 0.10,
+    recovery_full_ev: float = 1.10,
+    slope_full: float = 0.90,
+    slope_zero: float = 0.18,
+    target_peak_ev: float = 2.03,
+    normalize_percentile: float = 99.9,
+    hard_cap: bool = True,
+    return_diagnostics: bool = False,
+) -> np.ndarray | dict:
+    """Compute modern recovery gain EV with an EV budget constraint.
+
+    The recovery gain restores a fraction (*recovery_ratio*) of the highlight
+    luminance that the profile curve compressed away.  The total
+    ``p_ev + gain_ev`` is budget-constrained to *target_peak_ev*.
+
+    If *return_diagnostics* is *True*, return a dict with full diagnostics
+    instead of just the gain_ev array.
+    """
+    eps = np.float32(_EPS)
+    scene = np.maximum(_clean_array(scene_y), eps)
+    s = np.maximum(_clean_array(s_profile), eps)
+    dw = np.float32(max(float(diffuse_white), float(eps)))
+    lw = np.float32(max(float(look_white), float(eps)))
+
+    # Scene EV relative to diffuse white.
+    x = np.log2(scene / dw)
+    # Profile EV relative to look_white.
+    p_ev = np.log2(s / lw)
+
+    # Compressed EV: how much EV the profile "ate" relative to scene.
+    compressed_ev = np.maximum(x - p_ev, np.float32(0.0))
+
+    # Highlight onset: smoothstep ramp from knee to full.
+    highlight_w = _smoothstep(float(recovery_knee_ev), float(recovery_full_ev), x)
+
+    # Shoulder capacity from profile slope.
+    slope = profile_slope_loglog(scene, s)
+    shoulder_w = np.float32(1.0) - _smoothstep(float(slope_zero), float(slope_full), slope)
+    shoulder_w = np.clip(shoulder_w, 0.0, 1.0)
+
+    raw_gain_ev = np.float32(recovery_ratio) * highlight_w * shoulder_w * compressed_ev
+    raw_gain_ev = np.maximum(raw_gain_ev, np.float32(0.0))
+
+    # Apply budget.
+    gain_ev, info = budget_recovery_gain_ev(
+        p_ev, raw_gain_ev, target_peak_ev,
+        normalize_percentile=normalize_percentile,
+        hard_cap=hard_cap,
+        return_info=True,
+    )
+
+    if return_diagnostics:
+        return {
+            "gain_ev": gain_ev,
+            "raw_gain_ev": raw_gain_ev,
+            "slope": slope,
+            "scene_ev": x,
+            "profile_ev": p_ev,
+            "compressed_ev": compressed_ev,
+            "highlight_w": highlight_w,
+            "shoulder_w": shoulder_w,
+            **info,
+        }
+    return gain_ev
 
 
 def profile_relative_hdr_gain_ev(
@@ -673,7 +848,7 @@ def build_profile_preserving_hdr_curve(
     diffuse_white: float,
     mapping: object | None = None,
     return_diagnostics: bool = False,
-) -> np.ndarray | ProfilePreservingHDRCurveResult:
+) -> np.ndarray | ProfilePreservingHDRCurveResult | ProfileHDRCurveResult:
     """Build an HDR target curve as ``S_profile × 2^gain_ev``.
 
     Parameters
@@ -689,12 +864,12 @@ def build_profile_preserving_hdr_curve(
         ``profile_hdr_*`` parameters.  Falls back to conservative defaults
         when *None* or when attributes are missing.
     return_diagnostics:
-        If *True*, return a :class:`ProfilePreservingHDRCurveResult`
-        instead of a plain array.
+        If *True*, return a :class:`ProfilePreservingHDRCurveResult` or
+        :class:`ProfileHDRCurveResult` instead of a plain array.
 
     Returns
     -------
-    np.ndarray or ProfilePreservingHDRCurveResult
+    np.ndarray or ProfilePreservingHDRCurveResult or ProfileHDRCurveResult
         The authored HDR target luminance ``h_profile``.
     """
     scene = np.maximum(_clean_array(scene_y), np.float32(_EPS))
@@ -707,7 +882,69 @@ def build_profile_preserving_hdr_curve(
     )[0])
     look_white = max(look_white, _EPS)
 
-    # Read mapping parameters with safe fallbacks.
+    mode = getattr(mapping, "profile_hdr_mode", "strict_preserving")
+    min_gain_val = _finite_float(getattr(mapping, "profile_hdr_min_gain", None), 1.0)
+    do_monotonic = bool(getattr(mapping, "profile_hdr_enforce_monotonic", True))
+
+    if mode == "modern_recovery_peak_budget":
+        # --- Modern recovery peak budget path ---
+        recovery_ratio = _finite_float(getattr(mapping, "profile_hdr_recovery_ratio", None), 0.50)
+        recovery_knee_ev = _finite_float(getattr(mapping, "profile_hdr_recovery_knee_ev", None), 0.10)
+        recovery_full_ev = _finite_float(getattr(mapping, "profile_hdr_recovery_full_ev", None), 1.10)
+        slope_full = _finite_float(getattr(mapping, "profile_hdr_slope_full", None), 0.90)
+        slope_zero = _finite_float(getattr(mapping, "profile_hdr_slope_zero", None), 0.18)
+        target_peak_ev = _finite_float(getattr(mapping, "profile_hdr_target_peak_ev", None), 2.03)
+        normalize_pct = _finite_float(getattr(mapping, "profile_hdr_normalize_percentile", None), 99.9)
+        hard_cap = bool(getattr(mapping, "profile_hdr_budget_hard_cap", True))
+
+        diag = profile_modern_recovery_budgeted_gain_ev(
+            scene, s,
+            diffuse_white=dw,
+            look_white=look_white,
+            recovery_ratio=recovery_ratio,
+            recovery_knee_ev=recovery_knee_ev,
+            recovery_full_ev=recovery_full_ev,
+            slope_full=slope_full,
+            slope_zero=slope_zero,
+            target_peak_ev=target_peak_ev,
+            normalize_percentile=normalize_pct,
+            hard_cap=hard_cap,
+            return_diagnostics=True,
+        )
+
+        gain_ev = diag["gain_ev"]
+        h = s * np.exp2(gain_ev)
+
+        if min_gain_val > 0.0:
+            h = np.maximum(h, s * np.float32(min_gain_val))
+        if do_monotonic:
+            h = enforce_monotonic_profile_curve(scene, h)
+        h = h.astype(np.float32)
+
+        if return_diagnostics:
+            lw = np.float32(max(look_white, _EPS))
+            final_h_ev = np.log2(np.maximum(h, np.float32(_EPS)) / lw)
+            return ProfileHDRCurveResult(
+                s_profile=s,
+                h_profile=h,
+                gain_ev=gain_ev,
+                raw_gain_ev=diag["raw_gain_ev"],
+                slope=diag["slope"],
+                scene_ev=diag["scene_ev"],
+                profile_ev=diag["profile_ev"],
+                raw_h_ev=diag["profile_ev"] + diag["raw_gain_ev"],
+                final_h_ev=final_h_ev,
+                compressed_ev=diag["compressed_ev"],
+                diffuse_white=dw,
+                look_white=look_white,
+                target_peak_ev=target_peak_ev,
+                raw_peak_ev_before_budget=diag["raw_peak_ev_before_budget"],
+                actual_peak_ev_after_budget=diag["actual_peak_ev_after_budget"],
+                budget_scale=diag["budget_scale"],
+            )
+        return h
+
+    # --- Strict preserving path (default / original) ---
     peak_ev = _finite_float(getattr(mapping, "profile_hdr_peak_ev", None), 1.5)
     knee_ev = _finite_float(getattr(mapping, "profile_hdr_knee_ev", None), 0.35)
     softness_ev = _finite_float(getattr(mapping, "profile_hdr_softness_ev", None), 3.0)
@@ -715,8 +952,6 @@ def build_profile_preserving_hdr_curve(
     slope_full = _finite_float(getattr(mapping, "profile_hdr_slope_full", None), 0.75)
     slope_zero = _finite_float(getattr(mapping, "profile_hdr_slope_zero", None), 0.12)
     clip_softness = _finite_float(getattr(mapping, "profile_hdr_soft_clip_softness", None), 0.45)
-    min_gain_val = _finite_float(getattr(mapping, "profile_hdr_min_gain", None), 1.0)
-    do_monotonic = bool(getattr(mapping, "profile_hdr_enforce_monotonic", True))
 
     gain_ev = profile_relative_hdr_gain_ev(
         scene,

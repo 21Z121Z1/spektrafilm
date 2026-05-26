@@ -59,6 +59,11 @@ class HDRMappingModes(Enum):
     profile_aware = "profile_aware"
 
 
+class ProfileHDRModes(Enum):
+    strict_preserving = "strict_preserving"
+    modern_recovery_peak_budget = "modern_recovery_peak_budget"
+
+
 class EXRModes(Enum):
     scene_linear_archive = "scene_linear_archive"
     hdr_rendition = "hdr_rendition"

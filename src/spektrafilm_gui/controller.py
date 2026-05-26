@@ -567,6 +567,9 @@ class GuiController:
                     "paper_rolloff_k": gui_state.hdr_export.paper_rolloff_k,
                     "max_headroom": gui_state.hdr_export.max_headroom,
                     "hdr_highlight_path_to_white": 1.0 if getattr(gui_state.hdr_export, 'path_to_white_enabled', True) else 0.0,
+                    "profile_hdr_mode": getattr(gui_state.hdr_export, 'profile_hdr_mode', 'strict_preserving'),
+                    "profile_hdr_target_peak_ev": getattr(gui_state.hdr_export, 'profile_hdr_target_peak_ev', 2.03),
+                    "profile_hdr_recovery_ratio": getattr(gui_state.hdr_export, 'profile_hdr_recovery_ratio', 0.50),
                 }
                 if scene_energy_metadata is not None:
                     if scene_energy_metadata.profile_scene_y is not None:
