@@ -1099,32 +1099,4 @@ class GuiController:
         for button_name in ('preview_button', 'scan_button', 'save_button'):
             self._set_simulation_control_enabled(button_name, enabled)
 
-    def _run_simulation(self, *, source_layer_name: str) -> None:
-        image_data = self._simulation_input_image(source_layer_name=source_layer_name)
-        if image_data is None:
-            QMessageBox.warning(dialog_parent(self._viewer), 'Run simulation', 'Load an input image before running the simulation.')
-            return
 
-        state = collect_gui_state(widgets=self._widgets)
-        self._sync_white_border(white_padding=state.display.white_padding)
-        params = self._configure_simulation_params(
-            build_params_from_state(state),
-            source_layer_name=source_layer_name,
-        )
-        output_encoding = output_encoding_from_io(params.io)
-
-        image_data = self._prepare_simulation_input_image(image_data, state)
-        image = np.asarray(image_data, dtype=runtime_float_dtype(state.special.runtime_float_precision))
-        scan = self._process_image_with_runtime(image, params)
-        scan_display, display_status = self._prepare_output_display_image(
-            scan,
-            output_encoding=output_encoding,
-            use_display_transform=state.display.use_display_transform,
-        )
-        self._set_or_add_output_layer(
-            scan_display,
-            float_image=scan,
-            output_encoding=output_encoding,
-            use_display_transform=state.display.use_display_transform,
-        )
-        set_status(self._viewer, display_status)

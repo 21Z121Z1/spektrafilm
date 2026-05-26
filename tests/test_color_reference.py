@@ -123,11 +123,15 @@ class TestColorReferenceServiceWithCorrection:
             profile_type="positive", scan_film=True,
             black_correction=True, white_correction=True,
         )
-        # Set up the cmy_to_log_xyz callback BEFORE calling correction methods.
+        # Set up the cmy_to_log_xyz callback and reference values.
+        # In the real pipeline, _update_cmy_black_white_references is called
+        # by the printing/scanning stage before black_white_xyz_correction.
         def fake_cmy_to_log_xyz(cmy):
             return np.log10(np.maximum(cmy, 1e-6))
 
         service.cmy_to_log_xyz = fake_cmy_to_log_xyz
+        service._y_black = np.array(0.1)
+        service._y_white = np.array(0.9)
 
         xyz = np.full((2, 2, 3), 0.5)
         result = service.black_white_xyz_correction(xyz)

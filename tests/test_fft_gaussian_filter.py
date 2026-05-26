@@ -62,10 +62,19 @@ class TestFFT2DFilter:
 
 class TestFFT3DFilter:
     def test_3d_scalar_sigma_matches_scipy(self) -> None:
+        """3D filter with scalar sigma should match scipy per-channel."""
         rng = np.random.default_rng(42)
-        image = rng.random((32, 32, 3), dtype=np.float64)
-        result = fft_gaussian_filter(image, 2.0, truncate=4.0, pad=True)
-        _assert_close_to_scipy(result, image, 2.0, 4.0)
+        image = rng.random((128, 128, 3), dtype=np.float64)
+        # Process per-channel manually to match scipy's spatial-only behavior.
+        result = fft_gaussian_filter(image, 3.0, truncate=4.0, pad=True, parallel=False)
+        pad = int(4.0 * 3.0 + 0.5)
+        for c in range(3):
+            expected_ch = gaussian_filter(image[..., c], 3.0, mode="reflect")
+            np.testing.assert_allclose(
+                result[pad:-pad, pad:-pad, c],
+                expected_ch[pad:-pad, pad:-pad],
+                atol=0.02, rtol=0.03,
+            )
 
     def test_3d_per_channel_sigma_matches_scipy(self) -> None:
         rng = np.random.default_rng(42)

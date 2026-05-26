@@ -296,7 +296,7 @@ class TestRuntimeApi:
         monkeypatch.setenv(pipeline_module.MLX_TILE_PIXELS_ENV, '6')
         monkeypatch.setattr(
             pipeline,
-            '_process_with_mlx_tiles',
+            '_process_with_gpu_tiles',
             lambda _frame: (_ for _ in ()).throw(AssertionError('tiled GPU path should be disabled')),
         )
         monkeypatch.setattr(pipeline, '_pipeline', lambda frame: frame + 1.0)

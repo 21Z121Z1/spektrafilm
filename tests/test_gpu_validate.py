@@ -28,7 +28,6 @@ def test_gpu_validate_skips_in_debug_mode_for_stub_pipeline() -> None:
     pipeline.settings = SimpleNamespace(gpu_validate=True)
 
     # Avoid touching the real runtime pipeline implementation.
-    pipeline._should_tile_mlx_image = lambda image: False
     pipeline._pipeline_debug = lambda image: image
 
     image = np.random.rand(4, 4, 3).astype(np.float32)

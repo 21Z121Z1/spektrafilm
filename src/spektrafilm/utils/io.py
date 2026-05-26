@@ -7,6 +7,7 @@ import json
 import struct
 import zlib
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 import colour
@@ -19,6 +20,7 @@ import PIL.ImageCms
 import scipy.interpolate
 
 from spektrafilm.color_management import ColorEncoding, Transfer, is_aces_scene_linear_space
+from spektrafilm.utils.dtypes import validate_float_dtype
 from spektrafilm.utils.hdr_photo import (
     HDRPhotoMapping,
     HDR_REFERENCE_WHITE_LUMINANCE_NITS,
@@ -184,6 +186,7 @@ _ICC_FILENAMES: dict[tuple[str, bool], str] = {
 }
 
 
+@lru_cache(maxsize=64)
 def _load_icc_profile(color_space: str, cctf_encoding: bool) -> bytes | None:
     relative_path = _ICC_FILENAMES.get((color_space, cctf_encoding))
     if relative_path is None:
@@ -238,13 +241,9 @@ def resolve_icc_profile_bytes(color_space: str, cctf_encoding: bool = True) -> b
     if profile_bytes is not None:
         return profile_bytes
 
-    profile_filename = _ICC_PROFILES.get(color_space)
-    if profile_filename is not None:
-        resource = pkg_resources.files("spektrafilm.data.icc").joinpath(*profile_filename.split("/"))
-        try:
-            return resource.read_bytes()
-        except (FileNotFoundError, OSError):
-            pass
+    profile_bytes = _load_icc_profile_from_extra(color_space)
+    if profile_bytes is not None:
+        return profile_bytes
 
     if color_space == "sRGB":
         from PIL.ImageCms import ImageCmsProfile
@@ -373,6 +372,18 @@ def _oiio_colorspace_is_linear(spec) -> bool:
     return normalized.startswith("lin_") or normalized in {"aces2065-1", "acescg"}
 
 
+@lru_cache(maxsize=32)
+def _load_icc_profile_from_extra(color_space: str) -> bytes | None:
+    profile_filename = _ICC_PROFILES.get(color_space)
+    if profile_filename is None:
+        return None
+    resource = pkg_resources.files("spektrafilm.data.icc").joinpath(*profile_filename.split("/"))
+    try:
+        return resource.read_bytes()
+    except (FileNotFoundError, OSError):
+        return None
+
+
 def _known_encoding_from_icc_profile(spec) -> tuple[str, Transfer] | None:
     icc_bytes = _icc_profile_bytes_from_spec(spec)
     if icc_bytes:
@@ -385,12 +396,8 @@ def _known_encoding_from_icc_profile(spec) -> tuple[str, Transfer] | None:
                     else "cctf"
                 )
                 return color_space, transfer
-        for color_space, profile_filename in _ICC_PROFILES.items():
-            resource = pkg_resources.files("spektrafilm.data.icc").joinpath(*profile_filename.split("/"))
-            try:
-                known_profile = resource.read_bytes()
-            except (FileNotFoundError, OSError):
-                known_profile = None
+        for color_space in _ICC_PROFILES:
+            known_profile = _load_icc_profile_from_extra(color_space)
             if known_profile is not None and icc_bytes == known_profile:
                 return color_space, "linear" if is_aces_scene_linear_space(color_space) else "cctf"
 

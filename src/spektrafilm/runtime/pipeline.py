@@ -9,6 +9,7 @@ import colour
 import numpy as np
 
 from spektrafilm.color_management import output_encoding_from_io
+from spektrafilm.utils.dtypes import runtime_float_dtype as _runtime_float_dtype
 from spektrafilm.runtime.services import (
     EnlargerService,
     ResizingService,
@@ -46,11 +47,7 @@ class SimulationPipelineResult:
 
 
 def _runtime_dtype(float_precision: str) -> np.dtype:
-    if float_precision == "float64":
-        return np.dtype(np.float64)
-    if float_precision == "float32":
-        return np.dtype(np.float32)
-    raise ValueError("float_precision must be 'float32' or 'float64'")
+    return _runtime_float_dtype(float_precision)
 
 
 def _gpu_tile_pixels() -> int:
@@ -63,10 +60,6 @@ def _gpu_tile_pixels() -> int:
         return int(raw_limit)
     except ValueError:
         return DEFAULT_GPU_TILE_PIXELS
-
-
-def _mlx_tile_pixels() -> int:
-    return _gpu_tile_pixels()
 
 
 def _image_pixel_count(image) -> int:
@@ -376,9 +369,6 @@ class SimulationPipeline:
             return False
         return _image_pixel_count(image) > tile_pixels
 
-    def _should_tile_mlx_image(self, image) -> bool:
-        return self._should_tile_gpu_image(image)
-
     def _has_stochastic_effects(self) -> bool:
         film_render = getattr(self, "film_render", None)
         print_render = getattr(self, "print_render", None)
@@ -423,13 +413,7 @@ class SimulationPipeline:
         self.timings["gpu_tiled_tiles"] = float(tile_count)
         self.timings["gpu_tiled_overlap_pixels"] = float(overlap)
         self.timings["gpu_tiled_tile_pixels"] = float(_gpu_tile_pixels())
-        self.timings["mlx_tiled_tiles"] = float(tile_count)
-        self.timings["mlx_tiled_overlap_pixels"] = float(overlap)
-        self.timings["mlx_tiled_tile_pixels"] = float(_gpu_tile_pixels())
         return output
-
-    def _process_with_mlx_tiles(self, image):
-        return self._process_with_gpu_tiles(image)
 
     def _tile_core_rows(self, *, width: int, overlap: int) -> int:
         tile_pixels = _gpu_tile_pixels()
