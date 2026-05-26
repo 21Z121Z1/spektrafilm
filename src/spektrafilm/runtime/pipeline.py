@@ -617,6 +617,7 @@ class SimulationPipeline:
             return self._debug_output_pipeline(rgb_image)
         elif self.debug.debug_mode == "inject":
             return self._debug_inject_pipeline(rgb_image)
+        raise ValueError(f"Unknown debug_mode: {self.debug.debug_mode!r}")
 
     def _debug_output_pipeline(self, rgb_image):
         """Run the pipeline with additional outputs for debugging."""
