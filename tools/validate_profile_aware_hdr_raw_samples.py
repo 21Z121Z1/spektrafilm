@@ -343,7 +343,9 @@ def _validate_sample(sample: dict[str, Any]) -> dict[str, Any]:
     fallback = {
         "missing_sidecar_raises": False,
         "unsafe_profile_falls_back": False,
+        "unsafe_profile_raises": False,
         "missing_profile_falls_back": False,
+        "missing_profile_raises": False,
         "low_confidence_raw_diffuse_white": raw_result.diagnostics.confidence == "low",
     }
     try:
@@ -357,8 +359,11 @@ def _validate_sample(sample: dict[str, Any]) -> dict[str, Any]:
         paper=UNSAFE_PAPER,
         max_headroom=8.0,
     )
-    unsafe_renditions = prepare_hdr_photo_renditions(look_rgb, mapping=unsafe_mapping, scene_luminance=scene_luminance)
-    fallback["unsafe_profile_falls_back"] = unsafe_renditions.mapping_mode_used == "generic"
+    try:
+        unsafe_renditions = prepare_hdr_photo_renditions(look_rgb, mapping=unsafe_mapping, scene_luminance=scene_luminance)
+        fallback["unsafe_profile_falls_back"] = unsafe_renditions.mapping_mode_used == "generic"
+    except ValueError:
+        fallback["unsafe_profile_raises"] = True
 
     missing_mapping = HDRPhotoMapping(
         hdr_mapping_mode="profile_aware",
@@ -366,8 +371,11 @@ def _validate_sample(sample: dict[str, Any]) -> dict[str, Any]:
         paper="missing_paper_profile",
         max_headroom=8.0,
     )
-    missing_renditions = prepare_hdr_photo_renditions(look_rgb, mapping=missing_mapping, scene_luminance=scene_luminance)
-    fallback["missing_profile_falls_back"] = missing_renditions.mapping_mode_used == "generic"
+    try:
+        missing_renditions = prepare_hdr_photo_renditions(look_rgb, mapping=missing_mapping, scene_luminance=scene_luminance)
+        fallback["missing_profile_falls_back"] = missing_renditions.mapping_mode_used == "generic"
+    except ValueError:
+        fallback["missing_profile_raises"] = True
 
     highlight_mask = scene_luminance >= np.percentile(scene_luminance, 95.0)
     look_highlight_span = float(np.percentile(look_y[highlight_mask], 90.0) - np.percentile(look_y[highlight_mask], 10.0))
@@ -498,15 +506,16 @@ def _markdown_report(
             "",
             "## Fallback Cases",
             "",
-            "| File | missing sidecar | unsafe profile fallback | missing profile fallback | low-confidence RAW white |",
-            "| --- | ---: | ---: | ---: | ---: |",
+            "| File | missing sidecar | unsafe profile fallback | unsafe profile rejected | missing profile fallback | missing profile rejected | low-confidence RAW white |",
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
         ]
     )
     for result in results:
         fallback = result["fallback"]
         lines.append(
             f"| {result['filename']} | {fallback['missing_sidecar_raises']} | "
-            f"{fallback['unsafe_profile_falls_back']} | {fallback['missing_profile_falls_back']} | "
+            f"{fallback['unsafe_profile_falls_back']} | {fallback['unsafe_profile_raises']} | "
+            f"{fallback['missing_profile_falls_back']} | {fallback['missing_profile_raises']} | "
             f"{fallback['low_confidence_raw_diffuse_white']} |"
         )
 
