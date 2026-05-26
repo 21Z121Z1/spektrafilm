@@ -1,7 +1,6 @@
 import logging
 import numpy as np
 import scipy.special
-import colour
 from spektrafilm.config import SPECTRAL_SHAPE
 from spektrafilm.utils.io import load_dichroic_filters, load_filter
 
@@ -46,20 +45,28 @@ class DichroicFilters():
         ax.set_xlim(np.min(self.wavelengths), np.max(self.wavelengths))
         ax.legend(('C','M','Y'))
     
-    def apply(self, illuminant, filter_transmittance_values=[1,1,1]):
+    def apply(self, illuminant, filter_transmittance_values=None):
+        if filter_transmittance_values is None:
+            filter_transmittance_values = [1, 1, 1]
         dimmed_filters = 1 - (1-self.filters)*(1-np.array(filter_transmittance_values)) # following durst 605 wheels values, with 170 max
         total_filter = np.prod(dimmed_filters, axis=1)
         filtered_illuminant = illuminant*total_filter
         return filtered_illuminant
-    
-    def apply_cc(self, illuminant, filter_cc_values=[0,0,0]):
+
+    def apply_cc(self, illuminant, filter_cc_values=None):
+        if filter_cc_values is None:
+            filter_cc_values = [0, 0, 0]
         # Filter values are in Kodak CC units proportional to density, 100 units means 1.0 density, or 90% reduction in transmittance
         filter_transmittance_values = 10 ** -(np.array(filter_cc_values)/100.0)
         return self.apply(illuminant, filter_transmittance_values=filter_transmittance_values)
-    
+
     def create_custom_filters(self,
-                               edges=[516,500,610,607],
-                               transitions=[12,8,8,8]):
+                               edges=None,
+                               transitions=None):
+        if edges is None:
+            edges = [516, 500, 610, 607]
+        if transitions is None:
+            transitions = [12, 8, 8, 8]
         self.filters = create_combined_dichroic_filter(self.wavelengths,
                                                        transitions=transitions,
                                                        edges=edges)
@@ -90,7 +97,11 @@ class GenericFilter():
 def sigmoid_erf(x: np.ndarray, center: float, width: float = 1.0) -> np.ndarray:
     return scipy.special.erf((x-center)/width)*0.5+0.5
 
-def compute_band_pass_filter(filter_uv: list[float] = [1, 410, 8], filter_ir: list[float] = [1, 675, 15]) -> np.ndarray:
+def compute_band_pass_filter(filter_uv: list[float] | None = None, filter_ir: list[float] | None = None) -> np.ndarray:
+    if filter_uv is None:
+        filter_uv = [1, 410, 8]
+    if filter_ir is None:
+        filter_ir = [1, 675, 15]
     amp_uv = filter_uv[0]
     wl_uv = filter_uv[1]
     width_uv = filter_uv[2]
@@ -138,7 +149,7 @@ except (FileNotFoundError, OSError) as exc:
 ################################################################################
 
 def color_enlarger(light_source, filter_cc_values=(0,65,55),
-                   filters=custom_dichroic_filters):
+                   filters=custom_dichroic_filters) -> np.ndarray:
     # Filter values are in Kodak CC units proportional to density, 100 units means 1.0 density, or 90% reduction in transmittance
     # cc_filter_values are in CMY order
     if filters is None:

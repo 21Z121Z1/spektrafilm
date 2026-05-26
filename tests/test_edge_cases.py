@@ -196,7 +196,6 @@ class TestStrengthToScatter:
             np.testing.assert_allclose(result, expected, atol=0.02)
 
     def test_unknown_family_uses_gain_1(self) -> None:
-        from spektrafilm.model.diffusion import _DIFFUSION_STRENGTH_TOTAL_FRACTION
         # For an unknown family, gain defaults to 1.0
         result_unknown = _strength_to_scatter(1.0, "nonexistent_family")
         # At strength=1.0, log2(1.0)=0 is the midpoint of the breakpoints,
@@ -220,7 +219,7 @@ class TestMeasureDensityMinConvergence:
         log_exposure = np.linspace(-3, 3, 64)
         density_curves = np.zeros((64, 3))
 
-        with warnings.catch_warnings(record=True) as w:
+        with warnings.catch_warnings(record=True):
             warnings.simplefilter("always")
             result = measure_density_min(log_exposure, density_curves, info_type='negative')
             # The fit may or may not converge on degenerate data, but the function should return

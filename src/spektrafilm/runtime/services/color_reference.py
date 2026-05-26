@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import numpy as np
-from typing import Callable
 from colour import RGB_to_RGB
 
 from spektrafilm.model.emulsion import develop_simple

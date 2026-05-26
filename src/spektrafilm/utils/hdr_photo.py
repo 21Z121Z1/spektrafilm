@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Final, Literal
 
@@ -23,9 +24,12 @@ from spektrafilm.utils.hdr_curve_profiles import (
     get_hdr_curve_profile,
     build_dynamic_curve_profile,
     luminance_y,
-    profile_slope_loglog,
 )
 from spektrafilm.utils.math_ops import smoothstep as _smoothstep
+from spektrafilm.gpu.kernels.color import (
+    precompute_rgb_to_xyz_matrix as _rgb_to_xyz_matrix,
+    precompute_xyz_to_rgb_matrix as _xyz_to_rgb_matrix,
+)
 
 SUPPORTED_HDR_PHOTO_EXTENSIONS: Final = {".heic", ".heif"}
 SUPPORTED_HDR_PHOTO_COLOR_SPACES: Final = {
@@ -115,6 +119,7 @@ class HDRPhotoMapping:
     profile_hdr_path_to_white_end_ev: float = 2.25
     profile_hdr_path_to_white_strength: float = 0.30
     diffuse_white_override: float | None = None
+    gamut_mapping_mode: Literal["luma_preserving", "oklch_perceptual"] = "luma_preserving"
 
     # --- Modern recovery peak budget parameters ---
     profile_hdr_mode: Literal["strict_preserving", "modern_recovery_peak_budget"] = "strict_preserving"
@@ -168,6 +173,8 @@ class HDRPhotoMapping:
             raise ValueError("look_diffuse_white_reference must be a finite positive value if provided.")
         if self.gain_map_mode not in ("luma", "rgb"):
             raise ValueError("gain_map_mode must be either 'luma' or 'rgb'.")
+        if self.gamut_mapping_mode not in ("luma_preserving", "oklch_perceptual"):
+            raise ValueError("gamut_mapping_mode must be 'luma_preserving' or 'oklch_perceptual'.")
         if self.hdr_highlight_color_mode not in ("off", "source_chroma", "bounded_look_chroma"):
             raise ValueError("hdr_highlight_color_mode must be 'off', 'source_chroma', or 'bounded_look_chroma'.")
         if self.hdr_highlight_gamut not in ("display-p3", "rec2020", "working"):
@@ -721,14 +728,19 @@ def _apply_hdr_color_recovery(
         hdr_rgb = hdr_rgb * (np.float32(1.0) - pw_mask[..., None] * pw_strength) + \
                   hdr_luma[..., None] * (pw_mask[..., None] * pw_strength)
 
-    # Gamut Compression (Luma preserving chroma reduction)
-    max_rgb = np.max(hdr_rgb, axis=-1)
-    overshoot = max_rgb > max_headroom
-    if np.any(overshoot):
-        hdr_luma = luminance_y(hdr_rgb)
-        scale = (np.float32(max_headroom) - hdr_luma[overshoot]) / np.maximum(max_rgb[overshoot] - hdr_luma[overshoot], eps)
-        scale = np.clip(scale, 0.0, 1.0)
-        hdr_rgb[overshoot] = hdr_luma[overshoot, None] + (hdr_rgb[overshoot] - hdr_luma[overshoot, None]) * scale[..., None]
+    # Gamut Compression
+    gamut_mode = getattr(mapping, "gamut_mapping_mode", "luma_preserving")
+    if gamut_mode == "oklch_perceptual":
+        hdr_rgb = gamut_map_oklch(hdr_rgb, peak_headroom=max_headroom)
+    else:
+        # Luma preserving chroma reduction (default).
+        max_rgb = np.max(hdr_rgb, axis=-1)
+        overshoot = max_rgb > max_headroom
+        if np.any(overshoot):
+            hdr_luma = luminance_y(hdr_rgb)
+            scale = (np.float32(max_headroom) - hdr_luma[overshoot]) / np.maximum(max_rgb[overshoot] - hdr_luma[overshoot], eps)
+            scale = np.clip(scale, 0.0, 1.0)
+            hdr_rgb[overshoot] = hdr_luma[overshoot, None] + (hdr_rgb[overshoot] - hdr_luma[overshoot, None]) * scale[..., None]
 
     return np.maximum(hdr_rgb, 0.0).astype(np.float32, copy=False)
 
@@ -1002,6 +1014,141 @@ def _encoder_script_path() -> Path:
 
 
 # ---------------------------------------------------------------------------
+# Oklch Perceptual Gamut Mapping (CSS Color 4 approach)
+# ---------------------------------------------------------------------------
+
+# Oklab ↔ linear sRGB conversion matrices (Björn Ottosson, 2020-01-13).
+_OKLAB_M1 = np.array([
+    [0.4122214708, 0.5363325363, 0.0514459929],
+    [0.2119034982, 0.6806995451, 0.1073969566],
+    [0.0883024619, 0.2817188376, 0.6299787005],
+], dtype=np.float32)
+_OKLAB_M2 = np.array([
+    [0.2104542553, 0.7936177850, -0.0040720468],
+    [1.9779984951, -2.4285922050, 0.4505937099],
+    [0.0259040371, 0.7827717662, -0.8086757660],
+], dtype=np.float32)
+_OKLAB_INV_M2 = np.linalg.inv(_OKLAB_M2)
+_OKLAB_INV_M1 = np.linalg.inv(_OKLAB_M1)
+
+
+def _linear_to_srgb(x: np.ndarray) -> np.ndarray:
+    """sRGB EOTF: linear → gamma-encoded."""
+    return np.where(x <= 0.0031308, x * 12.92, 1.055 * np.power(x, 1.0 / 2.4) - 0.055).astype(np.float32)
+
+
+def _srgb_to_linear(x: np.ndarray) -> np.ndarray:
+    """sRGB inverse EOTF: gamma-encoded → linear."""
+    return np.where(x <= 0.04045, x / 12.92, np.power((x + 0.055) / 1.055, 2.4)).astype(np.float32)
+
+
+def _linear_srgb_to_oklch(rgb: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Convert linear sRGB to Oklch (L, C, h)."""
+    lms = np.einsum('...i,ji->...j', rgb, _OKLAB_M1)
+    lms_cube = np.cbrt(np.maximum(lms, 0.0))
+    lab = np.einsum('...i,ji->...j', lms_cube, _OKLAB_M2)
+    L, a, b = lab[..., 0], lab[..., 1], lab[..., 2]
+    C = np.sqrt(a * a + b * b)
+    h = np.arctan2(b, a)
+    return L, C, h
+
+
+def _oklch_to_linear_srgb(L: np.ndarray, C: np.ndarray, h: np.ndarray) -> np.ndarray:
+    """Convert Oklch (L, C, h) back to linear sRGB."""
+    a = C * np.cos(h)
+    b = C * np.sin(h)
+    lab = np.stack([L, a, b], axis=-1)
+    lms = np.einsum('...i,ji->...j', lab, _OKLAB_INV_M2)
+    lms_cubed = lms ** 3
+    return np.einsum('...i,ji->...j', lms_cubed, _OKLAB_INV_M1).astype(np.float32)
+
+
+def gamut_map_oklch(
+    rgb_linear: np.ndarray,
+    *,
+    working_color_space: str = "Display P3",
+    peak_headroom: float = 1.0,
+    max_iterations: int = 16,
+) -> np.ndarray:
+    """Compress out-of-gamut colours using Oklch perceptual gamut mapping.
+
+    Implements the CSS Color 4 approach: convert to Oklch (perceptual
+    lightness, chroma, hue), then binary-search the maximum chroma that
+    keeps all linear sRGB channels within [0, peak_headroom], preserving
+    lightness and hue throughout.
+
+    Parameters
+    ----------
+    rgb_linear : np.ndarray
+        Linear-light RGB image, shape ``(H, W, 3)``, float32.
+    working_color_space : str
+        RGB colour space of the input (e.g. ``"Display P3"``, ``"ACEScg"``).
+    peak_headroom : float
+        Maximum allowed channel value (1.0 for SDR, >1.0 for HDR).
+    max_iterations : int
+        Binary search iterations (16 gives ~1.5e-5 precision).
+
+    Returns
+    -------
+    np.ndarray
+        Gamut-mapped image in the same colour space, float32.
+    """
+    rgb = np.clip(np.asarray(rgb_linear, dtype=np.float32), 0.0, None)
+    in_range = np.max(rgb, axis=-1) <= peak_headroom
+    if np.all(in_range):
+        return rgb
+
+    # Convert working space → linear sRGB for Oklab.
+    if working_color_space == "sRGB":
+        srgb = rgb
+    else:
+        M = _working_to_srgb_matrix(working_color_space)
+        srgb = np.clip(np.einsum('...i,ji->...j', rgb, M), 0.0, None)
+
+    # Linear sRGB → gamma-encoded sRGB → Oklch.
+    srgb_g = _linear_to_srgb(srgb)
+    L, C, h = _linear_srgb_to_oklch(srgb_g)
+
+    # Per-pixel maximum chroma that stays within [0, peak_headroom].
+    needs_work = np.any(np.abs(srgb - np.clip(srgb, 0.0, peak_headroom)) > 1e-6, axis=-1)
+    if not np.any(needs_work):
+        return rgb
+
+    C_max = np.where(needs_work, C, 0.0)
+    for _ in range(max_iterations):
+        C_mid = (C_max + C) * 0.5
+        trial_g = _oklch_to_linear_srgb(L, C_mid, h)
+        trial = _srgb_to_linear(trial_g)
+        ok = np.all((trial >= -1e-6) & (trial <= peak_headroom + 1e-6), axis=-1)
+        C_max = np.where(ok, np.maximum(C_max, C_mid), C_max)
+
+    C_compressed = np.where(needs_work, np.minimum(C, C_max * 0.9999), C)
+    result_g = _oklch_to_linear_srgb(L, C_compressed, h)
+    result_srgb = _srgb_to_linear(result_g)
+
+    # Convert back to working space.
+    if working_color_space == "sRGB":
+        return np.clip(result_srgb, 0.0, peak_headroom).astype(np.float32)
+    M_inv = _srgb_to_working_matrix(working_color_space)
+    result = np.einsum('...i,ji->...j', result_srgb, M_inv)
+    return np.clip(result, 0.0, peak_headroom).astype(np.float32)
+
+
+@lru_cache(maxsize=8)
+def _working_to_srgb_matrix(working_color_space: str) -> np.ndarray:
+    M_fwd = _rgb_to_xyz_matrix(working_color_space)
+    M_inv = _xyz_to_rgb_matrix("sRGB")
+    return (M_inv @ M_fwd).astype(np.float32)
+
+
+@lru_cache(maxsize=8)
+def _srgb_to_working_matrix(working_color_space: str) -> np.ndarray:
+    M_fwd = _rgb_to_xyz_matrix("sRGB")
+    M_inv = _xyz_to_rgb_matrix(working_color_space)
+    return (M_inv @ M_fwd).astype(np.float32)
+
+
+# ---------------------------------------------------------------------------
 # ISO 21496-1 Gain Map Metadata
 # ---------------------------------------------------------------------------
 
@@ -1158,3 +1305,56 @@ def build_gain_map_xmp_packet(
         '</x:xmpmeta>\n'
         '<?xpacket end="w"?>'
     )
+
+
+def validate_gain_map(
+    gain_map: np.ndarray,
+    metadata: ISO21496GainMapMetadata,
+) -> list[str]:
+    """Validate a gain map against ISO 21496-1 metadata.
+
+    Returns a list of warning strings.  An empty list means the gain map
+    is consistent with the metadata.
+    """
+    warnings: list[str] = []
+    gm = np.asarray(gain_map, dtype=np.float32)
+
+    if gm.ndim != 2:
+        warnings.append(f"gain_map must be 2D (H, W), got shape {gm.shape}")
+        return warnings
+
+    if not np.all(np.isfinite(gm)):
+        warnings.append("gain_map contains non-finite values")
+
+    actual_min = float(np.min(gm))
+    actual_max = float(np.max(gm))
+
+    if actual_min < metadata.gain_map_min - 0.01:
+        warnings.append(
+            f"gain_map min {actual_min:.4f} is below metadata gainMapMin {metadata.gain_map_min:.4f}"
+        )
+    if actual_max > metadata.gain_map_max + 0.01:
+        warnings.append(
+            f"gain_map max {actual_max:.4f} exceeds metadata gainMapMax {metadata.gain_map_max:.4f}"
+        )
+
+    return warnings
+
+
+def gain_map_statistics(gain_map: np.ndarray) -> dict[str, float]:
+    """Compute per-pixel gain map statistics for debugging.
+
+    Returns a dict with min, max, mean, median, p95, p99, and
+    fraction of pixels at zero (no gain) and at one (full headroom).
+    """
+    gm = np.asarray(gain_map, dtype=np.float32).ravel()
+    return {
+        "min": float(np.min(gm)),
+        "max": float(np.max(gm)),
+        "mean": float(np.mean(gm)),
+        "median": float(np.median(gm)),
+        "p95": float(np.percentile(gm, 95.0)),
+        "p99": float(np.percentile(gm, 99.0)),
+        "fraction_zero": float(np.mean(gm < 0.001)),
+        "fraction_one": float(np.mean(gm > 0.999)),
+    }

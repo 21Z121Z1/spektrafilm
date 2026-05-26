@@ -196,6 +196,8 @@ class SimulationPipeline:
         self._reinitialize(params, update_params=update_params, _reused_lut_service=_reused_lut_service)
 
     def _reinitialize(self, params: RuntimePhotoParams, *, update_params: bool = False, _reused_lut_service: SpectralLUTService | None = None) -> None:
+        if not isinstance(params, RuntimePhotoParams):
+            raise TypeError(f"params must be a RuntimePhotoParams instance, got {type(params).__name__}")
         self._params = copy.deepcopy(params)
 
         self.camera = self._params.camera

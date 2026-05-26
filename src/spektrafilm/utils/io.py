@@ -482,8 +482,8 @@ def _known_color_space_from_chromaticities(spec) -> str | None:
     return None
 
 
-def load_image_oiio(filename, *, dtype=np.float32):
-    dtype = _runtime_image_dtype(dtype)
+def load_image_oiio(filename: str | Path, *, dtype: np.dtype = np.float32) -> np.ndarray:
+    dtype = validate_float_dtype(dtype)
     # Open the image file
     in_img = oiio.ImageInput.open(filename)
     if not in_img:
@@ -527,9 +527,6 @@ def load_image_oiio(filename, *, dtype=np.float32):
     finally:
         in_img.close()
 
-
-def _runtime_image_dtype(dtype) -> np.dtype:
-    return validate_float_dtype(dtype)
 
 def save_image_oiio(
     filename: str,

@@ -11,7 +11,6 @@ from spektrafilm.utils import hdr_photo
 from spektrafilm.utils.hdr_curve_profiles import (
     HDRCurveDefaults,
     FilmPrintHDRCurveProfile,
-    build_profile_hdr_curve,
     build_profile_preserving_hdr_curve,
     evaluate_profile_sdr_curve,
 )
@@ -750,7 +749,6 @@ def test_source_chroma_color_recovery() -> None:
     scene_rgb = np.array([[[4.0, 4.0, 59.401662]]], dtype=np.float32)
 
     # The SDR look is almost perfectly white due to rolloff compression
-    sdr_look_y = evaluate_profile_sdr_curve(profile, scene_luminance) # approx 0.948
     look_rgb = np.array([[[0.94, 0.945, 0.95]]], dtype=np.float32) # slight blue tint left
 
     mapping = hdr_photo.HDRPhotoMapping(
@@ -1093,7 +1091,6 @@ def test_source_chroma_per_pixel_divergence_fallback() -> None:
     # Pixel 1: divergent (luma = 1.0 ≠ 4.0)
     scene_rgb = np.array([[[16.966, 0.5, 0.5], [1.0, 1.0, 1.0]]], dtype=np.float32)
 
-    s_profile = evaluate_profile_sdr_curve(profile, scene_luminance)
     look_rgb = np.array([[[0.93, 0.91, 0.91], [0.93, 0.93, 0.93]]], dtype=np.float32)
 
     mapping = hdr_photo.HDRPhotoMapping(
@@ -1210,7 +1207,6 @@ def test_print_exposure_changes_hdr_through_profile() -> None:
     # Profile B: darker print exposure (all SDR values lower).
     sdr_b = sdr_a * 0.8
 
-    from types import SimpleNamespace
     profile_a = _make_test_profile(scene_y, sdr_a)
     profile_b = _make_test_profile(scene_y, sdr_b)
 
@@ -1434,6 +1430,7 @@ def test_gain_map_max_matches_actual_h_over_s() -> None:
         ({"profile_hdr_soft_clip_softness": -1.0}, "profile_hdr_soft_clip_softness"),
         ({"profile_hdr_min_gain": 0.5}, "profile_hdr_min_gain"),
         ({"profile_hdr_min_gain": -1.0}, "profile_hdr_min_gain"),
+        ({"gamut_mapping_mode": "invalid"}, "gamut_mapping_mode"),
     ],
 )
 def test_mapping_validation_rejects_invalid_values(kwargs: dict, match: str) -> None:
@@ -1559,3 +1556,203 @@ def test_hdr_photo_color_space_falls_back_to_display_p3_for_unsupported(caplog) 
 def test_hdr_photo_color_space_falls_back_to_display_p3_for_none() -> None:
     """None input must fall back to Display P3 without warning."""
     assert hdr_photo.hdr_photo_color_space(None) == "Display P3"
+
+
+# ---------------------------------------------------------------------------
+# Oklch Perceptual Gamut Mapping Tests
+# ---------------------------------------------------------------------------
+
+
+def test_gamut_map_oklch_in_gamut_is_identity() -> None:
+    """Already in-gamut pixels must pass through unchanged."""
+    rgb = np.array([[[0.5, 0.3, 0.8], [0.0, 0.0, 0.0], [1.0, 1.0, 1.0]]], dtype=np.float32)
+    result = hdr_photo.gamut_map_oklch(rgb, working_color_space="sRGB")
+    np.testing.assert_allclose(result, rgb, atol=1e-5)
+
+
+def test_gamut_map_oklch_clips_negative_values() -> None:
+    """Negative values from colour-space conversion must be clipped to 0."""
+    rgb = np.array([[[-0.1, 0.5, 0.5]]], dtype=np.float32)
+    result = hdr_photo.gamut_map_oklch(rgb, working_color_space="sRGB")
+    assert float(np.min(result)) >= -1e-5
+
+
+def test_gamut_map_oklch_compresses_out_of_gamut() -> None:
+    """Out-of-gamut saturated colours must be compressed to within [0, 1]."""
+    # Pure red at maximum saturation in Display P3 — out of sRGB gamut.
+    rgb = np.array([[[1.0, 0.0, 0.0]]], dtype=np.float32)
+    result = hdr_photo.gamut_map_oklch(rgb, working_color_space="Display P3")
+    assert float(np.max(result)) <= 1.0 + 1e-5
+    assert float(np.min(result)) >= -1e-5
+    # The result should still be reddish (R > G, R > B).
+    assert float(result[0, 0, 0]) > float(result[0, 0, 1])
+    assert float(result[0, 0, 0]) > float(result[0, 0, 2])
+
+
+def test_gamut_map_oklch_preserves_neutral() -> None:
+    """Neutral (grey) pixels must pass through unchanged."""
+    rgb = np.array([[[0.18, 0.18, 0.18], [0.5, 0.5, 0.5]]], dtype=np.float32)
+    result = hdr_photo.gamut_map_oklch(rgb, working_color_space="sRGB")
+    np.testing.assert_allclose(result, rgb, atol=1e-5)
+
+
+def test_gamut_map_oklch_handles_hdr_headroom() -> None:
+    """HDR values above 1.0 must be handled with peak_headroom parameter."""
+    rgb = np.array([[[2.0, 0.0, 0.0]]], dtype=np.float32)
+    result = hdr_photo.gamut_map_oklch(rgb, working_color_space="sRGB", peak_headroom=4.0)
+    assert float(np.max(result)) <= 4.0 + 1e-5
+    assert float(np.min(result)) >= -1e-5
+
+
+def test_gamut_map_oklch_preserves_hue() -> None:
+    """Hue must be preserved through gamut mapping."""
+    # A saturated blue in Display P3 that's out of sRGB gamut.
+    rgb = np.array([[[0.0, 0.0, 1.0]]], dtype=np.float32)
+    result = hdr_photo.gamut_map_oklch(rgb, working_color_space="Display P3")
+    # Blue should still be dominant.
+    assert float(result[0, 0, 2]) > float(result[0, 0, 0])
+    assert float(result[0, 0, 2]) > float(result[0, 0, 1])
+
+
+def test_mapping_validation_rejects_invalid_gamut_mapping_mode() -> None:
+    with pytest.raises(ValueError, match="gamut_mapping_mode"):
+        hdr_photo.HDRPhotoMapping(gamut_mapping_mode="invalid")  # type: ignore
+
+
+def test_oklch_gamut_compression_integration() -> None:
+    """Integration: oklch_perceptual mode must produce valid HDR output within headroom."""
+    profile = _synthetic_safe_hdr_profile()
+    scene_luminance = np.array([[8.0]], dtype=np.float32)
+    scene_rgb = np.array([[[0.0, 0.0, 100.0]]], dtype=np.float32)
+    look_rgb = np.array([[[0.94, 0.945, 0.95]]], dtype=np.float32)
+
+    mapping = hdr_photo.HDRPhotoMapping(
+        hdr_mapping_mode="profile_aware",
+        curve_profile=profile,
+        max_headroom=6.0,
+        headroom_percentile=100.0,
+        hdr_highlight_color_mode="source_chroma",
+        gamut_mapping_mode="oklch_perceptual",
+    )
+
+    renditions = hdr_photo.prepare_hdr_photo_renditions(
+        look_rgb, mapping=mapping,
+        scene_luminance=scene_luminance, scene_rgb=scene_rgb,
+    )
+
+    # All HDR values must be within headroom.
+    assert float(np.max(renditions.hdr_rgb)) <= 6.0 + 1e-4
+    assert float(np.min(renditions.hdr_rgb)) >= -1e-4
+
+
+# ---------------------------------------------------------------------------
+# ISO 21496-1 Gain Map Validation and Statistics Tests
+# ---------------------------------------------------------------------------
+
+
+def test_validate_gain_map_accepts_consistent_map() -> None:
+    """A gain map within metadata bounds must produce no warnings."""
+    metadata = hdr_photo.ISO21496GainMapMetadata(
+        gain_map_min=0.0, gain_map_max=2.0, gamma=1.0,
+        offset_sdr=0.001, offset_hdr=0.001,
+        hdr_capacity_min=1.0, hdr_capacity_max=4.0,
+    )
+    gain_map = np.full((4, 4), 0.5, dtype=np.float32)
+    warnings = hdr_photo.validate_gain_map(gain_map, metadata)
+    assert warnings == []
+
+
+def test_validate_gain_map_flags_out_of_range() -> None:
+    """A gain map exceeding metadata max must produce a warning."""
+    metadata = hdr_photo.ISO21496GainMapMetadata(
+        gain_map_min=0.0, gain_map_max=1.0, gamma=1.0,
+        offset_sdr=0.001, offset_hdr=0.001,
+        hdr_capacity_min=1.0, hdr_capacity_max=2.0,
+    )
+    gain_map = np.full((4, 4), 1.5, dtype=np.float32)
+    warnings = hdr_photo.validate_gain_map(gain_map, metadata)
+    assert any("exceeds" in w for w in warnings)
+
+
+def test_validate_gain_map_flags_non_finite() -> None:
+    """A gain map with NaN/Inf must produce a warning."""
+    metadata = hdr_photo.ISO21496GainMapMetadata(
+        gain_map_min=0.0, gain_map_max=2.0, gamma=1.0,
+        offset_sdr=0.001, offset_hdr=0.001,
+        hdr_capacity_min=1.0, hdr_capacity_max=4.0,
+    )
+    gain_map = np.array([[0.5, np.nan], [0.3, np.inf]], dtype=np.float32)
+    warnings = hdr_photo.validate_gain_map(gain_map, metadata)
+    assert any("non-finite" in w for w in warnings)
+
+
+def test_validate_gain_map_rejects_non_2d() -> None:
+    """A non-2D gain map must produce a shape warning."""
+    metadata = hdr_photo.ISO21496GainMapMetadata(
+        gain_map_min=0.0, gain_map_max=2.0, gamma=1.0,
+        offset_sdr=0.001, offset_hdr=0.001,
+        hdr_capacity_min=1.0, hdr_capacity_max=4.0,
+    )
+    gain_map = np.zeros((4, 4, 3), dtype=np.float32)
+    warnings = hdr_photo.validate_gain_map(gain_map, metadata)
+    assert any("2D" in w for w in warnings)
+
+
+def test_gain_map_statistics_reports_correct_values() -> None:
+    """Statistics must match hand-computed values."""
+    gain_map = np.array([[0.0, 0.5], [1.0, 0.25]], dtype=np.float32)
+    stats = hdr_photo.gain_map_statistics(gain_map)
+    assert stats["min"] == pytest.approx(0.0)
+    assert stats["max"] == pytest.approx(1.0)
+    assert stats["mean"] == pytest.approx(0.4375)
+    assert stats["fraction_zero"] == pytest.approx(0.25)
+    assert stats["fraction_one"] == pytest.approx(0.25)
+
+
+def test_gamut_map_oklch_display_p3_to_srgb_gamut() -> None:
+    """Display P3 primaries outside sRGB gamut must be compressed."""
+    # Display P3 green is significantly outside sRGB.
+    p3_green = np.array([[[0.0, 1.0, 0.0]]], dtype=np.float32)
+    result = hdr_photo.gamut_map_oklch(p3_green, working_color_space="Display P3")
+    assert float(np.max(result)) <= 1.0 + 1e-5
+    assert float(np.min(result)) >= -1e-5
+    # Green should still be dominant.
+    assert float(result[0, 0, 1]) > float(result[0, 0, 0])
+    assert float(result[0, 0, 1]) > float(result[0, 0, 2])
+
+
+def test_luma_preserving_mode_is_default_and_unchanged() -> None:
+    """Default luma_preserving mode must produce identical results to previous behavior."""
+    profile = _synthetic_safe_hdr_profile()
+    scene_luminance = np.array([[8.0]], dtype=np.float32)
+    scene_rgb = np.array([[[0.0, 0.0, 100.0]]], dtype=np.float32)
+    look_rgb = np.array([[[0.94, 0.945, 0.95]]], dtype=np.float32)
+
+    mapping_default = hdr_photo.HDRPhotoMapping(
+        hdr_mapping_mode="profile_aware",
+        curve_profile=profile,
+        max_headroom=6.0,
+        headroom_percentile=100.0,
+        hdr_highlight_color_mode="source_chroma",
+        # gamut_mapping_mode defaults to "luma_preserving"
+    )
+    mapping_explicit = hdr_photo.HDRPhotoMapping(
+        hdr_mapping_mode="profile_aware",
+        curve_profile=profile,
+        max_headroom=6.0,
+        headroom_percentile=100.0,
+        hdr_highlight_color_mode="source_chroma",
+        gamut_mapping_mode="luma_preserving",
+    )
+
+    rend_default = hdr_photo.prepare_hdr_photo_renditions(
+        look_rgb, mapping=mapping_default,
+        scene_luminance=scene_luminance, scene_rgb=scene_rgb,
+    )
+    rend_explicit = hdr_photo.prepare_hdr_photo_renditions(
+        look_rgb, mapping=mapping_explicit,
+        scene_luminance=scene_luminance, scene_rgb=scene_rgb,
+    )
+
+    np.testing.assert_allclose(rend_default.hdr_rgb, rend_explicit.hdr_rgb, atol=1e-6)
+    np.testing.assert_allclose(rend_default.sdr_rgb, rend_explicit.sdr_rgb, atol=1e-6)
