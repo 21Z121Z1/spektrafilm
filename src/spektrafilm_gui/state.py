@@ -116,6 +116,7 @@ class HdrExportState:
     paper_rolloff_exposure_scale: float
     paper_rolloff_k: float
     max_headroom: float
+    path_to_white_enabled: bool = True
 
 
 @dataclass(slots=True)
@@ -366,6 +367,7 @@ def gui_state_from_params(
             paper_rolloff_exposure_scale=2.5,
             paper_rolloff_k=5.5,
             max_headroom=16.0,
+            path_to_white_enabled=True,
         ),
     )
 

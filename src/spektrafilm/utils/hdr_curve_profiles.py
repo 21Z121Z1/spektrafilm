@@ -233,6 +233,59 @@ def build_curve_profile_sample(
     }
 
 
+def build_dynamic_curve_profile(
+    scene_y: np.ndarray,
+    look_y: np.ndarray,
+    fallback_profile: FilmPrintHDRCurveProfile,
+) -> FilmPrintHDRCurveProfile:
+    """Build a curve profile from dynamic pipeline output, inheriting defaults from a static profile."""
+    scene = _clean_array(scene_y).reshape(-1)
+    y = _clean_array(look_y).reshape(-1)
+    if scene.shape[0] != y.shape[0]:
+        raise ValueError("scene_y and look_y must have the same sample count.")
+
+    order = np.argsort(scene)
+    scene = scene[order]
+    y = y[order]
+
+    polarity, _ = _classify_polarity(y)
+    look_white_y = float(_interp_log_domain(np.array([1.0], dtype=np.float32), scene, y)[0])
+    midtone_slope = _slope_between(scene, y, 0.184, 1.0)
+    highlight_slope = _slope_between(scene, y, 1.0, 8.0)
+    shoulder_limit_y = float(np.max(y[scene >= 1.0])) if np.any(scene >= 1.0) else float(np.max(y))
+    shoulder_severity = float(np.clip(1.0 - highlight_slope / max(midtone_slope, _EPS), 0.0, 1.0))
+    
+    safe = bool(
+        polarity == "increasing"
+        and math.isfinite(look_white_y)
+        and look_white_y > 0.0
+        and midtone_slope > 0.0
+        and highlight_slope >= -1e-5
+    )
+
+    metrics: dict[str, float | str | bool] = {
+        "look_diffuse_white_y": look_white_y,
+        "shoulder_severity": shoulder_severity,
+        "highlight_tint_spread": fallback_profile.highlight_tint_spread,
+    }
+    defaults = _default_hdr_defaults(metrics)
+
+    return FilmPrintHDRCurveProfile(
+        film=fallback_profile.film,
+        paper=fallback_profile.paper,
+        polarity=polarity,
+        safe_for_profile_aware_hdr=safe,
+        look_diffuse_white_y=look_white_y,
+        shoulder_limit_y=shoulder_limit_y,
+        midtone_slope=float(midtone_slope),
+        highlight_slope=float(highlight_slope),
+        shoulder_severity=shoulder_severity,
+        highlight_tint_spread=fallback_profile.highlight_tint_spread,
+        defaults=defaults,
+        scene_y=scene,
+        sdr_luminance_y=y,
+    )
+
 def _slug(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", value).strip("_")
 
@@ -414,6 +467,12 @@ def build_profile_hdr_curve(
     *,
     mapping: object | None = None,
 ) -> np.ndarray:
+    """Legacy HDR curve via diffuse lift + specular graft.
+
+    .. deprecated::
+        Use :func:`build_profile_preserving_hdr_curve` instead. This function
+        is retained for regression comparison and emergency fallback only.
+    """
     scene = np.maximum(_clean_array(scene_y), np.float32(_EPS))
     sdr = evaluate_profile_sdr_curve(profile, scene)
     defaults = profile.defaults
@@ -458,3 +517,248 @@ def build_profile_hdr_curve(
     restored = np.empty_like(flat_hdr)
     restored[order] = flat_sorted
     return np.clip(restored.reshape(scene.shape), 0.0, np.float32(max_headroom)).astype(np.float32, copy=False)
+
+
+# ---------------------------------------------------------------------------
+# Profile-preserving HDR curve  (replaces legacy diffuse_lift + specular_graft)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class ProfilePreservingHDRCurveResult:
+    """Diagnostics bundle returned by :func:`build_profile_preserving_hdr_curve`."""
+
+    s_profile: np.ndarray
+    h_profile: np.ndarray
+    gain_ev: np.ndarray
+    slope: np.ndarray
+    diffuse_white: float
+    look_white: float
+    visual_peak: float
+
+
+def profile_slope_loglog(
+    scene_y: np.ndarray,
+    s_profile: np.ndarray,
+) -> np.ndarray:
+    """Compute local log-log slope ``d log2(s) / d log2(scene_y)``.
+
+    The input arrays need not be sorted; they are sorted internally.
+    Duplicate scene_y values are collapsed.  Non-finite / non-positive values
+    are clamped.  The returned slope is clipped to [-0.5, 2.0].
+    """
+    scene = np.maximum(_clean_array(scene_y).reshape(-1), np.float32(_EPS))
+    s = np.maximum(_clean_array(s_profile).reshape(-1), np.float32(_EPS))
+
+    unique_scene, unique_idx = np.unique(scene, return_index=True)
+    if unique_scene.size < 2:
+        return np.zeros_like(scene_y, dtype=np.float32)
+
+    unique_s = s[unique_idx]
+
+    log_scene = np.log2(unique_scene).astype(np.float64)
+    log_s = np.log2(unique_s).astype(np.float64)
+
+    # Use a small offset to prevent any extremely close values causing division by zero in gradient
+    # Since unique_scene is strictly increasing, adding a cumulative epsilon ensures log_scene is strictly increasing even under precision loss.
+    log_scene += np.arange(log_scene.size) * 1e-12
+
+    slope = np.gradient(log_s, log_scene).astype(np.float32)
+    slope = np.nan_to_num(slope, nan=0.0, posinf=0.0, neginf=0.0)
+    slope = np.clip(slope, -0.5, 2.0)
+
+    # Map back to the original (possibly unsorted / duplicated) input order.
+    result = np.interp(
+        np.log2(scene).astype(np.float64),
+        log_scene,
+        slope.astype(np.float64),
+    ).astype(np.float32)
+    return np.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0).reshape(scene_y.shape)
+
+
+def profile_relative_hdr_gain_ev(
+    scene_y: np.ndarray,
+    s_profile: np.ndarray,
+    diffuse_white: float,
+    *,
+    peak_ev: float = 1.5,
+    knee_ev: float = 0.35,
+    softness_ev: float = 3.0,
+    strength: float = 0.65,
+    slope_full: float = 0.75,
+    slope_zero: float = 0.12,
+) -> np.ndarray:
+    """Compute profile-relative HDR gain in exposure stops.
+
+    ``gain_ev = peak_ev × scene_excess × shoulder_capacity × strength``
+
+    *   ``scene_excess``  rises from 0 above ``diffuse_white + knee_ev`` stops.
+    *   ``shoulder_capacity``  rises where the profile log-log slope is low
+        (i.e. the profile has entered shoulder compression).
+    *   ``gain_ev`` is zero or near-zero below diffuse white.
+    """
+    eps = np.float32(_EPS)
+    scene = np.maximum(_clean_array(scene_y), eps)
+    dw = np.float32(max(float(diffuse_white), float(eps)))
+
+    # Scene-relative EV above diffuse white.
+    x = np.log2(scene / dw)
+
+    # Scene excess: soft ramp starting at knee_ev.
+    t = np.maximum(x - np.float32(knee_ev), np.float32(0.0))
+    scene_excess = t / (t + np.float32(max(softness_ev, 1e-6)))
+
+    # Shoulder capacity from profile slope.
+    slope = profile_slope_loglog(scene_y, s_profile)
+    shoulder_capacity = np.float32(1.0) - _smoothstep(float(slope_zero), float(slope_full), slope)
+    shoulder_capacity = np.clip(shoulder_capacity, 0.0, 1.0)
+
+    gain = (
+        np.float32(peak_ev)
+        * scene_excess
+        * shoulder_capacity
+        * np.float32(strength)
+    )
+    return np.maximum(gain, np.float32(0.0)).astype(np.float32)
+
+
+def soft_clip_relative_to_white(
+    y: np.ndarray,
+    *,
+    white: float,
+    peak: float,
+    softness: float = 0.45,
+) -> np.ndarray:
+    """Soft-clip *y* relative to *white* so it asymptotes toward *peak*.
+
+    Below the knee ``white + (peak − white) × (1 − softness)`` the output
+    equals the input.  Above the knee the excess is compressed via
+    ``knee + room × (1 − exp(−t / room))`` and the result is capped at *peak*.
+    """
+    eps = np.float32(_EPS)
+    y = np.asarray(y, dtype=np.float32).copy()
+    white_f = np.float32(max(float(white), float(eps)))
+    peak_f = np.float32(max(float(peak), float(white_f) + float(eps)))
+    softness_f = np.float32(np.clip(float(softness), 0.0, 0.95))
+
+    knee = white_f + (peak_f - white_f) * (np.float32(1.0) - softness_f)
+    room = np.float32(max(float(peak_f - knee), float(eps)))
+
+    above = y > knee
+    if np.any(above):
+        t = np.maximum(y[above] - knee, np.float32(0.0))
+        y[above] = knee + room * (np.float32(1.0) - np.exp(-t / room))
+
+    return np.minimum(y, peak_f).astype(np.float32)
+
+
+def enforce_monotonic_profile_curve(
+    scene_y: np.ndarray,
+    h: np.ndarray,
+) -> np.ndarray:
+    """Ensure *h* is monotonically non-decreasing w.r.t. sorted *scene_y*."""
+    scene = _clean_array(scene_y).reshape(-1)
+    h_flat = _clean_array(h).reshape(-1)
+    order = np.argsort(scene)
+    inv = np.empty_like(order)
+    inv[order] = np.arange(order.size)
+    sorted_h = np.maximum.accumulate(h_flat[order])
+    return sorted_h[inv].reshape(h.shape).astype(np.float32)
+
+
+def build_profile_preserving_hdr_curve(
+    profile: FilmPrintHDRCurveProfile,
+    scene_y: np.ndarray,
+    *,
+    diffuse_white: float,
+    mapping: object | None = None,
+    return_diagnostics: bool = False,
+) -> np.ndarray | ProfilePreservingHDRCurveResult:
+    """Build an HDR target curve as ``S_profile × 2^gain_ev``.
+
+    Parameters
+    ----------
+    profile:
+        The measured SDR pipeline profile.
+    scene_y:
+        Scene-linear energy samples (relative, diffuse-white ≈ 1.0).
+    diffuse_white:
+        Estimated scene-linear diffuse-white value.
+    mapping:
+        An ``HDRPhotoMapping`` (or compatible object) carrying
+        ``profile_hdr_*`` parameters.  Falls back to conservative defaults
+        when *None* or when attributes are missing.
+    return_diagnostics:
+        If *True*, return a :class:`ProfilePreservingHDRCurveResult`
+        instead of a plain array.
+
+    Returns
+    -------
+    np.ndarray or ProfilePreservingHDRCurveResult
+        The authored HDR target luminance ``h_profile``.
+    """
+    scene = np.maximum(_clean_array(scene_y), np.float32(_EPS))
+    s = evaluate_profile_sdr_curve(profile, scene).astype(np.float32)
+    dw = max(float(diffuse_white), _EPS)
+
+    look_white = float(evaluate_profile_sdr_curve(
+        profile,
+        np.array([dw], dtype=np.float32),
+    )[0])
+    look_white = max(look_white, _EPS)
+
+    # Read mapping parameters with safe fallbacks.
+    peak_ev = _finite_float(getattr(mapping, "profile_hdr_peak_ev", None), 1.5)
+    knee_ev = _finite_float(getattr(mapping, "profile_hdr_knee_ev", None), 0.35)
+    softness_ev = _finite_float(getattr(mapping, "profile_hdr_softness_ev", None), 3.0)
+    strength = _finite_float(getattr(mapping, "profile_hdr_strength", None), 0.65)
+    slope_full = _finite_float(getattr(mapping, "profile_hdr_slope_full", None), 0.75)
+    slope_zero = _finite_float(getattr(mapping, "profile_hdr_slope_zero", None), 0.12)
+    clip_softness = _finite_float(getattr(mapping, "profile_hdr_soft_clip_softness", None), 0.45)
+    min_gain_val = _finite_float(getattr(mapping, "profile_hdr_min_gain", None), 1.0)
+    do_monotonic = bool(getattr(mapping, "profile_hdr_enforce_monotonic", True))
+
+    gain_ev = profile_relative_hdr_gain_ev(
+        scene,
+        s,
+        dw,
+        peak_ev=peak_ev,
+        knee_ev=knee_ev,
+        softness_ev=softness_ev,
+        strength=strength,
+        slope_full=slope_full,
+        slope_zero=slope_zero,
+    )
+
+    h = s * np.exp2(gain_ev)
+
+    # Floor: h >= s * min_gain.
+    if min_gain_val > 0.0:
+        h = np.maximum(h, s * np.float32(min_gain_val))
+
+    # Soft-clip relative to look_white.
+    visual_peak = look_white * float(np.exp2(peak_ev))
+    h = soft_clip_relative_to_white(
+        h,
+        white=look_white,
+        peak=visual_peak,
+        softness=clip_softness,
+    )
+
+    if do_monotonic:
+        h = enforce_monotonic_profile_curve(scene, h)
+
+    h = h.astype(np.float32)
+
+    if return_diagnostics:
+        slope = profile_slope_loglog(scene, s)
+        return ProfilePreservingHDRCurveResult(
+            s_profile=s,
+            h_profile=h,
+            gain_ev=gain_ev,
+            slope=slope,
+            diffuse_white=dw,
+            look_white=look_white,
+            visual_peak=visual_peak,
+        )
+    return h

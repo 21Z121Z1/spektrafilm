@@ -566,6 +566,7 @@ class GuiController:
                     "paper_rolloff_exposure_scale": gui_state.hdr_export.paper_rolloff_exposure_scale,
                     "paper_rolloff_k": gui_state.hdr_export.paper_rolloff_k,
                     "max_headroom": gui_state.hdr_export.max_headroom,
+                    "hdr_highlight_path_to_white": 1.0 if getattr(gui_state.hdr_export, 'path_to_white_enabled', True) else 0.0,
                 }
                 if scene_energy_metadata is not None:
                     if scene_energy_metadata.profile_scene_y is not None:

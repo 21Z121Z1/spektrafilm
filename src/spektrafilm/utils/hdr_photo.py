@@ -14,10 +14,14 @@ import numpy as np
 
 from spektrafilm.utils.hdr_curve_profiles import (
     FilmPrintHDRCurveProfile,
+    ProfilePreservingHDRCurveResult,
     build_profile_hdr_curve,
+    build_profile_preserving_hdr_curve,
     evaluate_profile_sdr_curve,
     get_hdr_curve_profile,
+    build_dynamic_curve_profile,
     luminance_y,
+    profile_slope_loglog,
 )
 
 SUPPORTED_HDR_PHOTO_EXTENSIONS: Final = {".heic", ".heif"}
@@ -90,6 +94,23 @@ class HDRPhotoMapping:
     hdr_highlight_path_to_white: float = 1.0
     hdr_highlight_gamut: Literal["display-p3", "rec2020", "working"] = "display-p3"
 
+    # --- Profile-preserving HDR curve parameters ---
+    profile_curve_mode: Literal["profile_preserving", "legacy_graft"] = "profile_preserving"
+    profile_hdr_peak_ev: float = 1.5
+    profile_hdr_strength: float = 0.65
+    profile_hdr_knee_ev: float = 0.35
+    profile_hdr_softness_ev: float = 3.0
+    profile_hdr_slope_full: float = 0.75
+    profile_hdr_slope_zero: float = 0.12
+    profile_hdr_soft_clip_softness: float = 0.45
+    profile_hdr_min_gain: float = 1.0
+    profile_hdr_enforce_monotonic: bool = True
+    profile_hdr_max_chroma_gain: float = 1.25
+    profile_hdr_path_to_white_start_ev: float = 1.25
+    profile_hdr_path_to_white_end_ev: float = 2.25
+    profile_hdr_path_to_white_strength: float = 0.30
+    diffuse_white_override: float | None = None
+
     def __post_init__(self) -> None:
         if self.hdr_mapping_mode not in _HDR_MAPPING_MODES:
             raise ValueError(f"hdr_mapping_mode must be one of {_HDR_MAPPING_MODES!r}.")
@@ -137,6 +158,16 @@ class HDRPhotoMapping:
             raise ValueError("hdr_highlight_chroma_limit must be a finite non-negative value.")
         if not math.isfinite(self.hdr_highlight_path_to_white) or self.hdr_highlight_path_to_white < 0.0:
             raise ValueError("hdr_highlight_path_to_white must be a finite non-negative value.")
+        if self.profile_curve_mode not in ("profile_preserving", "legacy_graft"):
+            raise ValueError("profile_curve_mode must be 'profile_preserving' or 'legacy_graft'.")
+        if not math.isfinite(self.profile_hdr_peak_ev) or self.profile_hdr_peak_ev <= 0.0:
+            raise ValueError("profile_hdr_peak_ev must be a finite positive value.")
+        if not math.isfinite(self.profile_hdr_strength) or not (0.0 <= self.profile_hdr_strength <= 1.0):
+            raise ValueError("profile_hdr_strength must be a finite value in [0, 1].")
+        if not math.isfinite(self.profile_hdr_softness_ev) or self.profile_hdr_softness_ev <= 0.0:
+            raise ValueError("profile_hdr_softness_ev must be a finite positive value.")
+        if self.diffuse_white_override is not None and (not math.isfinite(self.diffuse_white_override) or self.diffuse_white_override <= 0.0):
+            raise ValueError("diffuse_white_override must be a finite positive value if provided.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -437,10 +468,19 @@ def _prepare_profile_aware_renditions(
     if scene_luminance is None:
         raise ValueError("profile-aware HDR mapping requires a scene luminance sidecar.")
 
-    profile = _resolve_curve_profile(mapping)
-    if profile is None:
+    static_profile = _resolve_curve_profile(mapping)
+    if static_profile is None:
         raise ValueError("profile-aware HDR mapping requires a valid curve profile.")
         
+    if mapping.profile_scene_y_samples is not None and mapping.profile_look_y_samples is not None:
+        profile = build_dynamic_curve_profile(
+            mapping.profile_scene_y_samples,
+            mapping.profile_look_y_samples,
+            fallback_profile=static_profile,
+        )
+    else:
+        profile = static_profile
+
     if profile.polarity != "increasing" or not profile.safe_for_profile_aware_hdr:
         raise ValueError(f"profile-aware HDR mapping requires a safe increasing curve profile, but got unsafe {profile.polarity}.")
 
@@ -451,9 +491,35 @@ def _prepare_profile_aware_renditions(
         scene_y = scene_y * np.float32(2.0 ** mapping.hdr_render_ev)
     scene_y = np.maximum(scene_y, np.float32(1e-8))
 
+    # Resolve diffuse_white: override > default 1.0 (scene_y already normalised).
+    diffuse_white = (
+        mapping.diffuse_white_override
+        if mapping.diffuse_white_override is not None
+        else 1.0
+    )
+
     look_y = luminance_y(look)
-    s_profile = evaluate_profile_sdr_curve(profile, scene_y)
-    h_profile = build_profile_hdr_curve(profile, scene_y, mapping=mapping)
+
+    # Curve selection: profile-preserving (default) vs legacy graft.
+    if mapping.profile_curve_mode == "legacy_graft":
+        s_profile = evaluate_profile_sdr_curve(profile, scene_y)
+        h_profile = build_profile_hdr_curve(profile, scene_y, mapping=mapping)
+        look_white = float(evaluate_profile_sdr_curve(
+            profile,
+            np.array([max(diffuse_white, 1e-8)], dtype=np.float32),
+        )[0])
+        look_white = max(look_white, 1e-8)
+    else:
+        curve = build_profile_preserving_hdr_curve(
+            profile,
+            scene_y,
+            diffuse_white=diffuse_white,
+            mapping=mapping,
+            return_diagnostics=True,
+        )
+        s_profile = curve.s_profile
+        h_profile = curve.h_profile
+        look_white = curve.look_white
 
     hdr_gain = np.divide(
         h_profile,
@@ -474,6 +540,7 @@ def _prepare_profile_aware_renditions(
         mapping=mapping,
         diagnostics=diagnostics_list,
         max_headroom=safe_max_headroom,
+        look_white=look_white,
     )
     
     hdr_rgb = np.clip(hdr_rgb, 0.0, safe_max_headroom).astype(np.float32, copy=False)
@@ -503,68 +570,93 @@ def _apply_hdr_color_recovery(
     mapping: HDRPhotoMapping,
     diagnostics: list[str],
     max_headroom: float,
+    look_white: float = 1.0,
 ) -> np.ndarray:
     eps = np.float32(1e-8)
     
     if mapping.hdr_highlight_color_mode == "off":
-        return look * hdr_gain[..., None]
-
-    if mapping.hdr_highlight_color_mode == "source_chroma":
+        hdr_rgb = look * hdr_gain[..., None]
+    elif mapping.hdr_highlight_color_mode == "source_chroma":
         if scene_rgb is None:
             diagnostics.append("source_chroma fallback: scene_rgb is missing, degrading to off")
-            return look * hdr_gain[..., None]
-        
-        source_y = luminance_y(scene_rgb)
-        divergence = np.abs(source_y - scene_y) / np.maximum(scene_y, eps)
-        # Per-pixel validity: only use source_chroma where scene_rgb is consistent with scene_luminance
-        valid_source = divergence <= np.float32(0.05)
-        if not np.any(valid_source):
-            diagnostics.append("source_chroma fallback: scene_rgb luminance diverged from scene_luminance by > 5% everywhere, degrading to off")
-            return look * hdr_gain[..., None]
-        if not np.all(valid_source):
-            n_bad = int(np.sum(~valid_source))
-            diagnostics.append(f"source_chroma: {n_bad} pixels diverged > 5%, using gain-only fallback for those pixels")
-            
-        source_chroma = scene_rgb / np.maximum(source_y[..., None], eps)
-        hdr_rgb_source = source_chroma * h_profile[..., None]
-        
-        # Blend factor: transition from look*gain to source_chroma*h_profile as hdr_gain increases
-        blend = _smoothstep(1.0, 1.5, hdr_gain)
-        # Zero out blend for pixels where source diverged
-        blend = blend * valid_source.astype(np.float32)
-        base_hdr_rgb = look * hdr_gain[..., None]
-        hdr_rgb = base_hdr_rgb * (np.float32(1.0) - blend[..., None]) + hdr_rgb_source * blend[..., None]
+            hdr_rgb = look * hdr_gain[..., None]
+        else:
+            source_y = luminance_y(scene_rgb)
+            divergence = np.abs(source_y - scene_y) / np.maximum(scene_y, eps)
+            # Per-pixel validity: only use source_chroma where scene_rgb is consistent with scene_luminance
+            valid_source = divergence <= np.float32(0.05)
+            if not np.any(valid_source):
+                diagnostics.append("source_chroma fallback: scene_rgb luminance diverged from scene_luminance by > 5% everywhere, degrading to off")
+                hdr_rgb = look * hdr_gain[..., None]
+            else:
+                if not np.all(valid_source):
+                    n_bad = int(np.sum(~valid_source))
+                    diagnostics.append(f"source_chroma: {n_bad} pixels diverged > 5%, using gain-only fallback for those pixels")
+                    
+                source_chroma = scene_rgb / np.maximum(source_y[..., None], eps)
+                hdr_rgb_source = source_chroma * h_profile[..., None]
+                
+                # Blend factor: transition from look*gain to source_chroma*h_profile as hdr_gain increases
+                blend = _smoothstep(1.0, 1.5, hdr_gain)
+                # Zero out blend for pixels where source diverged
+                blend = blend * valid_source.astype(np.float32)
+                base_hdr_rgb = look * hdr_gain[..., None]
+                hdr_rgb = base_hdr_rgb * (np.float32(1.0) - blend[..., None]) + hdr_rgb_source * blend[..., None]
         
     elif mapping.hdr_highlight_color_mode == "bounded_look_chroma":
         boost = mapping.hdr_highlight_saturation_boost
         if boost <= 0.0:
-            return look * hdr_gain[..., None]
+            hdr_rgb = look * hdr_gain[..., None]
+        else:
+            luma = luminance_y(look)
+            min_rgb = np.min(look, axis=-1)
+            max_rgb = np.max(look, axis=-1)
+            sat = (max_rgb - min_rgb) / np.maximum(max_rgb, eps)
             
-        luma = luminance_y(look)
-        min_rgb = np.min(look, axis=-1)
-        max_rgb = np.max(look, axis=-1)
-        sat = (max_rgb - min_rgb) / np.maximum(max_rgb, eps)
-        
-        neutral_guard = _smoothstep(0.05, 0.2, sat)
-        highlight_guard = _smoothstep(0.5, 0.9, luma)
-        mask = _smoothstep(1.0, 2.0, hdr_gain)
-        
-        effect = mask * neutral_guard * highlight_guard
-        sat_multiplier = np.float32(1.0) + effect * np.float32(boost)
-        sat_multiplier = np.minimum(sat_multiplier, np.float32(mapping.hdr_highlight_chroma_limit))
-        
-        boosted_look = luma[..., None] + (look - luma[..., None]) * sat_multiplier[..., None]
-        hdr_rgb = boosted_look * hdr_gain[..., None]
-    
-    # Path to white
-    pw_start = max_headroom * 0.8
-    pw_end = max_headroom
-    pw_mask = _smoothstep(pw_start, pw_end, h_profile)
-    hdr_luma = luminance_y(hdr_rgb)
-    path_strength = np.float32(mapping.hdr_highlight_path_to_white)
-    
-    hdr_rgb = hdr_rgb * (np.float32(1.0) - pw_mask[..., None] * path_strength) + \
-              hdr_luma[..., None] * (pw_mask[..., None] * path_strength)
+            neutral_guard = _smoothstep(0.05, 0.2, sat)
+            highlight_guard = _smoothstep(0.5, 0.9, luma)
+            mask = _smoothstep(1.0, 2.0, hdr_gain)
+            
+            effect = mask * neutral_guard * highlight_guard
+            sat_multiplier = np.float32(1.0) + effect * np.float32(boost)
+            sat_multiplier = np.minimum(sat_multiplier, np.float32(mapping.hdr_highlight_chroma_limit))
+            
+            boosted_look = luma[..., None] + (look - luma[..., None]) * sat_multiplier[..., None]
+            hdr_rgb = boosted_look * hdr_gain[..., None]
+    else:
+        hdr_rgb = look * hdr_gain[..., None]
+
+    # Bounded chroma gain: limit chroma expansion while preserving target luminance.
+    max_chroma_gain = float(getattr(mapping, "profile_hdr_max_chroma_gain", 1.25))
+    if max_chroma_gain < 50.0:  # Only apply when a finite limit is set.
+        hdr_luma = luminance_y(hdr_rgb)
+        chroma_vec = hdr_rgb - hdr_luma[..., None]
+        # Reference: gain-only chroma (look * gain minus its luma).
+        base_hdr = look * hdr_gain[..., None]
+        base_luma = luminance_y(base_hdr)
+        base_chroma = base_hdr - base_luma[..., None]
+        base_norm = np.sqrt(np.sum(base_chroma ** 2, axis=-1, keepdims=True))
+        hdr_norm = np.sqrt(np.sum(chroma_vec ** 2, axis=-1, keepdims=True))
+        raw_cg = hdr_norm / np.maximum(base_norm, eps)
+        limited_cg = np.minimum(raw_cg, np.float32(max_chroma_gain))
+        scale = limited_cg / np.maximum(raw_cg, eps)
+        # Reconstruct: preserved luma + scaled chroma.
+        hdr_rgb = hdr_luma[..., None] + chroma_vec * scale
+
+    # Path to white — EV-relative to look_white.
+    lw = np.float32(max(look_white, float(eps)))
+    pw_start_ev = float(getattr(mapping, "profile_hdr_path_to_white_start_ev", 1.25))
+    pw_end_ev = float(getattr(mapping, "profile_hdr_path_to_white_end_ev", 2.25))
+    pw_strength = np.float32(getattr(mapping, "profile_hdr_path_to_white_strength", 0.30))
+    # Also support the legacy path_to_white for non-profile-preserving callers.
+    if float(getattr(mapping, "hdr_highlight_path_to_white", 0.0)) > 0.0 and pw_strength <= 0.0:
+        pw_strength = np.float32(mapping.hdr_highlight_path_to_white)
+    if pw_strength > 0.0:
+        h_ev = np.log2(np.maximum(h_profile, eps) / lw)
+        pw_mask = _smoothstep(pw_start_ev, pw_end_ev, h_ev)
+        hdr_luma = luminance_y(hdr_rgb)
+        hdr_rgb = hdr_rgb * (np.float32(1.0) - pw_mask[..., None] * pw_strength) + \
+                  hdr_luma[..., None] * (pw_mask[..., None] * pw_strength)
               
     # Gamut Compression (Luma preserving chroma reduction)
     max_rgb = np.max(hdr_rgb, axis=-1)
@@ -576,6 +668,56 @@ def _apply_hdr_color_recovery(
         hdr_rgb[overshoot] = hdr_luma[overshoot, None] + (hdr_rgb[overshoot] - hdr_luma[overshoot, None]) * scale[..., None]
         
     return np.maximum(hdr_rgb, 0.0).astype(np.float32, copy=False)
+
+
+def build_hdr_debug_sidecar(
+    curve_result: ProfilePreservingHDRCurveResult,
+    *,
+    mapping: HDRPhotoMapping | None = None,
+    extra: dict | None = None,
+) -> dict:
+    """Build a JSON-serializable debug sidecar from a curve diagnostics result.
+
+    Accepts the :class:`ProfilePreservingHDRCurveResult` returned by
+    ``build_profile_preserving_hdr_curve(..., return_diagnostics=True)`` so
+    that no values are re-computed.
+    """
+    def _pcts(arr: np.ndarray) -> dict:
+        flat = arr.reshape(-1)
+        if flat.size == 0:
+            return {}
+        return {
+            "p50": float(np.percentile(flat, 50.0)),
+            "p90": float(np.percentile(flat, 90.0)),
+            "p99": float(np.percentile(flat, 99.0)),
+            "p999": float(np.percentile(flat, 99.9)),
+        }
+
+    sidecar: dict = {
+        "mode": "profile_preserving",
+        "diffuse_white": curve_result.diffuse_white,
+        "look_white": curve_result.look_white,
+        "visual_peak": curve_result.visual_peak,
+        "percentiles": {
+            "s_profile": _pcts(curve_result.s_profile),
+            "h_profile": _pcts(curve_result.h_profile),
+            "gain_ev": _pcts(curve_result.gain_ev),
+            "slope": _pcts(curve_result.slope),
+        },
+    }
+    if mapping is not None:
+        sidecar["mapping"] = {
+            "profile_hdr_peak_ev": mapping.profile_hdr_peak_ev,
+            "profile_hdr_strength": mapping.profile_hdr_strength,
+            "profile_hdr_knee_ev": mapping.profile_hdr_knee_ev,
+            "profile_hdr_softness_ev": mapping.profile_hdr_softness_ev,
+            "profile_hdr_slope_full": mapping.profile_hdr_slope_full,
+            "profile_hdr_slope_zero": mapping.profile_hdr_slope_zero,
+            "profile_hdr_soft_clip_softness": mapping.profile_hdr_soft_clip_softness,
+        }
+    if extra:
+        sidecar.update(extra)
+    return sidecar
 
 
 def _prepare_scene_luminance(scene_luminance: np.ndarray, *, shape: tuple[int, int]) -> np.ndarray:

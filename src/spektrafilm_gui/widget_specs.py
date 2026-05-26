@@ -675,6 +675,10 @@ GUI_WIDGET_SPECS = {
             max_value=20.0,
             step=0.25,
         ),
+        "path_to_white_enabled": WidgetSpec(
+            label="Enable Path to White",
+            tooltip="Reduce saturation of extremely bright highlights to simulate film bleaching. Disable to keep colors fully saturated up to clipping.",
+        ),
     },
 }
 
