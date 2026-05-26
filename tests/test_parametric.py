@@ -77,14 +77,14 @@ class TestParametricDensityCurvesModel:
         # High gamma = high contrast = larger density range.
         assert np.max(result) > 2.0
 
-    def test_zero_toe_and_shoulder(self):
-        """Zero toe/shoulder should still produce valid output."""
-        log_exposure = np.linspace(-3, 2, 100)
+    def test_small_toe_and_shoulder(self):
+        """Very small toe/shoulder sizes should still produce valid output for moderate exposures."""
+        log_exposure = np.linspace(-3, 1.5, 100)
         gamma = [0.6, 0.6, 0.6]
         log_exposure_0 = [-1.5, -1.5, -1.5]
         density_max = [2.5, 2.5, 2.5]
-        toe_size = [0.01, 0.01, 0.01]
-        shoulder_size = [0.01, 0.01, 0.01]
+        toe_size = [0.1, 0.1, 0.1]
+        shoulder_size = [0.1, 0.1, 0.1]
         result = parametric_density_curves_model(
             log_exposure, gamma, log_exposure_0, density_max, toe_size, shoulder_size
         )

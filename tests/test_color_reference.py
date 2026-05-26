@@ -123,9 +123,8 @@ class TestColorReferenceServiceWithCorrection:
             profile_type="positive", scan_film=True,
             black_correction=True, white_correction=True,
         )
-        # Set up the cmy_to_log_xyz callback.
+        # Set up the cmy_to_log_xyz callback BEFORE calling correction methods.
         def fake_cmy_to_log_xyz(cmy):
-            # Simple mapping: log_xyz = log10(cmy + 0.01)
             return np.log10(np.maximum(cmy, 1e-6))
 
         service.cmy_to_log_xyz = fake_cmy_to_log_xyz
@@ -136,8 +135,8 @@ class TestColorReferenceServiceWithCorrection:
         # Result should differ from input (correction applied).
         assert not np.allclose(result, xyz, atol=1e-6)
 
-    def test_correction_function_produces_finite_output(self) -> None:
-        """Correction function should produce finite values for typical inputs."""
+    def test_correction_references_computed_for_positive_scan(self) -> None:
+        """_y_black and _y_white should be computed when positive film is scanned."""
         service = _make_service(
             profile_type="positive", scan_film=True,
             black_correction=True, white_correction=True,
@@ -148,10 +147,10 @@ class TestColorReferenceServiceWithCorrection:
 
         service.cmy_to_log_xyz = fake_cmy_to_log_xyz
 
-        # Trigger reference update.
+        # Trigger reference update via the correction path.
         service._update_cmy_black_white_references(in_print=False)
 
-        # Check that _y_black and _y_white were computed.
-        if service._y_black is not None and service._y_white is not None:
-            assert np.isfinite(service._y_black)
-            assert np.isfinite(service._y_white)
+        assert service._y_black is not None
+        assert service._y_white is not None
+        assert np.isfinite(service._y_black)
+        assert np.isfinite(service._y_white)
