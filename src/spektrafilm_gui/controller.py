@@ -16,10 +16,8 @@ from spektrafilm.color_management import (
 )
 from spektrafilm.utils.hdr_photo import (
     HDR_REFERENCE_WHITE_LUMINANCE_NITS,
-    HDRPhotoMapping,
     hdr_photo_color_space,
     is_hdr_photo_extension,
-    save_hdr_photo_heic,
 )
 
 from spektrafilm_gui import controller_persistence as persistence_actions
@@ -579,24 +577,18 @@ class GuiController:
 
         hdr_diagnostics: tuple[str, ...] = ()
         try:
-            if hdr_photo_save:
-                # HEIC HDR photo: dispatch to dedicated save_hdr_photo_heic
-                mapping = HDRPhotoMapping(**hdr_mapping_kwargs) if hdr_mapping_kwargs else None
-                hdr_diagnostics = save_hdr_photo_heic(
-                    filepath,
-                    image_data,
-                    mapping=mapping,
-                    color_space=saving_color_space,
-                    scene_luminance=scene_luminance,
-                    scene_rgb=scene_rgb,
-                    gain_map_mode=mapping.gain_map_mode if mapping else "rgb",
-                )
-            else:
-                # Standard image formats (EXR, TIFF, PNG, JPEG)
-                oiio_kwargs: dict = {"encoding": saving_encoding}
-                if exr_save:
-                    oiio_kwargs["white_luminance"] = HDR_REFERENCE_WHITE_LUMINANCE_NITS
-                save_image_oiio(filepath, image_data, **oiio_kwargs)
+            oiio_kwargs: dict = {"encoding": saving_encoding}
+            if hdr_photo_save or (exr_save and hdr_exr_mode == 'hdr_rendition'):
+                if scene_luminance is not None:
+                    oiio_kwargs["scene_luminance"] = scene_luminance
+                if scene_rgb is not None:
+                    oiio_kwargs["scene_rgb"] = scene_rgb
+                if hdr_mapping_kwargs:
+                    oiio_kwargs["hdr_mapping_kwargs"] = hdr_mapping_kwargs
+            if exr_save:
+                oiio_kwargs["white_luminance"] = HDR_REFERENCE_WHITE_LUMINANCE_NITS
+                oiio_kwargs["exr_mode"] = hdr_exr_mode
+            hdr_diagnostics = save_image_oiio(filepath, image_data, **oiio_kwargs) or ()
         except (OSError, RuntimeError, ValueError) as exc:
             QMessageBox.critical(dialog_parent(self._viewer), 'Save output', f'Failed to save output image.\n\n{exc}')
             return

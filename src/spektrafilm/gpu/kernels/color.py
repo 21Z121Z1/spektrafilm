@@ -269,6 +269,7 @@ def boost_highlights_backend(
     backend,
     *,
     midgray: float = 0.184,
+    x_max: float | None = None,
 ) -> Any:
     """Backend-portable highlight boost.
 
@@ -285,8 +286,10 @@ def boost_highlights_backend(
     if boost_ev <= 0:
         return x
 
-    # Scalar synchronization only; the image itself remains resident.
-    x_max = backend.max(x)
+    # Scalar synchronization only; the image itself remains resident. Tiled
+    # callers can pass a precomputed full-frame maximum to preserve parity.
+    if x_max is None:
+        x_max = backend.max(x)
     if x_max == 0.0:
         return x
 

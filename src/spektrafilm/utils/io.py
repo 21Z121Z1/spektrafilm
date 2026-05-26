@@ -18,7 +18,14 @@ import PIL.Image
 import PIL.ImageCms
 import scipy.interpolate
 
-from spektrafilm.color_management import ColorEncoding
+from spektrafilm.color_management import ColorEncoding, Transfer, is_aces_scene_linear_space
+from spektrafilm.utils.hdr_photo import (
+    HDRPhotoMapping,
+    HDR_REFERENCE_WHITE_LUMINANCE_NITS,
+    is_hdr_photo_extension,
+    prepare_hdr_photo_renditions,
+    save_hdr_photo_heic,
+)
 
 ################################################################################
 # Image metadata
@@ -99,7 +106,7 @@ def write_image_metadata(
     """
     ext = filename.rsplit(".", 1)[-1].lower()
 
-    if ext == "exr":
+    if ext == "exr" or is_hdr_photo_extension(filename):
         return
 
     image_input = oiio.ImageInput.open(filename)
@@ -167,6 +174,9 @@ _ICC_FILENAMES: dict[tuple[str, bool], str] = {
     # ACES2065-1 is scene-linear; both flags map to the linear ACES (AP0) file.
     ("ACES2065-1", True): "ellelstone/ACES-elle-V2-g10.icc",
     ("ACES2065-1", False): "ellelstone/ACES-elle-V2-g10.icc",
+    # ACEScg is scene-linear; both flags map to the linear ACEScg (AP1) file.
+    ("ACEScg", True): "ellelstone/ACEScg-elle-V2-g10.icc",
+    ("ACEScg", False): "ellelstone/ACEScg-elle-V2-g10.icc",
     # Saucecontrol — P3 variants Elle Stone's set doesn't cover.
     # No compact linear P3 ICC ships upstream; linear variants fall through.
     ("Display P3", True): "saucecontrol/DisplayP3-v2-micro.icc",
@@ -216,6 +226,8 @@ _ICC_PROFILES = {
     "Adobe RGB (1998)": "AdobeRGB.icc",
     "ITU-R BT.2020": "BT2020.icc",
     "ProPhoto RGB": "ProPhotoRGB.icc",
+    "ACES2065-1": "ellelstone/ACES-elle-V2-g10.icc",
+    "ACEScg": "ellelstone/ACEScg-elle-V2-g10.icc",
 }
 
 
@@ -228,7 +240,7 @@ def resolve_icc_profile_bytes(color_space: str, cctf_encoding: bool = True) -> b
 
     profile_filename = _ICC_PROFILES.get(color_space)
     if profile_filename is not None:
-        resource = pkg_resources.files("spektrafilm.data.icc") / profile_filename
+        resource = pkg_resources.files("spektrafilm.data.icc").joinpath(*profile_filename.split("/"))
         try:
             return resource.read_bytes()
         except (FileNotFoundError, OSError):
@@ -258,6 +270,9 @@ def colorspace_chromaticities(color_space: str) -> tuple[float, ...] | None:
 _OIIO_COLORSPACE_ALIASES = {
     "aces2065-1": "ACES2065-1",
     "lin_ap0_scene": "ACES2065-1",
+    "acescg": "ACEScg",
+    "lin_ap1": "ACEScg",
+    "lin_ap1_scene": "ACEScg",
     "display p3": "Display P3",
     "srgb": "sRGB",
     "srgb_rec709_scene": "sRGB",
@@ -269,6 +284,12 @@ _OIIO_COLORSPACE_ALIASES = {
 
 
 _ICC_PROFILE_DESCRIPTION_ALIASES = {
+    "acescg": "ACEScg",
+    "acescg elle v2 g10": "ACEScg",
+    "acescg-elle-v2-g10": "ACEScg",
+    "aces": "ACES2065-1",
+    "aces elle v2 g10": "ACES2065-1",
+    "aces-elle-v2-g10": "ACES2065-1",
     "display p3": "Display P3",
     "srgb": "sRGB",
     "srgb iec61966-2.1": "sRGB",
@@ -298,20 +319,26 @@ def read_image_color_encoding(filename: str) -> ColorEncoding | None:
 
     ext = Path(filename).suffix.lower()
     oiio_color_space = _known_color_space_from_oiio(spec)
+    icc_encoding = _known_encoding_from_icc_profile(spec)
     color_space = (
-        _known_color_space_from_icc_profile(spec)
+        (icc_encoding[0] if icc_encoding is not None else None)
         or oiio_color_space
         or _known_color_space_from_chromaticities(spec)
     )
     if color_space is None:
         return None
 
-    transfer = "linear" if ext == ".exr" or _oiio_colorspace_is_linear(spec) else "cctf"
+    if icc_encoding is not None:
+        transfer = icc_encoding[1]
+    elif is_aces_scene_linear_space(color_space) or ext == ".exr" or _oiio_colorspace_is_linear(spec):
+        transfer = "linear"
+    else:
+        transfer = "cctf"
     return ColorEncoding(
         color_space=color_space,
         transfer=transfer,
         role="scene" if transfer == "linear" else "display",
-        clip_negatives=True,
+        clip_negatives=ext != ".exr",
         clip_highlights=ext != ".exr",
     )
 
@@ -343,21 +370,41 @@ def _oiio_colorspace_is_linear(spec) -> bool:
     if not color_space:
         return False
     normalized = color_space.strip().lower()
-    return normalized.startswith("lin_") or normalized in {"aces2065-1"}
+    return normalized.startswith("lin_") or normalized in {"aces2065-1", "acescg"}
 
 
-def _known_color_space_from_icc_profile(spec) -> str | None:
+def _known_encoding_from_icc_profile(spec) -> tuple[str, Transfer] | None:
     icc_bytes = _icc_profile_bytes_from_spec(spec)
     if icc_bytes:
-        for color_space in _ICC_PROFILES:
-            known_profile = resolve_icc_profile_bytes(color_space)
+        for (color_space, cctf_encoding), _relative_path in _ICC_FILENAMES.items():
+            known_profile = _load_icc_profile(color_space, cctf_encoding)
             if known_profile is not None and icc_bytes == known_profile:
-                return color_space
+                transfer: Transfer = (
+                    "linear"
+                    if is_aces_scene_linear_space(color_space) or not cctf_encoding
+                    else "cctf"
+                )
+                return color_space, transfer
+        for color_space, profile_filename in _ICC_PROFILES.items():
+            resource = pkg_resources.files("spektrafilm.data.icc").joinpath(*profile_filename.split("/"))
+            try:
+                known_profile = resource.read_bytes()
+            except (FileNotFoundError, OSError):
+                known_profile = None
+            if known_profile is not None and icc_bytes == known_profile:
+                return color_space, "linear" if is_aces_scene_linear_space(color_space) else "cctf"
 
     description = spec.get_string_attribute("ICCProfile:profile_description")
     if description:
-        return _ICC_PROFILE_DESCRIPTION_ALIASES.get(" ".join(description.lower().split()))
+        color_space = _ICC_PROFILE_DESCRIPTION_ALIASES.get(" ".join(description.lower().split()))
+        if color_space is not None:
+            return color_space, "linear" if is_aces_scene_linear_space(color_space) else "cctf"
     return None
+
+
+def _known_color_space_from_icc_profile(spec) -> str | None:
+    encoding = _known_encoding_from_icc_profile(spec)
+    return encoding[0] if encoding is not None else None
 
 
 def _icc_profile_bytes_from_spec(spec) -> bytes | None:
@@ -401,7 +448,7 @@ def _known_color_space_from_chromaticities(spec) -> str | None:
     best_color_space: str | None = None
     best_primary_error = float("inf")
     best_whitepoint_error = float("inf")
-    for color_space in (*_ICC_PROFILES.keys(), "ACES2065-1"):
+    for color_space in _ICC_PROFILES.keys():
         reference = colorspace_chromaticities(color_space)
         if reference is None:
             continue
@@ -483,6 +530,10 @@ def save_image_oiio(
     cctf_encoding: bool = True,
     encoding: ColorEncoding | None = None,
     white_luminance: float | None = None,
+    scene_luminance: np.ndarray | None = None,
+    scene_rgb: np.ndarray | None = None,
+    hdr_mapping_kwargs: dict | None = None,
+    exr_mode: str = "scene_linear_archive",
 ):
     """Save a 3-channel image to disk via OpenImageIO.
 
@@ -558,6 +609,42 @@ def save_image_oiio(
     if encoding is not None:
         color_space = encoding.color_space
         cctf_encoding = encoding.is_cctf_encoded
+
+    if is_hdr_photo_extension(filename):
+        if encoding is None:
+            raise ValueError("HEIC/HEIF HDR photo export requires an explicit linear HDR ColorEncoding.")
+        if encoding.is_cctf_encoded:
+            raise ValueError(
+                f"HEIC/HEIF HDR photo export requires linear data; CCTF-encoded {encoding.color_space} should be saved as PNG/JPEG."
+            )
+        if encoding.clip_highlights:
+            raise ValueError("HEIC/HEIF HDR photo export requires unclipped highlight data.")
+
+        mapping = HDRPhotoMapping(**hdr_mapping_kwargs) if hdr_mapping_kwargs else None
+        heic_kwargs: dict[str, object] = {"color_space": encoding.color_space}
+        if mapping is not None:
+            heic_kwargs["mapping"] = mapping
+            heic_kwargs["gain_map_mode"] = mapping.gain_map_mode
+        if scene_luminance is not None:
+            heic_kwargs["scene_luminance"] = scene_luminance
+        if scene_rgb is not None:
+            heic_kwargs["scene_rgb"] = scene_rgb
+        return save_hdr_photo_heic(filename, image_data, **heic_kwargs)
+
+    if ext == "exr":
+        if exr_mode not in {"scene_linear_archive", "hdr_rendition"}:
+            raise ValueError("exr_mode must be 'scene_linear_archive' or 'hdr_rendition'.")
+        if exr_mode == "hdr_rendition":
+            mapping = HDRPhotoMapping(**hdr_mapping_kwargs) if hdr_mapping_kwargs else HDRPhotoMapping()
+            renditions = prepare_hdr_photo_renditions(
+                image_data,
+                mapping=mapping,
+                scene_luminance=scene_luminance,
+                scene_rgb=scene_rgb,
+            )
+            image_data = renditions.hdr_rgb
+            if white_luminance is None:
+                white_luminance = HDR_REFERENCE_WHITE_LUMINANCE_NITS
 
     # Extract image dimensions and number of channels
     height, width, nchannels = image_data.shape

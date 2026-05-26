@@ -221,6 +221,7 @@ class SimulationPipeline:
 
         self.timings = {}
         self._last_elapsed_time = None
+        self.validation_report = None
 
         self._resize_service = ResizingService(self.io, self.camera.film_format_mm)
         reused_lut_service = _reused_lut_service
@@ -303,6 +304,8 @@ class SimulationPipeline:
                 image = self._pipeline(image)
             else:
                 image = self._pipeline_debug(image)
+            if self._gpu_validation_enabled() and self.debug.debug_mode != 'off':
+                self._record_gpu_validation_skip("debug_mode")
             return np.asarray(self._array_backend.to_numpy(image), dtype=self._runtime_dtype)
         finally:
             self._last_elapsed_time = perf_counter() - start
@@ -322,6 +325,8 @@ class SimulationPipeline:
                 image = self._process_runtime_array(self._runtime_array(preprocessed))
             else:
                 image = self._pipeline_debug(image)
+            if self._gpu_validation_enabled() and self.debug.debug_mode != 'off':
+                self._record_gpu_validation_skip("debug_mode")
             return SimulationPipelineResult(
                 image=np.asarray(self._array_backend.to_numpy(image), dtype=self._runtime_dtype),
                 hdr_scene_energy=hdr_scene_energy,
@@ -344,6 +349,20 @@ class SimulationPipeline:
 
     def print_timings(self):
         print(self.format_timings())
+
+    def _gpu_validation_enabled(self) -> bool:
+        settings = getattr(self, "settings", None)
+        return bool(getattr(settings, "gpu_validate", False)) and bool(
+            getattr(self._array_backend, "supports_gpu", False)
+        )
+
+    def _record_gpu_validation_skip(self, reason: str) -> None:
+        start = perf_counter()
+        self.validation_report = {
+            "status": "skipped",
+            "reason": reason,
+        }
+        self.timings["SimulationPipeline.gpu_validate"] = perf_counter() - start
 
     def _should_tile_gpu_image(self, image) -> bool:
         if not getattr(self._array_backend, "supports_gpu", False):
