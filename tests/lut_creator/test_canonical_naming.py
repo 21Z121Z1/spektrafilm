@@ -14,12 +14,28 @@ from __future__ import annotations
 import pytest
 
 from spektrafilm_lut_creator.bundles import BundleSpec
-from spektrafilm_lut_creator.builders import (
-    _canonical_lut_filename,
-    _canonical_lut_title,
-    _normalize_stock,
-    _normalize_version,
+from spektrafilm_lut_creator.naming import (
+    lut_filename,
+    lut_title,
+    normalize_stock as _normalize_stock,
+    normalize_version as _normalize_version,
 )
+
+
+def _canonical_lut_filename(spec, print_stock, version_tag):
+    """Test helper — mirrors the old combined-1-LUT shape."""
+    return lut_filename(
+        film_profile=spec.film_profile, version_tag=version_tag,
+        print_profile=print_stock, suffix=None,
+    )
+
+
+def _canonical_lut_title(spec, print_stock, version_tag):
+    """Test helper — mirrors the old combined-1-LUT title shape."""
+    return lut_title(
+        film_profile=spec.film_profile, version_tag=version_tag,
+        print_profile=print_stock, suffix=None,
+    )
 
 
 class TestNormalizeStock:

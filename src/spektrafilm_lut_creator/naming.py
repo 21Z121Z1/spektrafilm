@@ -25,7 +25,7 @@ falsely naming after one print. Every tag is normalized:
 """
 from __future__ import annotations
 
-from importlib.metadata import PackageNotFoundError, version as distribution_version
+from spektrafilm_lut_creator.metadata import _spektrafilm_version
 
 
 # Brand prefixes stripped from profile stock names when building canonical
@@ -78,17 +78,6 @@ def topology_tag(topology: str) -> str:
     return _TOPOLOGY_TAGS.get(topology, topology)
 
 
-def spektrafilm_version() -> str:
-    """The installed ``spektrafilm`` distribution version, or
-    ``"0+unknown"`` when the package isn't installed (rare — usually
-    only happens during a from-source dev install with editable mode
-    misconfigured)."""
-    try:
-        return distribution_version("spektrafilm")
-    except PackageNotFoundError:
-        return "0+unknown"
-
-
 def default_bundle_name(
     film_profile: str,
     print_profiles: tuple[str, ...],
@@ -108,7 +97,7 @@ def default_bundle_name(
     # is populated at module-load time so the import is light).
     from spektrafilm_lut_creator.color_spaces import short_tag as _cs_short_tag
 
-    v_tag = normalize_version(spektrafilm_version())
+    v_tag = normalize_version(_spektrafilm_version())
     film_tag = normalize_stock(film_profile)
     topo_tag = topology_tag(topology)
     in_tag = _cs_short_tag(input_color_space)
@@ -120,6 +109,69 @@ def default_bundle_name(
     else:
         parts.append(f"{len(print_profiles)}printpack")
     parts.extend([topo_tag, in_tag, out_tag])
+    return "_".join(parts)
+
+
+def lut_filename(
+    *,
+    film_profile: str,
+    version_tag: str,
+    print_profile: str | None = None,
+    suffix: str | None = None,
+    subdir: str | None = None,
+    ext: str = ".cube",
+) -> str:
+    """Build the canonical on-disk filename for one cube in a bundle.
+
+    Pattern: ``lut_{version_tag}_{film}[_{print}][_{suffix}]{ext}``,
+    optionally prefixed with ``<subdir>/``. Every canonical cube the
+    builder emits comes from this one helper:
+
+    - **1-LUT combined**: ``film_profile + print_profile``, no suffix
+      → ``lut_v032_portra400_endura.cube``.
+    - **2-LUT film half**: ``film_profile`` only, ``suffix="film"``
+      → ``lut_v032_portra400_film.cube``.
+    - **2-LUT print half**: ``film + print``, ``suffix="print"``
+      → ``lut_v032_portra400_endura_print.cube``.
+    - **4-LUT L1 / L2** (shared): ``film_profile`` only, ``suffix="l1"``
+      or ``"l2"``.
+    - **4-LUT L3 / L4** (per-print): ``film + print``, ``suffix="l3"``
+      or ``"l4"``.
+    - **3-LUT L3 (collapsed)**: ``film + print``, ``suffix="l3"``.
+    - **Sub-chain combinations** (n130): ``film [+ print]``,
+      ``suffix="l12"``/``"l1234"``/…, ``subdir="combinations"``.
+
+    Stocks are normalized via :func:`normalize_stock`; the version tag
+    is expected pre-normalized by :func:`normalize_version`.
+    """
+    parts = ["lut", version_tag, normalize_stock(film_profile)]
+    if print_profile is not None:
+        parts.append(normalize_stock(print_profile))
+    if suffix:
+        parts.append(suffix)
+    name = "_".join(parts) + ext
+    return f"{subdir}/{name}" if subdir else name
+
+
+def lut_title(
+    *,
+    film_profile: str,
+    version_tag: str,
+    print_profile: str | None = None,
+    suffix: str | None = None,
+) -> str:
+    """Compact title for a baked cube — same shape as
+    :func:`lut_filename` minus the ``lut_`` prefix and extension.
+
+    Used as the ``TITLE "..."`` line inside ``.cube`` files. Mirrors
+    the filename pattern so a user reading a cube's title can recognize
+    the file it came from.
+    """
+    parts = [version_tag, normalize_stock(film_profile)]
+    if print_profile is not None:
+        parts.append(normalize_stock(print_profile))
+    if suffix:
+        parts.append(suffix)
     return "_".join(parts)
 
 

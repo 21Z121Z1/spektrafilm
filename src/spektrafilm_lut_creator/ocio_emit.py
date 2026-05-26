@@ -41,6 +41,8 @@ from __future__ import annotations
 
 from spektrafilm_lut_creator.bundles import Bundle, BundleSpec
 from spektrafilm_lut_creator.color_spaces import get as get_color_space
+from spektrafilm_lut_creator.metadata import PER_PRINT_LUT_ROLES, SHARED_LUT_ROLES
+from spektrafilm_lut_creator.naming import normalize_stock
 from spektrafilm_lut_creator.wires import DensityWire, LogEWire
 
 
@@ -124,12 +126,6 @@ _COLORSPACE_BUILTIN: dict[str, list[tuple[str, str]]] = {
     ],
 }
 
-# Back-compat / role-named aliases. Keep separate symbols so the
-# is_supported / unsupported_reason error messages stay actionable.
-_INPUT_BUILTIN = _COLORSPACE_BUILTIN
-_OUTPUT_BUILTIN = _COLORSPACE_BUILTIN
-
-
 _SUPPORTED_TOPOLOGIES = ("1lut", "2lut", "3lut", "4lut")
 
 
@@ -138,12 +134,12 @@ def is_supported(spec: BundleSpec) -> bool:
 
     Returns True iff the emitter can produce a working config for ``spec``:
     topology is one of ``_SUPPORTED_TOPOLOGIES`` and both input/output
-    spaces appear in the BuiltinTransform tables above.
+    spaces appear in the :data:`_COLORSPACE_BUILTIN` table.
     """
     return (
         spec.topology in _SUPPORTED_TOPOLOGIES
-        and spec.input_color_space in _INPUT_BUILTIN
-        and spec.output_color_space in _OUTPUT_BUILTIN
+        and spec.input_color_space in _COLORSPACE_BUILTIN
+        and spec.output_color_space in _COLORSPACE_BUILTIN
     )
 
 
@@ -157,17 +153,17 @@ def unsupported_reason(spec: BundleSpec) -> str:
             f"OCIO emission does not support topology={spec.topology!r}; "
             f"supported: {list(_SUPPORTED_TOPOLOGIES)}"
         )
-    if spec.input_color_space not in _INPUT_BUILTIN:
+    if spec.input_color_space not in _COLORSPACE_BUILTIN:
         return (
             f"input color space {spec.input_color_space!r} has no OCIO "
             f"BuiltinTransform mapping; supported inputs: "
-            f"{sorted(_INPUT_BUILTIN)}"
+            f"{sorted(_COLORSPACE_BUILTIN)}"
         )
-    if spec.output_color_space not in _OUTPUT_BUILTIN:
+    if spec.output_color_space not in _COLORSPACE_BUILTIN:
         return (
             f"output color space {spec.output_color_space!r} has no OCIO "
             f"BuiltinTransform mapping; supported outputs: "
-            f"{sorted(_OUTPUT_BUILTIN)}"
+            f"{sorted(_COLORSPACE_BUILTIN)}"
         )
     return ""
 
@@ -201,7 +197,6 @@ def _spektrafilm_colorspace_name(film_profile: str, print_profile: str) -> str:
     Mirrors the inline construction in :func:`_spektrafilm_colorspace_yaml`
     so display/view emitters can reference the same colorspace by name.
     """
-    from spektrafilm_lut_creator.naming import normalize_stock
     return f"spektrafilm_{normalize_stock(film_profile)}_{normalize_stock(print_profile)}"
 
 
@@ -329,9 +324,9 @@ def _colorspaces_block(bundle: Bundle, spec: BundleSpec) -> list[str]:
     lines = ["colorspaces:"]
     lines.extend(_reference_colorspace_yaml())
     if spec.input_color_space != REFERENCE_COLORSPACE:
-        lines.extend(_input_colorspace_yaml(spec))
+        lines.extend(_io_colorspace_yaml(spec.input_color_space, family="Input"))
     if spec.output_color_space != REFERENCE_COLORSPACE:
-        lines.extend(_output_colorspace_yaml(spec))
+        lines.extend(_io_colorspace_yaml(spec.output_color_space, family="Output"))
 
     # Intermediates land before the final per-print spektrafilm
     # colorspaces so OCIO's reference resolution sees them when the
@@ -373,11 +368,16 @@ def _reference_colorspace_yaml() -> list[str]:
     ]
 
 
-def _input_colorspace_yaml(spec: BundleSpec) -> list[str]:
-    entry = get_color_space(spec.input_color_space)
-    name = spec.input_color_space
+def _io_colorspace_yaml(name: str, *, family: str) -> list[str]:
+    """Emit a ColorSpace YAML block for the bundle's input or output side.
+
+    ``family`` selects the OCIO ``family:`` field (``"Input"`` or
+    ``"Output"``); everything else — name, alias, encoding, builtin
+    transform chain — comes from the color-space registry lookup.
+    """
+    entry = get_color_space(name)
     encoding = _encoding_for_kind(entry.kind)
-    builtins = _INPUT_BUILTIN[name]
+    builtins = _COLORSPACE_BUILTIN[name]
 
     lines = [
         "  - !<ColorSpace>",
@@ -386,10 +386,10 @@ def _input_colorspace_yaml(spec: BundleSpec) -> list[str]:
     if entry.ocio_alias:
         lines.append(f"    aliases: [{_yaml_str(entry.ocio_alias)}]")
     lines.extend([
-        "    family: Input",
+        f"    family: {family}",
         f"    encoding: {encoding}",
         "    description: |",
-        f"      Bundle input color space: {name}.",
+        f"      Bundle {family.lower()} color space: {name}.",
         "    isdata: false",
         "    from_scene_reference: !<GroupTransform>",
         "      children:",
@@ -397,42 +397,6 @@ def _input_colorspace_yaml(spec: BundleSpec) -> list[str]:
     lines.extend(_builtin_transform_lines(builtins, indent="        "))
     lines.append("")
     return lines
-
-
-def _output_colorspace_yaml(spec: BundleSpec) -> list[str]:
-    entry = get_color_space(spec.output_color_space)
-    name = spec.output_color_space
-    encoding = _encoding_for_kind(entry.kind)
-    builtins = _OUTPUT_BUILTIN[name]
-
-    lines = [
-        "  - !<ColorSpace>",
-        f"    name: {_yaml_str(name)}",
-    ]
-    if entry.ocio_alias:
-        lines.append(f"    aliases: [{_yaml_str(entry.ocio_alias)}]")
-    lines.extend([
-        "    family: Output",
-        f"    encoding: {encoding}",
-        "    description: |",
-        f"      Bundle output color space: {name}.",
-        "    isdata: false",
-        "    from_scene_reference: !<GroupTransform>",
-        "      children:",
-    ])
-    lines.extend(_builtin_transform_lines(builtins, indent="        "))
-    lines.append("")
-    return lines
-
-
-_SHARED_LUT_ROLES = frozenset({"film", "filming_expose", "filming_develop"})
-"""LUT roles that appear once per bundle (shared across all prints)."""
-
-_PER_PRINT_LUT_ROLES = frozenset({
-    "combined", "print",
-    "printing_combined", "printing_expose", "printing_develop_scan",
-})
-"""LUT roles that appear once per print in the bundle."""
 
 
 def _multilut_chain_for_print(bundle: Bundle, print_profile: str) -> list[str]:
@@ -446,9 +410,9 @@ def _multilut_chain_for_print(bundle: Bundle, print_profile: str) -> list[str]:
     """
     chain: list[str] = []
     for lut in bundle.meta.luts:
-        if lut.role in _SHARED_LUT_ROLES:
+        if lut.role in SHARED_LUT_ROLES:
             chain.append(lut.path)
-        elif lut.print_profile == print_profile and lut.role in _PER_PRINT_LUT_ROLES:
+        elif lut.print_profile == print_profile and lut.role in PER_PRINT_LUT_ROLES:
             chain.append(lut.path)
     return chain
 
@@ -469,8 +433,6 @@ def _intermediate_specs(
     the returned shared-tap entries (e.g. ``cmy_film_<film>``) carry
     identical content across prints; the caller deduplicates by name.
     """
-    from spektrafilm_lut_creator.naming import normalize_stock
-
     if spec.topology == "1lut":
         return []
 
@@ -496,7 +458,7 @@ def _intermediate_specs(
             "name": f"log_e_film_{film_tag}",
             "family_suffix": film_tag,
             "encoding": "log",
-            "description": _log_e_film_description(wires.log_e_film),
+            "description": _log_e_description(wires.log_e_film, stage="film"),
             "chain_relpaths": [chain[0]],
         })
         intermediates.append({
@@ -513,7 +475,7 @@ def _intermediate_specs(
             "name": f"log_e_film_{film_tag}",
             "family_suffix": film_tag,
             "encoding": "log",
-            "description": _log_e_film_description(wires.log_e_film),
+            "description": _log_e_description(wires.log_e_film, stage="film"),
             "chain_relpaths": [chain[0]],
         })
         intermediates.append({
@@ -530,7 +492,7 @@ def _intermediate_specs(
             "name": f"log_e_print_{film_tag}_{print_tag}",
             "family_suffix": f"{film_tag}/{print_tag}",
             "encoding": "log",
-            "description": _log_e_print_description(wires.log_e_print),
+            "description": _log_e_description(wires.log_e_print, stage="print"),
             "chain_relpaths": [chain[0], chain[1], chain[2]],
         })
 
@@ -579,8 +541,6 @@ def _spektrafilm_colorspace_yaml(
     full input -> output transform. Length 1 for 1-LUT bundles; 2 for
     2-LUT; 3 for 3-LUT; 4 for 4-LUT.
     """
-    from spektrafilm_lut_creator.naming import normalize_stock
-
     film_tag = normalize_stock(spec.film_profile)
     print_tag = normalize_stock(print_profile)
     cs_name = _spektrafilm_colorspace_name(spec.film_profile, print_profile)
@@ -643,40 +603,40 @@ def _cmy_film_description(wire: DensityWire | None) -> str:
     )
 
 
-def _log_e_film_description(wire: LogEWire | None) -> str:
+_LOG_E_STAGE_ADVICE: dict[str, str] = {
+    "film": (
+        "Apply halation, light scattering, or pre-development spatial\n"
+        "effects in linear-light exposure (after the 10^ decode); continue\n"
+        "the chain with the remaining .cube file(s) directly via FileTransform."
+    ),
+    "print": (
+        "Apply enlarger-stage effects (diffusion filters, dodge/burn) here;\n"
+        "continue the chain with the remaining .cube file(s) directly via\n"
+        "FileTransform."
+    ),
+}
+
+
+def _log_e_description(wire: LogEWire | None, stage: str) -> str:
+    """Render the OCIO description block for a normalized log10(E) wire.
+
+    ``stage`` is ``"film"`` or ``"print"`` — selects the stage-specific
+    "where to apply effects" sentence at the bottom. Everything else
+    (encoding/decode formula, wire constants) is shared.
+    """
     if wire is None:
         return (
-            "Normalized log10(exposure) at the film.\n"
+            f"Normalized log10(exposure) at the {stage}.\n"
             "Wire constants unavailable; refer to bundle.json."
         )
     return (
-        "Normalized log10(exposure) at the film (shared across channels).\n"
+        f"Normalized log10(exposure) at the {stage} (shared across channels).\n"
         "Encoding: code = (log_e - min) / (max - min)\n"
         f"  min: {wire.min:.4f}\n"
         f"  max: {wire.max:.4f}\n"
         "Decode: log10(E) = code * (max - min) + min; E = 10^log10(E).\n"
-        "Asymmetric: from_scene_reference only. Apply halation, light\n"
-        "scattering, or pre-development spatial effects in linear-light\n"
-        "exposure (after the 10^ decode); continue the chain with the\n"
-        "remaining .cube file(s) directly via FileTransform."
-    )
-
-
-def _log_e_print_description(wire: LogEWire | None) -> str:
-    if wire is None:
-        return (
-            "Normalized log10(exposure) at the print.\n"
-            "Wire constants unavailable; refer to bundle.json."
-        )
-    return (
-        "Normalized log10(exposure) at the print (shared across channels).\n"
-        "Encoding: code = (log_e - min) / (max - min)\n"
-        f"  min: {wire.min:.4f}\n"
-        f"  max: {wire.max:.4f}\n"
-        "Decode: log10(E) = code * (max - min) + min; E = 10^log10(E).\n"
-        "Asymmetric: from_scene_reference only. Apply enlarger-stage\n"
-        "effects (diffusion filters, dodge/burn) here; continue the\n"
-        "chain with the remaining .cube file(s) directly via FileTransform."
+        "Asymmetric: from_scene_reference only. "
+        + _LOG_E_STAGE_ADVICE[stage]
     )
 
 

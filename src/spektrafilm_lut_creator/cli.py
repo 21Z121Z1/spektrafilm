@@ -307,19 +307,36 @@ def _slug_table() -> dict[str, str]:
 def _cmd_list(kind: str) -> int:
     if kind == "film":
         names = _list_profiles_by_stage("filming")
-    elif kind == "print":
+        for name in names:
+            print(name)
+        return 0
+    if kind == "print":
         names = _list_profiles_by_stage("printing")
-    elif kind == "input":
-        names = color_spaces.list_input_spaces()
-    elif kind == "output":
-        names = color_spaces.list_output_spaces()
-    elif kind == "target":
+        for name in names:
+            print(name)
+        return 0
+    if kind == "target":
         names = delivery_targets.list_targets()
-    else:  # argparse enforces choices, this branch is unreachable
-        return 2
-    for name in names:
-        print(name)
-    return 0
+        for name in names:
+            print(name)
+        return 0
+    if kind in ("input", "output"):
+        # Color spaces print as ``<canonical>  <slug>`` so both forms
+        # — the canonical registry name (``"Panasonic V-Log"``) and
+        # the short-tag slug (``vlog``) — accepted by ``--input`` /
+        # ``--output`` are visible at a glance. Padded to a column so
+        # the slugs line up; the slug is still the last whitespace-
+        # delimited token, so pipelines that want it can read it with
+        # ``awk '{print $NF}'``.
+        names = (color_spaces.list_input_spaces() if kind == "input"
+                 else color_spaces.list_output_spaces())
+        width = max((len(n) for n in names), default=0)
+        for name in names:
+            slug = color_spaces.get(name).short_tag
+            print(f"{name:<{width}}  {slug}")
+        return 0
+    # argparse enforces choices, this branch is unreachable.
+    return 2
 
 
 def _list_profiles_by_stage(stage: str) -> list[str]:

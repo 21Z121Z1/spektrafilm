@@ -80,16 +80,18 @@ def planckian_sweep(
     input_color_space: str,
     cct_range_k: tuple[float, float] = (2700.0, 10000.0),
     n: int = 16,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Daylight-locus white points across a CCT range.
 
-    Returns ``(samples_encoded, cct_array)``:
+    Returns ``(samples_encoded, cct_array, srgb_dot_colors)``:
 
     - ``samples_encoded``: shape ``(n, 3)``, "perfect white surface
       under illuminant CCT" expressed as encoded RGB in the input
       space. Built by computing each illuminant's chromaticity, setting
       Y=1, converting XYZ → input-space RGB → CCTF-encoded.
     - ``cct_array``: shape ``(n,)`` of the CCT values, for plotting.
+    - ``srgb_dot_colors``: shape ``(n, 3)`` in sRGB-encoded ``[0, 1]``,
+      the perceptual color of each illuminant for use as plot dot color.
 
     A spektrafilm pipeline that handles white-balance gracefully sends
     these samples to a smooth, monotone curve in the output's
@@ -130,7 +132,101 @@ def planckian_sweep(
     peak = np.clip(np.max(linear_rgb, axis=-1, keepdims=True), 1e-6, None)
     linear_rgb = linear_rgb / peak
     samples_encoded = encode_cctf(np.clip(linear_rgb, 0.0, 1.0), input_color_space)
-    return np.asarray(samples_encoded, dtype=np.float32), cct
+    srgb_dot_colors = xyz_to_srgb_dot(xyz)
+    return (
+        np.asarray(samples_encoded, dtype=np.float32),
+        cct,
+        srgb_dot_colors,
+    )
+
+
+def skin_arc(
+    input_color_space: str,
+    *,
+    patches: tuple[str, ...] = ("dark skin", "light skin"),
+    illuminants: tuple[str, ...] = ("D50", "D55", "D65"),
+) -> tuple[np.ndarray, np.ndarray, list[str]]:
+    """Measured skin reflectances under daylight illuminants.
+
+    Returns ``(samples_encoded, srgb_dot_colors, labels)``:
+
+    - ``samples_encoded``: shape ``(P*I, 3)`` — each skin patch under
+      each illuminant, in the bundle's input encoded RGB.
+    - ``srgb_dot_colors``: shape ``(P*I, 3)`` — sRGB-encoded rendering
+      of each (reflectance × illuminant) for plot dot color.
+    - ``labels``: ``"<patch> / <illum>"`` strings for legends.
+
+    Stimulus spectra come from ``colour.SDS_COLOURCHECKERS["ISO 17321-1"]``
+    (the standards-blessed ColorChecker reference). Two skin patches
+    spanning the dark-light range under three daylight illuminants give
+    a compact cluster on the chromaticity plot — companion to the
+    Planckian sweep on the same figure.
+
+    References
+    ----------
+    - ISO 17321-1 reference reflectances.
+    - n080 §3.5 — skin-tone arc design.
+    """
+    from spektrafilm_lut_creator.color_spaces import encode_cctf, get as get_cs
+
+    entry = get_cs(input_color_space)
+    checker = colour.SDS_COLOURCHECKERS["ISO 17321-1"]
+
+    xyz_list: list[np.ndarray] = []
+    labels: list[str] = []
+    for patch in patches:
+        sd_patch = checker[patch]
+        for illum_name in illuminants:
+            sd_illum = colour.SDS_ILLUMINANTS[illum_name]
+            # Normalize so a perfect white reflector under this
+            # illuminant has Y = 1 — skin patches then sit at their
+            # natural reflectance below that ceiling.
+            xyz_white = np.asarray(
+                colour.sd_to_XYZ(sd_illum, illuminant=sd_illum), dtype=float,
+            )
+            y_white = float(xyz_white[1]) if xyz_white[1] > 1e-9 else 1.0
+            xyz_patch = np.asarray(
+                colour.sd_to_XYZ(sd_patch, illuminant=sd_illum), dtype=float,
+            ) / y_white
+            xyz_list.append(xyz_patch)
+            labels.append(f"{patch} / {illum_name}")
+
+    xyz = np.stack(xyz_list, axis=0)
+    linear_rgb = np.asarray(
+        colour.XYZ_to_RGB(
+            xyz, colourspace=entry.primaries, apply_cctf_encoding=False,
+        ),
+        dtype=float,
+    )
+    # Skin patches at natural reflectance fall well inside the input
+    # gamut; small negative components from out-of-input-gamut tints
+    # get clipped at the encoded boundary.
+    linear_rgb = np.clip(linear_rgb, 0.0, 1.0)
+    samples_encoded = encode_cctf(linear_rgb, input_color_space).astype(np.float32)
+    srgb_dot_colors = xyz_to_srgb_dot(xyz)
+    return samples_encoded, srgb_dot_colors, labels
+
+
+def xyz_to_srgb_dot(xyz: np.ndarray) -> np.ndarray:
+    """Render XYZ samples to sRGB-encoded dot colors for plotting.
+
+    Each row is normalized so the brightest channel = 1, so a dim
+    stimulus (low-reflectance skin patch, or any normalized illuminant)
+    reads as a vivid color on the plot. Chromaticity is preserved;
+    only brightness is renormalized.
+    """
+    srgb_linear = np.asarray(
+        colour.XYZ_to_sRGB(
+            np.asarray(xyz, dtype=float), apply_cctf_encoding=False,
+        ),
+        dtype=float,
+    )
+    srgb_linear = np.clip(srgb_linear, 0.0, None)
+    peak = np.max(srgb_linear, axis=-1, keepdims=True)
+    peak = np.where(peak > 1e-6, peak, 1.0)
+    srgb_linear = srgb_linear / peak
+    encoded = colour.cctf_encoding(srgb_linear, function="sRGB")
+    return np.clip(np.asarray(encoded, dtype=float), 0.0, 1.0)
 
 
 def saturated_cube_edges(n: int = 33) -> tuple[np.ndarray, list[np.ndarray]]:

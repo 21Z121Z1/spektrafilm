@@ -35,11 +35,6 @@ def _spektrafilm_version() -> str:
         return "0+unknown"
 
 
-def _lut_creator_version() -> str:
-    """The lut_creator ships as part of spektrafilm today; same version."""
-    return _spektrafilm_version()
-
-
 def _created_iso8601() -> str:
     """UTC build timestamp in ISO 8601 (seconds resolution)."""
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -60,7 +55,9 @@ class ProvenanceMeta:
     mirror the spektrafilm profile metadata pattern.
     """
     spektrafilm_version: str = field(default_factory=_spektrafilm_version)
-    lut_creator_version: str = field(default_factory=_lut_creator_version)
+    # The LUT creator ships inside the spektrafilm distribution; it
+    # has no separate version of its own.
+    lut_creator_version: str = field(default_factory=_spektrafilm_version)
     created: str = field(default_factory=_created_iso8601)
     copyright: str = field(default_factory=_copyright_statement)
     license: str = (
@@ -113,14 +110,49 @@ class WiresMeta:
     cmy_print: DensityWire | None = None
 
 
+# LUT role taxonomy emitted by the builder. Centralized so consumers
+# (notably ``ocio_emit`` for chain composition) can branch by frozenset
+# membership instead of string-matching, and so the docstring on
+# :class:`LutFileMeta` doesn't drift from what the builder writes.
+SHARED_LUT_ROLES: frozenset[str] = frozenset({
+    "film",
+    "filming_expose",
+    "filming_develop",
+})
+"""Roles that appear at most once per bundle (shared across all prints)."""
+
+PER_PRINT_LUT_ROLES: frozenset[str] = frozenset({
+    "combined",
+    "print",
+    "printing_combined",
+    "printing_expose",
+    "printing_develop_scan",
+})
+"""Roles that appear once per print in the bundle."""
+
+
 @dataclass(frozen=True)
 class LutFileMeta:
-    """One LUT entry within a bundle."""
-    role: str            # "combined" (1lut) | "film" | "print"
+    """One LUT entry within a bundle.
+
+    ``role`` values currently emitted by the builder:
+
+    - ``"combined"`` — single full-chain cube (1-LUT topology).
+    - ``"film"`` / ``"print"`` — 2-LUT pair.
+    - ``"filming_expose"`` / ``"filming_develop"`` — shared L1 / L2.
+    - ``"printing_expose"`` / ``"printing_develop_scan"`` — per-print L3 / L4 (4-LUT).
+    - ``"printing_combined"`` — collapsed back-half in 3-LUT.
+    - ``"subchain_<ids>"`` — opt-in pre-collapsed sub-chain cubes
+      (n130), e.g. ``"subchain_12"``, ``"subchain_1234"``.
+
+    The shared-vs-per-print classification lives in
+    :data:`SHARED_LUT_ROLES` and :data:`PER_PRINT_LUT_ROLES`.
+    """
+    role: str
     path: str            # relative to the bundle root
     domain: str          # source tap name (e.g. "input_rgb", "cmy_film")
     range: str           # destination tap name (e.g. "cmy_film", "output_rgb")
-    print_profile: str | None = None  # set for role="print"
+    print_profile: str | None = None  # set for per-print roles
 
 
 @dataclass(frozen=True)
@@ -143,8 +175,7 @@ class BundleMeta:
     """The full ``bundle.json`` payload."""
     schema_version: int = SCHEMA_VERSION
     name: str = ""
-    topology: str = "1lut"
-    # "1lut" | "2lut" | "4lut"
+    topology: str = "1lut"  # "1lut" | "2lut" | "3lut" | "4lut"
     resolution: int = 33
     target: str | None = None  # delivery target name, if any
     provenance: ProvenanceMeta = field(default_factory=ProvenanceMeta)
@@ -154,3 +185,13 @@ class BundleMeta:
     luts: tuple[LutFileMeta, ...] = ()
     input_exposure: InputExposureMeta | None = None
     params_snapshot: dict[str, Any] = field(default_factory=dict)
+    """Per-print snapshot of the runtime configuration the LUT creator
+    passes to the pipeline — what `RuntimePhotoParams` ran on for each
+    bake, *not* a GUI-state dump. Keyed by print profile name; each
+    value is a dict of all the LUT-creator-configurable knobs (film +
+    print profiles, color-space primaries, CCTF flags, gamut
+    compression specs, exposure gain, gamut clip, resolution,
+    topology). Profile data on disk (film/print JSON) is identified
+    by name; the resolved curves and sensitivities aren't dumped here
+    because they'd bloat bundle.json and are reproducible from the
+    profile name + spektrafilm version."""

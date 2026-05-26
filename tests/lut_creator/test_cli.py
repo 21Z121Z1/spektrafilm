@@ -38,18 +38,24 @@ class TestListSubcommand:
     def test_list_input_includes_known_spaces(self, capsys):
         rc = cli.main(["list", "input"])
         assert rc == 0
-        names = capsys.readouterr().out.splitlines()
-        assert "Panasonic V-Log" in names
-        assert "ACEScg" in names
-        assert "sRGB" in names
+        lines = capsys.readouterr().out.splitlines()
+        # Each line is "<canonical name>  <slug>"; check both forms
+        # appear so the user sees what they can paste into --input.
+        assert any(l.startswith("Panasonic V-Log") and l.endswith("vlog")
+                   for l in lines)
+        assert any(l.startswith("ACEScg") and l.endswith("acescg")
+                   for l in lines)
+        assert any(l.startswith("sRGB") and l.endswith("srgb")
+                   for l in lines)
 
     def test_list_output_excludes_input_only_spaces(self, capsys):
         rc = cli.main(["list", "output"])
         assert rc == 0
-        names = capsys.readouterr().out.splitlines()
-        assert "sRGB" in names
+        lines = capsys.readouterr().out.splitlines()
+        assert any(l.startswith("sRGB") for l in lines)
         # ACEScg is input-only; must not appear under outputs.
-        assert "ACEScg" not in names
+        assert not any(l.startswith("ACEScg ") or l == "ACEScg"
+                       for l in lines)
 
     def test_list_target_includes_lumix(self, capsys):
         rc = cli.main(["list", "target"])
