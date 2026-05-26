@@ -106,3 +106,89 @@ def backend_summary(backend: ArrayBackend, *, runtime_gpu_enabled: bool = False)
     if backend.fallback_reason:
         summary = f"{summary} fallback: {backend.fallback_reason}"
     return summary
+
+
+# ---------------------------------------------------------------------------
+# GPU Tiling for Large Images
+# ---------------------------------------------------------------------------
+
+
+def tiled_processing(
+    image: Any,
+    tile_size: int,
+    process_fn: Any,
+    backend: ArrayBackend,
+    *,
+    overlap: int = 0,
+) -> Any:
+    """Process a large image in tiles to fit within GPU memory.
+
+    Splits the image into overlapping tiles, processes each tile through
+    ``process_fn`` on the GPU, and reassembles the result.  The overlap
+    region is discarded to avoid seam artifacts from filter kernels that
+    extend beyond tile boundaries.
+
+    Parameters
+    ----------
+    image : array-like
+        Input image with shape ``(height, width, channels)``.
+    tile_size : int
+        Tile dimension in pixels.  Each tile is
+        ``(tile_size, tile_size, channels)``.
+    process_fn : callable
+        Function that takes a backend array and returns a processed backend
+        array with the same spatial dimensions.
+    backend : ArrayBackend
+        Array backend for GPU/CPU computation.
+    overlap : int
+        Number of pixels of overlap on each side to handle filter kernel
+        bleed.  Element-wise operations (colour transforms) need ``0``;
+        Gaussian blur needs ``3 * sigma``.
+
+    Returns
+    -------
+    array-like
+        Processed image with the same shape and dtype as ``image``.
+    """
+
+    import numpy as np
+
+    np_image = backend.to_numpy(image) if backend.supports_gpu else np.asarray(image)
+    h, w = np_image.shape[:2]
+    stride = tile_size - 2 * overlap
+    if stride <= 0:
+        raise ValueError(f"tile_size ({tile_size}) must be greater than 2 * overlap ({2 * overlap}).")
+
+    result = np.empty_like(np_image)
+    has_coverage = np.zeros((h, w), dtype=bool)
+
+    for y in range(0, h, stride):
+        for x in range(0, w, stride):
+            y1 = max(0, y - overlap)
+            y2 = min(h, y1 + tile_size)
+            x1 = max(0, x - overlap)
+            x2 = min(w, x1 + tile_size)
+
+            tile = backend.asarray(np_image[y1:y2, x1:x2])
+            processed = backend.to_numpy(process_fn(tile))
+
+            # Compute the valid (non-overlap) region in output coordinates.
+            oy1 = y
+            oy2 = min(h, y + stride)
+            ox1 = x
+            ox2 = min(w, x + stride)
+
+            # Map valid region back to tile-local coordinates.
+            ty1 = oy1 - y1
+            ty2 = ty1 + (oy2 - oy1)
+            tx1 = ox1 - x1
+            tx2 = tx1 + (ox2 - ox1)
+
+            result[oy1:oy2, ox1:ox2] = processed[ty1:ty2, tx1:tx2]
+            has_coverage[oy1:oy2, ox1:ox2] = True
+
+    if not np.all(has_coverage):
+        uncovered = int(np.sum(~has_coverage))
+        raise RuntimeError(f"Tiling left {uncovered} pixels uncovered; increase tile_size or check stride logic.")
+
+    return backend.asarray(result)

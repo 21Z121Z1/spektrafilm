@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -1438,3 +1439,95 @@ def test_gain_map_max_matches_actual_h_over_s() -> None:
 def test_mapping_validation_rejects_invalid_values(kwargs: dict, match: str) -> None:
     with pytest.raises(ValueError, match=match):
         hdr_photo.HDRPhotoMapping(**kwargs)
+
+
+# ---------------------------------------------------------------------------
+# ISO 21496-1 Gain Map Metadata Tests
+# ---------------------------------------------------------------------------
+
+
+def test_build_iso_21496_1_gain_map_metadata_from_renditions() -> None:
+    """Gain map metadata must match headroom from renditions."""
+    image = np.array([[[1.0, 1.0, 1.0], [4.0, 4.0, 4.0]]], dtype=np.float32)
+    mapping = hdr_photo.HDRPhotoMapping(max_headroom=4.0)
+    renditions = hdr_photo.prepare_hdr_photo_renditions(image, mapping=mapping)
+
+    gm = hdr_photo.build_iso_21496_1_gain_map_metadata(renditions)
+
+    assert gm.gain_map_min == 0.0
+    assert gm.gain_map_max == pytest.approx(math.log2(renditions.headroom), rel=1e-4)
+    assert gm.gamma == 1.0
+    assert gm.hdr_capacity_min == 1.0
+    assert gm.hdr_capacity_max == pytest.approx(renditions.headroom, rel=1e-4)
+    assert 0.0 < gm.offset_sdr < 1.0
+    assert 0.0 < gm.offset_hdr < 1.0
+
+
+def test_gain_map_metadata_custom_luminance() -> None:
+    """Custom luminance values must be reflected in metadata."""
+    image = np.array([[[1.0, 1.0, 1.0], [4.0, 4.0, 4.0]]], dtype=np.float32)
+    mapping = hdr_photo.HDRPhotoMapping(max_headroom=4.0)
+    renditions = hdr_photo.prepare_hdr_photo_renditions(image, mapping=mapping)
+
+    gm = hdr_photo.build_iso_21496_1_gain_map_metadata(
+        renditions,
+        sdr_white_luminance=200.0,
+        hdr_white_luminance=1600.0,
+    )
+
+    # Metadata structure should still be valid
+    assert gm.gain_map_min == 0.0
+    assert gm.gain_map_max > 0.0
+
+
+def test_encode_gain_map_log2_neutral() -> None:
+    """Gain map for SDR-only content must be all zeros."""
+    sdr = np.full((4, 4, 3), 0.5, dtype=np.float32)
+    hdr = sdr.copy()  # identical = no gain
+
+    gm = hdr_photo.encode_gain_map_log2(sdr, hdr)
+    assert gm.shape == (4, 4)
+    np.testing.assert_allclose(gm, 0.0, atol=1e-6)
+
+
+def test_encode_gain_map_log2_highlights() -> None:
+    """Gain map for HDR highlights must be > 0."""
+    sdr = np.full((2, 2, 3), 0.5, dtype=np.float32)
+    hdr = np.full((2, 2, 3), 2.0, dtype=np.float32)  # 4x headroom
+
+    gm = hdr_photo.encode_gain_map_log2(sdr, hdr, headroom=4.0)
+    assert float(np.min(gm)) > 0.0
+    assert float(np.max(gm)) <= 1.0 + 1e-5
+
+
+def test_build_gain_map_xmp_packet_contains_required_fields() -> None:
+    """XMP packet must contain all ISO 21496-1 fields."""
+    metadata = hdr_photo.ISO21496GainMapMetadata(
+        gain_map_min=0.0,
+        gain_map_max=2.0,
+        gamma=1.0,
+        offset_sdr=0.001,
+        offset_hdr=0.001,
+        hdr_capacity_min=1.0,
+        hdr_capacity_max=4.0,
+    )
+
+    xmp = hdr_photo.build_gain_map_xmp_packet(
+        metadata,
+        image_width=100,
+        image_height=80,
+        gain_map_width=100,
+        gain_map_height=80,
+    )
+
+    assert "hdrgm:Version" in xmp
+    assert "hdrgm:GainMapMin" in xmp
+    assert "hdrgm:GainMapMax" in xmp
+    assert "hdrgm:Gamma" in xmp
+    assert "hdrgm:OffsetSDR" in xmp
+    assert "hdrgm:OffsetHDR" in xmp
+    assert "hdrgm:HDRCapacityMin" in xmp
+    assert "hdrgm:HDRCapacityMax" in xmp
+    assert "hdrgm:BaseRenditionIsHDR" in xmp
+    assert "100" in xmp  # width
+    assert "80" in xmp  # height

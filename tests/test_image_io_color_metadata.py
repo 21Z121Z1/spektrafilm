@@ -13,6 +13,7 @@ from spektrafilm.utils.io import (
     colorspace_chromaticities,
     read_image_color_encoding,
     resolve_icc_profile_bytes,
+    save_hdr_rendition_exr,
     save_image_oiio,
     write_image_metadata,
 )
@@ -483,3 +484,47 @@ def test_chromaticities_matching_rejects_standard_primaries_with_wrong_whitepoin
             return chromaticities
 
     assert _known_color_space_from_chromaticities(FakeSpec()) is None
+
+
+def test_save_hdr_rendition_exr_produces_valid_output(tmp_path) -> None:
+    """save_hdr_rendition_exr must produce an EXR with HDR metadata and distinct pixels."""
+    path = tmp_path / "rendition.exr"
+    image = np.full((1, 2, 3), 0.8, dtype=np.float32)
+    scene_luminance = np.array([[0.8, 4.0]], dtype=np.float32)
+
+    save_hdr_rendition_exr(
+        str(path),
+        image,
+        color_space="Display P3",
+        scene_luminance=scene_luminance,
+        hdr_mapping_kwargs={
+            "hdr_mapping_mode": "generic",
+            "hdr_diffuse_lift_enabled": False,
+            "max_headroom": 4.0,
+        },
+    )
+
+    image_input = oiio.ImageInput.open(str(path))
+    assert image_input is not None
+    try:
+        pixels = np.asarray(image_input.read_image(oiio.TypeDesc("float")), dtype=np.float32).reshape(image.shape)
+        spec = image_input.spec()
+    finally:
+        image_input.close()
+
+    assert float(pixels[0, 1].max()) > float(image[0, 1].max())
+    assert not np.allclose(pixels, image)
+    assert spec.getattribute("whiteLuminance") == pytest.approx(203.0)
+    headroom = spec.getattribute("hdrHeadroom")
+    assert headroom is not None
+    assert float(headroom) > 1.0
+
+
+def test_save_hdr_rendition_exr_rejects_non_exr_extension(tmp_path) -> None:
+    """save_hdr_rendition_exr must reject non-EXR file extensions."""
+    with pytest.raises(ValueError, match="exr extension"):
+        save_hdr_rendition_exr(
+            str(tmp_path / "out.png"),
+            np.full((1, 1, 3), 0.5, dtype=np.float32),
+            color_space="sRGB",
+        )

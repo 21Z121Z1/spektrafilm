@@ -6,7 +6,7 @@ import types
 import numpy as np
 import pytest
 
-from spektrafilm.gpu.backend import BackendUnavailableError, backend_summary, select_backend
+from spektrafilm.gpu.backend import BackendUnavailableError, backend_summary, select_backend, tiled_processing
 from spektrafilm.gpu.mlx_backend import MlxBackend
 from spektrafilm.gpu.numpy_backend import NumpyBackend
 
@@ -89,3 +89,56 @@ def test_select_backend_cupy_aliases_are_strict_when_requested(backend_name: str
 
     assert backend.name == "cupy"
     assert backend.supports_gpu
+
+
+# ---------------------------------------------------------------------------
+# Tiled Processing Tests
+# ---------------------------------------------------------------------------
+
+
+def test_tiled_processing_identity_element_wise() -> None:
+    """Element-wise processing with tiling must produce identical results to no tiling."""
+    backend = NumpyBackend()
+    image = np.random.default_rng(42).random((64, 48, 3), dtype=np.float32)
+
+    result = tiled_processing(image, tile_size=32, process_fn=lambda x: x * 2.0, backend=backend)
+
+    np.testing.assert_allclose(result, image * 2.0, atol=1e-6)
+
+
+def test_tiled_processing_with_overlap() -> None:
+    """Tiling with overlap must produce correct results for operations that need border context."""
+    backend = NumpyBackend()
+    image = np.random.default_rng(42).random((64, 48, 3), dtype=np.float32)
+
+    def blur_3x3_mean(tile):
+        from scipy.ndimage import uniform_filter
+        return backend.asarray(
+            uniform_filter(backend.to_numpy(tile), size=3, mode="constant", axes=(0, 1))
+        )
+
+    result_full = blur_3x3_mean(backend.asarray(image))
+    result_tiled = tiled_processing(
+        image, tile_size=32, process_fn=blur_3x3_mean, backend=backend, overlap=2,
+    )
+
+    np.testing.assert_allclose(result_tiled, result_full, atol=1e-5)
+
+
+def test_tiled_processing_covers_full_image() -> None:
+    """Tiled processing must cover every pixel of the input image."""
+    backend = NumpyBackend()
+    image = np.ones((50, 70, 3), dtype=np.float32)
+
+    result = tiled_processing(image, tile_size=20, process_fn=lambda x: x * 0.5, backend=backend)
+
+    np.testing.assert_allclose(result, 0.5, atol=1e-6)
+
+
+def test_tiled_processing_rejects_invalid_tile_size() -> None:
+    """tile_size must be greater than 2 * overlap."""
+    backend = NumpyBackend()
+    image = np.ones((10, 10, 3), dtype=np.float32)
+
+    with pytest.raises(ValueError, match="tile_size"):
+        tiled_processing(image, tile_size=4, process_fn=lambda x: x, backend=backend, overlap=3)

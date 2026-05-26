@@ -759,6 +759,71 @@ def save_image_oiio(
     return ()
 
 
+def save_hdr_rendition_exr(
+    filename: str,
+    image_data: np.ndarray,
+    *,
+    color_space: str,
+    bit_depth: int = 32,
+    scene_luminance: np.ndarray | None = None,
+    scene_rgb: np.ndarray | None = None,
+    hdr_mapping_kwargs: dict | None = None,
+    white_luminance: float | None = None,
+) -> tuple[str, ...]:
+    """Save an HDR rendition EXR file with proper metadata.
+
+    This is a convenience wrapper around :func:`save_image_oiio` that
+    explicitly uses ``exr_mode="hdr_rendition"``.  It applies the authored
+    HDR mapping (paper rolloff, diffuse lift, colour recovery) and writes
+    the result as a scene-linear EXR with ``whiteLuminance`` and
+    ``hdrHeadroom`` metadata.
+
+    Parameters
+    ----------
+    filename : str
+        Output path; must have an ``.exr`` extension.
+    image_data : np.ndarray
+        Scene-linear RGB image, shape ``(H, W, 3)``, float32.
+    color_space : str
+        RGB colour space (e.g. ``"Display P3"``, ``"ACEScg"``).
+    bit_depth : int
+        ``16`` for half, ``32`` for float32 (default).
+    scene_luminance : np.ndarray, optional
+        Per-pixel scene luminance sidecar for specular graft.
+    scene_rgb : np.ndarray, optional
+        Per-pixel scene RGB for highlight colour recovery.
+    hdr_mapping_kwargs : dict, optional
+        Forwarded to :class:`HDRPhotoMapping` constructor.
+    white_luminance : float, optional
+        EXR ``whiteLuminance`` in cd/m².  Defaults to 203 nits.
+
+    Returns
+    -------
+    tuple[str, ...]
+        Diagnostics from the HDR mapping.
+    """
+
+    if not filename.lower().endswith(".exr"):
+        raise ValueError(f"save_hdr_rendition_exr requires an .exr extension, got {filename!r}.")
+
+    return save_image_oiio(
+        filename,
+        image_data,
+        bit_depth,
+        encoding=ColorEncoding(
+            color_space=color_space,
+            transfer="linear",
+            role="scene",
+            clip_highlights=False,
+        ),
+        scene_luminance=scene_luminance,
+        scene_rgb=scene_rgb,
+        hdr_mapping_kwargs=hdr_mapping_kwargs,
+        exr_mode="hdr_rendition",
+        white_luminance=white_luminance,
+    )
+
+
 def _png_chunk(chunk_type: bytes, data: bytes) -> bytes:
     return (
         struct.pack(">I", len(data))
