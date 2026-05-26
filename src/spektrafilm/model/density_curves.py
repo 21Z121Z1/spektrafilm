@@ -19,12 +19,6 @@ def interpolate_exposure_to_density(log_exposure_rgb, density_curves, log_exposu
     if np.size(gamma_factor)==1:
         gamma_factor = [gamma_factor, gamma_factor, gamma_factor]
     gamma_factor = np.array(gamma_factor)
-    density_cmy = np.zeros((log_exposure_rgb.shape[0], log_exposure_rgb.shape[1], 3))
-    # for channel in np.arange(3):
-    #     sel = ~np.isnan(density_curves[:,channel])
-    #     density_cmy[:,:,channel] = np.interp(log_exposure_rgb[:,:,channel],
-    #                                          log_exposure[sel]/gamma_factor[channel],
-    #                                          density_curves[sel,channel])
     density_cmy = fast_interp(np.ascontiguousarray(log_exposure_rgb),
                               log_exposure[:,None]/gamma_factor[None,:],
                               density_curves)
@@ -67,15 +61,4 @@ def interp_density_cmy_layers(
         density_curves_layers,
         positive_film=positive_film,
     )
-    
-# This method was used for multilayer grain, but it is not used anymore
-# def interpolate_layers(self, exposure_rgb):
-#     density_curves_layers = density_curves_layers_model(self.log_exposure, self.parameters, self.type)
-#     density_cmy_layers = np.zeros((exposure_rgb.shape[0], exposure_rgb.shape[1], 3, 3))
-#     exposure = 10**(self.log_exposure)
-#     for channel in np.arange(3):
-#         for layer in np.arange(3):
-#             density_cmy_layers[:,:,channel,layer] = np.interp(exposure_rgb[:,:,channel],
-#                                                               exposure,
-#                                                               density_curves_layers[:,channel,layer])
-#     return density_cmy_layers
+

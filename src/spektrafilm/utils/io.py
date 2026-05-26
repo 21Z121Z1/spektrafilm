@@ -504,7 +504,6 @@ def load_image_oiio(filename, *, dtype=np.float32):
         elif spec.format == oiio.TypeDesc("float"):
             read_type = oiio.TypeDesc("float")
         else:
-            # Fallback: use "uint16" by default. You might choose "float" if desired.
             read_type = oiio.TypeDesc("uint16")
 
         # Read the image data using the chosen type

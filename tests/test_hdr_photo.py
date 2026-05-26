@@ -1531,3 +1531,31 @@ def test_build_gain_map_xmp_packet_contains_required_fields() -> None:
     assert "hdrgm:BaseRenditionIsHDR" in xmp
     assert "100" in xmp  # width
     assert "80" in xmp  # height
+
+
+# ---------------------------------------------------------------------------
+# hdr_photo_color_space fallback tests
+# ---------------------------------------------------------------------------
+
+
+def test_hdr_photo_color_space_returns_supported_spaces_unchanged() -> None:
+    """Supported color spaces must be returned as-is."""
+    for cs in hdr_photo.SUPPORTED_HDR_PHOTO_COLOR_SPACES:
+        assert hdr_photo.hdr_photo_color_space(cs) == cs
+
+
+def test_hdr_photo_color_space_falls_back_to_display_p3_for_unsupported(caplog) -> None:
+    """Unsupported color spaces must fall back to Display P3 with a warning."""
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="spektrafilm.utils.hdr_photo"):
+        result = hdr_photo.hdr_photo_color_space("Adobe RGB")
+
+    assert result == "Display P3"
+    assert "Adobe RGB" in caplog.text
+    assert "falling back" in caplog.text
+
+
+def test_hdr_photo_color_space_falls_back_to_display_p3_for_none() -> None:
+    """None input must fall back to Display P3 without warning."""
+    assert hdr_photo.hdr_photo_color_space(None) == "Display P3"

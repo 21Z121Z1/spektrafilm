@@ -183,15 +183,6 @@ def _quad2tri(xy):
     return np.stack((tx,ty), axis=-1)
 
 def _fetch_coeffs(tc, lut_coeffs):
-    # find the coefficients for spectral upsampling of given rgb coordinates
-    # if color_space!='ITU-R BT.2020' or apply_cctf_decoding:
-    #     rgb = colour.RGB_to_RGB(rgb, input_colourspace=color_space, apply_cctf_decoding=apply_cctf_decoding,
-    #                                     output_colourspace='ITU-R BT.2020', apply_cctf_encoding=False)
-    #     rgb = np.clip(rgb,0,1)
-    # xyz = colour.RGB_to_XYZ(rgb, colourspace='ITU-R BT.2020', apply_cctf_decoding=False)
-    # b = np.sum(xyz, axis=-1)
-    # xy = xyz[...,0:2] / b[...,None]
-    # tc = _tri2quad(xy)
     coeffs = np.zeros(np.concatenate((tc.shape[:-1],[4])))
     x = np.linspace(0,1,lut_coeffs.shape[0])
     for i in np.arange(4):

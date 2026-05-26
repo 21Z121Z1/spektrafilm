@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.resources as pkg_resources
+import logging
 import math
 import platform
 import shutil
@@ -39,6 +40,7 @@ HDR_REFERENCE_WHITE_LUMINANCE_NITS: Final = 203.0
 _ROLLOFF_MODES: Final = {"logistic", "logarithmic"}
 _HDR_MAPPING_MODES: Final = {"generic", "profile_aware"}
 _EPS32: Final = np.float32(1e-8)
+_log = logging.getLogger(__name__)
 
 
 class HDRPhotoExportError(RuntimeError):
@@ -241,6 +243,12 @@ def hdr_photo_color_space(color_space: str | None) -> str:
 
     if color_space in SUPPORTED_HDR_PHOTO_COLOR_SPACES:
         return str(color_space)
+    if color_space is not None:
+        _log.warning(
+            "HDR photo color space %r is not supported; falling back to %r.",
+            color_space,
+            DEFAULT_HDR_PHOTO_COLOR_SPACE,
+        )
     return DEFAULT_HDR_PHOTO_COLOR_SPACE
 
 

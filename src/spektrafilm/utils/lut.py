@@ -49,14 +49,6 @@ def _prepare_gpu_trilinear_lut(lut, xmin, xmax, gpu_backend):
     )
 
 
-# def _create_lut_2d(function, xmin=0, xmax=1, steps=128):
-#     x = np.linspace(xmin, xmax, steps, endpoint=True)
-#     X = np.meshgrid(x,x, indexing='ij')
-#     X = np.stack(X, axis=3)
-#     X = np.reshape(X, (steps, steps, 3)) # shape as an image to be compatible with image processing
-#     lut = np.reshape(function(X), (steps, steps, 3))
-#     return lut
-
 def compute_with_lut(
     data,
     function,

@@ -20,6 +20,7 @@ from spektrafilm.runtime.services import (
 from spektrafilm.runtime.params_schema import RuntimePhotoParams
 from spektrafilm.runtime.stages import FilmingStage, PrintingStage, ScanningStage
 from spektrafilm.gpu.backend import backend_summary, select_backend
+from spektrafilm.utils.hdr_curve_profiles import luminance_y as _luminance_y
 from spektrafilm.utils.timings import format_timings
 
 _log = logging.getLogger(__name__)
@@ -184,11 +185,7 @@ def characterize_pipeline_profile(pipeline: 'SimulationPipeline') -> tuple[np.nd
         look_rgb = temp_pipeline._pipeline_print(ramp_rgb_backend)
 
     look_rgb = np.asarray(temp_pipeline._array_backend.to_numpy(look_rgb), dtype=np.float32)
-    look_y = np.tensordot(
-        look_rgb[0, :, :3],
-        np.array([0.2126, 0.7152, 0.0722], dtype=np.float32),
-        axes=([-1], [0]),
-    ).astype(np.float32, copy=False)
+    look_y = _luminance_y(look_rgb[0, :, :3])
     return scene_y, look_y
 
 
@@ -196,6 +193,9 @@ class SimulationPipeline:
     """Thin runtime orchestrator that composes stage objects."""
 
     def __init__(self, params: RuntimePhotoParams, update_params: bool = False, *, _reused_lut_service: SpectralLUTService | None = None) -> None:
+        self._reinitialize(params, update_params=update_params, _reused_lut_service=_reused_lut_service)
+
+    def _reinitialize(self, params: RuntimePhotoParams, *, update_params: bool = False, _reused_lut_service: SpectralLUTService | None = None) -> None:
         self._params = copy.deepcopy(params)
 
         self.camera = self._params.camera
@@ -248,7 +248,6 @@ class SimulationPipeline:
                                                               self.scanner.black_level, self.scanner.white_level,
                                                               self.io, output_encoding=self._output_encoding)
 
-
         self._filming_stage = FilmingStage(
             self.film,
             self.film_render,
@@ -256,8 +255,8 @@ class SimulationPipeline:
             self.io,
             self.settings,
             self._lut_service,
-            self._resize_service, # to get pixel size um for blurs
-            self._enlarger_service, # to compute and save density spectral midgray to balance print
+            self._resize_service,
+            self._enlarger_service,
             self._color_reference_service,
             backend=self._array_backend,
         )
@@ -270,7 +269,7 @@ class SimulationPipeline:
             self.settings,
             self._lut_service,
             self._enlarger_service,
-            self._resize_service, # to get pixel size um for diffusion filter
+            self._resize_service,
             self._color_reference_service,
             backend=self._array_backend,
         )
@@ -293,7 +292,7 @@ class SimulationPipeline:
         self._scanning_stage.timings = self.timings
         self._lut_service.timings = self.timings
 
-    def process(self, image):
+    def process(self, image: np.ndarray) -> np.ndarray:
         """Process an image through the simulation pipeline."""
         self.timings.clear()
         start = perf_counter()
@@ -310,7 +309,7 @@ class SimulationPipeline:
         finally:
             self._last_elapsed_time = perf_counter() - start
 
-    def process_with_metadata(self, image) -> SimulationPipelineResult:
+    def process_with_metadata(self, image: np.ndarray) -> SimulationPipelineResult:
         """Process an image and return the rendered output plus HDR sidecar metadata."""
 
         self.timings.clear()
@@ -347,7 +346,7 @@ class SimulationPipeline:
             header=f"Simulation timings (backend: {backend_summary(self._array_backend, runtime_gpu_enabled=True)})",
         )
 
-    def print_timings(self):
+    def print_timings(self) -> None:
         print(self.format_timings())
 
     def _gpu_validation_enabled(self) -> bool:
@@ -499,18 +498,19 @@ class SimulationPipeline:
         if callable(synchronize):
             synchronize()
 
-    def update(self, params):
+    def update(self, params: RuntimePhotoParams) -> None:
         """Update params and re-initialize stages that depend on them."""
-        self.__init__(params, update_params=True)
+        self._reinitialize(params, update_params=True)
 
     def soft_update(self,
-                    exposure_compensation_ev=None,
-                    print_exposure=None,
-                    c_filter_neutral=None,
-                    m_filter_neutral=None,
-                    y_filter_neutral=None,
-                    film_density_curves=None,
-                    print_density_curves=None,):
+                    exposure_compensation_ev: float | None = None,
+                    print_exposure: float | None = None,
+                    c_filter_neutral: float | None = None,
+                    m_filter_neutral: float | None = None,
+                    y_filter_neutral: float | None = None,
+                    film_density_curves: np.ndarray | None = None,
+                    print_density_curves: np.ndarray | None = None,
+                    ) -> None:
         invalidates_print_balance_reference = False
         if exposure_compensation_ev is not None:
             self.camera.exposure_compensation_ev = exposure_compensation_ev

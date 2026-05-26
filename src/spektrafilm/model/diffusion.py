@@ -2,6 +2,7 @@ import warnings
 
 import numpy as np
 import scipy.ndimage
+from scipy.signal import fftconvolve
 from spektrafilm.gpu.kernels.filters import (
     exponential_filter_backend,
     fft_convolve_same_backend,
@@ -22,7 +23,6 @@ def apply_unsharp_mask(image, sigma=0.0, amount=0.0, *, backend=None):
     Returns:
     ndarray: The processed image after applying the unsharp mask.
     """
-    # image_blur = scipy.ndimage.gaussian_filter(image, sigma=(sigma, sigma, 0))
     image_blur = gaussian_filter_backend(image, sigma, backend)
     image_sharp = image + amount * (image - image_blur)
     return image_sharp
@@ -90,19 +90,13 @@ def apply_halation_um(raw, halation, pixel_size_um, *, backend=None):
 
 def apply_gaussian_blur(data, sigma, *, backend=None):
     if sigma > 0:
-        # return scipy.ndimage.gaussian_filter(data, (sigma, sigma, 0))
-        # data = np.double(data)
-        # data = np.ascontiguousarray(data)
         return gaussian_filter_backend(data, sigma, backend)
     else:
         return data
-    
+
 def apply_gaussian_blur_um(data, sigma_um, pixel_size_um, *, backend=None):
     sigma = sigma_um / pixel_size_um
     if sigma > 0:
-        # return scipy.ndimage.gaussian_filter(data, (sigma, sigma, 0))
-        # data = np.double(data)
-        # data = np.ascontiguousarray(data)
         return gaussian_filter_backend(data, sigma, backend)
     else:
         return data
@@ -139,8 +133,6 @@ def apply_diffusion_filter_mm(data, diffusion_filter_params, pixel_size_um):
         return result[radius:-radius, radius:-radius, :]
     return result
 
-
-from scipy.signal import fftconvolve
 
 
 # Per-family strength-independent PSF shape, as three groups

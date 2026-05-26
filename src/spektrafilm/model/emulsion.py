@@ -90,10 +90,3 @@ def develop(
         backend=backend,
     )
 
-# Some future work notes:
-# Add print dye shift in nanometers for dye absorption peaks.
-# Investigate how density curves change with development conditions.
-# Add a gray card border to check white balance.
-
-if __name__ == '__main__':
-    pass

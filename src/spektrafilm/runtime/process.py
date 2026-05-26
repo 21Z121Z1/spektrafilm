@@ -55,7 +55,7 @@ class Simulator:
             return
         self._pipeline.update(params)
 
-    def soft_update(self, **kwargs):
+    def soft_update(self, **kwargs) -> None:
         """Soft update parameters by only changing the provided fields, keeping the rest unchanged.
         only selected safe parameters can be updated with this method
         """
@@ -78,19 +78,19 @@ class Simulator:
         if callable(synchronize):
             synchronize()
 
-    def get_timings(self):
+    def get_timings(self) -> dict[str, float]:
         """Get the timings of the different stages of the simulation pipeline."""
         return self._pipeline.get_timings()
 
-    def get_total_elapsed_time(self):
+    def get_total_elapsed_time(self) -> float | None:
         """Get the total wall-clock time of the last process call."""
         return self._pipeline.get_total_elapsed_time()
 
-    def format_timings(self):
+    def format_timings(self) -> str:
         """Format the last recorded timings for display."""
         return self._pipeline.format_timings()
 
-    def print_timings(self):
+    def print_timings(self) -> None:
         """Print the formatted timings of the last process call."""
         self._pipeline.print_timings()
 
