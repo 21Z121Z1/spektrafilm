@@ -290,97 +290,12 @@ def apply_lut_cubic_2d_backend(lut: Any, image: Any, backend):
 # 3D LUT trilinear interpolation
 # ---------------------------------------------------------------------------
 
-_LUT_TRILINEAR_3D_KERNEL = None
-
-def _get_lut_trilinear_3d_kernel(mx):
-    global _LUT_TRILINEAR_3D_KERNEL
-    if _LUT_TRILINEAR_3D_KERNEL is not None:
-        return _LUT_TRILINEAR_3D_KERNEL
-
-    source = """
-        uint elem = thread_position_in_grid.x;
-        uint size = lut_shape[0];
-        uint channels = 3;
-        uint total = image_shape[0] * image_shape[1] * channels;
-        if (elem >= total) {
-            return;
-        }
-
-        uint c = elem % channels;
-        uint pixel = elem / channels;
-
-        if (size == 1) {
-            out[elem] = lut[c];
-            return;
-        }
-
-        float upper = float(size - 1);
-        float r_coord = float(image[pixel * 3]) * upper;
-        float g_coord = float(image[pixel * 3 + 1]) * upper;
-        float b_coord = float(image[pixel * 3 + 2]) * upper;
-
-        if (r_coord < 0.0f) r_coord = 0.0f;
-        if (r_coord > upper) r_coord = upper;
-        if (g_coord < 0.0f) g_coord = 0.0f;
-        if (g_coord > upper) g_coord = upper;
-        if (b_coord < 0.0f) b_coord = 0.0f;
-        if (b_coord > upper) b_coord = upper;
-
-        uint r0 = uint(r_coord);
-        uint g0 = uint(g_coord);
-        uint b0 = uint(b_coord);
-        
-        uint r1 = min(r0 + 1, uint(size - 1));
-        uint g1 = min(g0 + 1, uint(size - 1));
-        uint b1 = min(b0 + 1, uint(size - 1));
-
-        float fr = r_coord - float(r0);
-        float fg = g_coord - float(g0);
-        float fb = b_coord - float(b0);
-
-        uint size2 = size * size;
-        uint stride_r = size2 * 3;
-        uint stride_g = size * 3;
-        uint stride_b = 3;
-
-        uint idx_000 = r0 * stride_r + g0 * stride_g + b0 * stride_b + c;
-        uint idx_100 = r1 * stride_r + g0 * stride_g + b0 * stride_b + c;
-        uint idx_010 = r0 * stride_r + g1 * stride_g + b0 * stride_b + c;
-        uint idx_110 = r1 * stride_r + g1 * stride_g + b0 * stride_b + c;
-        uint idx_001 = r0 * stride_r + g0 * stride_g + b1 * stride_b + c;
-        uint idx_101 = r1 * stride_r + g0 * stride_g + b1 * stride_b + c;
-        uint idx_011 = r0 * stride_r + g1 * stride_g + b1 * stride_b + c;
-        uint idx_111 = r1 * stride_r + g1 * stride_g + b1 * stride_b + c;
-
-        float c000 = float(lut[idx_000]);
-        float c100 = float(lut[idx_100]);
-        float c010 = float(lut[idx_010]);
-        float c110 = float(lut[idx_110]);
-        float c001 = float(lut[idx_001]);
-        float c101 = float(lut[idx_101]);
-        float c011 = float(lut[idx_011]);
-        float c111 = float(lut[idx_111]);
-
-        float c00 = c000 + fr * (c100 - c000);
-        float c10 = c010 + fr * (c110 - c010);
-        float c01 = c001 + fr * (c101 - c001);
-        float c11 = c011 + fr * (c111 - c011);
-
-        float c0 = c00 + fg * (c10 - c00);
-        float c1 = c01 + fg * (c11 - c01);
-
-        out[elem] = c0 + fb * (c1 - c0);
-    """
-    _LUT_TRILINEAR_3D_KERNEL = mx.fast.metal_kernel(
-        name="spektrafilm_lut_trilinear_3d",
-        input_names=["lut", "image"],
-        output_names=["out"],
-        source=source,
-    )
-    return _LUT_TRILINEAR_3D_KERNEL
-
 def apply_lut_trilinear_3d_mlx(lut: Any, image: Any, *, mx=None):
-    """Apply a normalized 3D LUT with trilinear interpolation using a Custom Metal Kernel."""
+    """Apply a normalized 3D LUT with trilinear interpolation using MLX ops.
+
+    This is a fast pilot kernel, not the CPU PCHIP-quality path. Callers must
+    label outputs that use it as fast/trilinear rather than exact PCHIP parity.
+    """
     if mx is None:
         import mlx.core as mx
 
@@ -394,15 +309,41 @@ def apply_lut_trilinear_3d_mlx(lut: Any, image: Any, *, mx=None):
     if size == 1:
         return mx.broadcast_to(lut[0, 0, 0], image.shape[:-1] + (3,))
 
-    kernel = _get_lut_trilinear_3d_kernel(mx)
-    outputs = kernel(
-        inputs=[lut, image],
-        grid=(int(np.prod(image.shape[:-1]) * 3), 1, 1),
-        threadgroup=(256, 1, 1),
-        output_shapes=[image.shape[:-1] + (3,)],
-        output_dtypes=[mx.float32],
-    )
-    return outputs[0]
+    # Clip to [0, 1] — this is the normalised density coordinate space,
+    # NOT the output RGB space.  HDR scene-linear values are produced
+    # downstream by XYZ_to_RGB and preserved per ColorEncoding policy.
+    coord = mx.clip(image, 0.0, 1.0) * float(size - 1)
+    idx0 = mx.floor(coord).astype(mx.int32)
+    idx1 = mx.minimum(idx0 + 1, size - 1)
+    frac = coord - idx0.astype(mx.float32)
+
+    r0 = idx0[..., 0]
+    g0 = idx0[..., 1]
+    b0 = idx0[..., 2]
+    r1 = idx1[..., 0]
+    g1 = idx1[..., 1]
+    b1 = idx1[..., 2]
+
+    fr = frac[..., 0:1]
+    fg = frac[..., 1:2]
+    fb = frac[..., 2:3]
+
+    c000 = lut[r0, g0, b0]
+    c100 = lut[r1, g0, b0]
+    c010 = lut[r0, g1, b0]
+    c110 = lut[r1, g1, b0]
+    c001 = lut[r0, g0, b1]
+    c101 = lut[r1, g0, b1]
+    c011 = lut[r0, g1, b1]
+    c111 = lut[r1, g1, b1]
+
+    c00 = c000 + fr * (c100 - c000)
+    c10 = c010 + fr * (c110 - c010)
+    c01 = c001 + fr * (c101 - c001)
+    c11 = c011 + fr * (c111 - c011)
+    c0 = c00 + fg * (c10 - c00)
+    c1 = c01 + fg * (c11 - c01)
+    return c0 + fb * (c1 - c0)
 
 
 def apply_lut_trilinear_3d_numpy(lut: np.ndarray, image: np.ndarray) -> np.ndarray:

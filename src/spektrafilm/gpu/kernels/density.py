@@ -476,12 +476,6 @@ def cmy_to_log_xyz_backend(
     This is the backend-portable equivalent of the closure built by
     ``ScanningStage._return_callable_cmy_to_log_xyz``.
     """
-    channel_density = backend.asarray(channel_density)
-    scan_illuminant = backend.asarray(scan_illuminant)
-    cmfs = backend.asarray(cmfs)
-    if base_density is not None:
-        base_density = backend.asarray(base_density)
-
     density_spectral = compute_density_spectral(
         channel_density, density_cmy, base_density, backend,
     )
