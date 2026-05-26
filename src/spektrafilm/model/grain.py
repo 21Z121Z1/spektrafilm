@@ -43,7 +43,13 @@ def layer_particle_model(density,
         saturation = 1 - probability_of_development*grain_uniformity*(1-1e-6)
         seeds = poisson_rvs(n_particles_per_pixel/saturation)
         grain = binom_rvs(seeds, probability_of_development)
-        grain = np.double(grain)*od_particle*saturation
+        
+        # Optimize memory usage with in-place operations and explicit cleanup
+        del seeds
+        grain = np.double(grain)
+        grain *= od_particle
+        grain *= saturation
+        del saturation
     
     if blur_particle>0:
         # grain = scipy.ndimage.gaussian_filter(grain, blur_particle*np.sqrt(od_particle))
@@ -82,7 +88,7 @@ def apply_grain_to_density(density_cmy,
     sigma_blur_pixel = grain_blur
     
     if fixed_seed is not None:
-        seed = None
+        seed = [fixed_seed, fixed_seed+1, fixed_seed+2]
     else:
         seed = [0, 1, 2]
     
@@ -136,7 +142,7 @@ def apply_grain_to_density_layers(density_cmy_layers, # x,y,sublayers,rgb
 
     
     if fixed_seed is not None:
-        seed = None
+        seed = [fixed_seed, fixed_seed+1, fixed_seed+2]
     else:
         seed = [0, 1, 2]
     

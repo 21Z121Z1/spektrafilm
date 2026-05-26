@@ -273,41 +273,35 @@ def boost_highlights_backend(
     """Backend-portable highlight boost.
 
     Reproduces the exact same curve as the Numba kernel in
-    ``numba_boost_hightlights.py`` using element-wise backend ops.
+    ``numba_boost_hightlights.py`` using element-wise backend ops,
+    WITHOUT explicit CPU-GPU synchronization.
 
     For ``x <= raw_x0``: identity.
     For ``x > raw_x0``: ``y = x + boost_scale * (exp(a * dx) - a * dx - 1)``
     where ``dx = (x - raw_x0) / max_raw``.
-
-    The ``fmax(…, 0)`` trick means dx ≡ 0 when x ≤ raw_x0, so b ≡ 0 ⟹
-    y = x — exactly matching the piece-wise Numba kernel.
     """
     if boost_ev <= 0:
         return x
 
-    # Scalar synchronization only; the image itself remains resident.
+    # Global max without scalar synchronization to avoid breaking the GPU async pipeline.
     x_max = backend.max(x)
-    if x_max == 0.0:
-        return x
+    safe_x_max = backend.maximum(x_max, 1e-8)
 
-    raw_x0 = float(np.clip(midgray * (2.0 ** protect_ev), 0.0, x_max))
-    if raw_x0 >= x_max:
-        return x
+    raw_x0 = backend.clip(backend.asarray(midgray * (2.0 ** protect_ev), dtype=x.dtype), 0.0, safe_x_max)
 
-    import math
     a = 28.0 ** (1.0 - boost_range)
-    x0_norm = raw_x0 / x_max
-    denom = math.exp(a * (1.0 - x0_norm)) - a * (1.0 - x0_norm) - 1.0
-    if denom <= 0.0:
-        return x
+    x0_norm = raw_x0 / safe_x_max
+    
+    u = 1.0 - x0_norm
+    denom = backend.exp(a * u) - a * u - 1.0
+    safe_denom = backend.where(denom <= 0.0, 1.0, denom)
 
-    k = (2.0 ** boost_ev - 1.0) / denom
-    boost_scale = k * x_max
-    inv_max_raw = 1.0 / x_max
+    k = (2.0 ** boost_ev - 1.0) / safe_denom
+    boost_scale = k * safe_x_max
+    inv_max_raw = 1.0 / safe_x_max
 
-    # dx = max(x - raw_x0, 0) / max_raw
-    dx = backend.fmax(x - raw_x0, 0.0) * inv_max_raw
-    # b = boost_scale * (exp(a * dx) - a * dx - 1)
+    dx = backend.maximum(x - raw_x0, 0.0) * inv_max_raw
     adx = dx * a
     b = boost_scale * (backend.exp(adx) - adx - 1.0)
-    return x + b
+    
+    return backend.where(denom > 0.0, x + b, x)

@@ -75,11 +75,43 @@ def apply_halation_um(raw, halation, pixel_size_um, *, backend=None):
     if N >= 1 and np.any(a_tot > 0) and np.any(sigma_h_px > 0):
         decay = np.array([rho ** (k - 1) for k in range(1, N + 1)], dtype=np.float64)
         decay /= decay.sum()
-        halation_blur = raw * 0.0 if backend is not None and backend.supports_gpu else np.zeros_like(raw)
-        for k, wk in zip(range(1, N + 1), decay):
-            sigma_k_px = np.maximum(sigma_h_px * np.sqrt(k), 1e-6)
-            component = gaussian_filter_backend(raw, sigma_k_px, backend)
-            halation_blur += wk * component
+        
+        # Build multi-bounce halation PSF and do a single FFT convolution
+        max_sigma = np.max(sigma_h_px) * np.sqrt(N)
+        radius = int(np.ceil(max(5.0 * max_sigma, 5.0)))
+        radius = min(radius, max(min(raw.shape[:2]) // 2 - 1, 1))
+        
+        y, x = np.ogrid[-radius:radius + 1, -radius:radius + 1]
+        r_sq = x**2 + y**2
+        psf = np.zeros((2 * radius + 1, 2 * radius + 1, 3), dtype=np.float64)
+        
+        sigma_k_array = np.maximum(np.outer(np.sqrt(np.arange(1, N + 1)), np.broadcast_to(sigma_h_px, 3)), 1e-6)
+        for k, wk in enumerate(decay):
+            for c in range(3):
+                s = sigma_k_array[k, c]
+                g = np.exp(-r_sq / (2 * s**2)) / (2 * np.pi * s**2)
+                psf[..., c] += wk * g
+                
+        for c in range(3):
+            psf_sum = psf[..., c].sum()
+            if psf_sum > 0:
+                psf[..., c] /= psf_sum
+                
+        if backend is not None and backend.supports_gpu:
+            psf_b = backend.asarray(psf)
+            padded = reflect_pad_hw_backend(raw, radius, backend)
+            halation_blur = fft_convolve_same_backend(padded, psf_b, backend)
+            halation_blur = halation_blur[radius:-radius, radius:-radius, :]
+        else:
+            from scipy.signal import fftconvolve
+            padded = np.pad(raw, ((radius, radius), (radius, radius), (0, 0)), mode='reflect')
+            halation_blur = np.empty_like(padded)
+            for c in range(3):
+                halation_blur[:, :, c] = fftconvolve(
+                    padded[:, :, c], psf[..., c], mode='same',
+                )
+            halation_blur = halation_blur[radius:-radius, radius:-radius, :]
+            
         raw = raw + a_tot_b * halation_blur
         if halation.halation_renormalize:
             raw = raw / (1.0 + a_tot_b)
