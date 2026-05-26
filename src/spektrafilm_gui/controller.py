@@ -14,6 +14,7 @@ from spektrafilm.color_management import (
     is_aces_scene_linear_space,
     output_encoding_from_io,
 )
+from spektrafilm.utils.dtypes import runtime_float_dtype
 from spektrafilm.utils.hdr_photo import (
     HDR_REFERENCE_WHITE_LUMINANCE_NITS,
     hdr_photo_color_space,
@@ -183,14 +184,6 @@ def resize_for_preview(*args, **kwargs):
 colour = _LazyModuleProxy(_import_colour_module)
 PILImage = _LazyModuleProxy(_import_pil_image_module)
 ImageCms = _LazyModuleProxy(_import_imagecms_module)
-
-
-def runtime_float_dtype(precision: str):
-    if precision == "float64":
-        return np.float64
-    if precision == "float32":
-        return np.float32
-    raise ValueError("Runtime float precision must be float32 or float64")
 
 
 class GuiController:

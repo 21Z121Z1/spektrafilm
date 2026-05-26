@@ -629,3 +629,4 @@ class SimulationPipeline:
             cmy_print = self._printing_stage.develop(log_raw_print)
             rgb_scan = self._scanning_stage.scan(cmy_print, output_encoding=self._output_encoding)
             return rgb_scan
+        raise ValueError("inject debug_mode requires inject_film_density_cmy to be set")

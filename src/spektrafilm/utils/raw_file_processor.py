@@ -11,6 +11,7 @@ import rawpy
 from scipy.ndimage import map_coordinates
 
 from spektrafilm.color_management import is_aces_scene_linear_space
+from spektrafilm.utils.dtypes import validate_float_dtype
 
 _TUNGSTEN_TEMPERATURE = 2850.0
 _DAYLIGHT_REFERENCE_TEMPERATURE = 6504.0
@@ -606,10 +607,7 @@ def load_and_process_raw_file(
 
 
 def _runtime_raw_dtype(dtype) -> np.dtype:
-    dtype = np.dtype(dtype)
-    if dtype == np.dtype(np.float32) or dtype == np.dtype(np.float64):
-        return dtype
-    raise ValueError("raw output dtype must be float32 or float64")
+    return validate_float_dtype(dtype)
 
 
 __all__ = [

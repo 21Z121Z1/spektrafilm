@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
 
 from spektrafilm.profiles.io import Profile
@@ -175,11 +176,20 @@ class IOParams:
     # Temporary compatibility shim while the GUI still carries compute_full_image.
     @property
     def full_image(self) -> bool:
+        warnings.warn(
+            "IOParams.full_image is deprecated and always returns True.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return True
 
     @full_image.setter
     def full_image(self, _value: bool) -> None:
-        return None
+        warnings.warn(
+            "IOParams.full_image is deprecated and the setter is a no-op.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
 
 @dataclass

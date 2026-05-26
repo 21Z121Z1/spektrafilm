@@ -66,7 +66,7 @@ def read_image_metadata(filename: str) -> ImageMetadata | None:
     try:
         image = exiv2.ImageFactory.open(filename)
         image.readMetadata()
-    except Exception:
+    except (OSError, RuntimeError):
         return None
 
     return ImageMetadata(
@@ -523,14 +523,11 @@ def load_image_oiio(filename, *, dtype=np.float32):
 
 
 def _runtime_image_dtype(dtype) -> np.dtype:
-    dtype = np.dtype(dtype)
-    if dtype == np.dtype(np.float32) or dtype == np.dtype(np.float64):
-        return dtype
-    raise ValueError("image runtime dtype must be float32 or float64")
+    return validate_float_dtype(dtype)
 
 def save_image_oiio(
-    filename,
-    image_data,
+    filename: str,
+    image_data: np.ndarray,
     bit_depth: int | None = None,
     *,
     color_space: str | None = None,
@@ -541,7 +538,7 @@ def save_image_oiio(
     scene_rgb: np.ndarray | None = None,
     hdr_mapping_kwargs: dict | None = None,
     exr_mode: str = "scene_linear_archive",
-):
+) -> tuple[str, ...]:
     """Save a 3-channel image to disk via OpenImageIO.
 
     Pixel format per extension:
@@ -679,7 +676,7 @@ def save_image_oiio(
                 pil_image.save(filename, **save_kwargs)
             else:
                 pil_image.save(filename, quality=95, **save_kwargs)
-        return
+        return ()
 
     if ext == "exr" and encoding is not None and encoding.is_cctf_encoded:
         raise ValueError(f"EXR export requires linear data; CCTF-encoded {encoding.color_space} should be saved as PNG/JPEG.")
@@ -738,7 +735,7 @@ def save_image_oiio(
     # Create an ImageOutput for writing the file
     out = oiio.ImageOutput.create(filename)
     if not out:
-        raise IOError("Could not create output image: " + filename)
+        raise OSError("Could not create output image: " + filename)
 
     try:
         out.open(filename, spec)
@@ -746,6 +743,8 @@ def save_image_oiio(
         out.write_image(data_to_write)
     finally:
         out.close()
+
+    return ()
 
 
 def _png_chunk(chunk_type: bytes, data: bytes) -> bytes:
