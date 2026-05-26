@@ -195,7 +195,7 @@ def characterize_pipeline_profile(pipeline: 'SimulationPipeline') -> tuple[np.nd
 class SimulationPipeline:
     """Thin runtime orchestrator that composes stage objects."""
 
-    def __init__(self, params, update_params=False):
+    def __init__(self, params, update_params=False, *, _reused_lut_service=None):
         self._params = copy.deepcopy(params)
 
         self.camera = self._params.camera
@@ -223,7 +223,18 @@ class SimulationPipeline:
         self._last_elapsed_time = None
 
         self._resize_service = ResizingService(self.io, self.camera.film_format_mm)
-        if not update_params:
+        reused_lut_service = _reused_lut_service
+        if reused_lut_service is None and update_params:
+            reused_lut_service = getattr(self, "_lut_service", None)
+        reused_backend = getattr(reused_lut_service, "_gpu_backend", None)
+        can_reuse_lut_service = (
+            reused_lut_service is not None
+            and reused_lut_service.lut_resolution == self.settings.lut_resolution
+            and type(reused_backend) is type(self._array_backend)
+        )
+        if can_reuse_lut_service:
+            self._lut_service = reused_lut_service
+        else:
             self._lut_service = SpectralLUTService(
                 self.settings.lut_resolution,
                 gpu_backend=self._array_backend,

@@ -67,7 +67,7 @@ def _watermark_raster_size(
     return target_height, target_width
 
 
-@lru_cache(maxsize=32)
+@lru_cache(maxsize=4)
 def _build_watermark_image(height: int, width: int) -> np.ndarray:
     safe_height = max(int(height), 1)
     safe_width = max(int(width), 1)
@@ -470,6 +470,8 @@ class ViewerLayerService:
         if layer is None or not layer.visible:
             return
         self._stop_output_layer_animation(layer)
+        if layer_name == OUTPUT_LAYER_NAME:
+            self._clear_output_layer_large_metadata(layer)
         layer.visible = False
 
     def remove_layer(self, layer_name: str) -> None:
@@ -477,10 +479,17 @@ class ViewerLayerService:
         if layer is None:
             return
         self._stop_output_layer_animation(layer)
+        if layer_name == OUTPUT_LAYER_NAME:
+            self._clear_output_layer_large_metadata(layer)
         try:
             self.viewer.layers.remove(layer)
         except ValueError:
             return
+
+    def _clear_output_layer_large_metadata(self, layer: NapariImageLayer) -> None:
+        """Remove large float arrays from the output layer metadata to free memory."""
+        for key in (self.output_float_data_key,):
+            layer.metadata.pop(key, None)
 
     def move_layer_to_top(self, layer: NapariImageLayer) -> None:
         current_index = self.viewer.layers.index(layer)

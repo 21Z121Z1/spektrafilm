@@ -570,7 +570,9 @@ def _prepare_profile_aware_renditions(
     )
 
     hdr_rgb = np.clip(hdr_rgb, 0.0, safe_max_headroom).astype(np.float32, copy=False)
-    headroom = min(_content_headroom(hdr_rgb, percentile=mapping.headroom_percentile), safe_max_headroom)
+    content_headroom = _content_headroom(hdr_rgb, percentile=mapping.headroom_percentile)
+    profile_gain_headroom = _content_headroom(hdr_gain[..., None], percentile=mapping.headroom_percentile)
+    headroom = min(max(content_headroom, profile_gain_headroom), safe_max_headroom)
     if headroom < MIN_HDR_PHOTO_HEADROOM:
         raise ValueError("HEIC HDR photo export requires linear image values above SDR white (1.0).")
 

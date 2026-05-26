@@ -29,9 +29,53 @@ class SpectralLUTService:
         self._film_tc_lut_key = None # adaptation/reference settings for the tc_lut cache
         self._enlarger_test_results_memory = None # to test if enlarger LUTs are identical for same input
         self._scanner_test_results_memory = None # to test if scanner LUTs are identical for same input
-        
+
         self._cmy_test_values = np.array([[[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]],
                                           [[0.7, 0.8, 0.9], [1.0, 1.1, 1.2]]]) # to test if LUTs are identical
+
+    @property
+    def lut_resolution(self) -> int:
+        """Current LUT resolution. Used as a cache key by the pipeline."""
+        return self._lut_resolution
+
+    def clear(self) -> None:
+        """Release all cached LUT arrays and associated state."""
+        self.filming_tc_lut_memory = None
+        self.enlarger_lut_memory = None
+        self.enlarger_lut_prepared_memory = None
+        self._enlarger_lut_bounds_memory = None
+        self.scanner_lut_memory = None
+        self.scanner_lut_prepared_memory = None
+        self._scanner_lut_bounds_memory = None
+        self._film_sensitivity = None
+        self._film_tc_lut_key = None
+        self._enlarger_test_results_memory = None
+        self._scanner_test_results_memory = None
+
+    def memory_info(self) -> dict[str, int]:
+        """Return approximate byte sizes of cached array-like data."""
+        def _nbytes(value) -> int:
+            if value is None or value is _GPU_TRILINEAR_PREPARED:
+                return 0
+            if isinstance(value, tuple):
+                return sum(_nbytes(item) for item in value)
+            try:
+                return int(np.asarray(value).nbytes)
+            except (TypeError, ValueError):
+                return 0
+
+        return {
+            'filming_tc_lut': _nbytes(self.filming_tc_lut_memory),
+            'enlarger_lut': _nbytes(self.enlarger_lut_memory),
+            'enlarger_lut_prepared': _nbytes(self.enlarger_lut_prepared_memory),
+            'enlarger_lut_bounds': _nbytes(self._enlarger_lut_bounds_memory),
+            'scanner_lut': _nbytes(self.scanner_lut_memory),
+            'scanner_lut_prepared': _nbytes(self.scanner_lut_prepared_memory),
+            'scanner_lut_bounds': _nbytes(self._scanner_lut_bounds_memory),
+            'film_sensitivity': _nbytes(self._film_sensitivity),
+            'enlarger_test_results': _nbytes(self._enlarger_test_results_memory),
+            'scanner_test_results': _nbytes(self._scanner_test_results_memory),
+        }
 
     def _lut_method(self) -> str:
         """Select the LUT interpolation method based on the GPU backend."""
