@@ -66,7 +66,7 @@ def read_image_metadata(filename: str) -> ImageMetadata | None:
     try:
         image = exiv2.ImageFactory.open(filename)
         image.readMetadata()
-    except (OSError, RuntimeError):
+    except (OSError, RuntimeError, exiv2.extras.Exiv2Error):
         return None
 
     return ImageMetadata(
