@@ -200,6 +200,9 @@ def test_hdr_rendition_exr_uses_authored_hdr_mapping(tmp_path) -> None:
     assert float(pixels[0, 1].max()) > float(image[0, 1].max())
     assert not np.allclose(pixels, image)
     assert spec.getattribute("whiteLuminance") == pytest.approx(203.0)
+    headroom = spec.getattribute("hdrHeadroom")
+    assert headroom is not None
+    assert 1.01 <= float(headroom) <= 4.0
 
 
 def test_heic_export_passes_scene_luminance_to_hdr_photo_encoder(monkeypatch, tmp_path) -> None:
@@ -325,13 +328,51 @@ def test_resolve_icc_profile_bytes_returns_none_for_linear_without_bundled_profi
     assert resolve_icc_profile_bytes("ACES2065-1", cctf_encoding=False) is not None
     # sRGB, Adobe RGB, ProPhoto, BT.2020 have Elle Stone g10 profiles.
     assert resolve_icc_profile_bytes("sRGB", cctf_encoding=False) is not None
-    # Display P3 and DCI-P3 have no bundled linear profile — must return None
+    # Display P3 has a bundled linear profile (DisplayP3-linear.icc).
+    assert resolve_icc_profile_bytes("Display P3", cctf_encoding=False) is not None
+    # DCI-P3 has no bundled linear profile — must return None
     # rather than falling back to an encoded (non-linear) profile.
-    assert resolve_icc_profile_bytes("Display P3", cctf_encoding=False) is None
     assert resolve_icc_profile_bytes("DCI-P3", cctf_encoding=False) is None
     # Encoded requests still resolve correctly.
     assert resolve_icc_profile_bytes("Display P3", cctf_encoding=True) is not None
     assert resolve_icc_profile_bytes("DCI-P3", cctf_encoding=True) is not None
+
+
+def test_display_p3_linear_icc_profile_has_linear_trc() -> None:
+    """Verify the bundled Display P3 linear profile has a gamma=1.0 TRC (curv count=0)."""
+    import struct
+
+    profile_bytes = resolve_icc_profile_bytes("Display P3", cctf_encoding=False)
+    assert profile_bytes is not None
+    assert len(profile_bytes) >= 128  # Must have at least an ICC header
+
+    # ICC header: size(4) + CMM(4) + version(4) + class(4) + space(4) + PCS(4)
+    header_size = struct.unpack(">I", profile_bytes[0:4])[0]
+    assert header_size == len(profile_bytes)
+    assert profile_bytes[4:8] == b"none"
+    device_class = profile_bytes[12:16]
+    assert device_class == b"mntr"  # display
+    color_space = profile_bytes[16:20]
+    assert color_space == b"RGB "
+
+    # Verify the TRC is linear by checking for the curv tag with count=0.
+    # A curv tag with count=0 means gamma=1.0 (linear).
+    # Search for the rTRC tag signature in the tag table.
+    num_tags = struct.unpack(">I", profile_bytes[128:132])[0]
+    trc_offset = None
+    for i in range(num_tags):
+        entry = profile_bytes[132 + i * 12 : 132 + (i + 1) * 12]
+        sig = entry[0:4]
+        if sig == b"rTRC":
+            offset = struct.unpack(">I", entry[4:8])[0]
+            trc_offset = offset
+            break
+    assert trc_offset is not None, "rTRC tag not found"
+    # curv type signature + reserved(4) + count(2)
+    trc_type = profile_bytes[trc_offset : trc_offset + 4]
+    trc_count = struct.unpack(">H", profile_bytes[trc_offset + 8 : trc_offset + 10])[0]
+    assert trc_type == b"curv", f"Expected curv tag, got {trc_type!r}"
+    assert trc_count == 0, f"Expected linear TRC (count=0), got count={trc_count}"
 
 
 def test_linear_png_without_linear_icc_is_rejected(tmp_path) -> None:

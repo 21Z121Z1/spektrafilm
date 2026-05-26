@@ -180,8 +180,8 @@ _ICC_FILENAMES: dict[tuple[str, bool], str] = {
     ("ACEScg", True): "ellelstone/ACEScg-elle-V2-g10.icc",
     ("ACEScg", False): "ellelstone/ACEScg-elle-V2-g10.icc",
     # Saucecontrol — P3 variants Elle Stone's set doesn't cover.
-    # No compact linear P3 ICC ships upstream; linear variants fall through.
     ("Display P3", True): "saucecontrol/DisplayP3-v2-micro.icc",
+    ("Display P3", False): "DisplayP3-linear.icc",
     ("DCI-P3", True): "saucecontrol/DCI-P3-v4.icc",
 }
 
@@ -636,6 +636,8 @@ def save_image_oiio(
             heic_kwargs["scene_rgb"] = scene_rgb
         return save_hdr_photo_heic(filename, image_data, **heic_kwargs)
 
+    hdr_headroom: float | None = None
+
     if ext == "exr":
         if exr_mode not in {"scene_linear_archive", "hdr_rendition"}:
             raise ValueError("exr_mode must be 'scene_linear_archive' or 'hdr_rendition'.")
@@ -648,6 +650,7 @@ def save_image_oiio(
                 scene_rgb=scene_rgb,
             )
             image_data = renditions.hdr_rgb
+            hdr_headroom = renditions.headroom
             if white_luminance is None:
                 white_luminance = HDR_REFERENCE_WHITE_LUMINANCE_NITS
 
@@ -722,6 +725,8 @@ def save_image_oiio(
         spec.attribute("oiio:ColorSpace", color_space)
     if white_luminance is not None:
         spec.attribute("whiteLuminance", float(white_luminance))
+    if hdr_headroom is not None:
+        spec.attribute("hdrHeadroom", float(hdr_headroom))
 
     if color_space is not None and ext != "exr":
         icc_bytes = _load_icc_profile(color_space, cctf_encoding)

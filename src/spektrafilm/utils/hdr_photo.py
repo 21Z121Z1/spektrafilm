@@ -146,6 +146,8 @@ class HDRPhotoMapping:
             raise ValueError("paper_rolloff_exposure_scale must be a finite positive value.")
         if not math.isfinite(self.paper_rolloff_strength) or self.paper_rolloff_strength <= 0.0:
             raise ValueError("paper_rolloff_strength must be a finite positive value.")
+        if not math.isfinite(self.paper_rolloff_contrast) or self.paper_rolloff_contrast <= 0.0:
+            raise ValueError("paper_rolloff_contrast must be a finite positive value.")
         if not math.isfinite(self.graft_start) or not math.isfinite(self.graft_end) or self.graft_start >= self.graft_end:
             raise ValueError("graft_start must be finite and strictly less than graft_end.")
         if not math.isfinite(self.graft_strength) or not (0.0 <= self.graft_strength <= 1.0):
@@ -182,6 +184,14 @@ class HDRPhotoMapping:
             raise ValueError("profile_hdr_strength must be a finite value in [0, 1].")
         if not math.isfinite(self.profile_hdr_softness_ev) or self.profile_hdr_softness_ev <= 0.0:
             raise ValueError("profile_hdr_softness_ev must be a finite positive value.")
+        if not math.isfinite(self.profile_hdr_slope_full) or self.profile_hdr_slope_full <= 0.0:
+            raise ValueError("profile_hdr_slope_full must be a finite positive value.")
+        if not math.isfinite(self.profile_hdr_slope_zero) or self.profile_hdr_slope_zero < 0.0:
+            raise ValueError("profile_hdr_slope_zero must be a finite non-negative value.")
+        if not math.isfinite(self.profile_hdr_soft_clip_softness) or self.profile_hdr_soft_clip_softness <= 0.0:
+            raise ValueError("profile_hdr_soft_clip_softness must be a finite positive value.")
+        if not math.isfinite(self.profile_hdr_min_gain) or self.profile_hdr_min_gain < 1.0:
+            raise ValueError("profile_hdr_min_gain must be a finite value >= 1.")
         if self.diffuse_white_override is not None and (not math.isfinite(self.diffuse_white_override) or self.diffuse_white_override <= 0.0):
             raise ValueError("diffuse_white_override must be a finite positive value if provided.")
         if self.profile_hdr_mode not in ("strict_preserving", "modern_recovery_peak_budget"):

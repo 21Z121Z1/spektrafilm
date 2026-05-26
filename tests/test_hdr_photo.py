@@ -1424,6 +1424,15 @@ def test_gain_map_max_matches_actual_h_over_s() -> None:
         ({"profile_hdr_normalize_percentile": 101.0}, "profile_hdr_normalize_percentile"),
         ({"profile_hdr_recovery_ratio": -0.1}, "profile_hdr_recovery_ratio"),
         ({"hdr_mapping_mode": "invalid"}, "hdr_mapping_mode"),
+        ({"paper_rolloff_contrast": 0.0}, "paper_rolloff_contrast"),
+        ({"paper_rolloff_contrast": -1.0}, "paper_rolloff_contrast"),
+        ({"profile_hdr_slope_full": 0.0}, "profile_hdr_slope_full"),
+        ({"profile_hdr_slope_full": -0.5}, "profile_hdr_slope_full"),
+        ({"profile_hdr_slope_zero": -0.1}, "profile_hdr_slope_zero"),
+        ({"profile_hdr_soft_clip_softness": 0.0}, "profile_hdr_soft_clip_softness"),
+        ({"profile_hdr_soft_clip_softness": -1.0}, "profile_hdr_soft_clip_softness"),
+        ({"profile_hdr_min_gain": 0.5}, "profile_hdr_min_gain"),
+        ({"profile_hdr_min_gain": -1.0}, "profile_hdr_min_gain"),
     ],
 )
 def test_mapping_validation_rejects_invalid_values(kwargs: dict, match: str) -> None:
