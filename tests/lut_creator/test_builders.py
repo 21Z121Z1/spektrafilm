@@ -482,8 +482,8 @@ class TestProvenance:
         assert prov.lut_creator_version
         assert prov.created  # ISO 8601
         assert "spektrafilm" in prov.copyright
-        assert "No Resale" in prov.license
-        assert "may not sell or resell" in prov.license
+        assert "CC BY-SA 4.0" in prov.license
+        assert "SPEKTRAFILM_LICENSE.txt" in prov.license
         assert "github.com/andreavolpato/spektrafilm" in prov.license
         assert "spektrafilm" in prov.citation
         assert "CITATION.cff" in prov.citation
@@ -508,7 +508,7 @@ class TestProvenance:
         # The comment block must carry the essentials.
         assert "spektrafilm LUT" in head_blob
         assert built.meta.name in head_blob
-        assert "No Resale" in head_blob
+        assert "CC BY-SA 4.0" in head_blob
         assert "github.com/andreavolpato/spektrafilm" in head_blob
         assert "CITATION.cff" in head_blob
         # Every comment-block line starts with '#'.

@@ -20,8 +20,8 @@ Qt = QtCore.Qt
 Signal = QtCore.Signal
 
 from spektrafilm_gui.state import (
+    PrintChemistryState,
     CouplersState,
-    CurvesState,
     DisplayState,
     GlareState,
     GrainState,
@@ -438,12 +438,12 @@ class CouplersSection(SimpleDataclassSection):
     TITLE = 'Couplers'
 
 
-class CurvesSection(SimpleDataclassSection):
-    STATE_CLS = CurvesState
-    SECTION_NAME = 'curves'
-    TITLE = 'Curves'
+class ChemistrySection(SimpleDataclassSection):
+    STATE_CLS = PrintChemistryState
+    SECTION_NAME = 'chemistry'
+    TITLE = 'Chemistry'
     COLLAPSED_BY_DEFAULT = True
-    ENUM_FIELDS_KEY = 'curves'
+    ENUM_FIELDS_KEY = 'chemistry'
 
 
 class GlareSection(SimpleDataclassSection):

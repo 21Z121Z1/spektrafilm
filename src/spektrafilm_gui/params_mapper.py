@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from spektrafilm.utils.morph_density_curves import PrintCurvesMorphParams
+from spektrafilm.utils.morph_curves import PrintCurvesMorphParams
 from spektrafilm_gui.state import GuiState
 from spektrafilm.runtime.api import init_params
 from spektrafilm.runtime.params_schema import RuntimePhotoParams
@@ -23,7 +23,7 @@ def build_params_from_state(state: GuiState) -> RuntimePhotoParams:
     _apply_halation(params, state)
     _apply_grain(params, state)
     _apply_couplers(params, state)
-    _apply_curves(params, state)
+    _apply_chemistry(params, state)
     _apply_enlarger(params, state)
     _apply_scanner(params, state)
     _apply_settings(params, state)
@@ -138,19 +138,16 @@ def _apply_couplers(params: RuntimePhotoParams, state: GuiState) -> None:
     params.film_render.dir_couplers.diffusion_size_um = state.couplers.diffusion_size_um
 
 
-def _apply_curves(params: RuntimePhotoParams, state: GuiState) -> None:
+def _apply_chemistry(params: RuntimePhotoParams, state: GuiState) -> None:
     params.print_render.density_curves_morph = PrintCurvesMorphParams(
-        active=bool(state.curves.active),
-        gamma_factor=float(state.curves.gamma_factor),
-        fast_uniformity=float(state.curves.fast_uniformity),
-        mid_uniformity=float(state.curves.mid_uniformity),
-        slow_uniformity=float(state.curves.slow_uniformity),
-        fast_warmth=float(state.curves.fast_warmth),
-        fast_tint=float(state.curves.fast_tint),
-        mid_warmth=float(state.curves.mid_warmth),
-        mid_tint=float(state.curves.mid_tint),
-        slow_warmth=float(state.curves.slow_warmth),
-        slow_tint=float(state.curves.slow_tint),
+        active=bool(state.chemistry.active),
+        gamma_factor=float(state.chemistry.gamma_factor),
+        gamma_factor_fast=float(state.chemistry.gamma_factor_fast),
+        gamma_factor_slow=float(state.chemistry.gamma_factor_slow),
+        gamma_factor_red=float(state.chemistry.gamma_factor_red),
+        gamma_factor_green=float(state.chemistry.gamma_factor_green),
+        gamma_factor_blue=float(state.chemistry.gamma_factor_blue),
+        developer_exhaustion=float(state.chemistry.developer_exhaustion),
     )
 
 

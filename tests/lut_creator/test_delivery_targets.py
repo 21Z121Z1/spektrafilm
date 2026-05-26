@@ -193,7 +193,7 @@ class TestBuilderEmitsTargetVariant:
         text = (out_dir / rel_path).read_text(encoding="utf-8")
         # Generic format carries the rich provenance header.
         assert "spektrafilm LUT" in text
-        assert "No Resale" in text
+        assert "CC BY-SA 4.0" in text
 
     def test_target_write_copies_lut_license(self, tmp_path):
         from spektrafilm_lut_creator.builders import BundleBuilder

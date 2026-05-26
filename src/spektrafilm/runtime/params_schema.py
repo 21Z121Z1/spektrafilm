@@ -7,7 +7,7 @@ from spektrafilm.utils.gamut_compression import (
     GamutCompressSpec,
     OutputGamutCompressSpec,
 )
-from spektrafilm.utils.morph_density_curves import PrintCurvesMorphParams
+from spektrafilm.utils.morph_curves import PrintCurvesMorphParams
 
 
 
@@ -90,10 +90,10 @@ class GrainParams:
     active: bool = True
     sublayers_active: bool = True
     agx_particle_area_um2: float = 0.2
-    agx_particle_scale: tuple[float, float, float] = (0.8, 1.0, 2.0)
-    agx_particle_scale_layers: tuple[float, float, float] = (2.5, 1.0, 0.5)
-    density_min: tuple[float, float, float] = (0.07, 0.08, 0.12)
-    uniformity: tuple[float, float, float] = (0.97, 0.97, 0.99)
+    agx_particle_scale: tuple[float, float, float] = (1.6, 1.6, 3.2)
+    agx_particle_scale_layers: tuple[float, float, float] = (2.0, 1.0, 0.5)
+    density_min: tuple[float, float, float] = (0.03, 0.03, 0.03)
+    uniformity: tuple[float, float, float] = (0.97, 0.99, 0.97)
     blur: float = 0.65
     blur_dye_clouds_um: float = 1.0
     micro_structure: tuple[float, float] = (0.2, 30)

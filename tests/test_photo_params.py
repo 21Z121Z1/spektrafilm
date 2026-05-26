@@ -67,9 +67,12 @@ class TestInitParamsDefaults:
 
         assert params.print_render.density_curves_morph.active is False
         assert params.print_render.density_curves_morph.gamma_factor == 1.0
-        assert params.print_render.density_curves_morph.fast_uniformity == 1.0
-        assert params.print_render.density_curves_morph.mid_uniformity == 1.0
-        assert params.print_render.density_curves_morph.slow_uniformity == 1.0
+        assert params.print_render.density_curves_morph.gamma_factor_fast == 1.0
+        assert params.print_render.density_curves_morph.gamma_factor_slow == 1.0
+        assert params.print_render.density_curves_morph.gamma_factor_red == 1.0
+        assert params.print_render.density_curves_morph.gamma_factor_green == 1.0
+        assert params.print_render.density_curves_morph.gamma_factor_blue == 1.0
+        assert params.print_render.density_curves_morph.developer_exhaustion == 0.0
         assert params.print_render.glare.active is True
 
         assert params.io.input_primaries == 'ProPhoto RGB'

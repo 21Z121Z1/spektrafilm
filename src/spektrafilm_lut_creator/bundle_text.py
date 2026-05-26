@@ -429,8 +429,17 @@ def cube_header_lines(meta: BundleMeta, rel_path: str) -> list[str]:
 
 
 def _wrap_field(label: str, text: str, width: int = 76) -> list[str]:
-    """Soft-wrap a labeled paragraph onto an indented multi-line comment block."""
-    wrapped = textwrap.wrap(text, width=width - len(label) - 2)
+    """Soft-wrap a labeled paragraph onto an indented multi-line comment block.
+
+    URLs (and any other long token) are kept whole on their own line so they
+    stay clickable in editors that auto-link bare URLs.
+    """
+    wrapped = textwrap.wrap(
+        text,
+        width=width - len(label) - 2,
+        break_long_words=False,
+        break_on_hyphens=False,
+    )
     if not wrapped:
         return [f"{label}: "]
     first, *rest = wrapped

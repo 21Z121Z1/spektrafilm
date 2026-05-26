@@ -52,7 +52,7 @@ def _make_state() -> GuiState:
     state.grain.active = False
     state.halation.halation_strength = (7.0, 5.0, 3.0)
     state.couplers.inhibition_interlayer = 1.75
-    state.curves.gamma_factor_shoulder = 1.15
+    state.chemistry.gamma_factor = 1.15
     state.glare.blur = 0.8
     state.simulation.print_exposure = 1.3
     state.simulation.camera_diffusion_filter_active = True
@@ -87,7 +87,7 @@ def _make_widgets(state: GuiState) -> WidgetBundle:
         camera_diffusion=object(),
         halation=StubSection(clone_state_section(state.halation)),
         couplers=StubSection(clone_state_section(state.couplers)),
-        curves=StubSection(clone_state_section(state.curves)),
+        chemistry=StubSection(clone_state_section(state.chemistry)),
         glare=StubSection(clone_state_section(state.glare)),
         special=StubSection(clone_state_section(state.special)),
         simulation=StubSimulationSection(

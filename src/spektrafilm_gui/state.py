@@ -96,18 +96,15 @@ class CouplersState:
 
 
 @dataclass(slots=True)
-class CurvesState:
+class PrintChemistryState:
     active: bool
     gamma_factor: float
-    fast_uniformity: float
-    mid_uniformity: float
-    slow_uniformity: float
-    fast_warmth: float
-    fast_tint: float
-    mid_warmth: float
-    mid_tint: float
-    slow_warmth: float
-    slow_tint: float
+    gamma_factor_fast: float
+    gamma_factor_slow: float
+    gamma_factor_red: float
+    gamma_factor_green: float
+    gamma_factor_blue: float
+    developer_exhaustion: float
 
 
 @dataclass(slots=True)
@@ -193,7 +190,7 @@ class GuiState:
     preflashing: PreflashingState
     halation: HalationState
     couplers: CouplersState
-    curves: CurvesState
+    chemistry: PrintChemistryState
     glare: GlareState
     special: SpecialState
     simulation: SimulationState
@@ -214,7 +211,7 @@ def clone_gui_state(state: GuiState) -> GuiState:
         preflashing=clone_state_section(state.preflashing),
         halation=clone_state_section(state.halation),
         couplers=clone_state_section(state.couplers),
-        curves=clone_state_section(state.curves),
+        chemistry=clone_state_section(state.chemistry),
         glare=clone_state_section(state.glare),
         special=clone_state_section(state.special),
         simulation=clone_state_section(state.simulation),
@@ -301,18 +298,15 @@ def gui_state_from_params(
             gamma_interlayer_b_to_rg=tuple(params.film_render.dir_couplers.gamma_interlayer_b_to_rg),
             diffusion_size_um=params.film_render.dir_couplers.diffusion_size_um,
         ),
-        curves=CurvesState(
+        chemistry=PrintChemistryState(
             active=params.print_render.density_curves_morph.active,
             gamma_factor=params.print_render.density_curves_morph.gamma_factor,
-            fast_uniformity=params.print_render.density_curves_morph.fast_uniformity,
-            mid_uniformity=params.print_render.density_curves_morph.mid_uniformity,
-            slow_uniformity=params.print_render.density_curves_morph.slow_uniformity,
-            fast_warmth=params.print_render.density_curves_morph.fast_warmth,
-            fast_tint=params.print_render.density_curves_morph.fast_tint,
-            mid_warmth=params.print_render.density_curves_morph.mid_warmth,
-            mid_tint=params.print_render.density_curves_morph.mid_tint,
-            slow_warmth=params.print_render.density_curves_morph.slow_warmth,
-            slow_tint=params.print_render.density_curves_morph.slow_tint,
+            gamma_factor_fast=params.print_render.density_curves_morph.gamma_factor_fast,
+            gamma_factor_slow=params.print_render.density_curves_morph.gamma_factor_slow,
+            gamma_factor_red=params.print_render.density_curves_morph.gamma_factor_red,
+            gamma_factor_green=params.print_render.density_curves_morph.gamma_factor_green,
+            gamma_factor_blue=params.print_render.density_curves_morph.gamma_factor_blue,
+            developer_exhaustion=params.print_render.density_curves_morph.developer_exhaustion,
         ),
         glare=GlareState(
             active=params.print_render.glare.active,
