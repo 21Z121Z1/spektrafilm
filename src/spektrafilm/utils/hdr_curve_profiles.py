@@ -10,6 +10,8 @@ from typing import Any, Final
 
 import numpy as np
 
+from spektrafilm.utils.math_ops import smoothstep as _smoothstep
+
 _LUMA_COEFFS: Final = np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
 _EPS: Final = 1e-8
 DEFAULT_CURVE_PROFILE_DIR: Final = (
@@ -78,13 +80,6 @@ def _interp_log_domain(scene_y: np.ndarray, source_scene_y: np.ndarray, values: 
         left=float(value_y[order][0]),
         right=float(value_y[order][-1]),
     ).reshape(query.shape).astype(np.float32)
-
-
-def _smoothstep(edge0: float, edge1: float, value: np.ndarray) -> np.ndarray:
-    if edge1 <= edge0:
-        return np.where(value >= np.float32(edge1), np.float32(1.0), np.float32(0.0))
-    t = np.clip((value - np.float32(edge0)) / np.float32(edge1 - edge0), 0.0, 1.0)
-    return (t * t * (np.float32(3.0) - np.float32(2.0) * t)).astype(np.float32, copy=False)
 
 
 def _classify_polarity(y: np.ndarray) -> tuple[str, int]:

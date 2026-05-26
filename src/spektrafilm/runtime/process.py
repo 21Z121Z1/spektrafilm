@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import numpy as np
+
 from spektrafilm.gpu.metal_serialization import serialized_metal_runtime
 from spektrafilm.runtime.params_schema import RuntimePhotoParams
-from spektrafilm.runtime.pipeline import SimulationPipeline
+from spektrafilm.runtime.pipeline import SimulationPipeline, SimulationPipelineResult
 from spektrafilm.utils.preview import resize_for_preview
 from spektrafilm.runtime.params_builder import (
     digest_params,
@@ -24,7 +26,7 @@ class Simulator:
         else:
             self._pipeline = SimulationPipeline(params) # should stay private
 
-    def process(self, image):
+    def process(self, image: np.ndarray) -> np.ndarray:
         """Process the input image through the simulation pipeline and return the final result."""
         if self._uses_serial_runtime():
             with serialized_metal_runtime():
@@ -33,7 +35,7 @@ class Simulator:
                 return result
         return self._pipeline.process(image)
 
-    def process_with_metadata(self, image):
+    def process_with_metadata(self, image: np.ndarray) -> SimulationPipelineResult:
         """Process the input image and return rendered output plus runtime metadata."""
         if self._uses_serial_runtime():
             with serialized_metal_runtime():
@@ -42,7 +44,7 @@ class Simulator:
                 return result
         return self._pipeline.process_with_metadata(image)
 
-    def update_params(self, params):
+    def update_params(self, params: RuntimePhotoParams) -> None:
         """Update the parameters of the simulation pipeline."""
         if self._uses_serial_runtime() or _params_may_require_serial_runtime(params):
             with serialized_metal_runtime():
@@ -150,8 +152,6 @@ def photo_params(film_profile, print_profile) -> RuntimePhotoParams:
     print_profile - label string for the print profile to use, e.g. "kodak_portra_endura"
     """
     params = init_params(film_profile=film_profile, print_profile=print_profile)
-    params.io.full_image = True # legacy compatibility, has no effect
-    params.io.preview_resize_factor = 1.0 # legacy compatibility, has no effect
     return params
 
 __all__ = [

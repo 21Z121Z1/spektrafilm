@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import logging
 import os
 from time import perf_counter
 from dataclasses import dataclass
@@ -16,9 +17,12 @@ from spektrafilm.runtime.services import (
     SpectralLUTService,
     ColorReferenceService,
 )
+from spektrafilm.runtime.params_schema import RuntimePhotoParams
 from spektrafilm.runtime.stages import FilmingStage, PrintingStage, ScanningStage
 from spektrafilm.gpu.backend import backend_summary, select_backend
 from spektrafilm.utils.timings import format_timings
+
+_log = logging.getLogger(__name__)
 
 GPU_TILE_PIXELS_ENV = "SPEKTRAFILM_GPU_TILE_PIXELS"
 MLX_TILE_PIXELS_ENV = "SPEKTRAFILM_MLX_TILE_PIXELS"
@@ -188,7 +192,7 @@ def characterize_pipeline_profile(pipeline: 'SimulationPipeline') -> tuple[np.nd
 class SimulationPipeline:
     """Thin runtime orchestrator that composes stage objects."""
 
-    def __init__(self, params, update_params=False, *, _reused_lut_service=None):
+    def __init__(self, params: RuntimePhotoParams, update_params: bool = False, *, _reused_lut_service: SpectralLUTService | None = None) -> None:
         self._params = copy.deepcopy(params)
 
         self.camera = self._params.camera
@@ -557,8 +561,8 @@ class SimulationPipeline:
             profile_scene_y, profile_look_y = characterize_pipeline_profile(self)
             from dataclasses import replace
             metadata = replace(metadata, profile_scene_y=profile_scene_y, profile_look_y=profile_look_y)
-        except Exception as e:
-            print(f"Warning: Failed to characterize profile for HDR mapping: {e}")
+        except (ValueError, RuntimeError, OSError, AttributeError, TypeError) as e:
+            _log.warning("Failed to characterize profile for HDR mapping: %s", e)
 
         return preprocessed, metadata
 

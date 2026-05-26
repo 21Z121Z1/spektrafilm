@@ -456,3 +456,49 @@ class TestRuntimeApi:
         shifted_output = AgXPhoto(shifted_params).process(image)
         assert shifted_output.shape == image.shape
         assert np.isfinite(shifted_output).all()
+
+    def test_characterize_pipeline_profile_returns_valid_curves(self, default_params):
+        simulator = process_module.Simulator(default_params)
+        scene_y, look_y = pipeline_module.characterize_pipeline_profile(simulator._pipeline)
+
+        assert scene_y.shape == (512,)
+        assert look_y.shape == (512,)
+        assert np.all(np.isfinite(scene_y))
+        assert np.all(np.isfinite(look_y))
+        assert np.all(scene_y > 0), "scene_y should be positive (logspace ramp)"
+        assert np.all(look_y >= 0), "look_y should be non-negative"
+
+    @pytest.mark.parametrize(
+        'image_factory,expected_confidence',
+        [
+            (lambda: np.full((2, 4, 3), 0.25, dtype=np.float32), 'medium'),
+            (lambda: np.full((2, 4, 3), 0.001, dtype=np.float32), 'low'),
+            (lambda: np.zeros((1, 1, 3), dtype=np.float32), 'low'),
+        ],
+        ids=['normal', 'low_key', 'black'],
+    )
+    def test_hdr_scene_energy_metadata_confidence_levels(self, image_factory, expected_confidence):
+        image = image_factory()
+        metadata = pipeline_module._hdr_scene_energy_metadata(
+            image,
+            input_color_space='sRGB',
+            apply_cctf_decoding=False,
+            auto_exposure_ev=0.0,
+        )
+        assert metadata.confidence == expected_confidence
+        assert metadata.scene_luminance.shape == image.shape[:2]
+        assert np.all(np.isfinite(metadata.scene_luminance))
+        assert metadata.diffuse_white_estimate > 0
+        assert metadata.headroom_estimate >= 1.0
+
+    def test_hdr_scene_energy_metadata_single_pixel(self):
+        image = np.array([[[0.5, 0.5, 0.5]]], dtype=np.float32)
+        metadata = pipeline_module._hdr_scene_energy_metadata(
+            image,
+            input_color_space='sRGB',
+            apply_cctf_decoding=False,
+            auto_exposure_ev=0.0,
+        )
+        assert metadata.scene_luminance.shape == (1, 1)
+        assert np.all(np.isfinite(metadata.scene_luminance))
+        assert metadata.diffuse_white_estimate > 0

@@ -24,6 +24,7 @@ from spektrafilm.utils.hdr_curve_profiles import (
     luminance_y,
     profile_slope_loglog,
 )
+from spektrafilm.utils.math_ops import smoothstep as _smoothstep
 
 SUPPORTED_HDR_PHOTO_EXTENSIONS: Final = {".heic", ".heif"}
 SUPPORTED_HDR_PHOTO_COLOR_SPACES: Final = {
@@ -37,6 +38,7 @@ HDR_REFERENCE_WHITE_LUMINANCE_NITS: Final = 203.0
 
 _ROLLOFF_MODES: Final = {"logistic", "logarithmic"}
 _HDR_MAPPING_MODES: Final = {"generic", "profile_aware"}
+_EPS32: Final = np.float32(1e-8)
 
 
 class HDRPhotoExportError(RuntimeError):
@@ -336,7 +338,7 @@ def _paper_logistic_progress(
 ) -> np.ndarray:
     """Compute Logistic paper-curve progress (0.0 to 1.0) for scene luminance."""
 
-    eps = np.float32(1e-8)
+    eps = _EPS32
     y = np.maximum(np.asarray(scene_y, dtype=np.float32), 0.0)
     s = np.float32(max(start, eps))
     out = np.zeros_like(y)
@@ -372,7 +374,7 @@ def _paper_logarithmic_progress(
 ) -> np.ndarray:
     """Compute Logarithmic shoulder progress (0.0 to 1.0) fallback."""
 
-    eps = np.float32(1e-8)
+    eps = _EPS32
     y = np.maximum(np.asarray(scene_y, dtype=np.float32), 0.0)
     h = np.float32(max(max_headroom, 1.0))
     s = np.float32(max(start, eps))
@@ -418,7 +420,7 @@ def _apply_rolloff(
         )
 
     # Unified compression core
-    eps = np.float32(1e-8)
+    eps = _EPS32
     y = np.maximum(np.asarray(scene_y, dtype=np.float32), 0.0)
     s = np.float32(max(mapping.paper_rolloff_start, eps))
     h = np.float32(max(mapping.max_headroom, 1.0))
@@ -530,7 +532,7 @@ def _prepare_profile_aware_renditions(
     scene_y = scene_y / np.float32(mapping.diffuse_white)
     if mapping.hdr_render_ev != 0.0:
         scene_y = scene_y * np.float32(2.0 ** mapping.hdr_render_ev)
-    scene_y = np.maximum(scene_y, np.float32(1e-8))
+    scene_y = np.maximum(scene_y, _EPS32)
 
     # Resolve diffuse_white: override > default 1.0 (scene_y already normalised).
     diffuse_white = (
@@ -564,7 +566,7 @@ def _prepare_profile_aware_renditions(
 
     hdr_gain = np.divide(
         h_profile,
-        np.maximum(s_profile, np.float32(1e-8)),
+        np.maximum(s_profile, _EPS32),
         out=np.ones_like(h_profile, dtype=np.float32),
         where=s_profile > np.float32(1e-6),
     )
@@ -615,7 +617,7 @@ def _apply_hdr_color_recovery(
     max_headroom: float,
     look_white: float = 1.0,
 ) -> np.ndarray:
-    eps = np.float32(1e-8)
+    eps = _EPS32
 
     if mapping.hdr_highlight_color_mode == "off":
         hdr_rgb = look * hdr_gain[..., None]
@@ -803,11 +805,6 @@ def _prepare_scene_luminance(scene_luminance: np.ndarray, *, shape: tuple[int, i
     return np.maximum(luminance, 0.0, dtype=np.float32)
 
 
-def _smoothstep(edge0: float, edge1: float, value: np.ndarray) -> np.ndarray:
-    t = np.clip((value - np.float32(edge0)) / np.float32(edge1 - edge0), 0.0, 1.0)
-    return t * t * (np.float32(3.0) - np.float32(2.0) * t)
-
-
 def _estimate_look_diffuse_white_reference(
     look_y: np.ndarray,
     scene_y: np.ndarray | None,
@@ -841,7 +838,7 @@ def _graft_scene_luminance(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Graft scene-energy luminance onto the paper-limited look, with diffue lift and rolloff."""
 
-    eps = np.float32(1e-8)
+    eps = _EPS32
     look = np.maximum(np.asarray(look_rgb, dtype=np.float32), 0.0)
     look_y = np.max(look, axis=2)
 
@@ -918,7 +915,7 @@ def _apply_fallback_rolloff(
     curve while preserving channel ratios (hue).
     """
 
-    eps = np.float32(1e-8)
+    eps = _EPS32
     image = np.maximum(np.asarray(hdr_rgb, dtype=np.float32), 0.0)
     intensity = np.max(image, axis=2)
     rolled_intensity = _apply_rolloff(intensity, mapping=mapping)
@@ -941,7 +938,7 @@ def _tone_map_sdr_base(image: np.ndarray, *, mapping: HDRPhotoMapping, headroom:
             np.log1p(shoulder_strength * (clipped_intensity[~below] - np.float32(1.0))) / denominator
         )
 
-    scale = mapped / np.maximum(intensity, np.float32(1e-8))
+    scale = mapped / np.maximum(intensity, _EPS32)
     return np.clip(
         image * scale[..., None],
         0.0,

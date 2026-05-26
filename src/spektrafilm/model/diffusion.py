@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 import scipy.ndimage
 from spektrafilm.gpu.kernels.filters import (
@@ -115,7 +117,12 @@ def apply_diffusion_filter_mm(data, diffusion_filter_params, pixel_size_um):
     max_sigma = sigma * (growth ** max(iterations - 1, 0))
     image_size = min(data.shape[:2])
     if max_sigma > image_size / 6:
-        print(f"Warning: diffusion filter size {max_sigma:.1f} pixels is too large for the image size {image_size}. Capping it to {image_size / 6:.1f} pixels.")
+        warnings.warn(
+            f"diffusion filter size {max_sigma:.1f} pixels is too large for the image size {image_size}. "
+            f"Capping it to {image_size / 6:.1f} pixels.",
+            UserWarning,
+            stacklevel=2,
+        )
         max_sigma = image_size / 6
     
     radius = max(int(np.ceil(max_sigma * 3)), 0)

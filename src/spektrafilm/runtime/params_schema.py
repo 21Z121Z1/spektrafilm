@@ -215,7 +215,7 @@ class SettingsParams:
     spectral_negative_rgb: str = "clip"
     spectral_xy_out_of_bounds: str = "clip"
     spectral_report_stats: bool = True
-    hanatos2025_sensitiviy_adaptation: bool = False
+    hanatos2025_sensitivity_adaptation: bool = False
     bandpass_hanatos2025: bool = True
     use_enlarger_lut: bool = False
     use_scanner_lut: bool = False
@@ -224,14 +224,6 @@ class SettingsParams:
     preview_max_size: int = 640
     preview_mode: bool = False
     neutral_print_filters_from_database: bool = True
-
-    @property
-    def hanatos2025_sensitivity_adaptation(self) -> bool:
-        return self.hanatos2025_sensitiviy_adaptation
-
-    @hanatos2025_sensitivity_adaptation.setter
-    def hanatos2025_sensitivity_adaptation(self, value: bool) -> None:
-        self.hanatos2025_sensitiviy_adaptation = value
 
 
 @dataclass

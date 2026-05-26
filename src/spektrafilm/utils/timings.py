@@ -1,6 +1,5 @@
 import time
 import functools
-import matplotlib.pyplot as plt
 
 
 ANSI_RED = "\033[31m"
@@ -87,6 +86,7 @@ def format_timings(timings, total_elapsed_time=None, header="Simulation timings"
     return "\n".join(lines)
 
 def plot_timings(timings):
+    import matplotlib.pyplot as plt
     labels = list(timings.keys())
     values = [timings[label] for label in labels]
     x_positions = list(range(len(labels)))

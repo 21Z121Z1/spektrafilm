@@ -310,7 +310,7 @@ def read_image_color_encoding(filename: str) -> ColorEncoding | None:
     in_img = oiio.ImageInput.open(filename)
     if not in_img:
         oiio.geterror()
-        raise IOError("Could not open image file: " + filename)
+        raise OSError("Could not open image file: " + filename)
 
     try:
         spec = in_img.spec()
@@ -482,7 +482,7 @@ def load_image_oiio(filename, *, dtype=np.float32):
     in_img = oiio.ImageInput.open(filename)
     if not in_img:
         oiio.geterror()
-        raise IOError("Could not open image file: " + filename)
+        raise OSError("Could not open image file: " + filename)
 
     try:
         spec = in_img.spec()

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from functools import lru_cache
 
 from spektrafilm.profiles.io import load_profile
@@ -37,18 +38,23 @@ def apply_database_neutral_print_filters(
         params.enlarger.m_filter_neutral = m_filter
         params.enlarger.y_filter_neutral = y_filter
     elif warn_missing:
-        print(
-            f"Warning: No neutral print filters found in database for print stock {params.print.info.stock} "
+        warnings.warn(
+            f"No neutral print filters found in database for print stock {params.print.info.stock} "
             f"with illuminant {params.enlarger.illuminant} and film stock {params.film.info.stock}. "
-            "Using defaults."
+            "Using defaults.",
+            UserWarning,
+            stacklevel=2,
         )
     return params
 
 
 def digest_params(params: RuntimePhotoParams, apply_stocks_specifics=True) -> RuntimePhotoParams:
     """Digest the params to prepare for use in the runtime pipeline.
+
     In the pipeline params should be static and not be changed.
     params.settings and params.debug should contain all the switching logic for the digesting.
+
+    Note: mutates *params* in-place and returns the same object.
     """
     params = apply_database_neutral_print_filters(params)
 
@@ -106,7 +112,7 @@ def init_params(
     return params
 
 def _apply_film_specifics(params: RuntimePhotoParams) -> RuntimePhotoParams:
-    """Apply film specific settings to the params."""
+    """Apply film specific settings to the params. Mutates *params* in-place."""
     # film overrides
     # define here all the specifics to stocks that should be applied in params.film_render
     if params.film.is_positive:

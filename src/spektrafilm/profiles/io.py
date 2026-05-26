@@ -1,8 +1,11 @@
 import copy
 import importlib.resources as pkg_resources
 import json
+import logging
 from dataclasses import dataclass, field, is_dataclass, replace
 from typing import Any, Mapping
+
+_log = logging.getLogger(__name__)
 
 import numpy as np
 
@@ -284,7 +287,7 @@ def save_profile(profile, suffix=''):
     package = pkg_resources.files('spektrafilm.data.profiles')
     filename = profile.info.stock + '.json'
     resource = package / filename
-    print('Saving profile to:', filename)
+    _log.debug('Saving profile to: %s', filename)
     with resource.open("w") as file:
         json.dump(_json_safe(profile_to_dict(profile)), file, indent=4, allow_nan=False)
 
