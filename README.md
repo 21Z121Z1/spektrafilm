@@ -75,8 +75,7 @@ result = simulate(image, params)
 依赖方向：
 
 1. `spektrafilm_gui` 依赖 `spektrafilm`。
-2. `spektrafilm_profile_creator` 依赖 `spektrafilm`。
-3. `spektrafilm` 不依赖上述两个高层包。
+2. `spektrafilm` 不依赖 `spektrafilm_gui`。
 
 ## 安装
 

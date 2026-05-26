@@ -12,6 +12,7 @@ from spektrafilm.utils.io import (
     _known_color_space_from_chromaticities,
     colorspace_chromaticities,
     read_image_color_encoding,
+    resolve_icc_profile_bytes,
     save_image_oiio,
     write_image_metadata,
 )
@@ -315,6 +316,22 @@ def test_acescg_tiff_icc_roundtrips_as_linear_encoding(tmp_path) -> None:
     assert encoding is not None
     assert encoding.color_space == "ACEScg"
     assert encoding.transfer == "linear"
+
+
+def test_resolve_icc_profile_bytes_returns_none_for_linear_without_bundled_profile() -> None:
+    """Linear requests for color spaces without bundled gamma=1.0 profiles must return None."""
+    # ACES spaces have explicit linear profiles in _ICC_FILENAMES.
+    assert resolve_icc_profile_bytes("ACEScg", cctf_encoding=False) is not None
+    assert resolve_icc_profile_bytes("ACES2065-1", cctf_encoding=False) is not None
+    # sRGB, Adobe RGB, ProPhoto, BT.2020 have Elle Stone g10 profiles.
+    assert resolve_icc_profile_bytes("sRGB", cctf_encoding=False) is not None
+    # Display P3 and DCI-P3 have no bundled linear profile — must return None
+    # rather than falling back to an encoded (non-linear) profile.
+    assert resolve_icc_profile_bytes("Display P3", cctf_encoding=False) is None
+    assert resolve_icc_profile_bytes("DCI-P3", cctf_encoding=False) is None
+    # Encoded requests still resolve correctly.
+    assert resolve_icc_profile_bytes("Display P3", cctf_encoding=True) is not None
+    assert resolve_icc_profile_bytes("DCI-P3", cctf_encoding=True) is not None
 
 
 def test_linear_png_without_linear_icc_is_rejected(tmp_path) -> None:

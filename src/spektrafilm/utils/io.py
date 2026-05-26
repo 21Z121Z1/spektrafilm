@@ -241,9 +241,10 @@ def resolve_icc_profile_bytes(color_space: str, cctf_encoding: bool = True) -> b
     if profile_bytes is not None:
         return profile_bytes
 
-    profile_bytes = _load_icc_profile_from_extra(color_space)
-    if profile_bytes is not None:
-        return profile_bytes
+    if cctf_encoding:
+        profile_bytes = _load_icc_profile_from_extra(color_space)
+        if profile_bytes is not None:
+            return profile_bytes
 
     if color_space == "sRGB":
         from PIL.ImageCms import ImageCmsProfile

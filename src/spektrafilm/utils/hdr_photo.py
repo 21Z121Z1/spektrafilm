@@ -138,6 +138,8 @@ class HDRPhotoMapping:
             raise ValueError("paper_rolloff_start must be a finite positive value.")
         if not math.isfinite(self.paper_rolloff_k) or self.paper_rolloff_k <= 0.0:
             raise ValueError("paper_rolloff_k must be a finite positive value.")
+        if not math.isfinite(self.paper_rolloff_x0) or self.paper_rolloff_x0 <= 0.0:
+            raise ValueError("paper_rolloff_x0 must be a finite positive value.")
         if not math.isfinite(self.paper_rolloff_exposure_scale) or self.paper_rolloff_exposure_scale <= 0.0:
             raise ValueError("paper_rolloff_exposure_scale must be a finite positive value.")
         if not math.isfinite(self.paper_rolloff_strength) or self.paper_rolloff_strength <= 0.0:
@@ -148,6 +150,8 @@ class HDRPhotoMapping:
             raise ValueError("graft_strength must be a finite value in [0, 1].")
         if not math.isfinite(self.headroom_percentile) or not (0.0 < self.headroom_percentile <= 100.0):
             raise ValueError("headroom_percentile must be a finite value in (0, 100].")
+        if not math.isfinite(self.hdr_render_ev):
+            raise ValueError("hdr_render_ev must be a finite value.")
         if not math.isfinite(self.hdr_diffuse_white_target) or self.hdr_diffuse_white_target <= 0.0:
             raise ValueError("hdr_diffuse_white_target must be a finite positive value.")
         if not math.isfinite(self.hdr_diffuse_lift_start) or not math.isfinite(self.hdr_diffuse_lift_end) or self.hdr_diffuse_lift_start >= self.hdr_diffuse_lift_end:
