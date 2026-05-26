@@ -27,7 +27,7 @@ class CupyBackend:
 
         try:
             device_count = int(cp.cuda.runtime.getDeviceCount())
-        except Exception as exc:
+        except (RuntimeError, OSError) as exc:
             raise BackendUnavailableError(
                 "compute_backend='cupy' could not query a CUDA/ROCm device."
             ) from exc

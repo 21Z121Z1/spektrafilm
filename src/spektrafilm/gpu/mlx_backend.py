@@ -41,7 +41,7 @@ class MlxBackend:
         try:
             probe = self.mx.array([0.0], dtype=self.default_dtype)
             self.mx.eval(probe)
-        except Exception as exc:
+        except (RuntimeError, OSError, ValueError) as exc:
             raise BackendUnavailableError(
                 "compute_backend='mlx' requires a usable Apple Metal device."
             ) from exc

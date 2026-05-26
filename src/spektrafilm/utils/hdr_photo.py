@@ -503,7 +503,7 @@ def _prepare_generic_renditions(
     hdr_rgb = np.clip(hdr_rgb, 0.0, headroom).astype(np.float32, copy=False)
     unlifted_hdr_rgb = np.clip(unlifted_hdr_rgb, 0.0, headroom).astype(np.float32, copy=False)
 
-    if getattr(mapping, 'preserve_sdr_base', True):
+    if mapping.preserve_sdr_base:
         # Image is the unmapped original scene look RGB
         sdr_rgb = np.clip(image, 0.0, 1.0).astype(np.float32, copy=False)
     else:
@@ -697,7 +697,7 @@ def _apply_hdr_color_recovery(
         hdr_rgb = look * hdr_gain[..., None]
 
     # Bounded chroma gain: limit chroma expansion while preserving target luminance.
-    max_chroma_gain = float(getattr(mapping, "profile_hdr_max_chroma_gain", 1.25))
+    max_chroma_gain = float(mapping.profile_hdr_max_chroma_gain)
     if max_chroma_gain < 50.0:  # Only apply when a finite limit is set.
         hdr_luma = luminance_y(hdr_rgb)
         chroma_vec = hdr_rgb - hdr_luma[..., None]
@@ -715,11 +715,11 @@ def _apply_hdr_color_recovery(
 
     # Path to white — EV-relative to look_white.
     lw = np.float32(max(look_white, float(eps)))
-    pw_start_ev = float(getattr(mapping, "profile_hdr_path_to_white_start_ev", 1.25))
-    pw_end_ev = float(getattr(mapping, "profile_hdr_path_to_white_end_ev", 2.25))
-    pw_strength = np.float32(getattr(mapping, "profile_hdr_path_to_white_strength", 0.30))
+    pw_start_ev = float(mapping.profile_hdr_path_to_white_start_ev)
+    pw_end_ev = float(mapping.profile_hdr_path_to_white_end_ev)
+    pw_strength = np.float32(mapping.profile_hdr_path_to_white_strength)
     # Also support the legacy path_to_white for non-profile-preserving callers.
-    if float(getattr(mapping, "hdr_highlight_path_to_white", 0.0)) > 0.0 and pw_strength <= 0.0:
+    if float(mapping.hdr_highlight_path_to_white) > 0.0 and pw_strength <= 0.0:
         pw_strength = np.float32(mapping.hdr_highlight_path_to_white)
     if pw_strength > 0.0:
         h_ev = np.log2(np.maximum(h_profile, eps) / lw)
@@ -729,7 +729,7 @@ def _apply_hdr_color_recovery(
                   hdr_luma[..., None] * (pw_mask[..., None] * pw_strength)
 
     # Gamut Compression
-    gamut_mode = getattr(mapping, "gamut_mapping_mode", "luma_preserving")
+    gamut_mode = mapping.gamut_mapping_mode
     if gamut_mode == "oklch_perceptual":
         hdr_rgb = gamut_map_oklch(hdr_rgb, peak_headroom=max_headroom)
     else:
@@ -796,7 +796,7 @@ def build_hdr_debug_sidecar(
 
     if mapping is not None:
         mapping_info: dict = {
-            "profile_hdr_mode": getattr(mapping, "profile_hdr_mode", "strict_preserving"),
+            "profile_hdr_mode": mapping.profile_hdr_mode,
         }
         if is_modern:
             mapping_info.update({

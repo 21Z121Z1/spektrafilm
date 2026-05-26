@@ -864,7 +864,7 @@ def save_neutral_print_filters(neutral_print_filters):
         with resource.open("w") as file:
             json.dump(neutral_print_filters, file, indent=4)
     except OSError as exc:
-        _log.error("Failed to write neutral print filters: %s", exc)
+        _log.error("Failed to write neutral print filters at %s: %s", resource, exc)
         raise
 
 

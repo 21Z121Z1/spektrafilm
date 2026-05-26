@@ -9,7 +9,6 @@ from spektrafilm.gpu.kernels.filters import (
     gaussian_filter_backend,
     reflect_pad_hw_backend,
 )
-from spektrafilm.utils.numba_boost_hightlights import boost_highlights
 
 def apply_unsharp_mask(image, sigma=0.0, amount=0.0, *, backend=None):
     """
