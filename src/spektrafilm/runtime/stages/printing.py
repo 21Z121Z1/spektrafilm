@@ -143,7 +143,7 @@ class PrintingStage:
             light_preflash = density_to_light(density_base, preflash_illuminant)
             raw_preflash = contract("ijk, kl->ijl", light_preflash, sensitivity)
             return raw_preflash * self._enlarger.preflash_exposure
-        return np.zeros((3,))
+        return np.zeros((1, 1, 3))
 
     def _compute_exposure_factor_midgray(self, sensitivity, print_illuminant):
         factor_midgray = _exposure_factor(sensitivity, print_illuminant, self._enlarger_service.density_spectral_midgray)

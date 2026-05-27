@@ -39,6 +39,6 @@ class ResizingService:
                 scale_factor,
                 channel_axis=2,
                 order=0,
-            )
+            ).astype(image.dtype)
         return image
     
