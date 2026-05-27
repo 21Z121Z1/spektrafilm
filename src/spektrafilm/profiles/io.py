@@ -31,7 +31,7 @@ def _created_date() -> str:
     return date.today().isoformat()
 
 def _copyright_statement() -> str:
-    return f"Copyright (c) {date.today().year} Andrea Volpato. All rights reserved."
+    return f"Copyright (c) {date.today().year} Andrea Volpato. Licensed under CC BY-SA 4.0."
 
 def _empty_vector() -> np.ndarray:
     return np.empty((0,), dtype=float)
@@ -78,7 +78,13 @@ class ProfileMetadata:
     version: str = field(default_factory=_package_version)
     copyright: str = field(default_factory=_copyright_statement)
     created: str = field(default_factory=_created_date)
-    license: str = "This profile is part of spektrafilm, licensed under GNU GPL v3.0. See https://github.com/andreavolpato/spektrafilm/blob/main/LICENSE for details."
+    license: str = (
+        "spektrafilm profile by Andrea Volpato "
+        "(https://github.com/andreavolpato/spektrafilm), licensed under "
+        "CC BY-SA 4.0. Full text and attribution requirements in "
+        "SPEKTRAFILM_LICENSE.txt: "
+        "https://github.com/andreavolpato/spektrafilm/blob/main/SPEKTRAFILM_LICENSE.txt"
+    )
     citation: str = "If you use this profile in your work, please cite the spektrafilm project: https://github.com/andreavolpato/spektrafilm, see CITATION.cff for details."
     datasource: str = """
     This profile was created by processing raw measurement data from data-sheets and/or scientific papers. Original data are property of the respective holders.

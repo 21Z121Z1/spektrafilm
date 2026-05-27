@@ -151,76 +151,38 @@ def characteristic_curve(ctx: "QAContext") -> Result:
     )
 
 def planckian_sweep(ctx: "QAContext") -> Result:
-    """Pipeline response to white surfaces and skin reflectances under
-    daylight illuminants.
+    """Pipeline response to white surfaces under daylight illuminants.
 
-    Two stimulus sets on one chromaticity plot:
-
-    - **Planckian sweep**: perfect-white surfaces under daylight
-      illuminants spanning ``2700–10000 K``. A bundle that handles
-      white balance gracefully sends these to a smooth, monotonic
-      curve. Bend > 30° between consecutive segments is surprising.
-    - **Skin arc**: ISO 17321-1 dark/light skin reflectances under
-      D50/D55/D65 — six dots that should land as a coherent cluster
-      inside the skin region. Reported informational; per-stock
-      thresholds wait on the baselines work (n080 §10).
-
-    Each dot is colored by the sRGB rendering of its source spectrum
-    (illuminant for Planckian, reflectance × illuminant for skin),
-    so dot color = the perceptual color of the stimulus and dot
-    position = where the LUT places it in output chromaticity.
-
-    The pass criterion is the Planckian bend angle; skin spread is
-    informational.
+    A spektrafilm bundle should send "white under D55", "white under
+    D65", "white under D75", etc. to a smooth, monotonic curve in
+    output chromaticity. Kinks or fold-backs reveal white-balance
+    handling bugs.
 
     References
     ----------
     - CIE 15:2018 (daylight illuminants).
-    - ISO 17321-1 (reference reflectances for skin tone references).
     - Poynton, *Color FAQ* — white-point handling.
     """
     spec = ctx.spec
+    samples_encoded, cct = patterns.planckian_sweep(spec.input_color_space, n=16)
 
-    # Planckian stimulus set.
-    pl_encoded, cct, pl_dot_colors = patterns.planckian_sweep(
-        spec.input_color_space, n=16,
-    )
-    pl_out_encoded = evaluators.apply_trilinear(ctx.lut.table, pl_encoded)
-    pl_out_xyz = to_xyz(pl_out_encoded, spec.output_color_space)
-    pl_out_xy = np.asarray(colour.XYZ_to_xy(pl_out_xyz), dtype=float)
+    # Apply the LUT (cheap) — that's what users will see.
+    lut_out_encoded = evaluators.apply_trilinear(ctx.lut.table, samples_encoded)
+    out_xyz = to_xyz(lut_out_encoded, spec.output_color_space)
+    out_xy = np.asarray(colour.XYZ_to_xy(out_xyz), dtype=float)
 
-    # Skin stimulus set — same input space, same LUT path.
-    sk_encoded, sk_dot_colors, sk_labels = patterns.skin_arc(spec.input_color_space)
-    sk_out_encoded = evaluators.apply_trilinear(ctx.lut.table, sk_encoded)
-    sk_out_xyz = to_xyz(sk_out_encoded, spec.output_color_space)
-    sk_out_xy = np.asarray(colour.XYZ_to_xy(sk_out_xyz), dtype=float)
-
-    # Smoothness on the Planckian curve: max angular deviation of
-    # consecutive sweep segments. Pure monotone smoothness ≈ 0°.
-    diffs = np.diff(pl_out_xy, axis=0)
+    # Smoothness: max angular deviation of consecutive sweep segments
+    # from a straight line through the cloud (a sanity proxy for
+    # monotone smoothness without imposing a specific curve shape).
+    diffs = np.diff(out_xy, axis=0)
     norms = np.linalg.norm(diffs, axis=1) + 1e-12
     cos_theta = np.sum(diffs[:-1] * diffs[1:], axis=1) / (norms[:-1] * norms[1:])
     cos_theta = np.clip(cos_theta, -1.0, 1.0)
     bend_angle_deg = np.degrees(np.arccos(cos_theta))
     max_bend = float(bend_angle_deg.max()) if bend_angle_deg.size else 0.0
 
-    # Skin cluster spread: largest pairwise xy distance among the
-    # six skin dots. Informational — meaningful for drift-tracking
-    # across bakes of the same stock, not as an absolute threshold.
-    if sk_out_xy.shape[0] > 1:
-        d = np.linalg.norm(
-            sk_out_xy[:, None, :] - sk_out_xy[None, :, :], axis=-1,
-        )
-        skin_xy_spread = float(d.max())
-    else:
-        skin_xy_spread = 0.0
-
     locus_xy = patterns.spectral_locus_chromaticities()
-    fig = viz.planckian_path(
-        cct, pl_out_xy, pl_dot_colors,
-        sk_out_xy, sk_dot_colors, sk_labels,
-        locus_xy, spec.output_color_space,
-    )
+    fig = viz.planckian_path(cct, out_xy, locus_xy, spec.output_color_space)
     path = _save(ctx, fig, "planckian_sweep")
 
     # > 30 deg between consecutive segments on a daylight sweep is
@@ -232,8 +194,6 @@ def planckian_sweep(ctx: "QAContext") -> Result:
         summary={
             "max_bend_angle_deg": max_bend,
             "cct_range_k": f"{int(cct[0])}-{int(cct[-1])}",
-            "skin_xy_spread": skin_xy_spread,
-            "skin_samples": int(sk_out_xy.shape[0]),
         },
         figure_path=path,
         units="degrees",
@@ -242,15 +202,7 @@ def planckian_sweep(ctx: "QAContext") -> Result:
             "smooth curve in output chromaticity. Sharp bends suggest "
             "the model is doing something discontinuous to chromatic "
             "adaptation — worth investigating the scan illuminant "
-            "handling and the print's spectral response curves. ISO "
-            "17321 skin patches under D50/D55/D65 overlay the same plot "
-            "as a small reference cluster; each dot is colored by the "
-            "sRGB rendering of its source stimulus (illuminant for "
-            "Planckian, reflectance × illuminant for skin) so dot color "
-            "is the perceptual color and dot position is where the LUT "
-            "places it. Skin spread is reported informational for "
-            "drift-tracking; per-stock thresholds land with the "
-            "baselines work."
+            "handling and the print's spectral response curves."
         ),
         reference_values={
             "max_bend_angle_deg": "≤ 30° — daylight CCT sweep should map to a smooth curve; pure monotone smoothness gives ~0°",

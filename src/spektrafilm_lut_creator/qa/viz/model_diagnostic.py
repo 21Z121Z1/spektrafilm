@@ -311,25 +311,9 @@ def chromaticity_1931(
 # ---------------------------------------------------------------------------
 
 def planckian_path(
-    cct: np.ndarray,
-    pl_xy: np.ndarray,
-    pl_dot_colors: np.ndarray,
-    sk_xy: np.ndarray,
-    sk_dot_colors: np.ndarray,
-    sk_labels: list[str],
-    locus_xy: np.ndarray,
-    out_cs: str,
+    cct: np.ndarray, xy_out: np.ndarray, locus_xy: np.ndarray, out_cs: str,
 ) -> Figure:
-    """Planckian sweep + ISO 17321 skin patches on the 1931 chromaticity
-    plot.
-
-    Each dot is colored by the sRGB rendering of its source stimulus
-    (illuminant alone for Planckian, reflectance × illuminant for skin),
-    so dot color reads as the perceptual color of the stimulus while
-    its position is where the LUT places that stimulus in output xy.
-    Planckian dots are circles connected by a line (the daylight arc);
-    skin dots are squares (a cluster).
-    """
+    """The Planckian / daylight sweep traced on the 1931 chromaticity plot."""
     fig, ax = plt.subplots(figsize=(9, 9), facecolor=BG, layout="constrained")
     ax.set_facecolor(BG)
     ax.plot(locus_xy[:, 0], locus_xy[:, 1], color="#888888", lw=1.2)
@@ -339,37 +323,17 @@ def planckian_path(
     out_tri = _gamut_triangle_xy(out_cs)
     ax.plot(out_tri[:, 0], out_tri[:, 1], color="#ffee66", lw=1.6, alpha=0.95,
             label=f"output gamut: {out_cs}")
-
-    # Planckian arc: connecting line + colored dots.
-    ax.plot(pl_xy[:, 0], pl_xy[:, 1], color="#cccccc", lw=0.8, alpha=0.6,
-            zorder=3, label="Planckian / daylight sweep")
-    ax.scatter(pl_xy[:, 0], pl_xy[:, 1],
-               c=np.clip(pl_dot_colors, 0.0, 1.0),
-               s=80, edgecolors="white", linewidths=0.7, zorder=5)
-    # CCT endpoint labels.
-    if cct.size:
-        ax.annotate(f"{int(cct[0])} K",
-                    (pl_xy[0, 0], pl_xy[0, 1]),
-                    color=FG, fontsize=8, xytext=(6, 6),
-                    textcoords="offset points", zorder=6)
-        ax.annotate(f"{int(cct[-1])} K",
-                    (pl_xy[-1, 0], pl_xy[-1, 1]),
-                    color=FG, fontsize=8, xytext=(6, -10),
-                    textcoords="offset points", zorder=6)
-
-    # Skin cluster: square markers, slightly larger, distinct edge color.
-    if sk_xy.size:
-        ax.scatter(sk_xy[:, 0], sk_xy[:, 1],
-                   c=np.clip(sk_dot_colors, 0.0, 1.0),
-                   s=120, marker="s", edgecolors="white", linewidths=0.7,
-                   zorder=6, label="ISO 17321 skin / D50, D55, D65")
-
+    sc = ax.scatter(xy_out[:, 0], xy_out[:, 1], c=cct, cmap="plasma",
+                    s=60, edgecolors="white", linewidths=0.5, zorder=4)
+    ax.plot(xy_out[:, 0], xy_out[:, 1], color="#cccccc", lw=0.8, alpha=0.6, zorder=3)
+    cbar = fig.colorbar(sc, ax=ax, shrink=0.7, pad=0.04)
+    cbar.set_label("CCT [K]", color=FG)
+    cbar.ax.tick_params(colors=FG)
+    cbar.outline.set_edgecolor("#555555")
     ax.set_xlim(-0.05, 0.85); ax.set_ylim(-0.05, 0.95)
     ax.set_xlabel("x", color=FG); ax.set_ylabel("y", color=FG)
-    ax.set_title(
-        "Chromaticity anchors — Planckian sweep + ISO 17321 skin",
-        color=HI, fontsize=SUPTITLE_FS, pad=SUPTITLE_PAD,
-    )
+    ax.set_title("Planckian / daylight sweep — output chromaticity per CCT",
+                 color=HI, fontsize=SUPTITLE_FS, pad=SUPTITLE_PAD)
     _setup_2d(ax)
     ax.legend(facecolor="#1a1a1a", labelcolor=FG, framealpha=0.9,
               loc="upper right", fontsize=9)

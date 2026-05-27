@@ -66,9 +66,8 @@ class ProvenanceMeta:
     created: str = field(default_factory=_created_iso8601)
     copyright: str = field(default_factory=_copyright_statement)
     license: str = (
-        "spektrafilm LUT by Andrea Volpato "
-        f"({_PROJECT_URL}), licensed under CC BY-SA 4.0. Full text and "
-        "attribution requirements in SPEKTRAFILM_LICENSE.txt (shipped "
+        f"spektrafilm LUT by Andrea Volpato, licensed under CC BY-SA 4.0. "
+        f"Full text and attribution requirements in SPEKTRAFILM_LICENSE.txt (shipped "
         f"in this bundle); also at {_LUT_LICENSE_URL}."
     )
     citation: str = (

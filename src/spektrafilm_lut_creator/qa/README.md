@@ -51,7 +51,7 @@ To QA every print in a multi-print bundle, iterate over
 | Test | What it asks | Pass criterion |
 |---|---|---|
 | `characteristic_curve` | System D-vs-input on the neutral ramp | Informational |
-| `planckian_sweep` | Daylight illuminants + ISO 17321 skin patches → output chromaticity | `max bend angle ≤ 30°` (skin spread informational) |
+| `planckian_sweep` | Daylight illuminants → output chromaticity | `max bend angle ≤ 30°` |
 | `hue_twist_oklab` | Per-saturation-band hue rotation | `max ≤ 30°` |
 | `spectral_locus_envelope` | Reach of model gamut at maximum saturation | Informational |
 
@@ -61,13 +61,6 @@ To QA every print in a multi-print bundle, iterate over
 |---|---|---|
 | `output_gamut_edge_stress` | LUT rendering of white / hue-cycle / black bands at the edges of Rec.709, Rec.2020, ACES2065-1 | Informational |
 | `rg_plane_slices` | R-G cube cross-sections at evenly-spaced B-input values, rendered in sRGB | Informational |
-
-The skin-tone arc (ISO 17321 measured spectra) is co-located with
-`planckian_sweep`: two skin patches (dark / light) under D50/D55/D65
-overlay the daylight sweep on the same chromaticity plot, each dot
-colored by the sRGB rendering of its source stimulus. Pass criterion
-stays the Planckian bend angle; skin spread is reported informational
-until the per-stock baselines work lands (n080 §10).
 
 ## Layout
 
