@@ -224,3 +224,111 @@ class TestMeasureDensityMinConvergence:
             result = measure_density_min(log_exposure, density_curves, info_type='negative')
             # The fit may or may not converge on degenerate data, but the function should return
             assert result.shape == (3,)
+
+
+# ---------------------------------------------------------------------------
+# TC-5: format_elapsed_time boundary values
+# ---------------------------------------------------------------------------
+
+
+class TestFormatElapsedTime:
+    def test_zero_seconds(self) -> None:
+        from spektrafilm.utils.timings import format_elapsed_time
+        assert format_elapsed_time(0.0) == "0.00 us"
+
+    def test_microseconds(self) -> None:
+        from spektrafilm.utils.timings import format_elapsed_time
+        result = format_elapsed_time(5e-6)
+        assert "us" in result
+
+    def test_milliseconds(self) -> None:
+        from spektrafilm.utils.timings import format_elapsed_time
+        result = format_elapsed_time(0.005)
+        assert "ms" in result
+
+    def test_seconds(self) -> None:
+        from spektrafilm.utils.timings import format_elapsed_time
+        result = format_elapsed_time(1.5)
+        assert "s" in result
+        assert "ms" not in result
+
+    def test_large_value_high_precision(self) -> None:
+        from spektrafilm.utils.timings import format_elapsed_time
+        result = format_elapsed_time(100.0)
+        assert "s" in result
+        # 100s should have 0 decimal places
+        assert result == "100 s"
+
+    def test_boundary_at_one_second(self) -> None:
+        from spektrafilm.utils.timings import format_elapsed_time
+        result = format_elapsed_time(1.0)
+        assert "s" in result
+
+    def test_boundary_at_one_millisecond(self) -> None:
+        from spektrafilm.utils.timings import format_elapsed_time
+        result = format_elapsed_time(0.001)
+        assert "ms" in result
+
+
+# ---------------------------------------------------------------------------
+# TC-6: _validate_path_component security
+# ---------------------------------------------------------------------------
+
+
+class TestValidatePathComponent:
+    def test_valid_simple_name(self) -> None:
+        from spektrafilm.utils.io import _validate_path_component
+        # Should not raise
+        _validate_path_component("thorlabs", "brand")
+
+    def test_valid_name_with_hyphen(self) -> None:
+        from spektrafilm.utils.io import _validate_path_component
+        _validate_path_component("black-pro-mist", "filter")
+
+    def test_valid_name_with_underscore(self) -> None:
+        from spektrafilm.utils.io import _validate_path_component
+        _validate_path_component("my_filter_01", "filter")
+
+    def test_valid_name_with_digits(self) -> None:
+        from spektrafilm.utils.io import _validate_path_component
+        _validate_path_component("filter123", "filter")
+
+    def test_rejects_path_traversal(self) -> None:
+        from spektrafilm.utils.io import _validate_path_component
+        with pytest.raises(ValueError, match="Invalid"):
+            _validate_path_component("../etc/passwd", "brand")
+
+    def test_rejects_slash(self) -> None:
+        from spektrafilm.utils.io import _validate_path_component
+        with pytest.raises(ValueError, match="Invalid"):
+            _validate_path_component("foo/bar", "brand")
+
+    def test_rejects_backslash(self) -> None:
+        from spektrafilm.utils.io import _validate_path_component
+        with pytest.raises(ValueError, match="Invalid"):
+            _validate_path_component("foo\\bar", "brand")
+
+    def test_rejects_special_characters(self) -> None:
+        from spektrafilm.utils.io import _validate_path_component
+        with pytest.raises(ValueError, match="Invalid"):
+            _validate_path_component("foo;rm -rf /", "brand")
+
+    def test_rejects_spaces(self) -> None:
+        from spektrafilm.utils.io import _validate_path_component
+        with pytest.raises(ValueError, match="Invalid"):
+            _validate_path_component("foo bar", "brand")
+
+    def test_rejects_empty_string(self) -> None:
+        from spektrafilm.utils.io import _validate_path_component
+        with pytest.raises(ValueError, match="Invalid"):
+            _validate_path_component("", "brand")
+
+    def test_error_message_includes_label(self) -> None:
+        from spektrafilm.utils.io import _validate_path_component
+        with pytest.raises(ValueError, match="brand"):
+            _validate_path_component("../bad", "brand")
+
+    def test_error_message_includes_value(self) -> None:
+        from spektrafilm.utils.io import _validate_path_component
+        with pytest.raises(ValueError, match="../bad"):
+            _validate_path_component("../bad", "brand")
