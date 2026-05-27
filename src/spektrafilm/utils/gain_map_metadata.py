@@ -79,6 +79,11 @@ class GainMapMetadata:
                 f"Expected {expected} channels for is_multichannel={self.is_multichannel}, "
                 f"got {len(self.channels)}."
             )
+        if self.base_hdr_headroom > self.alternate_hdr_headroom:
+            raise ValueError(
+                f"base_hdr_headroom ({self.base_hdr_headroom}) must be <= "
+                f"alternate_hdr_headroom ({self.alternate_hdr_headroom})."
+            )
 
     def serialize(self) -> bytes:
         """Serialize to big-endian binary payload per ISO 21496-1 C.2.2.

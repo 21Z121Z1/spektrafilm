@@ -192,6 +192,8 @@ class HDRPhotoMapping:
             raise ValueError("profile_hdr_peak_ev must be a finite positive value.")
         if not math.isfinite(self.profile_hdr_strength) or not (0.0 <= self.profile_hdr_strength <= 1.0):
             raise ValueError("profile_hdr_strength must be a finite value in [0, 1].")
+        if not math.isfinite(self.profile_hdr_knee_ev) or self.profile_hdr_knee_ev < 0.0:
+            raise ValueError("profile_hdr_knee_ev must be a finite non-negative value.")
         if not math.isfinite(self.profile_hdr_softness_ev) or self.profile_hdr_softness_ev <= 0.0:
             raise ValueError("profile_hdr_softness_ev must be a finite positive value.")
         if not math.isfinite(self.profile_hdr_slope_full) or self.profile_hdr_slope_full <= 0.0:
@@ -202,6 +204,10 @@ class HDRPhotoMapping:
             raise ValueError("profile_hdr_soft_clip_softness must be a finite positive value.")
         if not math.isfinite(self.profile_hdr_min_gain) or self.profile_hdr_min_gain < 1.0:
             raise ValueError("profile_hdr_min_gain must be a finite value >= 1.")
+        if not isinstance(self.profile_hdr_enforce_monotonic, (bool, np.bool_)):
+            raise ValueError("profile_hdr_enforce_monotonic must be boolean-compatible.")
+        if not math.isfinite(self.profile_hdr_max_chroma_gain) or self.profile_hdr_max_chroma_gain < 1.0:
+            raise ValueError("profile_hdr_max_chroma_gain must be a finite value >= 1.")
         if self.diffuse_white_override is not None and (not math.isfinite(self.diffuse_white_override) or self.diffuse_white_override <= 0.0):
             raise ValueError("diffuse_white_override must be a finite positive value if provided.")
         if self.profile_hdr_mode not in ("strict_preserving", "modern_recovery_peak_budget"):
@@ -221,8 +227,6 @@ class HDRPhotoMapping:
             or self.profile_hdr_recovery_knee_ev >= self.profile_hdr_recovery_full_ev
         ):
             raise ValueError("profile_hdr_recovery_knee_ev must be finite, non-negative, and strictly less than profile_hdr_recovery_full_ev.")
-        if not math.isfinite(self.profile_hdr_max_chroma_gain) or self.profile_hdr_max_chroma_gain < 1.0:
-            raise ValueError("profile_hdr_max_chroma_gain must be a finite value >= 1.")
         if not math.isfinite(self.profile_hdr_path_to_white_strength) or not (0.0 <= self.profile_hdr_path_to_white_strength <= 1.0):
             raise ValueError("profile_hdr_path_to_white_strength must be a finite value in [0, 1].")
         if (
@@ -733,7 +737,12 @@ def _apply_hdr_color_recovery(
     # Gamut Compression
     gamut_mode = mapping.gamut_mapping_mode
     if gamut_mode == "oklch_perceptual":
-        hdr_rgb = gamut_map_oklch(hdr_rgb, peak_headroom=max_headroom)
+        _gamut_to_cs = {"display-p3": "Display P3", "rec2020": "ITU-R BT.2020", "working": "sRGB"}
+        hdr_rgb = gamut_map_oklch(
+            hdr_rgb,
+            working_color_space=_gamut_to_cs.get(mapping.hdr_highlight_gamut, "sRGB"),
+            peak_headroom=max_headroom,
+        )
     else:
         # Luma preserving chroma reduction (default).
         max_rgb = np.max(hdr_rgb, axis=-1)

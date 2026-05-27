@@ -416,11 +416,6 @@ def _known_encoding_from_icc_profile(spec) -> tuple[str, Transfer] | None:
     return None
 
 
-def _known_color_space_from_icc_profile(spec) -> str | None:
-    encoding = _known_encoding_from_icc_profile(spec)
-    return encoding[0] if encoding is not None else None
-
-
 def _icc_profile_bytes_from_spec(spec) -> bytes | None:
     try:
         value = spec.getattribute("ICCProfile")
