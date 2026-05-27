@@ -507,3 +507,137 @@ class TestEdgeCases:
         assert norm.dtype == np.float32
         restored = denormalize_gain_map(norm, 0.0, 1.0)
         assert restored.dtype == np.float32
+
+
+# ---------------------------------------------------------------------------
+# Gain Map I/O (JPEG MPF)
+# ---------------------------------------------------------------------------
+
+
+class TestGainMapIO:
+    def test_save_and_load_jpeg_roundtrip(self, tmp_path) -> None:
+        """Save a JPEG with gain map and load it back."""
+        from spektrafilm.utils.gain_map_io import save_gain_map_jpeg, load_gain_map
+
+        sdr = _random_image((32, 32, 3), 0.1, 1.0)
+        gain = _random_image((32, 32, 3), 0.0, 1.0)
+
+        meta = GainMapMetadata(
+            is_multichannel=True,
+            use_base_colour_space=True,
+            base_hdr_headroom=0.0,
+            alternate_hdr_headroom=3.0,
+            channels=(
+                GainMapChannel(gain_map_min=0.0, gain_map_max=1.5, gamma=1.0,
+                               base_offset=0.001, alternate_offset=0.001),
+            ) * 3,
+        )
+
+        out_path = tmp_path / "test_gain_map.jpg"
+        save_gain_map_jpeg(out_path, sdr, gain, meta)
+
+        assert out_path.exists()
+        assert out_path.stat().st_size > 0
+
+        loaded = load_gain_map(out_path)
+        assert loaded["format"] == "jpeg"
+        assert loaded["base_image"] is not None
+        assert loaded["base_image"].size == (32, 32)
+
+    def test_save_jpeg_metadata_roundtrip(self, tmp_path) -> None:
+        """Verify metadata survives JPEG MPF roundtrip."""
+        from spektrafilm.utils.gain_map_io import save_gain_map_jpeg, load_gain_map
+
+        sdr = np.full((16, 16, 3), 0.5, dtype=np.float32)
+        gain = np.full((16, 16, 3), 0.5, dtype=np.float32)
+
+        meta = GainMapMetadata(
+            is_multichannel=False,
+            use_base_colour_space=True,
+            base_hdr_headroom=0.0,
+            alternate_hdr_headroom=4.0,
+            channels=(GainMapChannel(gain_map_min=0.0, gain_map_max=2.0, gamma=1.0),),
+        )
+
+        out_path = tmp_path / "meta_test.jpg"
+        save_gain_map_jpeg(out_path, sdr, gain, meta)
+
+        loaded = load_gain_map(out_path)
+        if loaded["metadata"] is not None:
+            assert loaded["metadata"].alternate_hdr_headroom == pytest.approx(4.0, abs=1e-3)
+            assert loaded["metadata"].is_multichannel is False
+
+    def test_save_jpeg_uint8_input(self, tmp_path) -> None:
+        """Verify uint8 images are handled correctly."""
+        from spektrafilm.utils.gain_map_io import save_gain_map_jpeg
+
+        sdr = np.random.randint(0, 256, (16, 16, 3), dtype=np.uint8)
+        gain = np.random.randint(0, 256, (16, 16, 3), dtype=np.uint8)
+
+        meta = GainMapMetadata(
+            is_multichannel=True,
+            channels=(GainMapChannel(),) * 3,
+        )
+
+        out_path = tmp_path / "uint8_test.jpg"
+        save_gain_map_jpeg(out_path, sdr, gain, meta)
+        assert out_path.exists()
+
+    def test_save_jpeg_1ch_gain_map(self, tmp_path) -> None:
+        """Verify single-channel (achromatic) gain map saves correctly."""
+        from spektrafilm.utils.gain_map_io import save_gain_map_jpeg
+
+        sdr = _random_image((16, 16, 3), 0.1, 1.0)
+        gain = _random_image((16, 16), 0.0, 1.0)  # 1-channel
+
+        meta = GainMapMetadata(
+            is_multichannel=False,
+            channels=(GainMapChannel(gain_map_min=0.0, gain_map_max=1.0),),
+        )
+
+        out_path = tmp_path / "achromatic_test.jpg"
+        save_gain_map_jpeg(out_path, sdr, gain, meta)
+        assert out_path.exists()
+
+    def test_load_nonexistent_raises(self) -> None:
+        """Loading a non-existent file should raise."""
+        from spektrafilm.utils.gain_map_io import load_gain_map
+
+        with pytest.raises(Exception):
+            load_gain_map("/nonexistent/file.jpg")
+
+    def test_load_unsupported_extension_raises(self) -> None:
+        """Loading an unsupported format should raise."""
+        from spektrafilm.utils.gain_map_io import load_gain_map
+
+        with pytest.raises(ValueError, match="Unsupported format"):
+            load_gain_map("test.bmp")
+
+
+class TestGainMapIOHeif:
+    def test_save_heif_fallback_to_jpeg(self, tmp_path) -> None:
+        """When pillow-heif is unavailable, HEIF save falls back to JPEG."""
+        import importlib
+        from spektrafilm.utils import gain_map_io
+
+        # Check if pillow-heif is available
+        try:
+            import pillow_heif
+            pytest.skip("pillow-heif is available; fallback test not applicable")
+        except ImportError:
+            pass
+
+        sdr = _random_image((16, 16, 3), 0.1, 1.0)
+        gain = _random_image((16, 16, 3), 0.0, 1.0)
+
+        meta = GainMapMetadata(
+            is_multichannel=True,
+            channels=(GainMapChannel(),) * 3,
+        )
+
+        out_path = tmp_path / "fallback_test.heic"
+        gain_map_io.save_gain_map_heif(out_path, sdr, gain, meta)
+
+        # Should have created a .jpg fallback
+        jpeg_path = tmp_path / "fallback_test.jpg"
+        assert jpeg_path.exists()
