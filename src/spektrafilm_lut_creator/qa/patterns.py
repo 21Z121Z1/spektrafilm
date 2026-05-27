@@ -80,6 +80,7 @@ def planckian_sweep(
     input_color_space: str,
     cct_range_k: tuple[float, float] = (2700.0, 10000.0),
     n: int = 16,
+    stops_above_midgray: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Daylight-locus white points across a CCT range.
 
@@ -100,7 +101,7 @@ def planckian_sweep(
     - CIE 15:2018 daylight phase recommendation for CCT > 4000K.
     - Planckian locus for low CCT.
     """
-    from spektrafilm_lut_creator.color_spaces import encode_cctf, get as get_cs
+    from spektrafilm_lut_creator.color_spaces import encode_qa_input, get as get_cs
 
     entry = get_cs(input_color_space)
     cct = np.linspace(cct_range_k[0], cct_range_k[1], n)
@@ -129,7 +130,9 @@ def planckian_sweep(
     # samples that fall outside [0,1] in the encoded space after CCTF.
     peak = np.clip(np.max(linear_rgb, axis=-1, keepdims=True), 1e-6, None)
     linear_rgb = linear_rgb / peak
-    samples_encoded = encode_cctf(np.clip(linear_rgb, 0.0, 1.0), input_color_space)
+    samples_encoded = encode_qa_input(
+        np.clip(linear_rgb, 0.0, 1.0), input_color_space, stops_above_midgray,
+    )
     return np.asarray(samples_encoded, dtype=np.float32), cct
 
 

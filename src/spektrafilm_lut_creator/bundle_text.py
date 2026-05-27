@@ -118,7 +118,7 @@ def bundle_readme_text(
     if meta.input_exposure is not None:
         exp = meta.input_exposure
         lines.append(
-            f"- Input exposure: source white at +{exp.stops_above_gray:g} "
+            f"- Input exposure: source white at +{exp.stops_above_midgray:g} "
             f"stops above 0.18 (linear gain {exp.gain:.4g})"
         )
     if output_cs is not None:
@@ -277,9 +277,9 @@ def _input_exposure_block(meta, input_cs, output_cs) -> list[str]:
         "## Input exposure",
         "",
         (
-            f"This bundle was baked with `stops_above_gray = "
-            f"{exp.stops_above_gray:g}` — the source's encoded 1.0 "
-            f"is placed at +{exp.stops_above_gray:g} stops above "
+            f"This bundle was baked with `stops_above_midgray = "
+            f"{exp.stops_above_midgray:g}` — the source's encoded 1.0 "
+            f"is placed at +{exp.stops_above_midgray:g} stops above "
             f"0.18 linear in the film's frame via a simple linear "
             f"gain of {exp.gain:.4g}. No log shaping: every input "
             f"linear value gets the same multiplier, so middle "
@@ -295,7 +295,7 @@ def _input_exposure_block(meta, input_cs, output_cs) -> list[str]:
         ),
         "",
         (
-            "**Disclosure.** With `stops_above_gray` set, the LUT "
+            "**Disclosure.** With `stops_above_midgray` set, the LUT "
             "is no longer a strict colorimetric "
             f"`{input_cs.name if input_cs else 'input'} → "
             f"{output_cs.name if output_cs else 'output'}` "

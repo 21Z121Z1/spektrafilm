@@ -57,7 +57,7 @@ linear-light RGB back. Specifically:
    values, or Apple Log code values).
 2. `decode_cctf(grid, input_name)` → linear-light RGB in the input space's
    primaries.
-3. Configure `RuntimePhotoParams.io.input_primaries =
+3. Configure `RuntimePhotoParams.io.input_color_space =
    registry.get(input_name).primaries`, `input_cctf_decoding = False`.
 4. Run the pipeline; receive linear-light RGB in the output primaries.
 5. `encode_cctf(output, output_name)` → encoded LUT values.

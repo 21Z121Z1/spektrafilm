@@ -254,7 +254,7 @@ def _merge_cli_overrides(fields: dict, args: argparse.Namespace) -> None:
         "target": "target",
         "container": "container",
         "gamut_clip": "gamut_clip",
-        "stops_above_gray": "stops_above_gray",
+        "stops_above_midgray": "stops_above_midgray",
         "qa_print_index": "qa_print_index",
     }
     for cli_attr, field_name in cli_to_field.items():
@@ -279,25 +279,12 @@ def resolve_color_space(value: str, *, role: str) -> str:
     slug. Errors include the role and a hint to the ``list`` subcommand.
     """
     try:
-        color_spaces.get(value)
-        return value
+        return color_spaces.resolve(value)
     except KeyError:
-        pass
-    slugs = _slug_table()
-    if value in slugs:
-        return slugs[value]
-    raise ValueError(
-        f"unknown {role} color space {value!r}. "
-        f"Try `spektrafilm-lut list {role}`."
-    )
-
-
-def _slug_table() -> dict[str, str]:
-    """Map ``short_tag`` → canonical color-space name for every registry entry."""
-    table: dict[str, str] = {}
-    for name in set(color_spaces.list_input_spaces()) | set(color_spaces.list_output_spaces()):
-        table[color_spaces.get(name).short_tag] = name
-    return table
+        raise ValueError(
+            f"unknown {role} color space {value!r}. "
+            f"Try `spektrafilm-lut list {role}`."
+        ) from None
 
 
 # ---------------------------------------------------------------------------

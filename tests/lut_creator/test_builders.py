@@ -184,8 +184,8 @@ class TestBuildEndToEndAgreesWithPipeline:
         params = init_params(film_profile="kodak_portra_400",
                              print_profile="kodak_portra_endura")
         params.debug.lut_mode = True
-        params.io.input_primaries = in_entry.primaries
-        params.io.output_primaries = out_entry.primaries
+        params.io.input_color_space = in_entry.primaries
+        params.io.output_color_space = out_entry.primaries
         params.io.input_cctf_decoding = False
         params.io.output_cctf_encoding = False
         # Mirror BundleSpec's gamut_clip="soft" default so this manual
@@ -201,7 +201,7 @@ class TestBuildEndToEndAgreesWithPipeline:
         # Reshape to a tiny image (3, 1, 3) so the pipeline accepts it.
         image_encoded = samples_encoded.reshape(len(flat_indices), 1, 3)
         # n150: the bake applies the input exposure gain after
-        # decode_cctf when stops_above_gray is set. The fixture uses
+        # decode_cctf when stops_above_midgray is set. The fixture uses
         # the default (None → gain 1.0), so the call below is identity;
         # keeping it mirrors the bake's call shape for parity in case
         # the fixture is later configured with a non-None value.
@@ -326,6 +326,96 @@ class TestGamutClip:
                 output_color_space=_OUTPUT_CS,
                 resolution=5,
                 gamut_clip="medium",
+            )
+
+    def test_bundle_spec_accepts_short_tag_color_spaces(self):
+        spec = BundleSpec(
+            name="short_tag_cs",
+            film_profile="kodak_portra_400",
+            print_profiles=("kodak_portra_endura",),
+            input_color_space="acescg",
+            output_color_space="rec2100pq",
+            resolution=5,
+        )
+        assert spec.input_color_space == "ACEScg"
+        assert spec.output_color_space == "Rec.2100 PQ"
+
+    def test_stops_above_midgray_auto_resolves_to_native_stops_for_pq(self):
+        spec = BundleSpec(
+            name="pq_auto",
+            film_profile="kodak_portra_400",
+            print_profiles=("kodak_portra_endura",),
+            input_color_space="rec2100pq",
+            output_color_space="rec709",
+            resolution=5,
+            stops_above_midgray="auto",
+        )
+        # 100-nit (SDR ref white) midgray on a 10000-nit peak → log2(100) ≈ 6.64 stops.
+        # This puts midgray near PQ-encoded 0.5, where the LUT cube samples sensibly.
+        assert spec.stops_above_midgray == pytest.approx(6.64, abs=0.05)
+
+    def test_stops_above_midgray_auto_is_native_headroom_for_sdr(self):
+        # sRGB midgray is already at 0.18 linear, so "auto"
+        # resolves to log2(1.0 / 0.18) ≈ 2.47 (the input's native headroom).
+        spec = BundleSpec(
+            name="srgb_auto",
+            film_profile="kodak_portra_400",
+            print_profiles=("kodak_portra_endura",),
+            input_color_space="sRGB",
+            output_color_space="sRGB",
+            resolution=5,
+            stops_above_midgray="auto",
+        )
+        assert spec.stops_above_midgray == pytest.approx(2.47, abs=0.02)
+
+    def test_pq_output_bake_is_not_crushed_black(self):
+        # Regression: encoding film output (reflectance scale) through
+        # the PQ EOTF inverse without an output midgray gain treats
+        # 0.18 as 0.18 nits — the LUT comes out almost entirely black.
+        # color_spaces.output_midgray_gain fixes this; here we just
+        # check the baked cube has a healthy spread of nonzero values.
+        spec = BundleSpec(
+            name="pq_out_smoke",
+            film_profile="kodak_portra_400",
+            print_profiles=("kodak_portra_endura",),
+            input_color_space="rec2100pq",
+            output_color_space="rec2100pq",
+            resolution=5,
+            stops_above_midgray="auto",
+        )
+        bundle = BundleBuilder(spec).build()
+        rgb_lut = bundle.luts[0][1]
+        # table is (N, N, N, 3); compute the median of all values.
+        cube_values = np.asarray(rgb_lut.table).reshape(-1, 3)
+        # Without the output gain, the median PQ-encoded value would be
+        # under ~0.07 (effectively black). With it, midgray-ish samples
+        # land near PQ-encoded 0.5 and the median sits well above 0.1.
+        assert float(np.median(cube_values)) > 0.15, (
+            f"PQ-output cube looks crushed black: "
+            f"median={float(np.median(cube_values)):.4f}"
+        )
+
+    def test_stops_above_midgray_rejects_unknown_sentinel(self):
+        with pytest.raises(ValueError, match="must be a float, None, or 'auto'"):
+            BundleSpec(
+                name="bad_sentinel",
+                film_profile="kodak_portra_400",
+                print_profiles=("kodak_portra_endura",),
+                input_color_space="rec2100pq",
+                output_color_space="rec709",
+                resolution=5,
+                stops_above_midgray="native",  # type: ignore[arg-type]
+            )
+
+    def test_bundle_spec_rejects_unknown_color_space(self):
+        with pytest.raises(KeyError, match="Unknown color space"):
+            BundleSpec(
+                name="bad_cs",
+                film_profile="kodak_portra_400",
+                print_profiles=("kodak_portra_endura",),
+                input_color_space="not_a_real_space",
+                output_color_space=_OUTPUT_CS,
+                resolution=5,
             )
 
     def test_default_bundle_spec_is_soft(self):
@@ -791,8 +881,8 @@ class TestTwoLutBundle:
             print_profile=self._TWO_LUT_PRINTS[0],
         )
         params.debug.lut_mode = True
-        params.io.input_primaries = in_entry.primaries
-        params.io.output_primaries = out_entry.primaries
+        params.io.input_color_space = in_entry.primaries
+        params.io.output_color_space = out_entry.primaries
         params.io.input_cctf_decoding = False
         params.io.output_cctf_encoding = False
         params.io.gamut_clip = "soft"
@@ -803,7 +893,7 @@ class TestTwoLutBundle:
         grid = cube_grid(n)
         image_enc = grid.reshape(1, n ** 3, 3)
         # n150: mirror the bake's input transform (decode + exposure gain).
-        # Fixture uses default stops_above_gray=None → gain 1.0.
+        # Fixture uses default stops_above_midgray=None → gain 1.0.
         image_lin = decode_cctf(image_enc, _INPUT_CS)
         image_lin = (image_lin * input_exposure_gain(_INPUT_CS, None)).astype(np.float32)
         cmy_film = np.asarray(pipeline.process(image_lin, collect="cmy_film"),
@@ -839,8 +929,8 @@ class TestTwoLutBundle:
             print_profile=first_print,
         )
         params.debug.lut_mode = True
-        params.io.input_primaries = in_entry.primaries
-        params.io.output_primaries = out_entry.primaries
+        params.io.input_color_space = in_entry.primaries
+        params.io.output_color_space = out_entry.primaries
         params.io.input_cctf_decoding = False
         params.io.output_cctf_encoding = False
         params.io.gamut_clip = "soft"
@@ -853,7 +943,7 @@ class TestTwoLutBundle:
 
         # Live pipeline end-to-end:
         # n150: mirror the bake's decode + exposure-gain path.
-        # Fixture uses default stops_above_gray=None → gain 1.0.
+        # Fixture uses default stops_above_midgray=None → gain 1.0.
         samples_linear = decode_cctf(samples_encoded, _INPUT_CS)
         samples_linear = (samples_linear * input_exposure_gain(_INPUT_CS, None)).astype(np.float32)
         live_rgb_linear = np.asarray(
@@ -1254,8 +1344,8 @@ class TestFourLutBundle:
         out_entry = get_cs(_OUTPUT_CS)
         params = init_params(film_profile="kodak_portra_400", print_profile=first_print)
         params.debug.lut_mode = True
-        params.io.input_primaries = in_entry.primaries
-        params.io.output_primaries = out_entry.primaries
+        params.io.input_color_space = in_entry.primaries
+        params.io.output_color_space = out_entry.primaries
         params.io.input_cctf_decoding = False
         params.io.output_cctf_encoding = False
         params.io.gamut_clip = "soft"
@@ -1265,7 +1355,7 @@ class TestFourLutBundle:
         rng = np.random.default_rng(20260516)
         samples_encoded = rng.uniform(0.0, 1.0, size=(200, 3)).astype(np.float32)
         # n150: mirror the bake's decode + exposure-gain path.
-        # Fixture uses default stops_above_gray=None → gain 1.0.
+        # Fixture uses default stops_above_midgray=None → gain 1.0.
         samples_linear = decode_cctf(samples_encoded, _INPUT_CS)
         samples_linear = (samples_linear * input_exposure_gain(_INPUT_CS, None)).astype(np.float32)
         live_rgb_linear = np.asarray(
@@ -1411,9 +1501,9 @@ class TestBundleSpecQaFields:
 
 
 class TestBundleSpecStopsAboveGray:
-    """``BundleSpec.stops_above_gray`` defaults to ``None`` (native, no
+    """``BundleSpec.stops_above_midgray`` defaults to ``None`` (native, no
     gain) and can be overridden with a float to apply a linear gain so
-    source encoded 1.0 lands at ``0.18 * 2 ** stops_above_gray`` in the
+    source encoded 1.0 lands at ``0.18 * 2 ** stops_above_midgray`` in the
     film's frame (n150)."""
 
     @pytest.mark.parametrize("input_cs", [
@@ -1429,7 +1519,7 @@ class TestBundleSpecStopsAboveGray:
             input_color_space=input_cs,
             output_color_space="sRGB",
         )
-        assert spec.stops_above_gray is None
+        assert spec.stops_above_midgray is None
 
     def test_explicit_value_is_preserved(self):
         spec = BundleSpec(
@@ -1437,9 +1527,9 @@ class TestBundleSpecStopsAboveGray:
             print_profiles=("kodak_portra_endura",),
             input_color_space="sRGB",
             output_color_space="sRGB",
-            stops_above_gray=6.0,
+            stops_above_midgray=6.0,
         )
-        assert spec.stops_above_gray == 6.0
+        assert spec.stops_above_midgray == 6.0
 
 
 class TestDefaultOutputDirectory:

@@ -42,7 +42,7 @@ class FilmingStage:
             small_preview = self._resize_service.small_preview(image)
             autoexposure_ev = measure_autoexposure_ev(
                 small_preview,
-                self._io.input_primaries,
+                self._io.input_color_space,
                 self._io.input_cctf_decoding,
                 method=self._camera.auto_exposure_method,
             )
@@ -52,7 +52,7 @@ class FilmingStage:
     def expose(self, image: np.ndarray) -> np.ndarray:
         raw = self._rgb_to_film_raw(
             image,
-            color_space=self._io.input_primaries,
+            color_space=self._io.input_color_space,
             apply_cctf_decoding=self._io.input_cctf_decoding,
         )
         raw *= 2 ** self._camera.exposure_compensation_ev

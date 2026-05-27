@@ -19,7 +19,7 @@ class SimulationRequest:
     mode_label: str
     image: np.ndarray
     params: object
-    output_primaries: str
+    output_color_space: str
     use_display_transform: bool
 
 
@@ -28,7 +28,7 @@ class SimulationResult:
     mode_label: str
     display_image: np.ndarray
     float_image: np.ndarray
-    output_primaries: str
+    output_color_space: str
     use_display_transform: bool
     status_message: str
 
@@ -137,7 +137,7 @@ def display_transform_status_message(enabled: bool, *, imagecms_module: Any) -> 
 def prepare_input_color_preview_image(
     image_data: np.ndarray,
     *,
-    input_primaries: str,
+    input_color_space: str,
     apply_cctf_decoding: bool,
     colour_module: Any,
 ) -> np.ndarray:
@@ -145,7 +145,7 @@ def prepare_input_color_preview_image(
     try:
         srgb_preview = colour_module.RGB_to_RGB(
             normalized_image,
-            input_primaries,
+            input_color_space,
             DISPLAY_PREVIEW_COLOR_SPACE,
             apply_cctf_decoding=apply_cctf_decoding,
             apply_cctf_encoding=True,
@@ -158,7 +158,7 @@ def prepare_input_color_preview_image(
 def apply_display_transform(
     image_data: np.ndarray,
     *,
-    output_primaries: str,
+    output_color_space: str,
     colour_module: Any,
     imagecms_module: Any,
     pil_image_module: Any,
@@ -169,7 +169,7 @@ def apply_display_transform(
 
     srgb_preview = colour_module.RGB_to_RGB(
         image_data,
-        output_primaries,
+        output_color_space,
         DISPLAY_PREVIEW_COLOR_SPACE,
         apply_cctf_decoding=True,
         apply_cctf_encoding=True,
@@ -184,7 +184,7 @@ def apply_display_transform(
 def prepare_output_display_image(
     image_data: np.ndarray,
     *,
-    output_primaries: str,
+    output_color_space: str,
     use_display_transform: bool,
     padding_pixels: float = 0.0,
     imagecms_module: Any,
@@ -199,7 +199,7 @@ def prepare_output_display_image(
     try:
         transformed_image, status = apply_display_transform(
             normalized_image,
-            output_primaries=output_primaries,
+            output_color_space=output_color_space,
             colour_module=colour_module,
             imagecms_module=imagecms_module,
             pil_image_module=pil_image_module,
@@ -218,14 +218,14 @@ def execute_simulation_request(
     scan = run_simulation_fn(request.image, request.params)
     scan_display, display_status = prepare_output_display_image_fn(
         scan,
-        output_primaries=request.output_primaries,
+        output_color_space=request.output_color_space,
         use_display_transform=request.use_display_transform,
     )
     return SimulationResult(
         mode_label=request.mode_label,
         display_image=scan_display,
         float_image=np.asarray(scan),
-        output_primaries=request.output_primaries,
+        output_color_space=request.output_color_space,
         use_display_transform=request.use_display_transform,
         status_message=display_status,
     )

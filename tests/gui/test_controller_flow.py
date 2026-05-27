@@ -69,13 +69,13 @@ def _run_simulation_case(
     def fake_prepare_output_display_image(
         image_data,
         *,
-        output_primaries,
+        output_color_space,
         use_display_transform,
         padding_pixels=0.0,
     ):
         captured['display_args'] = {
             'image_data': image_data.copy(),
-            'output_primaries': output_primaries,
+            'output_color_space': output_color_space,
             'use_display_transform': use_display_transform,
             'padding_pixels': padding_pixels,
         }
@@ -237,7 +237,7 @@ def test_load_raw_image_uses_pipeline_input_settings_and_builds_preview_stack(mo
     viewer = FakeViewer([FakeLayer(np.zeros((2, 2, 3), dtype=np.float32), name='older')])
     controller = GuiController(viewer=viewer, widgets=object())
     gui_state = make_test_controller_gui_state()
-    gui_state.input_image.input_primaries = 'Display P3'
+    gui_state.input_image.input_color_space = 'Display P3'
     gui_state.input_image.apply_cctf_decoding = True
     gui_state.load_raw.white_balance = 'custom'
     gui_state.load_raw.temperature = 3200.0
@@ -480,7 +480,7 @@ def test_run_simulation_passes_display_transform_settings(monkeypatch) -> None:
     )
 
     np.testing.assert_allclose(captured['display_args']['image_data'], np.full((4, 4, 3), 0.5, dtype=np.float32))
-    assert captured['display_args']['output_primaries'] == gui_state.simulation.output_primaries
+    assert captured['display_args']['output_color_space'] == gui_state.simulation.output_color_space
     assert captured['display_args']['use_display_transform'] is True
     assert captured['display_args']['padding_pixels'] == 0.0
     np.testing.assert_array_equal(captured['output_layer']['image'], np.full((6, 6, 3), 99, dtype=np.uint8))
@@ -640,7 +640,7 @@ def test_refresh_preview_cache_recomputes_cached_preview_without_hiding_visible_
     controller._layers.set_or_add_output_layer(
         output_image,
         float_image=float_image,
-        output_primaries='ACES2065-1',
+        output_color_space='ACES2065-1',
         output_cctf_encoding=True,
         use_display_transform=False,
     )
@@ -746,7 +746,7 @@ def test_execute_simulation_request_routes_through_runtime_simulator_path(monkey
         mode_label='Preview',
         image=np.full((2, 2, 3), 0.25, dtype=np.float32),
         params=object(),
-        output_primaries='sRGB',
+        output_color_space='sRGB',
         use_display_transform=False,
     )
     captured: dict[str, object] = {}
@@ -870,7 +870,7 @@ def test_on_simulation_finished_reports_completed_status(monkeypatch) -> None:
             mode_label='Preview',
             display_image=np.full((2, 2, 3), 9, dtype=np.uint8),
             float_image=np.full((2, 2, 3), 0.5, dtype=np.float32),
-            output_primaries='sRGB',
+            output_color_space='sRGB',
             use_display_transform=False,
             status_message='Display transform: disabled',
         )
@@ -893,7 +893,7 @@ def test_on_simulation_finished_skips_completed_status_for_silent_preview(monkey
             mode_label='Preview',
             display_image=np.full((2, 2, 3), 9, dtype=np.uint8),
             float_image=np.full((2, 2, 3), 0.5, dtype=np.float32),
-            output_primaries='sRGB',
+            output_color_space='sRGB',
             use_display_transform=False,
             status_message='Display transform: disabled',
         )

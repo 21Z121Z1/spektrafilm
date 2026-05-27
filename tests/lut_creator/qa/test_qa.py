@@ -138,7 +138,7 @@ def test_noise_sensitivity_rosette_alignment(spec, bundle):
     target_ring = len(chroma_rings) // 2
 
     samples = qa_tests._polar_oklch_input_samples(
-        in_cs, L=qa_tests.MIDGRAY_18_OKLAB_L,
+        spec.bake_frame(), L=qa_tests.MIDGRAY_18_OKLAB_L,
         chroma_rings=chroma_rings, n_hues=16,
     )
     field = metrics.noise_sensitivity_field(

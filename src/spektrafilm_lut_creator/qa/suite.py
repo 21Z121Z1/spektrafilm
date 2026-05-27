@@ -17,6 +17,7 @@ from typing import Callable, Sequence
 
 import numpy as np
 
+from spektrafilm_lut_creator import color_spaces
 from spektrafilm_lut_creator.bundles import Bundle, BundleSpec
 from spektrafilm_lut_creator.formats import Lut
 from spektrafilm_lut_creator.grid import cube_grid
@@ -59,6 +60,12 @@ class QAContext:
         :class:`ReferenceSamples` holding the off-grid pipeline ground
         truth used by ``off_grid_identity``. Computed once per
         ``run()`` call and cached on disk.
+    frame
+        :class:`color_spaces.BakeFrame` derived from the spec — gain
+        context bound to encode-input / decode-output convenience
+        methods. Tests use ``ctx.frame.encode_input(...)`` /
+        ``ctx.frame.decode_output_to_xyz(...)`` instead of threading
+        ``stops_above_midgray`` through each helper.
     out_dir
         Root output directory for this QA pass.
     figures_dir
@@ -72,6 +79,7 @@ class QAContext:
     grid_input: np.ndarray
     grid_output: np.ndarray
     reference: "reference.ReferenceSamples"
+    frame: "color_spaces.BakeFrame"
     out_dir: Path
     figures_dir: Path
 
@@ -282,6 +290,7 @@ def run(
         grid_input=grid_input,
         grid_output=grid_output,
         reference=ref,
+        frame=spec_obj.bake_frame(),
         out_dir=out_dir,
         figures_dir=figures_dir,
     )

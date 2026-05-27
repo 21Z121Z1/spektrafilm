@@ -167,9 +167,9 @@ class PrintRenderingParams:
 
 @dataclass
 class IOParams:
-    input_primaries: str = "ProPhoto RGB"
+    input_color_space: str = "ProPhoto RGB"
     input_cctf_decoding: bool = False
-    output_primaries: str = "sRGB"
+    output_color_space: str = "sRGB"
     output_cctf_encoding: bool = True
     # How to handle negative RGB values that emerge when the simulated
     # chromaticity falls outside the output primaries' gamut triangle.
@@ -181,7 +181,7 @@ class IOParams:
     #           for positives, smoothly maps negatives to small positives.
     #           Better for downstream interpolation (e.g., 3D LUT export);
     #           may very slightly desaturate at the gamut boundary.
-    gamut_clip: str = "hard"
+    gamut_clip: str = "off"
     # Input gamut compression: how to handle input chromaticities that fall
     # outside the visible spectral locus (where Hanatos 2025's spectral
     # upsampling is well-defined). The compression is applied at LUT-build

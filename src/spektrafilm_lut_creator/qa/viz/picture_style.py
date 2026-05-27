@@ -91,9 +91,9 @@ def _oklab_to_encoded_rgb(oklab: np.ndarray, cs_name: str) -> np.ndarray:
 
 def _encoded_rgb_to_display_rgb(rgb: np.ndarray, cs_name: str) -> np.ndarray:
     """Encoded RGB in ``cs_name`` converted to sRGB for on-screen display."""
-    from spektrafilm_lut_creator.color_spaces import from_xyz, to_xyz
+    from spektrafilm_lut_creator.color_spaces import from_xyz, to_xyz_qa
 
-    xyz = np.asarray(to_xyz(np.asarray(rgb, dtype=float), cs_name), dtype=float)
+    xyz = np.asarray(to_xyz_qa(np.asarray(rgb, dtype=float), cs_name), dtype=float)
     return np.clip(np.asarray(from_xyz(xyz, "sRGB"), dtype=float), 0.0, 1.0)
 
 def rg_plane_slices(
@@ -111,7 +111,7 @@ def rg_plane_slices(
     R-G response at that B as it would appear on an sRGB display.
     """
     from spektrafilm_lut_creator.color_spaces import (
-        decode_cctf, get as get_cs,
+        decode_cctf, get as get_cs, output_midgray_gain,
     )
     # Fixed 3x3 grid; default 9 slices fills it exactly. If the cube
     # resolution is too small for 9 slices we use as many as fit and
@@ -121,6 +121,10 @@ def rg_plane_slices(
     grid_rows = int(np.ceil(n_slices / grid_cols))
     indices = np.linspace(0, n - 1, n_slices, dtype=int)
     out_entry = get_cs(out_cs)
+    # Bring the cube's linear values back to reflectance scale so HDR
+    # outputs (where decode_cctf returns nits) don't blow past [0,1]
+    # and clip uniformly to white after the sRGB display conversion.
+    out_gain = output_midgray_gain(out_cs)
 
     fig, axes_2d = plt.subplots(
         grid_rows, grid_cols,
@@ -134,7 +138,7 @@ def rg_plane_slices(
             continue
         idx = indices[i]
         slice_encoded = np.asarray(table[idx, :, :, :], dtype=float)
-        slice_linear = decode_cctf(slice_encoded, out_cs)
+        slice_linear = decode_cctf(slice_encoded, out_cs) / out_gain
         srgb_linear = np.asarray(
             colour.RGB_to_RGB(
                 slice_linear,

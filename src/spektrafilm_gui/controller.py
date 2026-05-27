@@ -30,7 +30,7 @@ from spektrafilm_gui.state_bridge import apply_gui_state, collect_gui_state
 from spektrafilm_gui.widgets import WidgetBundle
 
 OUTPUT_FLOAT_DATA_KEY = 'pipeline_float_output'
-OUTPUT_COLOR_SPACE_KEY = 'pipeline_output_primaries'
+OUTPUT_COLOR_SPACE_KEY = 'pipeline_output_color_space'
 OUTPUT_CCTF_ENCODING_KEY = 'pipeline_output_cctf_encoding'
 OUTPUT_DISPLAY_TRANSFORM_KEY = 'pipeline_use_display_transform'
 PROFILE_SYNC_FIELDS = profile_sync.PROFILE_SYNC_FIELDS
@@ -141,7 +141,7 @@ class GuiController:
         self._layers = ViewerLayerService(
             viewer=viewer,
             output_float_data_key=OUTPUT_FLOAT_DATA_KEY,
-            output_primaries_key=OUTPUT_COLOR_SPACE_KEY,
+            output_color_space_key=OUTPUT_COLOR_SPACE_KEY,
             output_cctf_encoding_key=OUTPUT_CCTF_ENCODING_KEY,
             output_display_transform_key=OUTPUT_DISPLAY_TRANSFORM_KEY,
         )
@@ -194,7 +194,7 @@ class GuiController:
                 temperature=gui_state.load_raw.temperature,
                 tint=gui_state.load_raw.tint,
                 lens_correction=gui_state.load_raw.lens_correction,
-                output_colorspace=gui_state.input_image.input_primaries,
+                output_colorspace=gui_state.input_image.input_color_space,
                 output_cctf_encoding=gui_state.input_image.apply_cctf_decoding,
                 lens_info_out=lens_info,
             )
@@ -346,7 +346,7 @@ class GuiController:
             image_data = np.asarray(float_image_data)[..., :3]
 
         source_color_space, source_cctf_encoding = self._output_layer_render_settings(
-            default_color_space=gui_state.simulation.output_primaries,
+            default_color_space=gui_state.simulation.output_color_space,
             default_cctf_encoding=True,
         )
         saving_color_space = gui_state.simulation.saving_color_space
@@ -463,14 +463,14 @@ class GuiController:
         image: np.ndarray,
         *,
         float_image: np.ndarray,
-        output_primaries: str,
+        output_color_space: str,
         output_cctf_encoding: bool,
         use_display_transform: bool,
     ) -> None:
         self._layers.set_or_add_output_layer(
             image,
             float_image=float_image,
-            output_primaries=output_primaries,
+            output_color_space=output_color_space,
             output_cctf_encoding=output_cctf_encoding,
             use_display_transform=use_display_transform,
             output_interpolation_mode=self._output_interpolation_mode(),
@@ -497,7 +497,7 @@ class GuiController:
         preview_image = self._resize_for_preview(image, max_size=state.display.preview_max_size)
         preview_display_image = self._prepare_input_color_preview_image(
             preview_image,
-            input_primaries=state.input_image.input_primaries,
+            input_color_space=state.input_image.input_color_space,
             apply_cctf_decoding=state.input_image.apply_cctf_decoding,
         )
         self._current_input_image = image
@@ -598,12 +598,12 @@ class GuiController:
     def _prepare_input_color_preview_image(
         image_data: np.ndarray,
         *,
-        input_primaries: str,
+        input_color_space: str,
         apply_cctf_decoding: bool,
     ) -> np.ndarray:
         return runtime.prepare_input_color_preview_image(
             image_data,
-            input_primaries=input_primaries,
+            input_color_space=input_color_space,
             apply_cctf_decoding=apply_cctf_decoding,
             colour_module=colour,
         )
@@ -612,13 +612,13 @@ class GuiController:
     def _prepare_output_display_image(
         image_data: np.ndarray,
         *,
-        output_primaries: str,
+        output_color_space: str,
         use_display_transform: bool,
         padding_pixels: float = 0.0,
     ) -> tuple[np.ndarray, str]:
         return runtime.prepare_output_display_image(
             image_data,
-            output_primaries=output_primaries,
+            output_color_space=output_color_space,
             use_display_transform=use_display_transform,
             padding_pixels=padding_pixels,
             imagecms_module=ImageCms,
@@ -708,7 +708,7 @@ class GuiController:
             mode_label=mode_label,
             image=image,
             params=params,
-            output_primaries=state.simulation.output_primaries,
+            output_color_space=state.simulation.output_color_space,
             use_display_transform=state.display.use_display_transform,
         )
 
@@ -732,7 +732,7 @@ class GuiController:
         self._set_or_add_output_layer(
             result.display_image,
             float_image=result.float_image,
-            output_primaries=result.output_primaries,
+            output_color_space=result.output_color_space,
             output_cctf_encoding=True,
             use_display_transform=result.use_display_transform,
         )
@@ -777,13 +777,13 @@ class GuiController:
         scan = self._process_image_with_runtime(image, params)
         scan_display, display_status = self._prepare_output_display_image(
             scan,
-            output_primaries=state.simulation.output_primaries,
+            output_color_space=state.simulation.output_color_space,
             use_display_transform=state.display.use_display_transform,
         )
         self._set_or_add_output_layer(
             scan_display,
             float_image=scan,
-            output_primaries=state.simulation.output_primaries,
+            output_color_space=state.simulation.output_color_space,
             output_cctf_encoding=True,
             use_display_transform=state.display.use_display_transform,
         )

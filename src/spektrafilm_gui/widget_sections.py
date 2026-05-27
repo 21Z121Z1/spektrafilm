@@ -645,7 +645,7 @@ class SimulationSection(DataclassSection):
                 'scan_unsharp_mask',
                 'auto_preview',
                 'scan_film',
-                'output_primaries',
+                'output_color_space',
                 'saving_color_space',
                 'saving_cctf_encoding',
                 'output_gamut_compress_algorithm',
@@ -775,7 +775,7 @@ class OutputSection(QWidget):
             _build_linked_form_section(
                 'Output',
                 [
-                    _spec_row('simulation', 'output_primaries', simulation_section.output_primaries),
+                    _spec_row('simulation', 'output_color_space', simulation_section.output_color_space),
                     _spec_row('simulation', 'saving_color_space', simulation_section.saving_color_space),
                     _spec_row('simulation', 'saving_cctf_encoding', simulation_section.saving_cctf_encoding),
                     _spec_row('simulation', 'output_gamut_compress_algorithm', simulation_section.output_gamut_compress_algorithm),

@@ -160,9 +160,9 @@ class TestRuntimeApi:
             params.io.crop = False
             params.io.full_image = True
             params.io.input_cctf_decoding = False
-            params.io.input_primaries = 'sRGB'
+            params.io.input_color_space = 'sRGB'
             params.io.output_cctf_encoding = False
-            params.io.output_primaries = 'ACES2065-1'
+            params.io.output_color_space = 'ACES2065-1'
             params.io.preview_resize_factor = 1.0
             params.io.upscale_factor = 1.0
             params.scanner.lens_blur = 0.0

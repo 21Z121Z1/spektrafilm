@@ -9,7 +9,7 @@ import numpy as np
 import colour
 import spektrafilm_lut_creator.color_spaces as color_spaces
 
-from spektrafilm_lut_creator.color_spaces import to_xyz
+from spektrafilm_lut_creator.color_spaces import to_xyz, to_xyz_qa
 from spektrafilm_lut_creator.qa import evaluators, metrics, patterns, reference, viz
 from spektrafilm_lut_creator.qa.result import Result
 from spektrafilm_lut_creator.qa.tests._helpers import _save, MIDGRAY_18_OKLAB_L
@@ -164,11 +164,13 @@ def planckian_sweep(ctx: "QAContext") -> Result:
     - Poynton, *Color FAQ* — white-point handling.
     """
     spec = ctx.spec
-    samples_encoded, cct = patterns.planckian_sweep(spec.input_color_space, n=16)
+    samples_encoded, cct = patterns.planckian_sweep(
+        spec.input_color_space, n=16, stops_above_midgray=ctx.frame.stops_above_midgray,
+    )
 
     # Apply the LUT (cheap) — that's what users will see.
     lut_out_encoded = evaluators.apply_trilinear(ctx.lut.table, samples_encoded)
-    out_xyz = to_xyz(lut_out_encoded, spec.output_color_space)
+    out_xyz = to_xyz_qa(lut_out_encoded, spec.output_color_space)
     out_xy = np.asarray(colour.XYZ_to_xy(out_xyz), dtype=float)
 
     # Smoothness: max angular deviation of consecutive sweep segments
@@ -306,15 +308,18 @@ def dynamic_range_usage(ctx: "QAContext") -> Result:
     """
     in_cs = ctx.spec.input_color_space
     out_cs = ctx.spec.output_color_space
-    stops, encoded_in, encoded_clip_mask = patterns.dynamic_range_neutral_ramp(in_cs)
+    stops, encoded_in, encoded_clip_mask = patterns.dynamic_range_neutral_ramp(
+        in_cs, middle_gray_linear=ctx.frame.input_midgray_linear,
+    )
 
     # Apply the LUT (already composed if 2-LUT) at the encoded inputs.
     lut_out_encoded = evaluators.apply_trilinear(ctx.lut.table, encoded_in)
 
     # Decode the output's CCTF to get scene-linear and take the Y
-    # (luminance) component via XYZ. `to_xyz` handles the CCTF decode
-    # plus primaries-to-XYZ transform.
-    xyz_out = to_xyz(lut_out_encoded, out_cs)
+    # (luminance) component via XYZ. `to_xyz_qa` handles the CCTF decode
+    # plus primaries-to-XYZ transform AND normalizes HDR outputs back to
+    # reflectance scale so the SDR `-log10(Y)` density formula works.
+    xyz_out = to_xyz_qa(lut_out_encoded, out_cs)
     y_out = np.asarray(xyz_out[:, 1], dtype=float)
     # Some output spaces' linear Y can dip very slightly negative on
     # extreme gamut edges (numerical) — clip the floor.
@@ -379,8 +384,9 @@ def spectral_locus_envelope(ctx: "QAContext") -> Result:
     rgb_encoded = np.asarray(cube, dtype=float).reshape(-1, 3)
 
     # 2) Project each cell to xy in the output color space's frame.
-    #    to_xyz takes encoded RGB and handles the CCTF + matrix.
-    xyz = to_xyz(rgb_encoded, out_cs)
+    #    to_xyz_qa takes encoded RGB and handles the CCTF + matrix,
+    #    normalizing HDR output back to reflectance scale.
+    xyz = to_xyz_qa(rgb_encoded, out_cs)
     xy = np.asarray(colour.XYZ_to_xy(xyz), dtype=float)
 
     # 3) Skip degenerate (near-black) samples whose xy is unreliable.

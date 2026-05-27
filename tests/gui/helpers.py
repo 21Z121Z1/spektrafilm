@@ -78,7 +78,7 @@ def make_test_gui_state() -> GuiState:
 
 def make_test_controller_gui_state() -> GuiState:
     state = make_test_gui_state()
-    state.simulation.output_primaries = 'ACES2065-1'
+    state.simulation.output_color_space = 'ACES2065-1'
     state.simulation.saving_color_space = 'Display P3'
     state.simulation.saving_cctf_encoding = False
     state.display.use_display_transform = False

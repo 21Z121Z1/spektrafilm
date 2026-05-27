@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 
 def _polar_oklch_input_samples(
-    in_cs: str,
+    frame,
     *,
     L: float,
     chroma_rings: tuple[float, ...],
@@ -27,14 +27,14 @@ def _polar_oklch_input_samples(
     include_neutral: bool = True,
 ) -> dict:
     """Build a polar OkLCh sample grid at constant L, then convert each
-    point into encoded RGB in ``in_cs``.
+    point into encoded RGB in the frame's input color space.
 
     Returns only samples that lie inside the input color space's gamut
     (linear RGB in ``[0, 1]``) — out-of-gamut points get dropped rather
     than clipped so that the per-sample Jacobian reflects the requested
     chromaticity instead of a wall-clamped neighbor.
     """
-    in_entry = color_spaces.get(in_cs)
+    in_entry = color_spaces.get(frame.input_color_space)
     pts_oklab: list[list[float]] = []
     hue_deg: list[float] = []
     chroma_val: list[float] = []
@@ -60,7 +60,7 @@ def _polar_oklch_input_samples(
     )
     in_gamut = np.all((rgb_linear >= 0.0) & (rgb_linear <= 1.0), axis=-1)
     rgb_linear = rgb_linear[in_gamut]
-    rgb_encoded = color_spaces.encode_cctf(rgb_linear, in_cs)
+    rgb_encoded = frame.encode_input(rgb_linear)
     # Keep central differences off the [0,1] boundary so the Jacobian
     # is two-sided everywhere.
     pad = 6e-3
@@ -77,7 +77,7 @@ def _polar_oklch_input_samples(
     }
 
 def _noise_gain_heatmap(
-    table: np.ndarray, in_cs: str, out_cs: str,
+    table: np.ndarray, frame,
     *,
     L: float, extent: float, n_grid: int,
     sigma_in_encoded: float, eps: float,
@@ -85,7 +85,7 @@ def _noise_gain_heatmap(
     """Compute σ₁(J) on a dense OkLab a*b* grid at constant L for the
     heatmap panel. Out-of-input-gamut cells return NaN (rendered as
     transparent in matplotlib pcolormesh)."""
-    in_entry = color_spaces.get(in_cs)
+    in_entry = color_spaces.get(frame.input_color_space)
     aa = np.linspace(-extent, extent, n_grid)
     bb = np.linspace(-extent, extent, n_grid)
     A, B = np.meshgrid(aa, bb, indexing="xy")
@@ -101,11 +101,11 @@ def _noise_gain_heatmap(
     pad = 6e-3
     in_gamut = np.all((rgb_linear >= 0.0) & (rgb_linear <= 1.0), axis=-1)
     rgb_linear_safe = np.clip(rgb_linear, 0.0, 1.0)
-    rgb_encoded = color_spaces.encode_cctf(rgb_linear_safe, in_cs)
+    rgb_encoded = frame.encode_input(rgb_linear_safe)
     rgb_encoded = np.clip(rgb_encoded, pad, 1.0 - pad)
     field = metrics.noise_sensitivity_field(
         table, rgb_encoded,
-        in_cs=in_cs, out_cs=out_cs,
+        in_cs=frame.input_color_space, out_cs=frame.output_color_space,
         sigma_in_encoded=sigma_in_encoded, eps=eps,
     )
     sigma1 = field["sigma1"].copy()
@@ -117,13 +117,20 @@ def _noise_gain_heatmap(
     }
 
 def _encoded_image_to_srgb_display(image_encoded: np.ndarray, cs_name: str) -> np.ndarray:
-    """Convert an encoded RGB image in ``cs_name`` to display-ready sRGB."""
-    xyz = to_xyz(np.asarray(image_encoded, dtype=float).reshape(-1, 3), cs_name)
+    """Convert an encoded RGB image in ``cs_name`` to display-ready sRGB.
+
+    Uses ``to_xyz_qa`` so HDR outputs (PQ / HLG) get normalized back to
+    reflectance scale before the XYZ→sRGB conversion — otherwise PQ
+    Y values (in nits) blow past 1.0 and the entire preview clips white.
+    """
+    xyz = color_spaces.to_xyz_qa(
+        np.asarray(image_encoded, dtype=float).reshape(-1, 3), cs_name,
+    )
     srgb = color_spaces.from_xyz(xyz, "sRGB")
     return np.clip(np.asarray(srgb, dtype=float), 0.0, 1.0).reshape(image_encoded.shape)
 
 def _build_oklab_noise_gradient_input(
-    in_cs: str,
+    frame,
     *,
     width: int,
     height: int,
@@ -135,7 +142,7 @@ def _build_oklab_noise_gradient_input(
     hue row → white, with the peak row anchored at the Oklab lightness
     of 18% gray.
     """
-    entry = color_spaces.get(in_cs)
+    entry = color_spaces.get(frame.input_color_space)
     hue = np.linspace(0.0, 2.0 * np.pi, width, endpoint=False)
     v = np.linspace(0.0, 1.0, height)
     L_rows = np.where(
@@ -147,7 +154,9 @@ def _build_oklab_noise_gradient_input(
 
     oklab = np.zeros((height, width, 3), dtype=float)
     for row, (L_row, sat_row) in enumerate(zip(L_rows, sat_weight, strict=True)):
-        outline, _ = viz.oklab_gamut_slice_outline(in_cs, L=float(L_row), n_hues=width)
+        outline, _ = viz.oklab_gamut_slice_outline(
+            frame.input_color_space, L=float(L_row), n_hues=width,
+        )
         chroma_max = np.sqrt(outline[:-1, 1] ** 2 + outline[:-1, 2] ** 2)
         chroma = rim_scale * sat_row * chroma_max
         oklab[row, :, 0] = L_row
@@ -160,7 +169,7 @@ def _build_oklab_noise_gradient_input(
         dtype=float,
     ).reshape(height, width, 3)
     in_gamut = np.all((rgb_linear >= 0.0) & (rgb_linear <= 1.0), axis=-1)
-    rgb_encoded = color_spaces.encode_cctf(np.clip(rgb_linear, 0.0, 1.0), in_cs)
+    rgb_encoded = frame.encode_input(np.clip(rgb_linear, 0.0, 1.0))
     return np.asarray(rgb_encoded, dtype=float), {
         "in_gamut_fraction": float(in_gamut.mean()),
         "rim_scale": float(rim_scale),
@@ -231,7 +240,7 @@ def noise_sensitivity(ctx: "QAContext") -> Result:
     n_heatmap_grid = 96
 
     samples = _polar_oklch_input_samples(
-        in_cs, L=L_slice, chroma_rings=chroma_rings, n_hues=n_hues,
+        ctx.frame, L=L_slice, chroma_rings=chroma_rings, n_hues=n_hues,
     )
     field = metrics.noise_sensitivity_field(
         ctx.lut.table, samples["input_encoded"],
@@ -252,7 +261,7 @@ def noise_sensitivity(ctx: "QAContext") -> Result:
     )) * 1.15
     extent = max(extent, 0.30)
     heatmap = _noise_gain_heatmap(
-        ctx.lut.table, in_cs, out_cs,
+        ctx.lut.table, ctx.frame,
         L=L_slice, extent=extent, n_grid=n_heatmap_grid,
         sigma_in_encoded=sigma_in_encoded, eps=eps,
     )
@@ -361,7 +370,7 @@ def noise_gradient(ctx: "QAContext") -> Result:
     rng_seed = 0
 
     input_clean, gradient_stats = _build_oklab_noise_gradient_input(
-        in_cs=in_cs,
+        ctx.frame,
         width=width,
         height=height,
         rim_scale=rim_scale,
@@ -623,8 +632,8 @@ def output_gamut_edge_stress(ctx: "QAContext") -> Result:
     # stress test renders what the bundle would actually produce.
     params = init_params(film_profile=spec.film_profile, print_profile=print_profile)
     params.debug.lut_mode = True
-    params.io.input_primaries = in_entry.primaries
-    params.io.output_primaries = out_entry.primaries
+    params.io.input_color_space = in_entry.primaries
+    params.io.output_color_space = out_entry.primaries
     params.io.input_cctf_decoding = False
     params.io.output_cctf_encoding = False
     params.io.gamut_clip = spec.gamut_clip

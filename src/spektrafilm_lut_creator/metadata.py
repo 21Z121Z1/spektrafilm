@@ -162,13 +162,13 @@ class InputExposureMeta:
     """Bundle-level record of the active input exposure gain (n150).
 
     Stored on :class:`BundleMeta` whenever the bundle was baked with
-    a non-``None`` ``BundleSpec.stops_above_gray``. Consumers reading
+    a non-``None`` ``BundleSpec.stops_above_midgray``. Consumers reading
     ``bundle.json`` see both the requested target and the resulting
     linear gain so they can reverse the operation if needed. Omitted
     (the ``BundleMeta.input_exposure`` field stays ``None``) when the
     bundle used the native input dynamic range.
     """
-    stops_above_gray: float
+    stops_above_midgray: float
     gain: float  # linear multiplier applied to post-decode_cctf values
 
 

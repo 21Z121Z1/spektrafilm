@@ -107,7 +107,7 @@ def _make_service() -> ViewerLayerService:
     return ViewerLayerService(
         viewer=_FakeViewer(),
         output_float_data_key='float',
-        output_primaries_key='color',
+        output_color_space_key='color',
         output_cctf_encoding_key='cctf',
         output_display_transform_key='display',
     )
@@ -137,7 +137,7 @@ def test_first_output_preview_runs_polaroid_frame_sequence(monkeypatch) -> None:
     service.set_or_add_output_layer(
         output_image,
         float_image=np.full((4, 4, 3), 0.5, dtype=np.float32),
-        output_primaries='ACES2065-1',
+        output_color_space='ACES2065-1',
         output_cctf_encoding=True,
         use_display_transform=False,
     )
@@ -185,7 +185,7 @@ def test_visible_output_updates_crossfade_without_restarting_polaroid_animation(
     service.set_or_add_output_layer(
         first_image,
         float_image=np.full((4, 4, 3), 0.5, dtype=np.float32),
-        output_primaries='ACES2065-1',
+        output_color_space='ACES2065-1',
         output_cctf_encoding=True,
         use_display_transform=False,
     )
@@ -196,7 +196,7 @@ def test_visible_output_updates_crossfade_without_restarting_polaroid_animation(
     service.set_or_add_output_layer(
         second_image,
         float_image=np.full((4, 4, 3), 0.6, dtype=np.float32),
-        output_primaries='ACES2065-1',
+        output_color_space='ACES2065-1',
         output_cctf_encoding=True,
         use_display_transform=False,
     )
@@ -222,7 +222,7 @@ def test_preview_to_scan_shape_change_recreates_output_layer_without_restarting_
     service.set_or_add_output_layer(
         preview_image,
         float_image=np.full((4, 4, 3), 0.5, dtype=np.float32),
-        output_primaries='ACES2065-1',
+        output_color_space='ACES2065-1',
         output_cctf_encoding=True,
         use_display_transform=False,
     )
@@ -233,7 +233,7 @@ def test_preview_to_scan_shape_change_recreates_output_layer_without_restarting_
     service.set_or_add_output_layer(
         scan_image,
         float_image=np.full((8, 8, 3), 0.6, dtype=np.float32),
-        output_primaries='ACES2065-1',
+        output_color_space='ACES2065-1',
         output_cctf_encoding=True,
         use_display_transform=False,
     )
@@ -257,7 +257,7 @@ def test_large_output_skips_polaroid_animation(monkeypatch) -> None:
     service.set_or_add_output_layer(
         output_image,
         float_image=np.full((3, 2, 3), 0.5, dtype=np.float32),
-        output_primaries='ACES2065-1',
+        output_color_space='ACES2065-1',
         output_cctf_encoding=True,
         use_display_transform=False,
     )

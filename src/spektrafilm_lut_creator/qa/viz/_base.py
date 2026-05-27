@@ -165,13 +165,16 @@ def _fill_3d(fig, *, has_cbar: bool = False, top: float | None = None,
                         bottom=bottom, top=top, wspace=wspace)
 
 def _to_oklab(rgb: np.ndarray, cs_name: str) -> np.ndarray:
-    """RGB encoded in ``cs_name`` → OkLab via XYZ.
+    """RGB encoded in ``cs_name`` → OkLab via reflectance-scale XYZ.
 
     Used by every plot that overlays OkLab structure on LUT output.
+    Uses :func:`to_xyz_qa` so HDR spaces (where decode_cctf returns
+    absolute nits) get normalized to the reflectance scale OkLab and
+    every downstream chromaticity convention assumes.
     """
-    from spektrafilm_lut_creator.color_spaces import to_xyz
+    from spektrafilm_lut_creator.color_spaces import to_xyz_qa
 
-    xyz = to_xyz(np.asarray(rgb, dtype=float), cs_name)
+    xyz = to_xyz_qa(np.asarray(rgb, dtype=float), cs_name)
     return np.asarray(colour.XYZ_to_Oklab(xyz), dtype=float)
 
 def _gamut_triangle_xy(cs_name: str) -> np.ndarray:

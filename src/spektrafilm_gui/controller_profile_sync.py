@@ -9,7 +9,7 @@ PROFILE_SYNC_FIELDS: dict[str, tuple[str, ...]] = {
         'crop',
         'crop_center',
         'crop_size',
-        'input_primaries',
+        'input_color_space',
         'apply_cctf_decoding',
         'spectral_upsampling_method',
         'apply_hanatos2025_adaptation_window',

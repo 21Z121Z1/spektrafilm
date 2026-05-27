@@ -83,7 +83,7 @@ class ScanningStage:
         xyz = add_glare(xyz, illuminant_xyz, glare)
         rgb = colour.XYZ_to_RGB(
             xyz,
-            colourspace=self._io.output_primaries,
+            colourspace=self._io.output_color_space,
             apply_cctf_encoding=False,
             illuminant=illuminant_xy,
         )
@@ -98,7 +98,7 @@ class ScanningStage:
         # overshoots after this knee. See n110 for the design.
         rgb = compress_rgb(
             rgb, self._io.output_gamut_compress,
-            output_color_space=self._io.output_primaries,
+            output_color_space=self._io.output_color_space,
         )
         return rgb
 
@@ -142,8 +142,8 @@ class ScanningStage:
         if self._io.output_cctf_encoding:
             rgb = colour.RGB_to_RGB(
                 rgb,
-                self._io.output_primaries,
-                self._io.output_primaries,
+                self._io.output_color_space,
+                self._io.output_color_space,
                 apply_cctf_decoding=False,
                 apply_cctf_encoding=True,
             )

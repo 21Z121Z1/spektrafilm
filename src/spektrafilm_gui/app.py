@@ -49,7 +49,7 @@ def _warmup_launch_input_path(gui_state: object | None = None) -> None:
     try:
         controller_runtime.prepare_input_color_preview_image(
             warmup_image,
-            input_primaries=state.input_image.input_primaries,
+            input_color_space=state.input_image.input_color_space,
             apply_cctf_decoding=state.input_image.apply_cctf_decoding,
             colour_module=colour_module,
         )
@@ -74,7 +74,7 @@ def _warmup_full_gui() -> None:
     warmup_image = np.full(WARMUP_IMAGE_SHAPE, 0.18, dtype=np.float64)
     controller_runtime.prepare_input_color_preview_image(
         warmup_image,
-        input_primaries=gui_state.input_image.input_primaries,
+        input_color_space=gui_state.input_image.input_color_space,
         apply_cctf_decoding=gui_state.input_image.apply_cctf_decoding,
         colour_module=colour_module,
     )
@@ -86,7 +86,7 @@ def _warmup_full_gui() -> None:
     # Force the display path once as part of startup so the first preview avoids lazy import/setup cost.
     controller_runtime.prepare_output_display_image(
         scan,
-        output_primaries=gui_state.simulation.output_primaries,
+        output_color_space=gui_state.simulation.output_color_space,
         use_display_transform=True,
         imagecms_module=imagecms_module,
         colour_module=colour_module,

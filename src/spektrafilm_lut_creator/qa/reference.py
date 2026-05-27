@@ -78,6 +78,11 @@ def _cache_key(spec: BundleSpec, bundle: Bundle, print_index: int) -> str:
     differences in cube layout.
     """
     h = hashlib.sha256()
+    # Bump when the reference-compute semantics change (gain plumbing,
+    # encoding scale, etc.) so stale .npz caches don't poison QA figures
+    # after a code update. "2" = input_exposure_gain + output_midgray_gain
+    # are now applied in the reference path, matching the builder.
+    h.update(b"qa_reference_v2|")
     h.update(repr(asdict(spec)).encode("utf-8"))
     if bundle.meta.stocks is not None:
         print_name = bundle.meta.stocks.prints[print_index]
@@ -160,7 +165,16 @@ def _compute(
 
     rng = np.random.default_rng(rng_seed)
     rng_samples_encoded = rng.uniform(0.0, 1.0, size=(n_samples, 3)).astype(np.float32)
-    rng_samples_linear = decode_cctf(rng_samples_encoded, spec.input_color_space).astype(np.float32)
+    # Match the builder: decode, then apply the input exposure gain so
+    # the pipeline sees the same linear values the baked LUT was built
+    # from. Without this, a stops_above_midgray bundle's reference diverges
+    # from the LUT and every comparison figure (drift maps, exposure
+    # sweeps, ΔE plots) looks broken. BakeFrame holds the precomputed
+    # gains so we don't re-derive them at every QA call site.
+    frame = spec.bake_frame()
+    rng_samples_linear = (
+        decode_cctf(rng_samples_encoded, spec.input_color_space) * frame.input_gain
+    ).astype(np.float32)
 
     in_entry = get_color_space(spec.input_color_space)
     out_entry = get_color_space(spec.output_color_space)
@@ -169,8 +183,8 @@ def _compute(
 
     params = init_params(film_profile=spec.film_profile, print_profile=print_stock)
     params.debug.lut_mode = True
-    params.io.input_primaries = in_entry.primaries
-    params.io.output_primaries = out_entry.primaries
+    params.io.input_color_space = in_entry.primaries
+    params.io.output_color_space = out_entry.primaries
     params.io.input_cctf_decoding = False
     params.io.output_cctf_encoding = False
     params.io.gamut_clip = spec.gamut_clip
@@ -184,7 +198,11 @@ def _compute(
     # knob (see grid.py docstring).
     image_in = rng_samples_linear.reshape(1, n_samples, 3)
     image_out_linear = np.asarray(pipeline.process(image_in), dtype=float).reshape(n_samples, 3)
-    image_out_encoded = encode_cctf(image_out_linear, spec.output_color_space)
+    # Match the builder's output scaling (BakeFrame.output_gain) so
+    # HDR-output QA references aren't crushed black.
+    image_out_encoded = encode_cctf(
+        image_out_linear * frame.output_gain, spec.output_color_space,
+    )
     # Match the builder's final clip: encoded outputs land in [0,1]
     # before the LUT is written, so the reference must too.
     image_out_encoded = np.clip(image_out_encoded, 0.0, 1.0)
@@ -217,7 +235,10 @@ def run_pipeline_at(
     from spektrafilm.runtime.pipeline import SimulationPipeline
 
     samples_encoded = np.asarray(samples_encoded, dtype=np.float32).reshape(-1, 3)
-    samples_linear = decode_cctf(samples_encoded, spec.input_color_space).astype(np.float32)
+    frame = spec.bake_frame()
+    samples_linear = (
+        decode_cctf(samples_encoded, spec.input_color_space) * frame.input_gain
+    ).astype(np.float32)
 
     in_entry = get_color_space(spec.input_color_space)
     out_entry = get_color_space(spec.output_color_space)
@@ -225,8 +246,8 @@ def run_pipeline_at(
 
     params = init_params(film_profile=spec.film_profile, print_profile=print_stock)
     params.debug.lut_mode = True
-    params.io.input_primaries = in_entry.primaries
-    params.io.output_primaries = out_entry.primaries
+    params.io.input_color_space = in_entry.primaries
+    params.io.output_color_space = out_entry.primaries
     params.io.input_cctf_decoding = False
     params.io.output_cctf_encoding = False
     params.io.gamut_clip = spec.gamut_clip
@@ -237,5 +258,9 @@ def run_pipeline_at(
 
     image_in = samples_linear.reshape(1, samples_linear.shape[0], 3)
     image_out_linear = np.asarray(pipeline.process(image_in), dtype=float).reshape(-1, 3)
-    image_out_encoded = encode_cctf(image_out_linear, spec.output_color_space)
+    # Match the builder's output scaling so HDR-output QA references
+    # aren't crushed black.
+    image_out_encoded = encode_cctf(
+        image_out_linear * frame.output_gain, spec.output_color_space,
+    )
     return np.clip(image_out_encoded, 0.0, 1.0)

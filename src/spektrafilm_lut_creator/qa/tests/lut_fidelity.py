@@ -136,11 +136,12 @@ def monotonicity(ctx: "QAContext") -> Result:
     table = ctx.lut.table
     info = metrics.monotonicity_violations(table)
 
-    # Middle-gray-encoded for the input color space. linear 0.18 (the
-    # photographic 18% middle-gray reference) through the input CCTF.
-    # Same value for all three channels by definition; one scalar.
-    mid_gray_linear = np.full((1, 3), 0.18, dtype=float)
-    mid_gray_encoded = encode_cctf(mid_gray_linear, ctx.spec.input_color_space)
+    # Midgray-encoded for the LUT *as configured*: the BakeFrame's
+    # input_midgray_linear is 0.18 / input_gain — for an HDR PQ bundle
+    # with stops_above_midgray="auto" it lands at 100 nits, not at 0.18
+    # linear (which sits 9 stops below midgray in PQ's container).
+    mid_gray_linear = np.full((1, 3), ctx.frame.input_midgray_linear, dtype=float)
+    mid_gray_encoded = encode_cctf(mid_gray_linear, ctx.frame.input_color_space)
     pin = float(np.asarray(mid_gray_encoded).flatten()[0])
 
     # Sweep each axis at the middle-gray centerline. Density-65 sampling
@@ -440,8 +441,8 @@ def _run_unbounded_pipeline_for_rim(
 
     params = init_params(film_profile=spec.film_profile, print_profile=print_profile)
     params.debug.lut_mode = True
-    params.io.input_primaries = in_entry.primaries
-    params.io.output_primaries = out_entry.primaries
+    params.io.input_color_space = in_entry.primaries
+    params.io.output_color_space = out_entry.primaries
     params.io.input_cctf_decoding = False
     params.io.output_cctf_encoding = False
     # Disable both the soft-plus and the final [0,1] clip so we can

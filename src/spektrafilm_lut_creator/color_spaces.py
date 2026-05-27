@@ -25,6 +25,26 @@ VERSION = "0.1.0"
 _ALLOWED_KINDS = frozenset({"linear", "encoded_sdr", "log"})
 _ALLOWED_ROLES = frozenset({"input", "output"})
 
+# Default headroom for ``scene_referred_input=True`` linear spaces under
+# ``stops_above_midgray="auto"``. Places source encoded 1.0 at +6 stops above
+# the film's 0.18 midgray, well into the shoulder. The matching linear gain
+# drifts the input's 0.18 midgray up by ~3.5 stops in the film's frame —
+# the simple-multiplication trade-off described on
+# :attr:`spektrafilm_lut_creator.bundles.BundleSpec.stops_above_midgray`.
+SCENE_REFERRED_DEFAULT_STOPS = 6.0
+
+# Default headroom for ``kind="encoded_sdr"`` spaces (sRGB, Adobe RGB,
+# Rec.709, Rec.2020 BT.1886, …) under ``stops_above_midgray="auto"``.
+# Their physical native headroom is only ≈2.47 stops above mid, which
+# puts encoded 1.0 below the film's shoulder and yields "film color, no
+# rolloff". Bumping to +4 lands encoded 1.0 squarely on the shoulder so
+# the rolloff engages on tone-mapped SDR sources, at the cost of midgray
+# drifting up by ~1.53 stops in the film's frame (the simple-gain
+# trade-off). This is an aesthetic interpretation, not a measurement —
+# encoded SDR sources are usually tone-mapped deliveries whose encoded
+# 1.0 represents a bright scene highlight rather than literal display white.
+ENCODED_SDR_DEFAULT_STOPS = 4.0
+
 
 @dataclass(frozen=True)
 class ColorSpaceEntry:
@@ -50,6 +70,39 @@ class ColorSpaceEntry:
     """ACES Studio Config-style long-name alias emitted alongside the
     short ``name`` in OCIO configs. Empty string means no alias.
     See studies/a40_lut_system/n120_ocio_config_emission.md §7."""
+    midgray_linear: float = 0.18
+    """Linear value (after :func:`decode_cctf`) that represents
+    midgray for the purposes of LUT-input centring. ``0.18`` for
+    SDR-encoded and camera-log spaces (midgray = 18% reflectance by
+    design — colour-science's CCTFs decode encoded 1.0 to linear 1.0
+    for these). HDR-encoded spaces (PQ / HLG) override this because
+    colour-science's BT.2100 EOTF returns absolute luminance in nits.
+
+    For Rec.2100 PQ and P3-D65 PQ this is ``100.0`` (SDR reference
+    white). PQ has no canonical midgray — HDR10's 18-nit and Dolby
+    Vision's 10-nit conventions would put midgray at PQ-encoded
+    ~0.215 and ~0.19 respectively, which wastes 75-80% of the LUT
+    cube on highlights the film just clips into its shoulder. 100
+    nits puts midgray near PQ-encoded 0.508, so the film's useful
+    range (~7 stops above midgray) maps to roughly the upper half
+    of the input cube and the LUT samples sensibly across the
+    encoded domain. Consumed by :func:`native_stops_above_midgray`
+    and the ``stops_above_midgray="auto"`` sentinel on :class:`BundleSpec`."""
+    scene_referred_input: bool = False
+    """Mark a ``kind="linear"`` entry as a scene-referred working space
+    (ACEScg, ACES2065-1, OpenEXR-style scene-linear, …) rather than
+    display-linear. Only legal on ``kind="linear"`` entries; ``register``
+    rejects it on encoded/log entries (where headroom is already baked
+    into the curve).
+
+    When ``True``, :func:`native_stops_above_midgray` returns
+    :data:`SCENE_REFERRED_DEFAULT_STOPS` instead of the display-white
+    computation. Under ``stops_above_midgray="auto"`` this gives the LUT
+    input domain meaningful highlight headroom (encoded 1.0 → +6 stops
+    in the film's frame) so scene highlights aren't clipped at the
+    diffuse-white ceiling. The simple linear gain drifts midgray upward
+    by ~3.5 stops as a side effect — see the
+    ``stops_above_midgray`` docstring on :class:`BundleSpec`."""
 
 
 _REGISTRY: dict[str, ColorSpaceEntry] = {}
@@ -80,6 +133,11 @@ def register(entry: ColorSpaceEntry) -> None:
         raise ValueError(f"{entry.name!r}: linear spaces must have cctf=None")
     if entry.kind != "linear" and entry.cctf is None:
         raise ValueError(f"{entry.name!r}: kind={entry.kind!r} requires a cctf")
+    if entry.scene_referred_input and entry.kind != "linear":
+        raise ValueError(
+            f"{entry.name!r}: scene_referred_input=True is only valid for "
+            f"kind='linear' entries, got kind={entry.kind!r}"
+        )
     if not entry.short_tag:
         raise ValueError(f"{entry.name!r}: short_tag must be non-empty")
     if not entry.short_tag.replace("_", "").isalnum() or not entry.short_tag.islower():
@@ -103,6 +161,23 @@ def get(name: str) -> ColorSpaceEntry:
         raise KeyError(
             f"Unknown color space {name!r}; registered: {sorted(_REGISTRY)}"
         ) from None
+
+
+def resolve(name_or_short_tag: str) -> str:
+    """Return the canonical registry name for ``name_or_short_tag``.
+
+    Accepts either a registered canonical name (e.g. ``"Rec.2100 PQ"``)
+    or the entry's ``short_tag`` slug (e.g. ``"rec2100pq"``). Raises
+    ``KeyError`` if neither matches.
+    """
+    if name_or_short_tag in _REGISTRY:
+        return name_or_short_tag
+    for entry in _REGISTRY.values():
+        if entry.short_tag == name_or_short_tag:
+            return entry.name
+    raise KeyError(
+        f"Unknown color space {name_or_short_tag!r}; registered: {sorted(_REGISTRY)}"
+    )
 
 
 def list_input_spaces() -> list[str]:
@@ -169,25 +244,43 @@ def from_xyz(xyz, name: str) -> np.ndarray:
 #     manually here.
 # ---------------------------------------------------------------------------
 
-# Scene-linear (input only).
-register(ColorSpaceEntry("ACES2065-1",       "ACES2065-1",   None, "linear", ("input",),
+# Scene-linear working spaces. Registered but currently **silenced as bundle
+# inputs** (``role=()``) — a uniform [0, 1] .cube domain can't represent
+# scene-linear highlights past diffuse white without a log shaper applied
+# upstream of the LUT lookup, which the bundle pipeline doesn't emit yet
+# (see studies/a40_lut_system/n150_input_log_anchored_shaper.md). The
+# entries stay in the registry so internal color-space math still
+# resolves these names; ``list_input_spaces()`` hides them and
+# ``BundleBuilder`` rejects them via the ``"input" in entry.role`` check.
+# When n150 lands, restore ``role=("input",)`` and the
+# ``scene_referred_input=True`` flag will steer ``"auto"`` toward
+# :data:`SCENE_REFERRED_DEFAULT_STOPS`.
+register(ColorSpaceEntry("ACES2065-1",       "ACES2065-1",   None, "linear", (),
                          short_tag="aces20651",
                          ocio_alias="ACES - ACES2065-1",
-                         notes="ACES interchange (AP0 primaries)."))
-register(ColorSpaceEntry("ACEScg",           "ACEScg",       None, "linear", ("input",),
+                         scene_referred_input=True,
+                         notes="ACES interchange (AP0 primaries). Silenced pending shaper support."))
+register(ColorSpaceEntry("ACEScg",           "ACEScg",       None, "linear", (),
                          short_tag="acescg",
                          ocio_alias="ACES - ACEScg",
-                         notes="AP1 primaries; VFX rendering workhorse."))
-register(ColorSpaceEntry("Rec.709 Linear",   "ITU-R BT.709", None, "linear", ("input",),
-                         short_tag="rec709lin"))
-register(ColorSpaceEntry("Rec.2020 Linear",  "ITU-R BT.2020", None, "linear", ("input",),
-                         short_tag="rec2020lin"))
-register(ColorSpaceEntry("ProPhoto Linear",  "ProPhoto RGB", None, "linear", ("input",),
+                         scene_referred_input=True,
+                         notes="AP1 primaries; VFX rendering workhorse. Silenced pending shaper support."))
+register(ColorSpaceEntry("Rec.709 Linear",   "ITU-R BT.709", None, "linear", (),
+                         short_tag="rec709lin",
+                         scene_referred_input=True,
+                         notes="Silenced pending shaper support."))
+register(ColorSpaceEntry("Rec.2020 Linear",  "ITU-R BT.2020", None, "linear", (),
+                         short_tag="rec2020lin",
+                         scene_referred_input=True,
+                         notes="Silenced pending shaper support."))
+register(ColorSpaceEntry("ProPhoto Linear",  "ProPhoto RGB", None, "linear", (),
                          short_tag="prophotolin",
-                         notes="Current spektrafilm default."))
-register(ColorSpaceEntry("sRGB Linear",      "sRGB",         None, "linear", ("input",),
+                         scene_referred_input=True,
+                         notes="Current spektrafilm default. Silenced pending shaper support."))
+register(ColorSpaceEntry("sRGB Linear",      "sRGB",         None, "linear", (),
                          short_tag="srgblin",
-                         notes="Same primaries as sRGB, no CCTF."))
+                         scene_referred_input=True,
+                         notes="Same primaries as sRGB, no CCTF. Silenced pending shaper support."))
 
 # Encoded SDR (input and output).
 register(ColorSpaceEntry("sRGB",        "sRGB",         "sRGB",          "encoded_sdr", ("input", "output"),
@@ -275,6 +368,7 @@ register(ColorSpaceEntry("Blackmagic Film Gen 5",    "Blackmagic Wide Gamut", "B
 register(ColorSpaceEntry("Rec.2100 PQ", "ITU-R BT.2020", "ITU-R BT.2100 PQ", "log", ("input", "output"),
                          short_tag="rec2100pq",
                          ocio_alias="Rec.2100-PQ - Display",
+                         midgray_linear=100.0,
                          notes="HDR streaming master (Netflix/Apple TV+/Disney+/Amazon/Max). ST.2084 transfer. Domain [0,1] = 0..10,000 nits; document per-LUT peak-luminance assumption."))
 register(ColorSpaceEntry("Rec.2100 HLG", "ITU-R BT.2020", "ITU-R BT.2100 HLG", "log", ("input", "output"),
                          short_tag="rec2100hlg",
@@ -306,14 +400,17 @@ register(ColorSpaceEntry("ACEScc", "ACEScg", "ACEScc",
 # Linear is a working space (input only); PQ-encoded is the actual delivery
 # format used inside Rec.2020 HDR containers (input + output).
 register(ColorSpaceEntry("P3-D65 Linear", "P3-D65", None,
-                         "linear", ("input",),
+                         "linear", (),
                          short_tag="p3d65lin",
+                         scene_referred_input=True,
                          notes="Linear P3-D65 working space. Used alongside the PQ-encoded "
-                               "variant for HDR pipelines that want a separate scene-linear stage."))
+                               "variant for HDR pipelines that want a separate scene-linear stage. "
+                               "Silenced as bundle input pending shaper support."))
 register(ColorSpaceEntry("P3-D65 PQ", "P3-D65", "ITU-R BT.2100 PQ",
                          "log", ("input", "output"),
                          short_tag="p3d65pq",
                          ocio_alias="ST2084 P3-D65 - Display",
+                         midgray_linear=100.0,
                          notes="The mastering-display container inside DoVi/HDR10. P3-D65 "
                                "primaries with ST.2084 transfer; same curve as Rec.2100 PQ "
                                "but a narrower color volume. Use when the deliverable spec "
@@ -372,11 +469,142 @@ register(ColorSpaceEntry("Nikon N-Log", "ITU-R BT.2020", "N-Log",
 _MID_GRAY_LINEAR = 0.18
 
 
+def encode_qa_input(
+    linear_reflectance, input_color_space: str,
+    stops_above_midgray: float | None,
+) -> np.ndarray:
+    """Encode a reflectance-scale linear RGB stimulus into the input
+    color space's encoded code values for QA, accounting for the LUT's
+    input exposure gain.
+
+    QA stimulus generators (OkLab patches, neutral ramps, Planckian
+    sweeps) produce linear RGB in 0..1 reflectance scale where 0.18 ≡
+    midgray. For SDR/log inputs with no gain set this is identical to
+    :func:`encode_cctf`. For HDR inputs under ``stops_above_midgray="auto"``
+    (gain ≪ 1), this multiplies by ``1/gain`` first so the LUT's
+    pre-pipeline scaling lands the stimulus at the intended reflectance
+    in the film's frame — otherwise OkLab patches would all collapse
+    into the deep shadow region of the input encoding.
+    """
+    gain = input_exposure_gain(input_color_space, stops_above_midgray)
+    arr = np.asarray(linear_reflectance, dtype=float) / gain
+    return encode_cctf(arr, input_color_space)
+
+
+def to_xyz_qa(encoded_rgb, output_color_space: str) -> np.ndarray:
+    """Decode a LUT output (encoded RGB) to reflectance-scale XYZ
+    for QA analysis.
+
+    Like :func:`to_xyz` but divides the post-CCTF linear values by
+    :func:`output_midgray_gain` so HDR outputs end up on the same
+    scale SDR outputs have always used (midgray ``Y ≈ 0.18``). Every
+    QA convention — density curves, OkLab projections, sRGB display
+    previews, ΔE comparisons — assumes this reflectance scale. For
+    SDR outputs (gain=1) this is identical to :func:`to_xyz`.
+    """
+    entry = get(output_color_space)
+    encoded_rgb = np.asarray(encoded_rgb, dtype=float)
+    linear = decode_cctf(encoded_rgb, output_color_space)
+    linear_reflectance = linear / output_midgray_gain(output_color_space)
+    return np.asarray(
+        colour.RGB_to_XYZ(
+            linear_reflectance, colourspace=entry.primaries,
+            apply_cctf_decoding=False,
+        ),
+        dtype=float,
+    )
+
+
+def effective_input_midgray_linear(
+    input_color_space: str, stops_above_midgray: float | None,
+) -> float:
+    """Linear value (in the input space's native scale) that the LUT
+    treats as midgray after its input exposure gain.
+
+    Computed as ``0.18 / input_exposure_gain(input_cs, stops_above_midgray)``.
+    For SDR/log inputs with no stops override this is just ``0.18``.
+    For HDR inputs under ``stops_above_midgray="auto"`` (or any non-``None``
+    ``stops_above_midgray``), this is the linear value that — after the
+    LUT's pre-pipeline scaling — lands on the film's 0.18 midgray.
+
+    QA exposure-ramp patterns anchor their stop=0 around this value so
+    the sweep tests the LUT *as configured*, not at the input space's
+    bare 0.18-linear reflectance point (which lands deep in the
+    shadows for HDR inputs).
+    """
+    gain = input_exposure_gain(input_color_space, stops_above_midgray)
+    return _MID_GRAY_LINEAR / gain
+
+
+def output_midgray_gain(output_color_space: str) -> float:
+    """Linear gain to apply before :func:`encode_cctf` so the film's
+    reflectance-scale 0.18 lands at the output space's midgray.
+
+    For SDR / camera-log outputs whose CCTFs are designed in reflectance
+    scale this returns ``1.0`` (identity — the film's 0.18 encodes
+    correctly). For HDR-encoded outputs (PQ / HLG) whose CCTFs return
+    absolute luminance in nits, this returns
+    ``entry.midgray_linear / 0.18`` so the film's midgray maps to the
+    convention's midgray-nits value before encoding — e.g., ≈555.5 for
+    Rec.2100 PQ under the 100-nit (SDR-ref) midgray convention, putting
+    midgray at PQ-encoded ≈0.508.
+
+    Without this gain, encoding a film output (which lives in
+    reflectance scale) through a PQ EOTF inverse would treat ``0.18``
+    as ``0.18 nits`` (basically black) — the LUT comes out almost
+    entirely dark.
+    """
+    entry = get(output_color_space)
+    return float(entry.midgray_linear / _MID_GRAY_LINEAR)
+
+
+def native_stops_above_midgray(input_color_space: str) -> float:
+    """Stops between this input's midgray and the LUT input ceiling.
+
+    Default computation is ``log2(decode_cctf(1.0) / entry.midgray_linear)``
+    — the input's literal native headroom. Two kinds of entry override
+    that with an aesthetically-chosen value so ``"auto"`` produces a
+    more useful default than the literal one:
+
+    - **Encoded SDR** (``kind="encoded_sdr"``: sRGB, Adobe RGB,
+      Rec.709, Rec.2020 BT.1886, …): returns
+      :data:`ENCODED_SDR_DEFAULT_STOPS` (4.0). Native headroom is only
+      ≈2.47, which leaves the film's shoulder unused on tone-mapped
+      SDR sources. Bumping to +4 engages the shoulder; midgray drifts
+      ~1.5 stops as a side effect of the linear-gain model.
+    - **Scene-referred linear** (entries with
+      :attr:`ColorSpaceEntry.scene_referred_input` set): returns
+      :data:`SCENE_REFERRED_DEFAULT_STOPS` (6.0) so the LUT's [0, 1]
+      input domain carries highlight headroom past diffuse white
+      rather than clipping scene values at +2.47.
+
+    Everything else — camera log (V-Log ≈ 8, S-Log3 ≈ 7.6, ACEScct ≈ 8),
+    HDR PQ (≈6.64 for Rec.2100 PQ under the 100-nit midgray convention),
+    plain linear entries with no scene-referred flag — gets the
+    physical headroom from the registry math.
+
+    Used as the ``stops_above_midgray`` resolved value when the spec is
+    constructed with ``stops_above_midgray="auto"``. For log inputs the
+    resulting gain is 1.0 (identity); for SDR / scene-linear the gain
+    drifts midgray upward as documented on :class:`BundleSpec`; for
+    HDR PQ it lands the convention's midgray on the film's 0.18.
+    """
+    entry = get(input_color_space)
+    if entry.scene_referred_input:
+        return SCENE_REFERRED_DEFAULT_STOPS
+    if entry.kind == "encoded_sdr":
+        return ENCODED_SDR_DEFAULT_STOPS
+    native_white = float(np.asarray(
+        decode_cctf(np.array([1.0]), input_color_space)
+    ).flatten()[0])
+    return float(np.log2(native_white / entry.midgray_linear))
+
+
 def input_exposure_gain(
-    input_color_space: str, stops_above_gray: float | None,
+    input_color_space: str, stops_above_midgray: float | None,
 ) -> float:
     """Return the linear gain that places source white at
-    ``0.18 * 2 ** stops_above_gray`` in the film's frame.
+    ``0.18 * 2 ** stops_above_midgray`` in the film's frame.
 
     ``None`` → ``1.0`` (no transformation, native behavior).
 
@@ -390,14 +618,76 @@ def input_exposure_gain(
     input_color_space :
         Registry name of the bundle's input color space. Used to look
         up the native white-to-linear mapping via :func:`decode_cctf`.
-    stops_above_gray :
+    stops_above_midgray :
         Target stops above middle gray for source encoded 1.0, or
         ``None`` to skip the transformation.
     """
-    if stops_above_gray is None:
+    if stops_above_midgray is None:
         return 1.0
     native_white = float(np.asarray(
         decode_cctf(np.array([1.0]), input_color_space)
     ).flatten()[0])
-    target_white = _MID_GRAY_LINEAR * (2.0 ** float(stops_above_gray))
+    target_white = _MID_GRAY_LINEAR * (2.0 ** float(stops_above_midgray))
     return target_white / native_white
+
+
+@dataclass(frozen=True)
+class BakeFrame:
+    """Bundle's gain context for a bake or QA run.
+
+    Computed once via :meth:`from_spec` and passed through QA call
+    sites instead of threading loose ``stops_above_midgray`` everywhere.
+    Hides the scale-bridging math behind :meth:`encode_input` and
+    :meth:`decode_output_to_xyz` so viz/test code never has to remember
+    whether to use :func:`encode_cctf` vs :func:`encode_qa_input`, or
+    :func:`to_xyz` vs :func:`to_xyz_qa`.
+
+    For SDR specs both gains collapse to ``1.0`` and the methods are
+    identical to their non-QA counterparts.
+    """
+    input_color_space: str
+    output_color_space: str
+    stops_above_midgray: float | None
+    input_gain: float
+    output_gain: float
+    input_midgray_linear: float
+    """Effective linear midgray in the input's native scale
+    (``0.18 / input_gain``). For HDR inputs under
+    ``stops_above_midgray="auto"`` this is the registry's
+    :attr:`ColorSpaceEntry.midgray_linear`. QA exposure-ramp anchors
+    use this value."""
+
+    @classmethod
+    def from_spec(cls, spec) -> "BakeFrame":
+        """Build the frame from a :class:`BundleSpec`-shaped object
+        (anything exposing ``input_color_space`` / ``output_color_space``
+        / ``stops_above_midgray``)."""
+        in_gain = input_exposure_gain(
+            spec.input_color_space, spec.stops_above_midgray,
+        )
+        out_gain = output_midgray_gain(spec.output_color_space)
+        return cls(
+            input_color_space=spec.input_color_space,
+            output_color_space=spec.output_color_space,
+            stops_above_midgray=spec.stops_above_midgray,
+            input_gain=float(in_gain),
+            output_gain=float(out_gain),
+            input_midgray_linear=_MID_GRAY_LINEAR / float(in_gain),
+        )
+
+    def encode_input(self, linear_reflectance) -> np.ndarray:
+        """Reflectance-scale linear RGB → input-encoded code values.
+
+        Equivalent to :func:`encode_qa_input` but with the gain held
+        on ``self`` so callers don't pass ``stops_above_midgray`` around.
+        """
+        arr = np.asarray(linear_reflectance, dtype=float) / self.input_gain
+        return encode_cctf(arr, self.input_color_space)
+
+    def decode_output_to_xyz(self, encoded_rgb) -> np.ndarray:
+        """LUT output (encoded RGB) → reflectance-scale XYZ.
+
+        Equivalent to :func:`to_xyz_qa` with the output color space
+        bound on ``self``.
+        """
+        return to_xyz_qa(encoded_rgb, self.output_color_space)

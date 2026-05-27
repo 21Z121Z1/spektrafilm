@@ -75,9 +75,9 @@ class TestInitParamsDefaults:
         assert params.print_render.density_curves_morph.developer_exhaustion == 0.0
         assert params.print_render.glare.active is True
 
-        assert params.io.input_primaries == 'ProPhoto RGB'
+        assert params.io.input_color_space == 'ProPhoto RGB'
         assert params.io.input_cctf_decoding is False
-        assert params.io.output_primaries == 'sRGB'
+        assert params.io.output_color_space == 'sRGB'
         assert params.io.output_cctf_encoding is True
         assert params.io.crop is False
         assert params.io.upscale_factor == 1.0

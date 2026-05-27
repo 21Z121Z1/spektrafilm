@@ -17,7 +17,7 @@ class InputImageState:
     crop: bool
     crop_center: tuple[float, float]
     crop_size: tuple[float, float]
-    input_primaries: str
+    input_color_space: str
     apply_cctf_decoding: bool
     spectral_upsampling_method: str
     apply_hanatos2025_adaptation_window: bool
@@ -164,7 +164,7 @@ class SimulationState:
     scan_black_correction: bool
     scan_black_level: float
     scan_unsharp_mask: tuple[float, float]
-    output_primaries: str
+    output_color_space: str
     saving_color_space: str
     saving_cctf_encoding: bool
     output_gamut_compress_algorithm: str
@@ -231,7 +231,7 @@ def gui_state_from_params(
             crop=params.io.crop,
             crop_center=tuple(params.io.crop_center),
             crop_size=tuple(params.io.crop_size),
-            input_primaries=params.io.input_primaries,
+            input_color_space=params.io.input_color_space,
             apply_cctf_decoding=params.io.input_cctf_decoding,
             spectral_upsampling_method=params.settings.rgb_to_raw_method,
             apply_hanatos2025_adaptation_window=params.settings.apply_hanatos2025_adaptation_window,
@@ -360,7 +360,7 @@ def gui_state_from_params(
             scan_black_correction=params.scanner.black_correction,
             scan_black_level=params.scanner.black_level,
             scan_unsharp_mask=tuple(params.scanner.unsharp_mask),
-            output_primaries="sRGB",
+            output_color_space="sRGB",
             saving_color_space="sRGB",
             saving_cctf_encoding=params.io.output_cctf_encoding,
             output_gamut_compress_algorithm=params.io.output_gamut_compress.algorithm,

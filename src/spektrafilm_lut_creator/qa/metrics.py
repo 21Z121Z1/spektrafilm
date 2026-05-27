@@ -45,10 +45,10 @@ def delta_itp(rgb_a: np.ndarray, rgb_b: np.ndarray, *, output_color_space: str) 
     - ITU-R BT.2124 "Objective metric for the assessment of the
       potential visibility of colour differences in television".
     """
-    from spektrafilm_lut_creator.color_spaces import to_xyz
+    from spektrafilm_lut_creator.color_spaces import to_xyz_qa
 
-    xyz_a = to_xyz(rgb_a, output_color_space)
-    xyz_b = to_xyz(rgb_b, output_color_space)
+    xyz_a = to_xyz_qa(rgb_a, output_color_space)
+    xyz_b = to_xyz_qa(rgb_b, output_color_space)
     # colour-science ICtCp expects normalized XYZ. BT.2124 normalizes
     # to a reference luminance; for SDR outputs the standard convention
     # is XYZ already in [0,1] reflectance units, which matches what
@@ -66,10 +66,10 @@ def delta_e_2000(
     The classic perceptual delta. Still load-bearing in print and
     photography. Less HDR-aware than ΔITP.
     """
-    from spektrafilm_lut_creator.color_spaces import to_xyz
+    from spektrafilm_lut_creator.color_spaces import to_xyz_qa
 
-    xyz_a = to_xyz(rgb_a, output_color_space)
-    xyz_b = to_xyz(rgb_b, output_color_space)
+    xyz_a = to_xyz_qa(rgb_a, output_color_space)
+    xyz_b = to_xyz_qa(rgb_b, output_color_space)
     lab_a = colour.XYZ_to_Lab(xyz_a)
     lab_b = colour.XYZ_to_Lab(xyz_b)
     return np.asarray(colour.delta_E(lab_a, lab_b, method="CIE 2000"), dtype=float)
@@ -90,10 +90,10 @@ def oklab_delta(
     - Ottosson, "A perceptual color space for image processing",
       https://bottosson.github.io/posts/oklab/.
     """
-    from spektrafilm_lut_creator.color_spaces import to_xyz
+    from spektrafilm_lut_creator.color_spaces import to_xyz_qa
 
-    xyz_a = to_xyz(rgb_a, output_color_space)
-    xyz_b = to_xyz(rgb_b, output_color_space)
+    xyz_a = to_xyz_qa(rgb_a, output_color_space)
+    xyz_b = to_xyz_qa(rgb_b, output_color_space)
     lab_a = np.asarray(colour.XYZ_to_Oklab(xyz_a), dtype=float)
     lab_b = np.asarray(colour.XYZ_to_Oklab(xyz_b), dtype=float)
     return np.linalg.norm(lab_a - lab_b, axis=-1)
@@ -243,14 +243,14 @@ def gamut_hull_volume_ratio(grid_in: np.ndarray, grid_out: np.ndarray,
     the hull computation fast.
     """
     from scipy.spatial import ConvexHull
-    from spektrafilm_lut_creator.color_spaces import to_xyz
+    from spektrafilm_lut_creator.color_spaces import to_xyz_qa
 
     rng = np.random.default_rng(0)
     n_sample = min(grid_in.shape[0], 8000)
     idx = rng.choice(grid_in.shape[0], size=n_sample, replace=False)
 
-    in_xyz = to_xyz(grid_in[idx], output_color_space)   # we use the output space
-    out_xyz = to_xyz(grid_out[idx], output_color_space)  # for both for an apples-to-apples OkLab projection
+    in_xyz = to_xyz_qa(grid_in[idx], output_color_space)   # we use the output space
+    out_xyz = to_xyz_qa(grid_out[idx], output_color_space)  # for both for an apples-to-apples OkLab projection
     lab_in = np.asarray(colour.XYZ_to_Oklab(in_xyz), dtype=float)
     lab_out = np.asarray(colour.XYZ_to_Oklab(out_xyz), dtype=float)
 
@@ -545,14 +545,14 @@ def noise_sensitivity_field(
     - DXOMark color-depth (CCM noise propagation), color-sensitivity score.
     """
     from spektrafilm_lut_creator.qa import evaluators
-    from spektrafilm_lut_creator.color_spaces import to_xyz as _to_xyz
+    from spektrafilm_lut_creator.color_spaces import to_xyz_qa as _to_xyz_qa
 
     samples = np.asarray(input_samples_encoded, dtype=float)
     M = samples.shape[0]
 
     def _to_oklab(encoded_rgb: np.ndarray) -> np.ndarray:
         return np.asarray(
-            colour.XYZ_to_Oklab(_to_xyz(encoded_rgb, out_cs)), dtype=float,
+            colour.XYZ_to_Oklab(_to_xyz_qa(encoded_rgb, out_cs)), dtype=float,
         )
 
     out_center_encoded = np.asarray(
@@ -587,8 +587,13 @@ def noise_sensitivity_field(
     sigma_L = np.sqrt(np.clip(cov_oklab[:, 0, 0], 0.0, None))
     sigma_ab = np.sqrt(np.clip(cov_oklab[:, 1, 1] + cov_oklab[:, 2, 2], 0.0, None))
 
+    # _to_xyz_qa normalizes HDR inputs back to reflectance scale so the
+    # OkLab projection matches the convention every viz panel assumes.
+    # For stops_above_midgray="auto" bundles, input_gain and 1/output_midgray_gain
+    # are mutual inverses, so the encoded-sample → reflectance-XYZ round
+    # trip falls out cleanly here.
     input_oklab = np.asarray(
-        colour.XYZ_to_Oklab(_to_xyz(samples, in_cs)), dtype=float,
+        colour.XYZ_to_Oklab(_to_xyz_qa(samples, in_cs)), dtype=float,
     )
 
     return {

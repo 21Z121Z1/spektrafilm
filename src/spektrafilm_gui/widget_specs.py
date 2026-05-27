@@ -36,7 +36,7 @@ class ButtonSpec:
 
 GUI_SECTION_ENUMS: dict[str, dict[str, type[Enum]]] = {
     "input_image": {
-        "input_primaries": RGBColorSpaces,
+        "input_color_space": RGBColorSpaces,
         "spectral_upsampling_method": RGBtoRAWMethod,
         "input_gamut_compress_algorithm": InputGamutCompressAlgorithms,
     },
@@ -53,7 +53,7 @@ GUI_SECTION_ENUMS: dict[str, dict[str, type[Enum]]] = {
         "camera_diffusion_filter_family": DiffusionFilterFamilies,
         "print_paper": PrintPapers,
         "print_illuminant": Illuminants,
-        "output_primaries": RGBColorSpaces,
+        "output_color_space": RGBColorSpaces,
         "saving_color_space": RGBColorSpaces,
         "diffusion_filter_family": DiffusionFilterFamilies,
         "output_gamut_compress_algorithm": OutputGamutCompressAlgorithms,
@@ -287,7 +287,7 @@ GUI_WIDGET_SPECS = {
             step=0.05,
             min_value=0,
         ),
-        "output_primaries": WidgetSpec(label="Output color space", tooltip="Output color space of the simulation"),
+        "output_color_space": WidgetSpec(label="Output color space", tooltip="Output color space of the simulation"),
         "saving_color_space": WidgetSpec(label="Saving color space", tooltip="Color space of the saved image file"),
         "saving_cctf_encoding": WidgetSpec(
             label="Saving CCTF encoding",
@@ -605,7 +605,7 @@ GUI_WIDGET_SPECS = {
             min_value=0,
             max_value=1,
         ),
-        "input_primaries": WidgetSpec(
+        "input_color_space": WidgetSpec(
             label="Input color space",
             tooltip="Color space of the input image, will be internally converted to sRGB and negative values clipped",
         ),
