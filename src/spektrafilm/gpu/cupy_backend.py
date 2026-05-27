@@ -39,6 +39,9 @@ class CupyBackend:
         self.cp = cp
         self.precision = precision
         self.default_dtype = cp.float32 if precision == "float32" else cp.float16
+        self._mempool = cp.get_default_memory_pool()
+        pinned_pool_factory = getattr(cp, "get_default_pinned_memory_pool", None)
+        self._pinned_mempool = pinned_pool_factory() if callable(pinned_pool_factory) else None
 
     def _is_cupy_array(self, value: Any) -> bool:
         return isinstance(value, self.cp.ndarray)
@@ -62,6 +65,12 @@ class CupyBackend:
 
     def synchronize(self) -> None:
         self.cp.cuda.get_current_stream().synchronize()
+
+    def cleanup(self) -> None:
+        self.synchronize()
+        self._mempool.free_all_blocks()
+        if self._pinned_mempool is not None:
+            self._pinned_mempool.free_all_blocks()
 
     def exp(self, x: Any):
         return self.cp.exp(x)

@@ -96,6 +96,9 @@ def precompute_cctf_decode_matrix(
 
 def rgb_to_xyz(rgb: Any, matrix_3x3: Any, backend) -> Any:
     """``XYZ[…,j] = Σ_i RGB[…,i] * M[j,i]`` — i.e. ``XYZ = RGB @ M.T``."""
+    specialized = getattr(backend, "rgb_to_xyz", None)
+    if callable(specialized):
+        return specialized(rgb, matrix_3x3)
     # M is stored as (3, 3). We want …i,ji->…j which is matmul(rgb, M.T).
     M_T = matrix_3x3.T if hasattr(matrix_3x3, 'T') else backend.asarray(np.asarray(matrix_3x3).T)
     return backend.matmul(rgb, M_T)
@@ -103,6 +106,9 @@ def rgb_to_xyz(rgb: Any, matrix_3x3: Any, backend) -> Any:
 
 def xyz_to_rgb(xyz: Any, matrix_3x3: Any, backend) -> Any:
     """``RGB[…,j] = Σ_i XYZ[…,i] * M[j,i]`` — i.e. ``RGB = XYZ @ M.T``."""
+    specialized = getattr(backend, "rgb_to_xyz", None)
+    if callable(specialized):
+        return specialized(xyz, matrix_3x3)
     M_T = matrix_3x3.T if hasattr(matrix_3x3, 'T') else backend.asarray(np.asarray(matrix_3x3).T)
     return backend.matmul(xyz, M_T)
 
@@ -153,6 +159,10 @@ def _cctf_encoding_adobe_rgb_1998(rgb: Any, backend) -> Any:
     # for Adobe RGB (1998), so negative fractional powers intentionally
     # produce NaN, matching the CPU reference.
     return backend.pow(rgb, 0.4547069271758437)
+
+
+def _cctf_encoding_dci_p3(rgb: Any, backend) -> Any:
+    return backend.pow(rgb, 1.0 / 2.6)
 
 
 def _cctf_decoding_srgb_like(rgb: Any, backend) -> Any:
@@ -248,6 +258,8 @@ def cctf_encoding_backend(rgb: Any, color_space: str, backend) -> Any:
         return _cctf_encoding_bt2020(rgb, backend)
     if color_space == "Adobe RGB (1998)":
         return _cctf_encoding_adobe_rgb_1998(rgb, backend)
+    if color_space == "DCI-P3":
+        return _cctf_encoding_dci_p3(rgb, backend)
     if color_space in {"ACES2065-1", "ACEScg"}:
         return rgb
 
@@ -273,7 +285,7 @@ def boost_highlights_backend(
     """Backend-portable highlight boost.
 
     Reproduces the exact same curve as the Numba kernel in
-    ``numba_boost_hightlights.py`` using element-wise backend ops.
+    ``numba_boost_highlights.py`` using element-wise backend ops.
 
     For ``x <= raw_x0``: identity.
     For ``x > raw_x0``: ``y = x + boost_scale * (exp(a * dx) - a * dx - 1)``

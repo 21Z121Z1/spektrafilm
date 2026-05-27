@@ -9,6 +9,9 @@ from spektrafilm_gui.theme_palette import (
     CONTROL_BG,
     CONTROL_BG_HOVER,
     CONTROL_BG_PRESSED,
+    CONTROL_BORDER,
+    CONTROL_BORDER_HOVER,
+    CONTROL_FOCUS_BORDER,
     CONTROL_MENU_BG,
     CONTROL_SELECTION_BG,
     DISABLED_BG,
@@ -38,8 +41,13 @@ from spektrafilm_gui.theme_palette import (
     SIZE_TAB_STRIP_OFFSET,
     SIZE_TOOLBUTTON_PADDING,
     SIZE_TOOLBUTTON_POPUP_PADDING_RIGHT,
+    SLIDER_GROOVE_BG,
+    SLIDER_HANDLE_BG,
+    SLIDER_HANDLE_HOVER_BG,
+    SLIDER_SUBPAGE_BG,
     SPLITTER_BG,
     STATUS_BG,
+    STATUS_BORDER,
     TAB_SELECTED_BG,
     TAB_TEXT_ACCENT,
     TEXT_ACCENT,
@@ -201,6 +209,7 @@ QLineEdit,
 QAbstractSpinBox {{
     min-height: {SIZE_CONTROL_MIN_HEIGHT};
     padding: {SIZE_CONTROL_PADDING};
+    border: 1px solid {CONTROL_BORDER};
 }}
 
 QPushButton {{
@@ -220,6 +229,7 @@ QComboBox:hover,
 QLineEdit:hover,
 QAbstractSpinBox:hover {{
     background: {CONTROL_BG_HOVER};
+    border-color: {CONTROL_BORDER_HOVER};
 }}
 
 QPushButton:pressed,
@@ -236,7 +246,7 @@ QLineEdit:focus,
 QAbstractSpinBox:focus,
 QCheckBox:focus,
 QTabBar::tab:focus {{
-    border: none;
+    border: 1px solid {CONTROL_FOCUS_BORDER};
     outline: none;
 }}
 
@@ -330,6 +340,29 @@ QCheckBox::indicator:unchecked:disabled {{
     background: {DISABLED_BG};
 }}
 
+QSlider::groove:horizontal {{
+    background: {SLIDER_GROOVE_BG};
+    height: 4px;
+    border-radius: 2px;
+}}
+
+QSlider::handle:horizontal {{
+    background: {SLIDER_HANDLE_BG};
+    width: 12px;
+    height: 12px;
+    margin: -4px 0;
+    border-radius: 6px;
+}}
+
+QSlider::handle:horizontal:hover {{
+    background: {SLIDER_HANDLE_HOVER_BG};
+}}
+
+QSlider::sub-page:horizontal {{
+    background: {SLIDER_SUBPAGE_BG};
+    border-radius: 2px;
+}}
+
 QToolButton {{
     background: {PANEL_BG};
     padding: {SIZE_TOOLBUTTON_PADDING};
@@ -396,6 +429,7 @@ QStatusBar {{
     background: {STATUS_BG};
     color: {TEXT_STATUS};
     border: none;
+    border-top: 1px solid {STATUS_BORDER};
     min-height: {SIZE_FOOTER_MIN_HEIGHT};
 }}
 

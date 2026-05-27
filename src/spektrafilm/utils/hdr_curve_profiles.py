@@ -366,7 +366,6 @@ def sample_runtime_curve_profile(
     params.settings.use_scanner_lut = False
     params.io.upscale_factor = 1.0
     params.io.crop = False
-    params.io.full_image = True
     params.io.input_cctf_decoding = False
     params.io.output_cctf_encoding = False
     params.camera.auto_exposure = False

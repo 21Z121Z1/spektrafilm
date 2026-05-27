@@ -119,7 +119,7 @@ class TestRuntimeApi:
 
         assert result.dtype == np.float64
 
-    @pytest.mark.parametrize("backend_name", ["mlx", "cupy", "cuda"])
+    @pytest.mark.parametrize("backend_name", ["mlx", "cupy", "cuda", "halide"])
     def test_float64_runtime_precision_rejects_explicit_gpu_backend(self, default_params, backend_name):
         params = copy.deepcopy(default_params)
         params.settings.compute_backend = backend_name
@@ -418,7 +418,8 @@ class TestRuntimeApi:
             params.enlarger.y_filter_shift = 0.0
             params.io.compute_negative = False
             params.io.crop = False
-            params.io.full_image = True
+            with pytest.deprecated_call(match="full_image is deprecated"):
+                params.io.full_image = True
             params.io.input_cctf_decoding = False
             params.io.input_color_space = 'sRGB'
             params.io.output_cctf_encoding = False
@@ -443,7 +444,8 @@ class TestRuntimeApi:
 
         params = make_art_params()
         assert params.io.compute_negative is False
-        assert params.io.full_image is True
+        with pytest.deprecated_call(match="full_image is deprecated"):
+            assert params.io.full_image is True
         assert params.io.preview_resize_factor == 1.0
 
         output = AgXPhoto(params).process(image)
@@ -467,6 +469,20 @@ class TestRuntimeApi:
         assert np.all(np.isfinite(look_y))
         assert np.all(scene_y > 0), "scene_y should be positive (logspace ramp)"
         assert np.all(look_y >= 0), "look_y should be non-negative"
+
+    def test_characterize_pipeline_profile_uses_cached_curves(self, default_params, monkeypatch):
+        simulator = process_module.Simulator(default_params)
+        first_scene_y, first_look_y = pipeline_module.characterize_pipeline_profile(simulator._pipeline)
+
+        def fail_if_recomputed(*args, **kwargs):
+            raise AssertionError("profile characterization should be cached")
+
+        monkeypatch.setattr(pipeline_module.SimulationPipeline, "_pipeline_print", fail_if_recomputed)
+
+        second_scene_y, second_look_y = pipeline_module.characterize_pipeline_profile(simulator._pipeline)
+
+        assert second_scene_y is first_scene_y
+        assert second_look_y is first_look_y
 
     @pytest.mark.parametrize(
         'image_factory,expected_confidence',
@@ -502,3 +518,96 @@ class TestRuntimeApi:
         assert metadata.scene_luminance.shape == (1, 1)
         assert np.all(np.isfinite(metadata.scene_luminance))
         assert metadata.diffuse_white_estimate > 0
+
+    def test_hdr_scene_energy_metadata_omits_scene_rgb_by_default(self):
+        image = np.full((2, 3, 3), 0.25, dtype=np.float32)
+
+        metadata = pipeline_module._hdr_scene_energy_metadata(
+            image,
+            input_color_space='sRGB',
+            apply_cctf_decoding=False,
+            auto_exposure_ev=0.0,
+        )
+
+        assert metadata.scene_luminance.shape == image.shape[:2]
+        assert metadata.scene_rgb is None
+
+    def test_hdr_scene_energy_metadata_can_include_scene_rgb(self):
+        image = np.full((2, 3, 3), 0.25, dtype=np.float32)
+
+        metadata = pipeline_module._hdr_scene_energy_metadata(
+            image,
+            input_color_space='sRGB',
+            apply_cctf_decoding=False,
+            auto_exposure_ev=0.0,
+            include_scene_rgb=True,
+        )
+
+        assert metadata.scene_rgb is not None
+        assert metadata.scene_rgb.shape == image.shape
+        assert metadata.scene_rgb.dtype == np.float32
+
+    def test_simulator_process_with_metadata_forwards_scene_rgb_flag(self, monkeypatch):
+        rendered = np.full((1, 1, 3), 0.25, dtype=np.float32)
+        metadata = pipeline_module.HDRSceneEnergyMetadata(
+            scene_luminance=np.array([[0.5]], dtype=np.float32),
+            diffuse_white_estimate=0.5,
+            headroom_estimate=1.0,
+            auto_exposure_ev=0.0,
+            method='auto_percentile',
+            confidence='medium',
+            scene_rgb=np.full((1, 1, 3), 0.5, dtype=np.float32),
+        )
+        captured: dict[str, object] = {}
+
+        class FakePipeline:
+            def __init__(self, _params):
+                self._array_backend = SimpleNamespace(requires_serial_runtime=False)
+
+            def process_with_metadata(self, image, *, include_scene_rgb=False):
+                captured['call'] = (image, include_scene_rgb)
+                return pipeline_module.SimulationPipelineResult(
+                    image=rendered,
+                    hdr_scene_energy=metadata,
+                )
+
+        monkeypatch.setattr(process_module, 'SimulationPipeline', FakePipeline)
+        params = SimpleNamespace(
+            settings=SimpleNamespace(compute_backend='cpu', float_precision='float32'),
+        )
+
+        result = process_module.Simulator(params).process_with_metadata('frame', include_scene_rgb=True)
+
+        assert captured['call'] == ('frame', True)
+        assert result.hdr_scene_energy is metadata
+
+    def test_pipeline_process_cleans_up_gpu_backend_after_materialization(self, monkeypatch):
+        pipeline = object.__new__(pipeline_module.SimulationPipeline)
+        pipeline.timings = {}
+        pipeline._last_elapsed_time = None
+        pipeline.debug = SimpleNamespace(debug_mode='off')
+        pipeline._runtime_dtype = np.dtype(np.float32)
+        captured: dict[str, object] = {'cleanup_calls': 0}
+
+        class FakeBackend:
+            supports_gpu = True
+
+            def to_numpy(self, value):
+                captured['to_numpy'] = value
+                return np.asarray(value, dtype=np.float32)
+
+            def cleanup(self):
+                captured['cleanup_calls'] += 1
+
+        pipeline._array_backend = FakeBackend()
+        monkeypatch.setattr(pipeline, '_should_tile_gpu_image', lambda _image: False)
+        monkeypatch.setattr(pipeline, '_pipeline', lambda image: image + 1.0)
+        monkeypatch.setattr(pipeline, '_gpu_validation_enabled', lambda: False)
+
+        result = pipeline_module.SimulationPipeline.process(
+            pipeline,
+            np.full((1, 1, 3), 0.25, dtype=np.float32),
+        )
+
+        np.testing.assert_allclose(result, 1.25)
+        assert captured['cleanup_calls'] == 1

@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from spektrafilm.gpu.backend import BackendUnavailableError, backend_summary, select_backend, tiled_processing
+from spektrafilm.gpu.cupy_backend import CupyBackend
 from spektrafilm.gpu.mlx_backend import MlxBackend
 from spektrafilm.gpu.numpy_backend import NumpyBackend
 
@@ -39,7 +40,7 @@ def test_select_backend_cpu_is_strict_numpy_backend() -> None:
 
 
 def test_select_backend_rejects_unknown_backend_name() -> None:
-    with pytest.raises(ValueError, match="compute_backend"):
+    with pytest.raises(ValueError, match="halide"):
         select_backend("vulkan")
 
 
@@ -48,6 +49,37 @@ def test_select_backend_auto_returns_usable_backend() -> None:
 
     assert backend.name in {"cpu", "mlx", "cupy"}
     assert isinstance(backend.supports_gpu, bool)
+
+
+def test_select_backend_halide_is_strict_when_requested() -> None:
+    try:
+        backend = select_backend("halide")
+    except BackendUnavailableError:
+        return
+
+    assert backend.name == "halide"
+    assert backend.supports_gpu
+    assert backend_summary(backend, runtime_gpu_enabled=True) == "halide"
+
+
+def test_halide_backend_exposes_required_array_ops() -> None:
+    try:
+        backend = select_backend("halide")
+    except BackendUnavailableError as exc:
+        pytest.skip(str(exc))
+
+    values = np.array([-4.0, -1.0, 0.0, 2.0, 9.0], dtype=np.float32)
+
+    np.testing.assert_allclose(backend.abs(values), np.abs(values))
+    assert backend.max(values) == float(np.max(values))
+    np.testing.assert_allclose(backend.pow(np.abs(values), 0.5), np.sqrt(np.abs(values)), atol=1e-6)
+    np.testing.assert_allclose(backend.power(10.0, values), np.power(10.0, values), atol=1e-6)
+    np.testing.assert_allclose(
+        backend.where(values < 0, -values, values),
+        np.where(values < 0, -values, values),
+    )
+    np.testing.assert_allclose(backend.clip(values, 0.0, 1.0), np.clip(values, 0.0, 1.0))
+    np.testing.assert_allclose(backend.nan_to_num(np.array([np.nan, 1.0])), np.array([0.0, 1.0]))
 
 
 def test_select_backend_mlx_is_strict_when_requested() -> None:
@@ -78,6 +110,64 @@ def test_mlx_backend_rejects_false_positive_metal_availability(monkeypatch) -> N
 
     with pytest.raises(BackendUnavailableError, match="usable Apple Metal device"):
         MlxBackend()
+
+
+def test_mlx_backend_cleanup_clears_cache_after_synchronize(monkeypatch) -> None:
+    calls: list[str] = []
+    fake_mlx = types.ModuleType("mlx")
+    fake_core = types.ModuleType("mlx.core")
+    fake_core.float32 = object()
+    fake_core.float16 = object()
+    fake_core.metal = types.SimpleNamespace(is_available=lambda: True)
+
+    def fake_array(*_args, **_kwargs):
+        calls.append("array")
+        return object()
+
+    fake_core.array = fake_array
+    fake_core.eval = lambda *_values: calls.append("eval")
+    fake_core.synchronize = lambda: calls.append("sync")
+    fake_core.clear_cache = lambda: calls.append("clear-cache")
+    fake_mlx.core = fake_core
+    monkeypatch.setitem(sys.modules, "mlx", fake_mlx)
+    monkeypatch.setitem(sys.modules, "mlx.core", fake_core)
+
+    backend = MlxBackend()
+    backend.cleanup()
+
+    assert calls[-2:] == ["sync", "clear-cache"]
+
+
+def test_cupy_backend_cleanup_releases_default_memory_pools(monkeypatch) -> None:
+    calls: list[str] = []
+    fake_cupy = types.ModuleType("cupy")
+
+    class FakeCupyArray:
+        pass
+
+    class FakePool:
+        def __init__(self, name: str) -> None:
+            self._name = name
+
+        def free_all_blocks(self) -> None:
+            calls.append(f"{self._name}-free")
+
+    fake_stream = types.SimpleNamespace(synchronize=lambda: calls.append("sync"))
+    fake_cupy.ndarray = FakeCupyArray
+    fake_cupy.float32 = np.float32
+    fake_cupy.float16 = np.float16
+    fake_cupy.cuda = types.SimpleNamespace(
+        runtime=types.SimpleNamespace(getDeviceCount=lambda: 1),
+        get_current_stream=lambda: fake_stream,
+    )
+    fake_cupy.get_default_memory_pool = lambda: FakePool("device")
+    fake_cupy.get_default_pinned_memory_pool = lambda: FakePool("pinned")
+    monkeypatch.setitem(sys.modules, "cupy", fake_cupy)
+
+    backend = CupyBackend()
+    backend.cleanup()
+
+    assert calls == ["sync", "device-free", "pinned-free"]
 
 
 @pytest.mark.parametrize("backend_name", ["cupy", "cuda"])

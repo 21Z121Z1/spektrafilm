@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from types import SimpleNamespace
 
 import pytest
@@ -160,6 +161,62 @@ def test_configure_napari_chrome_uses_gray_18_canvas_when_enabled() -> None:
     configure_napari_chrome(viewer, gray_18_canvas=True)
 
     _assert_chrome_background(qt_viewer)
+
+
+def test_build_controls_panel_groups_controls_by_workflow_stage() -> None:
+    os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+    from qtpy import QtWidgets
+
+    _app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+
+    class SimulationWidget(QtWidgets.QWidget):
+        def __init__(self, action_bar: QtWidgets.QWidget) -> None:
+            super().__init__()
+            self._action_bar = action_bar
+
+        def action_bar(self) -> QtWidgets.QWidget:
+            return self._action_bar
+
+    action_bar = QtWidgets.QWidget()
+    widgets = SimpleNamespace(
+        filepicker=QtWidgets.QWidget(),
+        load_raw=QtWidgets.QWidget(),
+        preview_crop=QtWidgets.QWidget(),
+        input_image=QtWidgets.QWidget(),
+        camera=QtWidgets.QWidget(),
+        simulation=SimulationWidget(action_bar),
+        exposure_control=QtWidgets.QWidget(),
+        halation=QtWidgets.QWidget(),
+        couplers=QtWidgets.QWidget(),
+        grain=QtWidgets.QWidget(),
+        enlarger=QtWidgets.QWidget(),
+        diffusion=QtWidgets.QWidget(),
+        glare=QtWidgets.QWidget(),
+        preflashing=QtWidgets.QWidget(),
+        scanner=QtWidgets.QWidget(),
+        hdr_export=QtWidgets.QWidget(),
+        output=QtWidgets.QWidget(),
+        spectral_upsampling=QtWidgets.QWidget(),
+        tune=QtWidgets.QWidget(),
+        special=QtWidgets.QWidget(),
+        camera_diffusion=QtWidgets.QWidget(),
+        gui_config=QtWidgets.QWidget(),
+        display=QtWidgets.QWidget(),
+    )
+    viewer = make_test_viewer_namespace(_qt_viewer=SimpleNamespace(dockLayerList=None))
+
+    container = napari_layout_module.build_controls_panel(viewer, widgets)
+    tab_widget = container.findChild(QtWidgets.QTabWidget, 'controlsTabWidget')
+
+    assert tab_widget is not None
+    assert [tab_widget.tabText(index) for index in range(tab_widget.count())] == [
+        'IMPORT',
+        'FILM',
+        'PRINT',
+        'OUTPUT',
+        'ADVANCED',
+        'CONFIG',
+    ]
 
 
 def test_reset_viewer_camera_calls_viewer_reset() -> None:

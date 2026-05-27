@@ -35,13 +35,29 @@ class Simulator:
                 return result
         return self._pipeline.process(image)
 
-    def process_with_metadata(self, image: np.ndarray) -> SimulationPipelineResult:
+    def process_with_metadata(
+        self,
+        image: np.ndarray,
+        *,
+        include_scene_rgb: bool = False,
+    ) -> SimulationPipelineResult:
         """Process the input image and return rendered output plus runtime metadata."""
         if self._uses_serial_runtime():
             with serialized_metal_runtime():
-                result = self._pipeline.process_with_metadata(image)
+                if include_scene_rgb:
+                    result = self._pipeline.process_with_metadata(
+                        image,
+                        include_scene_rgb=True,
+                    )
+                else:
+                    result = self._pipeline.process_with_metadata(image)
                 self._synchronize_serial_runtime()
                 return result
+        if include_scene_rgb:
+            return self._pipeline.process_with_metadata(
+                image,
+                include_scene_rgb=True,
+            )
         return self._pipeline.process_with_metadata(image)
 
     def update_params(self, params: RuntimePhotoParams) -> None:
@@ -102,7 +118,7 @@ def _params_may_require_serial_runtime(params: RuntimePhotoParams) -> bool:
     settings = getattr(params, "settings", None)
     compute_backend = str(getattr(settings, "compute_backend", "auto")).strip().lower()
     float_precision = str(getattr(settings, "float_precision", "float32")).strip().lower()
-    return compute_backend in {"auto", "mlx"} and float_precision != "float64"
+    return compute_backend in {"auto", "mlx", "halide"} and float_precision != "float64"
 
 
 def simulate(image, params: RuntimePhotoParams,

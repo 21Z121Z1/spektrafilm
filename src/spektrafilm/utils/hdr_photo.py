@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.resources as pkg_resources
 import logging
 import math
+import os
 import platform
 import shutil
 import subprocess
@@ -278,6 +279,7 @@ def save_hdr_photo_heic(
     output_path = Path(filename)
     if output_path.suffix.lower() not in SUPPORTED_HDR_PHOTO_EXTENSIONS:
         raise ValueError(f"HDR photo export requires a HEIC/HEIF extension, got {output_path.suffix!r}.")
+    _validate_hdr_photo_output_path(output_path)
 
     mapping = HDRPhotoMapping() if mapping is None else mapping
     if gain_map_mode not in ("luma", "rgb"):
@@ -870,7 +872,7 @@ def _graft_scene_luminance(
 
     eps = _EPS32
     look = np.maximum(np.asarray(look_rgb, dtype=np.float32), 0.0)
-    look_y = np.max(look, axis=2)
+    look_y = luminance_y(look)
 
     scene_y_raw = _prepare_scene_luminance(scene_luminance, shape=look.shape[:2])
     scene_y = scene_y_raw / np.float32(mapping.diffuse_white)
@@ -1007,6 +1009,22 @@ def _swift_command() -> list[str]:
     if swift is not None:
         return [swift]
     raise HDRPhotoExportError("Swift toolchain not found; install Xcode Command Line Tools to export HDR HEIC.")
+
+
+def _validate_hdr_photo_output_path(output_path: Path) -> None:
+    output_text = str(output_path)
+    if any(ord(char) < 32 for char in output_text):
+        raise ValueError("HDR photo output path must not contain control characters.")
+
+    parent = output_path.parent
+    if parent == Path(""):
+        parent = Path(".")
+    if not parent.exists():
+        raise OSError(f"HDR photo output parent directory does not exist: {parent}")
+    if not parent.is_dir():
+        raise OSError(f"HDR photo output parent path is not a directory: {parent}")
+    if not os.access(parent, os.W_OK):
+        raise OSError(f"HDR photo output parent directory is not writable: {parent}")
 
 
 def _encoder_script_path() -> Path:

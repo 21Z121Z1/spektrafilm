@@ -315,7 +315,7 @@ def read_image_color_encoding(filename: str) -> ColorEncoding | None:
     in_img = oiio.ImageInput.open(filename)
     if not in_img:
         oiio.geterror()
-        raise OSError("Could not open image file: " + filename)
+        raise OSError(f"Could not open image file: {filename}")
 
     try:
         spec = in_img.spec()
@@ -484,11 +484,12 @@ def _known_color_space_from_chromaticities(spec) -> str | None:
 
 def load_image_oiio(filename: str | Path, *, dtype: np.dtype = np.float32) -> np.ndarray:
     dtype = validate_float_dtype(dtype)
+    filename_str = str(filename)
     # Open the image file
-    in_img = oiio.ImageInput.open(filename)
+    in_img = oiio.ImageInput.open(filename_str)
     if not in_img:
         oiio.geterror()
-        raise OSError("Could not open image file: " + filename)
+        raise OSError(f"Could not open image file: {filename_str}")
 
     try:
         spec = in_img.spec()
@@ -509,7 +510,7 @@ def load_image_oiio(filename: str | Path, *, dtype: np.dtype = np.float32) -> np
         # Read the image data using the chosen type
         pixels = in_img.read_image(read_type)
         if pixels is None:
-            raise OSError("Failed to read image data from " + filename)
+            raise OSError(f"Failed to read image data from {filename_str}")
 
         # Convert image payloads to the runtime dtype. 50MP+ scans should use
         # float32 unless the caller explicitly needs float64.
@@ -592,6 +593,28 @@ def save_image_oiio(
         over ``color_space`` and ``cctf_encoding``.
     white_luminance : float, optional
         Optional EXR whiteLuminance metadata, in cd/m².
+    scene_luminance : np.ndarray, optional
+        Per-pixel scene luminance sidecar used by HEIC/HEIF HDR photo export
+        and ``exr_mode="hdr_rendition"``. Ignored by standard image formats
+        and by ``exr_mode="scene_linear_archive"``.
+    scene_rgb : np.ndarray, optional
+        Per-pixel scene RGB sidecar used by profile-aware HDR highlight colour
+        recovery for HEIC/HEIF HDR photo export and HDR rendition EXR.
+    hdr_mapping_kwargs : dict, optional
+        Keyword arguments used to construct :class:`HDRPhotoMapping` for
+        HEIC/HEIF HDR photo export and HDR rendition EXR.
+    exr_mode : str, default "scene_linear_archive"
+        EXR save mode. ``"scene_linear_archive"`` writes the provided linear
+        pixels unchanged. ``"hdr_rendition"`` first applies the same authored
+        HDR mapping used by HDR photo export, then writes the mapped HDR
+        rendition with ``whiteLuminance`` and ``hdrHeadroom`` metadata.
+
+    Returns
+    -------
+    tuple[str, ...]
+        HDR mapping diagnostics for HEIC/HEIF HDR photo export and HDR
+        rendition EXR. Standard image saves and scene-linear archive EXR
+        return an empty tuple.
     """
     # Determine file type based on extension before deriving the default encoding.
     ext = filename.split('.')[-1].lower()
@@ -639,6 +662,7 @@ def save_image_oiio(
         return save_hdr_photo_heic(filename, image_data, **heic_kwargs)
 
     hdr_headroom: float | None = None
+    hdr_diagnostics: tuple[str, ...] = ()
 
     if ext == "exr":
         if exr_mode not in {"scene_linear_archive", "hdr_rendition"}:
@@ -653,6 +677,7 @@ def save_image_oiio(
             )
             image_data = renditions.hdr_rgb
             hdr_headroom = renditions.headroom
+            hdr_diagnostics = renditions.diagnostics
             if white_luminance is None:
                 white_luminance = HDR_REFERENCE_WHITE_LUMINANCE_NITS
 
@@ -752,7 +777,7 @@ def save_image_oiio(
     finally:
         out.close()
 
-    return ()
+    return hdr_diagnostics
 
 
 def save_hdr_rendition_exr(

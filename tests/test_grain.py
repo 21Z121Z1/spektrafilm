@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from spektrafilm.model.density_curves import interp_density_cmy_layers
-from spektrafilm.model.grain import apply_grain_to_density, apply_grain_to_density_layers
+from spektrafilm.model.grain import apply_grain_to_density, apply_grain_to_density_layers, layer_particle_model
 from spektrafilm.model.grain import apply_grain
 from spektrafilm.runtime.params_schema import GrainParams
 
@@ -10,7 +10,47 @@ from spektrafilm.runtime.params_schema import GrainParams
 pytestmark = pytest.mark.unit
 
 
+def _random_state_equal(left, right) -> bool:
+    return (
+        left[0] == right[0]
+        and np.array_equal(left[1], right[1])
+        and left[2:] == right[2:]
+    )
+
+
 class TestApplyGrain:
+    def test_layer_particle_model_seed_does_not_touch_global_rng_for_generator_path(self):
+        density = np.full((2, 2), 0.5, dtype=np.float64)
+        np.random.seed(12345)
+        before = np.random.get_state()
+
+        layer_particle_model(density, seed=7, use_fast_stats=False)
+
+        after = np.random.get_state()
+        assert _random_state_equal(after, before)
+
+    def test_layer_particle_model_fast_stats_restores_global_rng_state(self):
+        density = np.full((2, 2), 0.5, dtype=np.float64)
+        np.random.seed(54321)
+        before = np.random.get_state()
+
+        layer_particle_model(density, seed=7, use_fast_stats=True)
+
+        after = np.random.get_state()
+        assert _random_state_equal(after, before)
+
+    def test_grain_function_defaults_are_not_mutable_lists(self):
+        assert not any(isinstance(default, list) for default in apply_grain_to_density.__defaults__)
+        assert not any(isinstance(default, list) for default in apply_grain_to_density_layers.__defaults__)
+
+    def test_apply_grain_fixed_seed_is_usable(self):
+        density_cmy = np.full((2, 2, 3), 0.4, dtype=np.float64)
+
+        result = apply_grain_to_density(density_cmy.copy(), grain_blur=0.0, fixed_seed=42)
+
+        assert result.shape == density_cmy.shape
+        assert np.isfinite(result).all()
+
     def test_apply_grain_returns_input_when_bypassed_or_inactive(self):
         density_cmy = np.full((3, 3, 3), 0.4)
         density_curves = np.tile(np.linspace(0.0, 2.0, 8)[:, None], (1, 3))

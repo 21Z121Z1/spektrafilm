@@ -91,6 +91,44 @@ class TestParametricDensityCurvesModel:
         assert np.all(np.isfinite(result))
         assert np.all(result >= -0.1)
 
+    def test_zero_toe_and_shoulder_use_clipped_linear_limit(self):
+        """Zero-size toe/shoulder values should use the finite piecewise-linear limit."""
+        log_exposure = np.linspace(-3, 3, 121)
+        gamma = [0.6, 0.6, 0.6]
+        log_exposure_0 = [-1.5, -1.0, -0.5]
+        density_max = [2.0, 2.5, 3.0]
+        toe_size = [0.0, 0.0, 0.0]
+        shoulder_size = [0.0, 0.0, 0.0]
+
+        with np.errstate(all="raise"):
+            result = parametric_density_curves_model(
+                log_exposure, gamma, log_exposure_0, density_max, toe_size, shoulder_size
+            )
+
+        expected = np.empty_like(result)
+        for ch, (g, loge0, dmax) in enumerate(zip(gamma, log_exposure_0, density_max)):
+            expected[:, ch] = g * (
+                np.maximum(log_exposure - loge0, 0.0)
+                - np.maximum(log_exposure - loge0 - dmax / g, 0.0)
+            )
+
+        assert np.all(np.isfinite(result))
+        np.testing.assert_allclose(result, expected, atol=1e-12)
+
+    def test_mixed_zero_and_nonzero_toe_shoulder_values_stay_finite(self):
+        log_exposure = np.linspace(-3, 3, 121)
+        result = parametric_density_curves_model(
+            log_exposure,
+            gamma=[0.45, 0.6, 0.75],
+            log_exposure_0=[-1.5, -1.0, -0.5],
+            density_max=[2.0, 2.5, 3.0],
+            toe_size=[0.0, 0.2, 0.0],
+            shoulder_size=[0.4, 0.0, 0.6],
+        )
+
+        assert np.all(np.isfinite(result))
+        assert result.shape == (log_exposure.size, 3)
+
     def test_asymmetric_channel_parameters(self):
         """Different parameters per channel should produce different curves."""
         log_exposure = np.linspace(-3, 2, 100)
@@ -105,4 +143,3 @@ class TestParametricDensityCurvesModel:
         # Channels should differ.
         assert not np.allclose(result[:, 0], result[:, 1])
         assert not np.allclose(result[:, 1], result[:, 2])
-

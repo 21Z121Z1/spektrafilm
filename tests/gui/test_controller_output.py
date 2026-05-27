@@ -429,6 +429,41 @@ def test_save_output_layer_heic_passes_profile_aware_film_paper(monkeypatch) -> 
     assert hdr_kwargs['paper'] == 'kodak_portra_endura'
 
 
+def test_save_output_layer_disables_profile_path_to_white_when_gui_toggle_is_off(monkeypatch) -> None:
+    float_image = np.full((1, 2, 3), 0.7, dtype=np.float32)
+    scene_luminance = np.array([[0.5, 3.0]], dtype=np.float32)
+    output_layer = _make_output_layer(
+        float_image,
+        output_color_space='Display P3',
+        output_cctf_encoding=False,
+    )
+    output_layer.metadata[controller_module.HDR_SCENE_LUMINANCE_KEY] = scene_luminance
+    controller = GuiController(viewer=object(), widgets=object())
+    captured: dict[str, object] = {}
+    gui_state = make_test_controller_gui_state()
+    gui_state.simulation.saving_color_space = 'Display P3'
+    gui_state.simulation.saving_cctf_encoding = True
+    gui_state.hdr_export.hdr_mapping_mode = 'profile_aware'
+    gui_state.hdr_export.path_to_white_enabled = False
+
+    _configure_save_output(
+        monkeypatch,
+        controller,
+        output_layer,
+        gui_state,
+        captured,
+        filepath='output.heic',
+        selected_filter='Images (*.heic)',
+    )
+    _capture_saved_output(monkeypatch, captured)
+
+    controller.save_output_layer()
+
+    hdr_kwargs = captured['save_kwargs']['hdr_mapping_kwargs']
+    assert hdr_kwargs['hdr_highlight_path_to_white'] == 0.0
+    assert hdr_kwargs['profile_hdr_path_to_white_strength'] == 0.0
+
+
 def test_save_output_layer_heic_does_not_read_source_metadata(monkeypatch) -> None:
     float_image = np.full((2, 2, 3), 1.5, dtype=np.float32)
     output_layer = _make_output_layer(
@@ -529,7 +564,46 @@ def test_save_output_layer_hdr_rendition_exr_passes_explicit_mode_and_sidecar(mo
     assert captured['save_kwargs']['hdr_mapping_kwargs']['hdr_mapping_mode'] == 'profile_aware'
 
 
-def test_save_output_layer_still_saves_when_source_metadata_read_fails(monkeypatch) -> None:
+def test_save_output_layer_hdr_rendition_exr_reports_diagnostics(monkeypatch) -> None:
+    float_image = np.full((1, 2, 3), 0.7, dtype=np.float32)
+    output_layer = _make_output_layer(
+        float_image,
+        output_color_space='Display P3',
+        output_cctf_encoding=False,
+    )
+    controller = GuiController(viewer=object(), widgets=object())
+    captured: dict[str, object] = {}
+    gui_state = make_test_controller_gui_state()
+    gui_state.simulation.saving_color_space = 'Display P3'
+    gui_state.hdr_export.exr_mode = 'hdr_rendition'
+
+    _configure_save_output(
+        monkeypatch,
+        controller,
+        output_layer,
+        gui_state,
+        captured,
+        filepath='output.exr',
+        selected_filter='Images (*.exr)',
+    )
+
+    def fake_save_image_oiio(filepath, image_data, **kwargs) -> tuple[str, ...]:
+        captured.setdefault('saved', (filepath, image_data.copy()))
+        captured.setdefault('save_kwargs', kwargs)
+        return ("source_chroma fallback: scene_rgb is missing, degrading to off",)
+
+    monkeypatch.setattr(controller_module, 'save_image_oiio', fake_save_image_oiio)
+    monkeypatch.setattr(controller_module, 'write_image_metadata', lambda *args, **kwargs: None)
+
+    controller.save_output_layer()
+
+    assert captured['status'] == (
+        "Saved output image to output.exr (EXR saved as HDR rendition) - "
+        "source_chroma fallback: scene_rgb is missing, degrading to off"
+    )
+
+
+def test_save_output_layer_still_saves_when_source_metadata_read_fails(monkeypatch, caplog) -> None:
     float_image = np.full((2, 2, 3), 0.5, dtype=np.float32)
     output_layer = _make_output_layer(
         float_image,
@@ -558,6 +632,7 @@ def test_save_output_layer_still_saves_when_source_metadata_read_fails(monkeypat
     np.testing.assert_allclose(saved_image, float_image)
     assert captured['metadata']['source_metadata'] is None
     assert captured['status'] == 'Saved output image to output.png, but failed to copy metadata: bad metadata'
+    assert "Failed to read source metadata from /tmp/source.nef" in caplog.text
 
 
 def test_save_output_layer_exr_uses_unclipped_float_metadata_not_preview_pixels(monkeypatch) -> None:

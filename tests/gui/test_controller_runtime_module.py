@@ -26,16 +26,62 @@ def test_execute_simulation_request_uses_runtime_runner_without_padding() -> Non
     )
     captured: dict[str, object] = {}
 
+    def fake_run_simulation(image, params, **kwargs):
+        captured['flags'] = kwargs
+        return np.full((4, 4, 3), 0.5, dtype=np.float32)
+
     result = runtime_module.execute_simulation_request(
         request,
-        run_simulation_fn=lambda image, params: np.full((4, 4, 3), 0.5, dtype=np.float32),
+        run_simulation_fn=fake_run_simulation,
         prepare_output_display_image_fn=lambda image, **kwargs: _capture_preview_result(captured, image, **kwargs),
     )
 
     np.testing.assert_allclose(captured['display_args']['image'], np.full((4, 4, 3), 0.5, dtype=np.float32))
+    assert captured['flags'] == {
+        'collect_hdr_scene_energy': False,
+        'collect_hdr_scene_rgb': False,
+    }
     assert result.mode_label == 'Preview'
     np.testing.assert_allclose(result.float_image, np.full((4, 4, 3), 0.5, dtype=np.float32))
     assert result.status_message == 'Display transform: active'
+
+
+def test_execute_simulation_request_passes_hdr_collection_flags() -> None:
+    request = runtime_module.SimulationRequest(
+        mode_label='Preview',
+        image=np.full((2, 2, 3), 0.25, dtype=np.float32),
+        params=object(),
+        output_encoding=ColorEncoding(color_space='sRGB', transfer='cctf'),
+        use_display_transform=False,
+        collect_hdr_scene_energy=True,
+        collect_hdr_scene_rgb=False,
+    )
+    captured: dict[str, object] = {}
+
+    def fake_run_simulation(
+        image,
+        params,
+        *,
+        collect_hdr_scene_energy=False,
+        collect_hdr_scene_rgb=False,
+    ):
+        captured['flags'] = {
+            'collect_hdr_scene_energy': collect_hdr_scene_energy,
+            'collect_hdr_scene_rgb': collect_hdr_scene_rgb,
+        }
+        return np.asarray(image) + 0.25
+
+    result = runtime_module.execute_simulation_request(
+        request,
+        run_simulation_fn=fake_run_simulation,
+        prepare_output_display_image_fn=lambda image, **kwargs: (np.uint8(np.clip(image, 0.0, 1.0) * 255), 'Display transform: disabled'),
+    )
+
+    assert captured['flags'] == {
+        'collect_hdr_scene_energy': True,
+        'collect_hdr_scene_rgb': False,
+    }
+    np.testing.assert_allclose(result.float_image, request.image + 0.25)
 
 
 def test_execute_simulation_request_propagates_hdr_scene_energy_metadata() -> None:
@@ -55,16 +101,25 @@ def test_execute_simulation_request_propagates_hdr_scene_energy_metadata() -> No
         confidence='medium',
     )
     rendered = np.full((1, 2, 3), 0.75, dtype=np.float32)
+    captured: dict[str, object] = {}
+
+    def fake_run_simulation(image, params, **kwargs):
+        captured['flags'] = kwargs
+        return runtime_module.SimulationPipelineResult(
+            image=rendered,
+            hdr_scene_energy=metadata,
+        )
 
     result = runtime_module.execute_simulation_request(
         request,
-        run_simulation_fn=lambda image, params: runtime_module.SimulationPipelineResult(
-            image=rendered,
-            hdr_scene_energy=metadata,
-        ),
+        run_simulation_fn=fake_run_simulation,
         prepare_output_display_image_fn=lambda image, **kwargs: (np.uint8(image * 255), 'Display transform: disabled'),
     )
 
+    assert captured['flags'] == {
+        'collect_hdr_scene_energy': False,
+        'collect_hdr_scene_rgb': False,
+    }
     np.testing.assert_allclose(result.float_image, rendered)
     assert result.hdr_scene_energy is metadata
 

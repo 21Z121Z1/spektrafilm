@@ -100,7 +100,7 @@ GUI_WIDGET_SPECS = {
         ),
         "compute_backend": WidgetSpec(
             label="Compute backend",
-            tooltip="Select CPU, automatic GPU fallback, Apple MLX/Metal, or CuPy for CUDA/ROCm devices.",
+            tooltip="Select CPU, optional Halide host/AOT foundation, automatic GPU fallback, Apple MLX/Metal, or CuPy for CUDA/ROCm devices.",
         ),
         "color_management_workflow": WidgetSpec(
             label="Color workflow",

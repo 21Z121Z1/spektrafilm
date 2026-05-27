@@ -107,6 +107,7 @@ def _hdr_scene_energy_metadata(
     input_color_space: str,
     apply_cctf_decoding: bool,
     auto_exposure_ev: float,
+    include_scene_rgb: bool = False,
     auto_percentile: float = 99.0,
     headroom_percentile: float = 99.9,
     min_auto_diffuse_white: float = 0.10,
@@ -142,8 +143,10 @@ def _hdr_scene_energy_metadata(
     scene_luminance = (post_auto_y / np.float32(max(diffuse_white, 1e-8))).astype(np.float32, copy=False)
     scene_luminance = np.maximum(np.nan_to_num(scene_luminance, nan=0.0, posinf=0.0, neginf=0.0), 0.0)
 
-    scene_rgb = (post_auto_rgb / np.float32(max(diffuse_white, 1e-8))).astype(np.float32, copy=False)
-    scene_rgb = np.maximum(np.nan_to_num(scene_rgb, nan=0.0, posinf=0.0, neginf=0.0), 0.0)
+    scene_rgb = None
+    if include_scene_rgb:
+        scene_rgb = (post_auto_rgb / np.float32(max(diffuse_white, 1e-8))).astype(np.float32, copy=False)
+        scene_rgb = np.maximum(np.nan_to_num(scene_rgb, nan=0.0, posinf=0.0, neginf=0.0), 0.0)
 
     headroom = min(
         max(float(np.percentile(scene_luminance.reshape(-1), headroom_percentile)), 1.0),
@@ -158,11 +161,15 @@ def _hdr_scene_energy_metadata(
         confidence=confidence,
         profile_scene_y=None,
         profile_look_y=None,
-        scene_rgb=np.ascontiguousarray(scene_rgb, dtype=np.float32),
+        scene_rgb=None if scene_rgb is None else np.ascontiguousarray(scene_rgb, dtype=np.float32),
     )
 
 
 def characterize_pipeline_profile(pipeline: 'SimulationPipeline') -> tuple[np.ndarray, np.ndarray]:
+    cached = getattr(pipeline, "_profile_characterization_curves", None)
+    if cached is not None:
+        return cached
+
     from spektrafilm.runtime.params_builder import digest_params
     p = copy.deepcopy(pipeline._params)
     p.debug.deactivate_spatial_effects = True
@@ -186,7 +193,9 @@ def characterize_pipeline_profile(pipeline: 'SimulationPipeline') -> tuple[np.nd
 
     look_rgb = np.asarray(temp_pipeline._array_backend.to_numpy(look_rgb), dtype=np.float32)
     look_y = _luminance_y(look_rgb[0, :, :3])
-    return scene_y, look_y
+    curves = (scene_y, look_y)
+    pipeline._profile_characterization_curves = curves
+    return curves
 
 
 class SimulationPipeline:
@@ -213,7 +222,7 @@ class SimulationPipeline:
         self._runtime_dtype = _runtime_dtype(self.settings.float_precision)
         compute_backend = self.settings.compute_backend
         if self._runtime_dtype == np.dtype(np.float64):
-            if str(compute_backend).strip().lower() in {"mlx", "cupy", "cuda"}:
+            if str(compute_backend).strip().lower() in {"mlx", "cupy", "cuda", "halide"}:
                 raise ValueError("float64 runtime precision requires compute_backend='cpu' or 'auto'.")
             compute_backend = "cpu"
         self._array_backend = select_backend(
@@ -224,6 +233,7 @@ class SimulationPipeline:
         self.timings = {}
         self._last_elapsed_time = None
         self.validation_report = None
+        self._profile_characterization_curves: tuple[np.ndarray, np.ndarray] | None = None
 
         self._resize_service = ResizingService(self.io, self.camera.film_format_mm)
         reused_lut_service = _reused_lut_service
@@ -310,8 +320,14 @@ class SimulationPipeline:
             return np.asarray(self._array_backend.to_numpy(image), dtype=self._runtime_dtype)
         finally:
             self._last_elapsed_time = perf_counter() - start
+            self._cleanup_backend_cache()
 
-    def process_with_metadata(self, image: np.ndarray) -> SimulationPipelineResult:
+    def process_with_metadata(
+        self,
+        image: np.ndarray,
+        *,
+        include_scene_rgb: bool = False,
+    ) -> SimulationPipelineResult:
         """Process an image and return the rendered output plus HDR sidecar metadata."""
 
         self.timings.clear()
@@ -319,10 +335,16 @@ class SimulationPipeline:
         try:
             hdr_scene_energy = None
             if self._should_tile_gpu_image(image):
-                preprocessed, hdr_scene_energy = self._preprocess_input_image_with_metadata(image)
+                preprocessed, hdr_scene_energy = self._preprocess_input_image_with_metadata(
+                    image,
+                    include_scene_rgb=include_scene_rgb,
+                )
                 image = self._process_preprocessed_with_gpu_tiles(preprocessed)
             elif self.debug.debug_mode == 'off':
-                preprocessed, hdr_scene_energy = self._preprocess_input_image_with_metadata(image)
+                preprocessed, hdr_scene_energy = self._preprocess_input_image_with_metadata(
+                    image,
+                    include_scene_rgb=include_scene_rgb,
+                )
                 image = self._process_runtime_array(self._runtime_array(preprocessed))
             else:
                 image = self._pipeline_debug(image)
@@ -334,6 +356,7 @@ class SimulationPipeline:
             )
         finally:
             self._last_elapsed_time = perf_counter() - start
+            self._cleanup_backend_cache()
 
     def get_timings(self) -> dict[str, float]:
         return self.timings
@@ -500,6 +523,15 @@ class SimulationPipeline:
         if callable(synchronize):
             synchronize()
 
+    def _cleanup_backend_cache(self) -> None:
+        cleanup = getattr(self._array_backend, "cleanup", None)
+        if not callable(cleanup):
+            return
+        try:
+            cleanup()
+        except (RuntimeError, OSError, ValueError) as exc:
+            _log.warning("Failed to clean up %s backend cache: %s", self._array_backend.name, exc)
+
     def update(self, params: RuntimePhotoParams) -> None:
         """Update params and re-initialize stages that depend on them."""
         self._reinitialize(params, update_params=True)
@@ -513,6 +545,19 @@ class SimulationPipeline:
                     film_density_curves: np.ndarray | None = None,
                     print_density_curves: np.ndarray | None = None,
                     ) -> None:
+        if any(
+            value is not None
+            for value in (
+                exposure_compensation_ev,
+                print_exposure,
+                c_filter_neutral,
+                m_filter_neutral,
+                y_filter_neutral,
+                film_density_curves,
+                print_density_curves,
+            )
+        ):
+            self._profile_characterization_curves = None
         invalidates_print_balance_reference = False
         if exposure_compensation_ev is not None:
             self.camera.exposure_compensation_ev = exposure_compensation_ev
@@ -551,7 +596,12 @@ class SimulationPipeline:
         image, _auto_exposure_ev = self._filming_stage.auto_exposure_with_ev(image)
         return self._resize_service.crop_and_rescale(image)
 
-    def _preprocess_input_image_with_metadata(self, image) -> tuple[np.ndarray, HDRSceneEnergyMetadata]:
+    def _preprocess_input_image_with_metadata(
+        self,
+        image,
+        *,
+        include_scene_rgb: bool = False,
+    ) -> tuple[np.ndarray, HDRSceneEnergyMetadata]:
         image = np.ascontiguousarray(np.asarray(image, dtype=self._runtime_dtype)[:, :, 0:3])
         auto_exposed, auto_exposure_ev = self._filming_stage.auto_exposure_with_ev(image)
         preprocessed = self._resize_service.crop_and_rescale(auto_exposed)
@@ -560,6 +610,7 @@ class SimulationPipeline:
             input_color_space=self.io.input_color_space,
             apply_cctf_decoding=self.io.input_cctf_decoding,
             auto_exposure_ev=float(auto_exposure_ev),
+            include_scene_rgb=include_scene_rgb,
         )
 
         try:

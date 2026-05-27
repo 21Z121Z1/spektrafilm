@@ -2,6 +2,19 @@
 
 Date: 2026-05-27
 
+## 0. Repository Implementation Note (2026-05-27)
+
+The first repo-local Halide foundation is now implemented:
+
+- Add the optional dependency with `pip install halide` or install Spektrafilm with the `halide` extra.
+- Select it explicitly with `compute_backend="halide"`.
+- Explicit selection is strict: missing Halide raises `BackendUnavailableError`.
+- The current backend is a host-JIT foundation, not the final Android native runtime. It includes verified float32 kernels for `rgb_to_xyz`/3x3 matrix conversion and 3D trilinear LUT dispatch.
+- Android AOT target metadata and CMake snippet rendering live in `spektrafilm.halide.android`.
+- Android Vulkan should not be treated as the default path yet; use CPU AOT first, then validate Vulkan separately on device.
+
+The full C++/JNI/Kotlin Android application remains future work. This update converts the research recommendation into a testable backend and AOT planning surface without overclaiming the multi-month port.
+
 ## 1. Halide Overview and Why It Fits Spektrafilm
 
 Halide is a domain-specific language (DSL) for high-performance image and array

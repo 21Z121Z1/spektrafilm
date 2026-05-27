@@ -442,6 +442,9 @@ def apply_lut_trilinear_3d_cupy(lut: Any, image: Any, *, cp=None):
 def apply_lut_trilinear_3d_backend(lut: Any, image: Any, backend):
     """Dispatch 3D trilinear LUT sampling to the selected GPU backend."""
     if backend is not None and getattr(backend, "supports_gpu", False):
+        halide_lut = getattr(backend, "apply_lut_trilinear_3d", None)
+        if callable(halide_lut):
+            return halide_lut(lut, image)
         if hasattr(backend, "mx"):
             return apply_lut_trilinear_3d_mlx(lut, image, mx=backend.mx)
         if hasattr(backend, "cp"):

@@ -88,6 +88,30 @@ def test_hdr_photo_rejects_sdr_only_renditions() -> None:
         hdr_photo.prepare_hdr_photo_renditions(image)
 
 
+def test_save_hdr_photo_heic_rejects_control_characters_before_encoder(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(hdr_photo.platform, "system", lambda: "Darwin")
+    image = np.array([[[1.0, 1.0, 1.0], [2.0, 2.0, 2.0]]], dtype=np.float32)
+
+    with pytest.raises(ValueError, match="control characters"):
+        hdr_photo.save_hdr_photo_heic(
+            tmp_path / "bad\x01name.heic",
+            image,
+            color_space="Display P3",
+        )
+
+
+def test_save_hdr_photo_heic_rejects_missing_parent_before_encoder(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(hdr_photo.platform, "system", lambda: "Darwin")
+    image = np.array([[[1.0, 1.0, 1.0], [2.0, 2.0, 2.0]]], dtype=np.float32)
+
+    with pytest.raises(OSError, match="parent directory"):
+        hdr_photo.save_hdr_photo_heic(
+            tmp_path / "missing" / "out.heic",
+            image,
+            color_space="Display P3",
+        )
+
+
 def test_hdr_photo_scene_luminance_graft_exports_paper_limited_look_as_hdr() -> None:
     look_rgb = np.full((1, 2, 3), 0.8, dtype=np.float32)
     scene_luminance = np.array([[0.8, 4.0]], dtype=np.float32)
@@ -109,6 +133,28 @@ def test_hdr_photo_scene_luminance_graft_exports_paper_limited_look_as_hdr() -> 
     assert float(renditions.hdr_rgb[0, 1].max()) > 1.0
     assert float(renditions.hdr_rgb[0, 1].max()) <= 8.0
     assert float(renditions.sdr_rgb.max()) <= 1.0
+
+
+def test_scene_luminance_graft_uses_perceptual_look_luminance_for_saturated_color() -> None:
+    look_rgb = np.array([[[1.0, 0.0, 0.0]]], dtype=np.float32)
+    scene_luminance = np.array([[2.0]], dtype=np.float32)
+    mapping = hdr_photo.HDRPhotoMapping(
+        hdr_diffuse_lift_enabled=False,
+        paper_rolloff_enabled=False,
+        graft_start=0.10,
+        graft_end=0.20,
+        graft_strength=1.0,
+        max_headroom=8.0,
+    )
+
+    renditions = hdr_photo.prepare_hdr_photo_renditions(
+        look_rgb,
+        mapping=mapping,
+        scene_luminance=scene_luminance,
+    )
+
+    assert float(renditions.hdr_rgb[0, 0, 0]) > 4.0
+    np.testing.assert_allclose(renditions.hdr_rgb[0, 0, 1:], 0.0, atol=1e-7)
 
 
 def test_hdr_photo_scene_luminance_graft_caps_one_hot_pixel() -> None:

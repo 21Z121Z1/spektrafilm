@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from importlib import import_module
+import logging
 from pathlib import Path
 import re
 from typing import TYPE_CHECKING
@@ -65,6 +66,7 @@ SimulationRequest = runtime.SimulationRequest
 SimulationResult = runtime.SimulationResult
 HDRSceneEnergyMetadata = runtime.HDRSceneEnergyMetadata
 STARTUP_PREVIEW_ASPECT_RATIO = (3, 2)
+_log = logging.getLogger(__name__)
 
 
 class _DirMemoryDialog:
@@ -529,6 +531,12 @@ class GuiController:
             try:
                 source_metadata = read_image_metadata(self._current_input_path)
             except Exception as exc:
+                _log.warning(
+                    "Failed to read source metadata from %s: %s",
+                    self._current_input_path,
+                    exc,
+                    exc_info=True,
+                )
                 metadata_errors.append(exc)
 
         hdr_exr_mode = (
@@ -597,6 +605,12 @@ class GuiController:
                     saving_cctf_encoding=saving_cctf_encoding,
                 )
             except Exception as exc:
+                _log.warning(
+                    "Failed to write output metadata to %s: %s",
+                    filepath,
+                    exc,
+                    exc_info=True,
+                )
                 metadata_errors.append(exc)
 
         if metadata_errors:
@@ -613,7 +627,12 @@ class GuiController:
             else:
                 set_status(self._viewer, base_msg)
         elif exr_save and hdr_exr_mode == 'hdr_rendition':
-            set_status(self._viewer, f"Saved output image to {filepath} (EXR saved as HDR rendition)")
+            base_msg = f"Saved output image to {filepath} (EXR saved as HDR rendition)"
+            if hdr_diagnostics:
+                diag_msg = " | ".join(hdr_diagnostics)
+                set_status(self._viewer, f"{base_msg} - {diag_msg}")
+            else:
+                set_status(self._viewer, base_msg)
         elif exr_save:
             set_status(self._viewer, f"Saved output image to {filepath} (EXR saved as linear HDR)")
         else:
@@ -804,6 +823,7 @@ class GuiController:
             return
         if self._active_simulation_worker is not None:
             self._pending_auto_preview = True
+            set_status(self._viewer, 'Preview queued; it will run after the current simulation finishes')
             return
         self._run_preview(report_status=False)
 
@@ -895,7 +915,14 @@ class GuiController:
             pil_image_module=PILImage,
         )
 
-    def _process_image_with_runtime(self, image_data: np.ndarray, params) -> np.ndarray:
+    def _process_image_with_runtime(
+        self,
+        image_data: np.ndarray,
+        params,
+        *,
+        collect_hdr_scene_energy: bool = False,
+        collect_hdr_scene_rgb: bool = False,
+    ) -> np.ndarray | runtime.SimulationPipelineResult:
         apply_stocks_specifics = (
             self._runtime_simulator is None
             or self._next_runtime_digest_applies_stock_specifics
@@ -910,9 +937,13 @@ class GuiController:
             else:
                 self._runtime_simulator.update_params(digested_params)
             self._next_runtime_digest_applies_stock_specifics = False
-            process_with_metadata = getattr(self._runtime_simulator, 'process_with_metadata', None)
-            if callable(process_with_metadata):
-                return process_with_metadata(image_data)
+            if collect_hdr_scene_energy:
+                process_with_metadata = getattr(self._runtime_simulator, 'process_with_metadata', None)
+                if callable(process_with_metadata):
+                    return process_with_metadata(
+                        image_data,
+                        include_scene_rgb=collect_hdr_scene_rgb,
+                    )
             return self._runtime_simulator.process(image_data)
         except Exception:
             self._runtime_simulator = None
@@ -984,6 +1015,11 @@ class GuiController:
             settings.preview_mode = source_layer_name == INPUT_PREVIEW_LAYER_NAME
         return params
 
+    @staticmethod
+    def _hdr_export_requires_scene_rgb(state) -> bool:
+        hdr_export = getattr(state, 'hdr_export', None)
+        return str(getattr(hdr_export, 'hdr_highlight_color_mode', 'off')) == 'source_chroma'
+
     def _start_simulation(self, *, source_layer_name: str, mode_label: str, report_status: bool = True) -> None:
         if self._active_simulation_worker is not None:
             set_status(self._viewer, 'Simulation already running')
@@ -1004,12 +1040,18 @@ class GuiController:
 
         image_data = self._prepare_simulation_input_image(image_data, state)
         image = np.asarray(image_data, dtype=runtime_float_dtype(state.special.runtime_float_precision))
+        collect_hdr_scene_energy = bool(getattr(state.simulation, 'hdr_exr_output', False))
         request = SimulationRequest(
             mode_label=mode_label,
             image=image,
             params=params,
             output_encoding=output_encoding,
             use_display_transform=state.display.use_display_transform,
+            collect_hdr_scene_energy=collect_hdr_scene_energy,
+            collect_hdr_scene_rgb=(
+                collect_hdr_scene_energy
+                and self._hdr_export_requires_scene_rgb(state)
+            ),
         )
 
         worker = runtime.SimulationWorker(request, execute_request=self._execute_simulation_request)
@@ -1091,5 +1133,3 @@ class GuiController:
             return
         for button_name in ('preview_button', 'scan_button', 'save_button'):
             self._set_simulation_control_enabled(button_name, enabled)
-
-

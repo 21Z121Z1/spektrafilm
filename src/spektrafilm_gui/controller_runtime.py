@@ -26,6 +26,8 @@ class SimulationRequest:
     params: object
     output_encoding: ColorEncoding
     use_display_transform: bool
+    collect_hdr_scene_energy: bool = False
+    collect_hdr_scene_rgb: bool = False
 
 
 @dataclass(slots=True)
@@ -289,10 +291,15 @@ def prepare_output_display_image(
 def execute_simulation_request(
     request: SimulationRequest,
     *,
-    run_simulation_fn: Callable[[np.ndarray, object], np.ndarray],
+    run_simulation_fn: Callable[..., object],
     prepare_output_display_image_fn: Callable[..., tuple[np.ndarray, str]],
 ) -> SimulationResult:
-    simulation_output = run_simulation_fn(request.image, request.params)
+    simulation_output = run_simulation_fn(
+        request.image,
+        request.params,
+        collect_hdr_scene_energy=request.collect_hdr_scene_energy,
+        collect_hdr_scene_rgb=request.collect_hdr_scene_rgb,
+    )
     if hasattr(simulation_output, "image") and hasattr(simulation_output, "hdr_scene_energy"):
         scan = simulation_output.image
         hdr_scene_energy = simulation_output.hdr_scene_energy

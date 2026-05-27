@@ -72,7 +72,7 @@ def _run_simulation_case(
     monkeypatch.setattr(controller_module, 'collect_gui_state', lambda *, widgets: gui_state)
     monkeypatch.setattr(controller_module, 'build_params_from_state', lambda state: params)
 
-    def fake_process_image_with_runtime(image, _params):
+    def fake_process_image_with_runtime(image, _params, **_kwargs):
         captured['processing_input'] = image.copy()
         return simulated_image.copy()
 
@@ -98,8 +98,9 @@ def _run_simulation_case(
     monkeypatch.setattr(controller, '_prepare_output_display_image', fake_prepare_output_display_image)
     monkeypatch.setattr(controller, '_set_or_add_output_layer', fake_set_or_add_output_layer)
     monkeypatch.setattr(controller_module, 'set_status', lambda *args, **kwargs: None)
+    monkeypatch.setattr(controller._thread_pool, 'start', lambda worker: worker.run())
 
-    controller._run_simulation(source_layer_name=source_layer_name)
+    controller._start_simulation(source_layer_name=source_layer_name, mode_label='Preview')
     return captured
 
 
@@ -787,6 +788,31 @@ def test_request_auto_preview_replays_after_active_simulation(monkeypatch) -> No
     assert captured['preview_runs'] == [False]
 
 
+def test_request_auto_preview_reports_queued_preview_when_worker_is_active(monkeypatch) -> None:
+    simulation_section = SimpleNamespace(auto_preview_value=lambda: True)
+    controller = GuiController(viewer=object(), widgets=SimpleNamespace(simulation=simulation_section))
+    controller._current_preview_image = np.full((2, 2, 3), 0.25, dtype=np.float32)
+    controller._active_simulation_worker = object()
+    statuses: list[tuple[str, int]] = []
+
+    monkeypatch.setattr(controller_module.QTimer, 'singleShot', staticmethod(lambda _delay_ms, callback: callback()))
+    monkeypatch.setattr(
+        controller_module,
+        'set_status',
+        lambda _viewer, message, timeout_ms=5000: statuses.append((message, timeout_ms)),
+    )
+    monkeypatch.setattr(
+        controller,
+        '_run_preview',
+        lambda *, report_status: (_ for _ in ()).throw(AssertionError('active worker should defer preview')),
+    )
+
+    controller.request_auto_preview()
+
+    assert controller._pending_auto_preview is True
+    assert statuses == [('Preview queued; it will run after the current simulation finishes', 5000)]
+
+
 def test_refresh_preview_cache_recomputes_cached_preview_without_hiding_visible_output(monkeypatch) -> None:
     viewer = FakeViewer()
     controller = GuiController(viewer=viewer, widgets=object())
@@ -1031,8 +1057,8 @@ def test_execute_simulation_request_routes_through_runtime_simulator_path(monkey
     )
     captured: dict[str, object] = {}
 
-    def fake_process_image_with_runtime(image, params):
-        captured['runtime_call'] = (image.copy(), params)
+    def fake_process_image_with_runtime(image, params, **kwargs):
+        captured['runtime_call'] = (image.copy(), params, kwargs)
         return np.full((2, 2, 3), 0.5, dtype=np.float32)
 
     monkeypatch.setattr(
@@ -1050,6 +1076,10 @@ def test_execute_simulation_request_routes_through_runtime_simulator_path(monkey
 
     np.testing.assert_allclose(captured['runtime_call'][0], request.image)
     assert captured['runtime_call'][1] is request.params
+    assert captured['runtime_call'][2] == {
+        'collect_hdr_scene_energy': False,
+        'collect_hdr_scene_rgb': False,
+    }
     assert result.mode_label == 'Preview'
 
 
@@ -1099,6 +1129,84 @@ def test_process_image_with_runtime_reuses_cached_simulator(monkeypatch) -> None
     assert len(captured['processed']) == 2
     np.testing.assert_allclose(first, image_first + 0.1)
     np.testing.assert_allclose(second, image_second + 0.1)
+
+
+def test_process_image_with_runtime_uses_process_for_sdr_output_by_default(monkeypatch) -> None:
+    controller = GuiController(viewer=object(), widgets=object())
+    params = object()
+    digested_params = object()
+    image = np.full((2, 2, 3), 0.25, dtype=np.float32)
+    captured: dict[str, object] = {
+        'processed': [],
+        'metadata_calls': 0,
+    }
+
+    class FakeSimulator:
+        def __init__(self, runtime_params) -> None:
+            assert runtime_params is digested_params
+
+        def process(self, runtime_image):
+            captured['processed'].append(np.array(runtime_image, copy=True))
+            return np.asarray(runtime_image) + 0.1
+
+        def process_with_metadata(self, runtime_image, **_kwargs):
+            captured['metadata_calls'] += 1
+            raise AssertionError('SDR output should not collect HDR sidecars')
+
+    monkeypatch.setattr(controller_module, 'digest_params', lambda runtime_params, *, apply_stocks_specifics=True: digested_params)
+    monkeypatch.setattr(controller_module, 'runtime_simulator', lambda runtime_params: FakeSimulator(runtime_params))
+
+    result = controller._process_image_with_runtime(image, params)
+
+    assert captured['metadata_calls'] == 0
+    assert len(captured['processed']) == 1
+    np.testing.assert_allclose(captured['processed'][0], image)
+    np.testing.assert_allclose(result, image + 0.1)
+
+
+def test_process_image_with_runtime_collects_metadata_when_requested(monkeypatch) -> None:
+    controller = GuiController(viewer=object(), widgets=object())
+    params = object()
+    digested_params = object()
+    image = np.full((2, 2, 3), 0.25, dtype=np.float32)
+    metadata = controller_module.runtime.HDRSceneEnergyMetadata(
+        scene_luminance=np.full((2, 2), 0.5, dtype=np.float32),
+        diffuse_white_estimate=0.5,
+        headroom_estimate=2.0,
+        auto_exposure_ev=0.0,
+        method='auto_percentile',
+        confidence='medium',
+    )
+    captured: dict[str, object] = {}
+
+    class FakeSimulator:
+        def __init__(self, runtime_params) -> None:
+            assert runtime_params is digested_params
+
+        def process(self, runtime_image):
+            raise AssertionError('HDR output should collect metadata')
+
+        def process_with_metadata(self, runtime_image, *, include_scene_rgb=False):
+            captured['include_scene_rgb'] = include_scene_rgb
+            np.testing.assert_allclose(runtime_image, image)
+            return controller_module.runtime.SimulationPipelineResult(
+                image=np.asarray(runtime_image) + 0.2,
+                hdr_scene_energy=metadata,
+            )
+
+    monkeypatch.setattr(controller_module, 'digest_params', lambda runtime_params, *, apply_stocks_specifics=True: digested_params)
+    monkeypatch.setattr(controller_module, 'runtime_simulator', lambda runtime_params: FakeSimulator(runtime_params))
+
+    result = controller._process_image_with_runtime(
+        image,
+        params,
+        collect_hdr_scene_energy=True,
+        collect_hdr_scene_rgb=False,
+    )
+
+    assert captured['include_scene_rgb'] is False
+    np.testing.assert_allclose(result.image, image + 0.2)
+    assert result.hdr_scene_energy is metadata
 
 
 def test_process_image_with_runtime_reapplies_stock_specific_digest_after_profile_change(monkeypatch) -> None:

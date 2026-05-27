@@ -5,6 +5,25 @@
 
 ---
 
+## 0. Current Implementation Status (2026-05-27)
+
+This repository now contains the first verified Halide/Android port foundation:
+
+- `compute_backend="halide"` is accepted by the backend selector as a strict optional backend. If the `halide` Python package is missing, explicit Halide selection raises `BackendUnavailableError` instead of silently falling back.
+- The local development environment verified `halide==21.0.0` on Python 3.13.
+- The first host-JIT Halide kernels are present under `src/spektrafilm/gpu/halide_backend.py`: 3D trilinear LUT sampling and the `rgb_to_xyz`/3x3 color matrix path.
+- `src/spektrafilm/halide/android.py` provides tested Android ABI to Halide target mappings:
+  - `arm64-v8a -> arm-64-android`
+  - `armeabi-v7a -> arm-32-android`
+  - `x86_64 -> x86-64-android`
+  - `x86 -> x86-32-android`
+- `render_add_halide_library()` renders a validated CMake `add_halide_library()` snippet for future AOT generator integration.
+- Runtime float64 mode rejects explicit `halide`, matching the existing precision policy for accelerator backends.
+
+This is not the full Android app or the full C++ rewrite. The implemented state is a tested Phase 1/Phase 2 foundation: optional host Halide kernels plus Android AOT metadata. The next native step is to create C++ Halide generators and link their AOT outputs into an Android NDK/JNI library.
+
+**Important correction:** Android should default to CPU AOT Halide first. Halide's Vulkan backend exists, but official Vulkan documentation still describes Android platform support as work in progress, so Android Vulkan must remain experimental until validated on target devices.
+
 ## 1. Dependency Graph of the Processing Pipeline
 
 ```

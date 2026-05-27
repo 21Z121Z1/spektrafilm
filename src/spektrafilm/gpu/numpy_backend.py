@@ -27,6 +27,9 @@ class NumpyBackend:
     def synchronize(self) -> None:
         return None
 
+    def cleanup(self) -> None:
+        return None
+
     def exp(self, x: Any) -> np.ndarray:
         return np.exp(x)
 

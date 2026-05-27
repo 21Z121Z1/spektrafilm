@@ -62,6 +62,13 @@ def _cupy_backend_or_skip():
         pytest.skip(str(exc))
 
 
+def _halide_backend_or_skip():
+    try:
+        return select_backend("halide")
+    except BackendUnavailableError as exc:
+        pytest.skip(str(exc))
+
+
 def test_trilinear_3d_lut_numpy_reference_is_exact_for_affine_lut() -> None:
     lut = _make_3d_lut(7)
     image = np.array(
@@ -232,6 +239,38 @@ def test_compute_with_lut_gpu_trilinear_reuses_prepared_backend_arrays(monkeypat
     assert backend.asarray_shapes == [data.shape]
     assert returned_prepared is prepared
     np.testing.assert_allclose(second, data + 0.5)
+
+
+def test_trilinear_3d_lut_backend_prefers_halide_kernel_method(monkeypatch) -> None:
+    class FakeHalideBackend:
+        supports_gpu = True
+
+        def apply_lut_trilinear_3d(self, lut, image):
+            return np.asarray(image) + 0.125
+
+    image = np.zeros((2, 2, 3), dtype=np.float32)
+    lut = _make_3d_lut(5).astype(np.float32)
+
+    actual = apply_lut_trilinear_3d_backend(lut, image, FakeHalideBackend())
+
+    np.testing.assert_allclose(actual, image + 0.125)
+
+
+def test_trilinear_3d_lut_halide_matches_numpy_reference_when_available() -> None:
+    backend = _halide_backend_or_skip()
+    lut = _make_3d_lut(7).astype(np.float32)
+    image = np.array(
+        [
+            [[0.0, 0.1, 0.2], [0.3, 0.4, 0.5]],
+            [[0.6, 0.7, 0.8], [1.0, 0.25, 0.75]],
+        ],
+        dtype=np.float32,
+    )
+
+    actual = apply_lut_trilinear_3d_backend(lut, image, backend)
+    expected = apply_lut_trilinear_3d_numpy(lut, image)
+
+    np.testing.assert_allclose(backend.to_numpy(actual), expected, rtol=2e-6, atol=2e-6)
 
 
 def test_trilinear_3d_lut_mlx_matches_numpy_reference_when_available() -> None:

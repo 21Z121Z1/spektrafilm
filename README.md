@@ -238,9 +238,10 @@ spektrafilm is developed in my free time, often during late nights after my rese
 
 当前核心运行链路基于 Python + NumPy/SciPy/colour-science + Numba。已有的 CPU 优化包括 `fast_interp`、`fast_gaussian_filter` 等 Numba 热点内核，以及 `SpectralLUTService` 的 3D LUT 加速。下一步 GPU 化的策略是"保留 CPU 为数值基准，逐步替换高 ROI 内核"，而非全量重写。
 
-- **Apple Silicon 继续使用 MLX/Metal**，并新增 **CuPy** 后端用于 CUDA/ROCm 设备。MLX 负责已有的 Metal custom kernel；CuPy 负责通用数组、矩阵、LUT、插值、Gaussian/FFT 卷积等可移植 GPU 热点。
+- **Apple Silicon 继续使用 MLX/Metal**，并新增 **CuPy** 后端用于 CUDA/ROCm 设备。MLX 负责已有的 Metal custom kernel；CuPy 负责通用数组、矩阵、LUT、插值、Gaussian/FFT 卷积等可移植 GPU 热点。`halide` 是显式 opt-in 的 Halide JIT/AOT 基础后端，用于逐步迁移可验证 kernel。
 - 第一批 GPU 加速目标：LUT 采样、RGB 到 raw 转换、密度/光谱矩阵计算、扫描输出、Gaussian/FFT 卷积。
-- CPU 路径保持默认可用，GPU 路径以 `compute_backend = "auto" | "cpu" | "mlx" | "cupy" | "cuda"` 形式接入。`auto` 会优先尝试 MLX，再尝试 CuPy，最后回退 CPU。
+- CPU 路径保持默认可用，加速路径以 `compute_backend = "auto" | "cpu" | "halide" | "mlx" | "cupy" | "cuda"` 形式接入。`auto` 会优先尝试 MLX，再尝试 CuPy，最后回退 CPU；不会隐式选择 Halide，因为 Halide JIT 编译和依赖体积需要用户显式选择。
+- Halide 可安装 `spektrafilm[halide]` 或单独安装官方 `halide` wheel。当前 `compute_backend="halide"` 提供 float32 host-JIT 基础、3x3 RGB matrix kernel 和 3D trilinear LUT kernel；完整管线融合、Android C++/JNI 和 Vulkan/Metal/CUDA AOT 仍是后续阶段。
 - Apple GPU 可安装 `spektrafilm[gpu-apple]`；NVIDIA CUDA 12 可安装 `spektrafilm[gpu-cuda12]`。其他 CUDA/ROCm 组合请按 CuPy 官方说明安装与驱动匹配的 CuPy 包。
 
 > ✅ **已完成**：MLX Metal kernel 实现 2D LUT 三次插值（Mitchell-Netravali）、密度层 GPU 插值、CCTF 解码、RGB→XYZ 变换；新增 CuPy 后端选择和 CUDA/ROCm 数组路径；密度曲线、LUT、Gaussian/FFT 卷积模块接入通用后端分发机制。

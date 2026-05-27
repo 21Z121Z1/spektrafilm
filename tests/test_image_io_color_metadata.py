@@ -11,6 +11,7 @@ from spektrafilm.utils.io import (
     ImageMetadata,
     _known_color_space_from_chromaticities,
     colorspace_chromaticities,
+    load_image_oiio,
     read_image_color_encoding,
     resolve_icc_profile_bytes,
     save_hdr_rendition_exr,
@@ -55,6 +56,14 @@ def test_png_embeds_srgb_icc_and_reads_cctf_encoding(tmp_path) -> None:
     assert encoding is not None
     assert encoding.color_space == "sRGB"
     assert encoding.transfer == "cctf"
+
+
+def test_load_image_oiio_path_open_failure_raises_oserror(monkeypatch, tmp_path) -> None:
+    path = tmp_path / "missing.exr"
+    monkeypatch.setattr(io_module.oiio.ImageInput, "open", lambda filename: None)
+
+    with pytest.raises(OSError, match=str(path)):
+        load_image_oiio(path)
 
 
 def test_png_default_export_uses_16_bit_rgb_and_embeds_icc(tmp_path) -> None:
@@ -518,6 +527,58 @@ def test_save_hdr_rendition_exr_produces_valid_output(tmp_path) -> None:
     headroom = spec.getattribute("hdrHeadroom")
     assert headroom is not None
     assert float(headroom) > 1.0
+
+
+def test_save_hdr_rendition_exr_returns_mapping_diagnostics(tmp_path) -> None:
+    path = tmp_path / "rendition-diagnostics.exr"
+    image = np.full((1, 2, 3), 0.8, dtype=np.float32)
+    scene_luminance = np.array([[0.8, 4.0]], dtype=np.float32)
+    scene_rgb = np.zeros((1, 2, 3), dtype=np.float32)
+
+    diagnostics = save_hdr_rendition_exr(
+        str(path),
+        image,
+        color_space="Display P3",
+        scene_luminance=scene_luminance,
+        scene_rgb=scene_rgb,
+        hdr_mapping_kwargs={
+            "hdr_mapping_mode": "profile_aware",
+            "film": "kodak_portra_400",
+            "paper": "kodak_ultra_endura",
+            "hdr_highlight_color_mode": "source_chroma",
+        },
+    )
+
+    assert any("degrading to off" in item for item in diagnostics)
+
+
+def test_save_image_oiio_hdr_rendition_returns_mapping_diagnostics(tmp_path) -> None:
+    path = tmp_path / "rendition-diagnostics-api.exr"
+    image = np.full((1, 2, 3), 0.8, dtype=np.float32)
+    scene_luminance = np.array([[0.8, 4.0]], dtype=np.float32)
+    scene_rgb = np.zeros((1, 2, 3), dtype=np.float32)
+
+    diagnostics = save_image_oiio(
+        str(path),
+        image,
+        encoding=ColorEncoding(
+            color_space="Display P3",
+            transfer="linear",
+            role="scene",
+            clip_highlights=False,
+        ),
+        scene_luminance=scene_luminance,
+        scene_rgb=scene_rgb,
+        hdr_mapping_kwargs={
+            "hdr_mapping_mode": "profile_aware",
+            "film": "kodak_portra_400",
+            "paper": "kodak_ultra_endura",
+            "hdr_highlight_color_mode": "source_chroma",
+        },
+        exr_mode="hdr_rendition",
+    )
+
+    assert any("degrading to off" in item for item in diagnostics)
 
 
 def test_save_hdr_rendition_exr_rejects_non_exr_extension(tmp_path) -> None:

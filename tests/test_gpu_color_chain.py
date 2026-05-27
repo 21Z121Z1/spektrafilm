@@ -85,7 +85,7 @@ class RecordingNumpyGpuBackend:
 
 @pytest.mark.parametrize(
     "color_space",
-    ["sRGB", "Display P3", "ProPhoto RGB", "ITU-R BT.2020", "Adobe RGB (1998)", "ACES2065-1", "ACEScg"],
+    ["sRGB", "Display P3", "ProPhoto RGB", "ITU-R BT.2020", "Adobe RGB (1998)", "DCI-P3", "ACES2065-1", "ACEScg"],
 )
 def test_backend_cctf_encoding_matches_colour_reference(color_space: str) -> None:
     backend = RecordingNumpyGpuBackend()
@@ -97,14 +97,15 @@ def test_backend_cctf_encoding_matches_colour_reference(color_space: str) -> Non
         dtype=np.float64,
     )
 
-    actual = cctf_encoding_backend(values, color_space, backend)
-    expected = colour.RGB_to_RGB(
-        values,
-        color_space,
-        color_space,
-        apply_cctf_decoding=False,
-        apply_cctf_encoding=True,
-    )
+    with np.errstate(invalid="ignore"):
+        actual = cctf_encoding_backend(values, color_space, backend)
+        expected = colour.RGB_to_RGB(
+            values,
+            color_space,
+            color_space,
+            apply_cctf_decoding=False,
+            apply_cctf_encoding=True,
+        )
 
     np.testing.assert_allclose(actual, expected, rtol=2e-7, atol=2e-7, equal_nan=True)
     assert backend.to_numpy_calls == 0
@@ -124,14 +125,15 @@ def test_backend_cctf_decoding_matches_colour_reference(color_space: str) -> Non
         dtype=np.float64,
     )
 
-    actual = cctf_decoding_backend(values, color_space, backend)
-    expected = colour.RGB_to_RGB(
-        values,
-        color_space,
-        color_space,
-        apply_cctf_decoding=True,
-        apply_cctf_encoding=False,
-    )
+    with np.errstate(invalid="ignore"):
+        actual = cctf_decoding_backend(values, color_space, backend)
+        expected = colour.RGB_to_RGB(
+            values,
+            color_space,
+            color_space,
+            apply_cctf_decoding=True,
+            apply_cctf_encoding=False,
+        )
 
     np.testing.assert_allclose(actual, expected, rtol=2e-7, atol=2e-7, equal_nan=True)
     assert backend.to_numpy_calls == 0

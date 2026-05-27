@@ -36,6 +36,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest"]
+halide = ["halide>=21,<22"]
 gpu-apple = ["mlx>=0.31"]
 gpu-cuda12 = ["cupy-cuda12x>=13"]
 gpu-cupy-source = ["cupy>=13"]

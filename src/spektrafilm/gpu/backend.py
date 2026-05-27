@@ -14,6 +14,7 @@ class ArrayBackend(Protocol):
     def to_numpy(self, value: Any) -> Any: ...
     def eval(self, *values: Any) -> None: ...
     def synchronize(self) -> None: ...
+    def cleanup(self) -> None: ...
 
     def exp(self, x: Any) -> Any: ...
     def log10(self, x: Any) -> Any: ...
@@ -44,8 +45,8 @@ class BackendInfo:
 
 def _normalize_backend_name(name: str | None) -> str:
     normalized = "auto" if name is None else str(name).strip().lower()
-    if normalized not in {"auto", "cpu", "mlx", "cupy", "cuda"}:
-        raise ValueError("compute_backend must be one of: 'auto', 'cpu', 'mlx', 'cupy', 'cuda'")
+    if normalized not in {"auto", "cpu", "mlx", "cupy", "cuda", "halide"}:
+        raise ValueError("compute_backend must be one of: 'auto', 'cpu', 'mlx', 'cupy', 'cuda', 'halide'")
     return normalized
 
 
@@ -59,6 +60,12 @@ def _select_cupy_backend(*, precision: str) -> ArrayBackend:
     from spektrafilm.gpu.cupy_backend import CupyBackend
 
     return CupyBackend(precision=precision)
+
+
+def _select_halide_backend(*, precision: str) -> ArrayBackend:
+    from spektrafilm.gpu.halide_backend import HalideBackend
+
+    return HalideBackend(precision=precision)
 
 
 def select_backend(name: str | None = "auto", *, precision: str = "float32") -> ArrayBackend:
@@ -77,6 +84,9 @@ def select_backend(name: str | None = "auto", *, precision: str = "float32") -> 
 
     if requested in {"cupy", "cuda"}:
         return _select_cupy_backend(precision=precision)
+
+    if requested == "halide":
+        return _select_halide_backend(precision=precision)
 
     mlx_error: BackendUnavailableError | None = None
     try:

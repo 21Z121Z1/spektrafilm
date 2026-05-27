@@ -45,6 +45,7 @@ class AutoExposureMethods(Enum):
 class ComputeBackends(Enum):
     auto = "auto"
     cpu = "cpu"
+    halide = "halide"
     mlx = "mlx"
     cupy = "cupy"
 

@@ -1,5 +1,6 @@
 import numpy as np
 import spektrafilm.runtime.params_builder as params_builder_module
+import pytest
 from pytest import mark
 
 from spektrafilm.runtime.params_builder import digest_params, init_params
@@ -223,7 +224,8 @@ class TestDigestParamsFilmDefaults:
             lambda: {},
         )
 
-        digest_params(params)
+        with pytest.warns(UserWarning, match="No neutral print filters found in database"):
+            digest_params(params)
 
         assert params.enlarger.c_filter_neutral == 12.0
         assert params.enlarger.m_filter_neutral == 34.0

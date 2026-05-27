@@ -1,6 +1,7 @@
 import numpy as np
 
-from spektrafilm.utils import numba_boost_hightlights as boost_module
+from spektrafilm.utils import numba_boost_highlights as boost_module
+from spektrafilm.utils import numba_boost_hightlights as compat_boost_module
 from spektrafilm.utils import numba_warmup
 
 
@@ -35,6 +36,15 @@ def test_global_warmup_includes_boost_highlights(monkeypatch) -> None:
     numba_warmup.warmup()
 
     assert calls == ['fast_stats', 'luts', 'fast_interp', 'boost_highlights']
+
+
+def test_misspelled_highlight_boost_module_remains_compatible() -> None:
+    x = np.array([[[0.1], [0.184], [4.0]]], dtype=np.float64)
+
+    expected = boost_module.boost_highlights(x, boost_ev=1.0, boost_range=0.5, protect_ev=0.0)
+    actual = compat_boost_module.boost_highlights(x, boost_ev=1.0, boost_range=0.5, protect_ev=0.0)
+
+    np.testing.assert_allclose(actual, expected)
 
 
 def test_boost_highlights_only_boosts_values_above_x0() -> None:

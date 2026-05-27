@@ -106,6 +106,18 @@ class TestFFTEdgeCases:
         with pytest.raises(ValueError, match="Length of sigma"):
             fft_gaussian_filter(image, np.array([1.0, 2.0]), truncate=4.0, parallel=False)
 
+    def test_rejects_sigma_array_length_mismatch_on_default_parallel_path(self) -> None:
+        image = np.zeros((8, 8, 3))
+        with pytest.raises(ValueError, match="Length of sigma"):
+            fft_gaussian_filter(image, np.array([1.0, 2.0]), truncate=4.0)
+
+    def test_numpy_scalar_sigma_on_3d_uses_same_for_all_channels(self) -> None:
+        rng = np.random.default_rng(42)
+        image = rng.random((32, 32, 3), dtype=np.float64)
+        result = fft_gaussian_filter(image, np.array(2.0), truncate=4.0, pad=True, parallel=False)
+        expected = fft_gaussian_filter(image, 2.0, truncate=4.0, pad=True, parallel=False)
+        np.testing.assert_allclose(result, expected, atol=1e-12)
+
     def test_scalar_sigma_on_3d_uses_same_for_all_channels(self) -> None:
         rng = np.random.default_rng(42)
         image = rng.random((32, 32, 3), dtype=np.float64)

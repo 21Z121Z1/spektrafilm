@@ -71,6 +71,15 @@ class MlxBackend:
     def synchronize(self) -> None:
         self.mx.synchronize()
 
+    def cleanup(self) -> None:
+        self.synchronize()
+        clear_cache = getattr(self.mx, "clear_cache", None)
+        if not callable(clear_cache):
+            metal = getattr(self.mx, "metal", None)
+            clear_cache = getattr(metal, "clear_cache", None)
+        if callable(clear_cache):
+            clear_cache()
+
     def exp(self, x: Any):
         return self.mx.exp(x)
 

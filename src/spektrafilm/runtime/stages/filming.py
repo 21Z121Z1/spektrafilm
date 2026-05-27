@@ -6,7 +6,7 @@ import colour
 from spektrafilm.gpu.kernels.color import boost_highlights_backend
 from spektrafilm.model.color_filters import compute_band_pass_filter
 from spektrafilm.model.diffusion import apply_diffusion_filter_um, apply_gaussian_blur_um, apply_halation_um
-from spektrafilm.utils.numba_boost_hightlights import boost_highlights
+from spektrafilm.utils.numba_boost_highlights import boost_highlights
 from spektrafilm.model.emulsion import compute_density_spectral, develop, develop_simple
 from spektrafilm.utils.autoexposure import measure_autoexposure_ev
 from spektrafilm.utils.spectral_upsampling import (

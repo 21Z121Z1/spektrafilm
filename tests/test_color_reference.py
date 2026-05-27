@@ -117,6 +117,28 @@ class TestColorReferenceServiceNoCorrection:
 
 
 class TestColorReferenceServiceWithCorrection:
+    @staticmethod
+    def _service_with_reference_levels(
+        *,
+        black_correction: bool,
+        white_correction: bool,
+        black_level: float = 0.2,
+        white_level: float = 0.8,
+    ) -> ColorReferenceService:
+        service = _make_service(
+            profile_type="positive",
+            scan_film=True,
+            black_correction=black_correction,
+            white_correction=white_correction,
+            black_level=black_level,
+            white_level=white_level,
+        )
+        service._y_black = np.array(0.1)
+        service._y_white = np.array(0.9)
+        service._black_level = black_level
+        service._white_level = white_level
+        return service
+
     def test_positive_film_scan_applies_correction(self) -> None:
         """Positive film with scan_film=True and corrections enabled should modify XYZ."""
         service = _make_service(
@@ -158,3 +180,33 @@ class TestColorReferenceServiceWithCorrection:
         assert service._y_white is not None
         assert np.isfinite(service._y_black)
         assert np.isfinite(service._y_white)
+
+    def test_combined_black_white_correction_applies_linear_transform(self) -> None:
+        service = self._service_with_reference_levels(black_correction=True, white_correction=True)
+        xyz = np.array([[[0.25, 0.5, 0.75]]], dtype=float)
+
+        result = service.black_white_xyz_correction(xyz)
+
+        expected_y = 0.2 + (0.8 - 0.2) / (0.9 - 0.1) * (0.5 - 0.1)
+        scale = expected_y / 0.5
+        np.testing.assert_allclose(result, xyz * scale)
+
+    def test_black_only_correction_uses_existing_white_reference(self) -> None:
+        service = self._service_with_reference_levels(black_correction=True, white_correction=False)
+        xyz = np.array([[[0.25, 0.5, 0.75]]], dtype=float)
+
+        result = service.black_white_xyz_correction(xyz)
+
+        expected_y = 0.2 + (0.9 - 0.2) / (0.9 - 0.1) * (0.5 - 0.1)
+        scale = expected_y / 0.5
+        np.testing.assert_allclose(result, xyz * scale)
+
+    def test_white_only_correction_uses_existing_black_reference(self) -> None:
+        service = self._service_with_reference_levels(black_correction=False, white_correction=True)
+        xyz = np.array([[[0.25, 0.5, 0.75]]], dtype=float)
+
+        result = service.black_white_xyz_correction(xyz)
+
+        expected_y = 0.1 + (0.8 - 0.1) / (0.9 - 0.1) * (0.5 - 0.1)
+        scale = expected_y / 0.5
+        np.testing.assert_allclose(result, xyz * scale)
