@@ -4,7 +4,7 @@ from typing import Callable
 import numpy as np
 
 from spektrafilm.profiles.io import Hanatos2025SensitivityAdaptation
-from spektrafilm.utils.gamut_compression import GamutCompressSpec
+from spektrafilm.utils.gamut_compression import InputGamutCompressSpec
 from spektrafilm.utils.lut import compute_with_lut
 from spektrafilm.utils.spectral_upsampling import compute_hanatos2025_tc_lut
 from spektrafilm.utils.timings import timeit
@@ -19,7 +19,7 @@ class SpectralLUTService:
         # Input gamut compression spec (set by the pipeline from
         # params.io.input_gamut_compress). Drives the build-time bake
         # of the filming tc_lut; changes invalidate the cache below.
-        self.input_gamut_compress: GamutCompressSpec = GamutCompressSpec()
+        self.input_gamut_compress: InputGamutCompressSpec = InputGamutCompressSpec()
 
         # external memory
         self.filming_tc_lut_memory : np.ndarray | None = None # tc_lut memory
@@ -29,7 +29,7 @@ class SpectralLUTService:
         # local memory
         self._film_sensitivity = None # to track if tc_lut needs to be recomputed when film sensitivity changes
         self._cached_filming_adaptation = None # full adaptation state for which the cached tc_lut was computed
-        self._cached_input_gamut_compress: GamutCompressSpec | None = None
+        self._cached_input_gamut_compress: InputGamutCompressSpec | None = None
         self._enlarger_test_results_memory = None # to test if enlarger LUTs are identical for same input
         self._scanner_test_results_memory = None # to test if scanner LUTs are identical for same input
         
@@ -44,7 +44,7 @@ class SpectralLUTService:
             self._film_sensitivity = None
             self._cached_filming_adaptation = None
 
-    def set_input_gamut_compress(self, spec: GamutCompressSpec) -> None:
+    def set_input_gamut_compress(self, spec: InputGamutCompressSpec) -> None:
         """Set the input-gamut-compression spec used when baking the
         filming tc_lut. A change invalidates the cached LUT.
         """

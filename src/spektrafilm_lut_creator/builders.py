@@ -160,7 +160,6 @@ def _params_snapshot_for_print(
         "input_cctf_decoding": False,
         "output_cctf_encoding": False,
         "lut_mode": True,
-        "gamut_clip": spec.gamut_clip,
         "input_gamut_compress": asdict(spec.input_gamut_compress),
         "output_gamut_compress": asdict(spec.output_gamut_compress),
         "stops_above_midgray": spec.stops_above_midgray,
@@ -780,7 +779,6 @@ class BundleBuilder:
         params.io.output_color_space = out_entry.primaries
         params.io.input_cctf_decoding = False
         params.io.output_cctf_encoding = False
-        params.io.gamut_clip = spec.gamut_clip
         params.io.input_gamut_compress = spec.input_gamut_compress
         params.io.output_gamut_compress = spec.output_gamut_compress
         params = digest_params(params)

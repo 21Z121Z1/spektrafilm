@@ -169,9 +169,6 @@ class TestBuildEndToEndAgreesWithPipeline:
         params.io.output_color_space = out_entry.primaries
         params.io.input_cctf_decoding = False
         params.io.output_cctf_encoding = False
-        # Mirror BundleSpec's gamut_clip="soft" default so this manual
-        # pipeline run produces the same numbers as the bundled bake.
-        params.io.gamut_clip = "soft"
         params = digest_params(params)
         pipeline = SimulationPipeline(params)
 
@@ -281,19 +278,11 @@ class TestMultiPrintOneLut:
         assert (out_dir / "bundle.json").exists()
 
 
-class TestGamutClip:
-    """The BundleSpec.gamut_clip knob threads through the runtime as
-    IOParams.gamut_clip and selects between hard and soft gamut clamping
-    at the scan stage. The two paths produce identical output for
-    in-gamut chromaticities and divergent output near out-of-gamut.
+class TestBundleSpecMisc:
+    """Miscellaneous BundleSpec construction-time validation and
+    auto-resolution behavior: color-space tag normalization,
+    ``stops_above_midgray`` sentinels, output-encoding smoke checks.
     """
-
-    def test_bundle_spec_rejects_unknown_gamut_clip(self):
-        with pytest.raises(ValueError, match="gamut_clip"):
-            make_bundle_spec(
-                name="bad_gc",
-                gamut_clip="medium",
-            )
 
     def test_bundle_spec_accepts_short_tag_color_spaces(self):
         spec = make_bundle_spec(
@@ -367,34 +356,6 @@ class TestGamutClip:
                 input_color_space="not_a_real_space",
                 output_color_space=_OUTPUT_CS,
             )
-
-    def test_default_bundle_spec_is_soft(self):
-        spec = make_bundle_spec(
-            name="default_gc",
-        )
-        assert spec.gamut_clip == "soft"
-
-    def test_hard_and_soft_diverge_on_extreme_input(self):
-        """Build the same spec twice with each clip mode and confirm the
-        output tables differ where the print's chromaticity falls outside
-        the output gamut. We don't make claims about *where* they differ
-        without imagery; we just need them not to be byte-equal."""
-        soft = BundleBuilder(make_bundle_spec(name="soft", gamut_clip="soft")).build()
-        hard = BundleBuilder(make_bundle_spec(name="hard", gamut_clip="hard")).build()
-        soft_table = soft.luts[0][1].table
-        hard_table = hard.luts[0][1].table
-        # Identical shape, finite, in [0, 1]
-        assert soft_table.shape == hard_table.shape
-        # Soft and hard must differ somewhere — at gamut edges. If this
-        # ever passes with byte equality, soft-clip is silently a no-op.
-        assert not np.array_equal(soft_table, hard_table)
-        # The two paths must agree where the soft-clip is effectively
-        # identity (output channels comfortably above the knee). Pick
-        # the cube interior where colors are mid-range.
-        mid = soft_table[2:3, 2:3, 2:3, :]
-        np.testing.assert_allclose(
-            mid, hard_table[2:3, 2:3, 2:3, :], atol=2e-3,
-        )
 
 
 class TestBundleOutput:
@@ -760,7 +721,6 @@ class TestTwoLutBundle:
         params.io.output_color_space = out_entry.primaries
         params.io.input_cctf_decoding = False
         params.io.output_cctf_encoding = False
-        params.io.gamut_clip = "soft"
         params = digest_params(params)
         pipeline = SimulationPipeline(params)
 
@@ -808,7 +768,6 @@ class TestTwoLutBundle:
         params.io.output_color_space = out_entry.primaries
         params.io.input_cctf_decoding = False
         params.io.output_cctf_encoding = False
-        params.io.gamut_clip = "soft"
         params = digest_params(params)
         pipeline = SimulationPipeline(params)
 
@@ -1165,7 +1124,6 @@ class TestFourLutBundle:
         params.io.output_color_space = out_entry.primaries
         params.io.input_cctf_decoding = False
         params.io.output_cctf_encoding = False
-        params.io.gamut_clip = "soft"
         params = digest_params(params)
         pipeline = SimulationPipeline(params)
 

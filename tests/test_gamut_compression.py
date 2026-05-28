@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 from spektrafilm.utils.gamut_compression import (
-    GamutCompressSpec,
+    InputGamutCompressSpec,
     OutputGamutCompressSpec,
     compress_rgb,
     compress_rgb_aces_rgc,
@@ -27,45 +27,45 @@ from spektrafilm.utils.gamut_compression import (
 )
 
 
-class TestGamutCompressSpec:
+class TestInputGamutCompressSpec:
     def test_default_is_aces_cyan_with_limit_one(self):
-        s = GamutCompressSpec()
+        s = InputGamutCompressSpec()
         assert s.active is True
         assert s.algorithm == "xy"
         assert s.knee == (0.815, 1.0, 1.2)
 
     def test_inactive_constructs(self):
-        s = GamutCompressSpec(active=False)
+        s = InputGamutCompressSpec(active=False)
         assert s.active is False
 
     def test_oklch_algorithm_constructs(self):
-        s = GamutCompressSpec(algorithm="oklch")
+        s = InputGamutCompressSpec(algorithm="oklch")
         assert s.algorithm == "oklch"
 
     def test_custom_knee_constructs(self):
-        s = GamutCompressSpec(knee=(0.7, 1.5, 1.5))
+        s = InputGamutCompressSpec(knee=(0.7, 1.5, 1.5))
         assert s.knee == (0.7, 1.5, 1.5)
 
     def test_invalid_algorithm_raises(self):
         with pytest.raises(ValueError, match="algorithm must be"):
-            GamutCompressSpec(algorithm="cam16")
+            InputGamutCompressSpec(algorithm="cam16")
 
     def test_threshold_out_of_range_raises(self):
         with pytest.raises(ValueError, match="threshold"):
-            GamutCompressSpec(knee=(1.0, 1.0, 1.2))
+            InputGamutCompressSpec(knee=(1.0, 1.0, 1.2))
         with pytest.raises(ValueError, match="threshold"):
-            GamutCompressSpec(knee=(-0.1, 1.0, 1.2))
+            InputGamutCompressSpec(knee=(-0.1, 1.0, 1.2))
 
     def test_non_positive_limit_raises(self):
         with pytest.raises(ValueError, match="limit"):
-            GamutCompressSpec(knee=(0.8, 0.0, 1.2))
+            InputGamutCompressSpec(knee=(0.8, 0.0, 1.2))
 
     def test_non_positive_power_raises(self):
         with pytest.raises(ValueError, match="power"):
-            GamutCompressSpec(knee=(0.8, 1.0, 0.0))
+            InputGamutCompressSpec(knee=(0.8, 1.0, 0.0))
 
     def test_frozen_dataclass(self):
-        s = GamutCompressSpec()
+        s = InputGamutCompressSpec()
         with pytest.raises(Exception):
             s.active = False  # type: ignore[misc]
 
@@ -123,10 +123,10 @@ class TestReinhardKnee:
 class TestCompressXy:
     def setup_method(self):
         self.white = np.array([1 / 3, 1 / 3])
-        self.spec = GamutCompressSpec()
+        self.spec = InputGamutCompressSpec()
 
     def test_inactive_is_identity(self):
-        spec = GamutCompressSpec(active=False)
+        spec = InputGamutCompressSpec(active=False)
         xy = np.array([[0.7, 0.2], [0.1, 0.8]])
         out = compress_xy(xy, self.white, spec)
         np.testing.assert_array_equal(out, xy)
@@ -153,7 +153,7 @@ class TestCompressXy:
         assert d_out < d_in, "OOG input should be pulled in"
 
     def test_oklch_algorithm_works(self):
-        spec = GamutCompressSpec(algorithm="oklch")
+        spec = InputGamutCompressSpec(algorithm="oklch")
         xy = np.array([[0.7, 0.2], [0.1, 0.8]])
         out = compress_xy(xy, self.white, spec)
         assert out.shape == xy.shape
@@ -172,7 +172,7 @@ class TestRemapTcLutForCompression:
 
     def test_inactive_is_exact_identity(self):
         lut = self._dummy_lut()
-        spec = GamutCompressSpec(active=False)
+        spec = InputGamutCompressSpec(active=False)
         out = remap_tc_lut_for_compression(
             lut, np.array([1 / 3, 1 / 3]), spec,
         )
@@ -180,7 +180,7 @@ class TestRemapTcLutForCompression:
 
     def test_active_preserves_shape_and_dtype(self):
         lut = self._dummy_lut()
-        spec = GamutCompressSpec()
+        spec = InputGamutCompressSpec()
         out = remap_tc_lut_for_compression(
             lut, np.array([1 / 3, 1 / 3]), spec,
         )
@@ -191,7 +191,7 @@ class TestRemapTcLutForCompression:
         """The compression should remap at least some cells (those near
         the OOG corners), proving the remap actually fires."""
         lut = self._dummy_lut()
-        spec = GamutCompressSpec()
+        spec = InputGamutCompressSpec()
         out = remap_tc_lut_for_compression(
             lut, np.array([1 / 3, 1 / 3]), spec,
         )
@@ -199,7 +199,7 @@ class TestRemapTcLutForCompression:
 
     def test_oklch_algorithm_works(self):
         lut = self._dummy_lut()
-        spec = GamutCompressSpec(algorithm="oklch")
+        spec = InputGamutCompressSpec(algorithm="oklch")
         out = remap_tc_lut_for_compression(
             lut, np.array([1 / 3, 1 / 3]), spec,
         )
@@ -208,7 +208,7 @@ class TestRemapTcLutForCompression:
 
     def test_remap_rejects_non_3_channels(self):
         lut = np.zeros((32, 32, 4))
-        spec = GamutCompressSpec()
+        spec = InputGamutCompressSpec()
         with pytest.raises(AssertionError, match="3 channels"):
             remap_tc_lut_for_compression(
                 lut, np.array([1 / 3, 1 / 3]), spec,
@@ -313,8 +313,11 @@ class TestCompressRgbAcesRgc:
     def test_max_channel_never_changes(self):
         """ACES RGC's per-channel formula leaves the achromatic max
         untouched. It compresses the *other* channels relative to it.
-        High-amplitude clipping is delegated to the downstream
-        gamut_clip safety net."""
+        High-amplitude pixels (max > 1) are not touched by ACES RGC; if
+        the bundle is shipped via a perceptual algorithm, the
+        ``lightness_knee`` handles the residual amplitude. ACES RGC
+        users on its own have no amplitude knee — the simulation is
+        expected to stay in [0, 1] by physical construction."""
         rgb = np.array([2.0, -0.1, 0.3])
         out = compress_rgb_aces_rgc(rgb, **self.knee)
         assert out[0] == pytest.approx(2.0, abs=1e-9)

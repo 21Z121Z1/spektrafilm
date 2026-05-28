@@ -46,7 +46,7 @@ def _cube_xy_in_film_frame(ctx: "QAContext", reference_illuminant: str):
         colourspace=in_cs.primaries,
         apply_cctf_decoding=False,
         illuminant=ref_xy,
-        chromatic_adaptation_transform="CAT02",
+        chromatic_adaptation_transform="CAT16",
     )
     b = np.asarray(xyz, dtype=float).sum(axis=-1)
     safe_b = np.where(b > 1e-12, b, 1.0)
@@ -57,7 +57,7 @@ def _film_reference_illuminant(ctx: "QAContext") -> str:
     """Resolve the film's reference illuminant by loading its profile.
 
     The film profile carries the illuminant the spectral sensitivities
-    were measured under — and the spektrafilm runtime CAT02-adapts
+    were measured under — and the spektrafilm runtime CAT16-adapts
     input chromaticities to this illuminant before feeding the Hanatos
     LUT. The compression in the baked LUT operates in this same frame,
     so the QA plot must too. Falls back to ``"D55"`` if anything goes
@@ -167,12 +167,44 @@ def input_gamut_compression_preview(ctx: "QAContext") -> Result:
             label=f"film ref illum ({ref_illuminant})")
 
     # Background: in-locus samples (faint), then OOG originals (red),
-    # then compressed positions (cyan), then arrows on top.
+    # then compressed positions (cyan) for both OOG and the in-locus
+    # samples the knee actually shifted, then arrows on top.
     in_locus_valid = in_locus & valid
     if in_locus_valid.any():
         ax.scatter(xy[in_locus_valid, 0], xy[in_locus_valid, 1],
                    c=ok_color, s=2, alpha=0.25, edgecolors="none",
                    zorder=2)
+        # In-locus samples the compression actually moved. The 1e-3 xy
+        # threshold filters samples well below the knee onset whose
+        # nominal displacement is just floating-point noise, so the
+        # bulk of stationary interior points don't clutter the figure.
+        if spec.active:
+            in_locus_bright = in_locus_valid & bright_mask
+            if in_locus_bright.any():
+                bright_in_idx = np.flatnonzero(in_locus_bright)
+                disp_in = np.linalg.norm(
+                    xy_out[bright_in_idx] - xy[bright_in_idx], axis=-1,
+                )
+                moved_idx = bright_in_idx[disp_in > 1e-3]
+                if moved_idx.size > 0:
+                    ax.scatter(
+                        xy_out[moved_idx, 0], xy_out[moved_idx, 1],
+                        c=moved_color, s=3, alpha=0.7,
+                        edgecolors="none", zorder=3.8,
+                    )
+                    n_in = min(moved_idx.size, 400)
+                    pick_in = np.random.default_rng(1).choice(
+                        moved_idx, size=n_in, replace=False,
+                    )
+                    ax.quiver(
+                        xy[pick_in, 0], xy[pick_in, 1],
+                        xy_out[pick_in, 0] - xy[pick_in, 0],
+                        xy_out[pick_in, 1] - xy[pick_in, 1],
+                        color=arrow_color, alpha=0.4,
+                        angles="xy", scale_units="xy", scale=1.0,
+                        width=0.0018, headwidth=4, headlength=5,
+                        zorder=3.3,
+                    )
     if oog_mask.any():
         ax.scatter(xy[oog_mask, 0], xy[oog_mask, 1], c=oog_color,
                    s=4, alpha=0.45, edgecolors="none", zorder=3,

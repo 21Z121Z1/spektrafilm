@@ -5,7 +5,7 @@ from spektrafilm_gui.state import GuiState
 from spektrafilm.runtime.api import init_params
 from spektrafilm.runtime.params_schema import RuntimePhotoParams
 from spektrafilm.utils.gamut_compression import (
-    GamutCompressSpec,
+    InputGamutCompressSpec,
     OutputGamutCompressSpec,
 )
 
@@ -81,7 +81,7 @@ def _apply_io(params: RuntimePhotoParams, state: GuiState) -> None:
     params.io.output_color_space = state.simulation.output_color_space
     params.io.output_cctf_encoding = True
     params.io.scan_film = state.simulation.scan_film
-    params.io.input_gamut_compress = GamutCompressSpec(
+    params.io.input_gamut_compress = InputGamutCompressSpec(
         active=input_gamut_compress_algorithm != 'off',
         algorithm='xy' if input_gamut_compress_algorithm == 'off' else input_gamut_compress_algorithm,
         knee=tuple(state.input_image.input_gamut_compress_knee),

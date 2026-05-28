@@ -526,7 +526,7 @@ def _build_gamut_edge_stress_panel(
             image_linear,
             target_entry.primaries,
             in_entry.primaries,
-            chromatic_adaptation_transform="CAT02",
+            chromatic_adaptation_transform="CAT16",
         ), dtype=float,
     )
 
@@ -560,7 +560,7 @@ def _build_gamut_edge_stress_panel(
             image_out_linear,
             out_entry.primaries,
             "sRGB",
-            chromatic_adaptation_transform="CAT02",
+            chromatic_adaptation_transform="CAT16",
         ), dtype=float,
     )
     srgb_encoded = np.asarray(
@@ -627,16 +627,15 @@ def output_gamut_edge_stress(ctx: "QAContext") -> Result:
 
     # Build the runtime pipeline once and share it across the three
     # target gradients. lut_mode disables spatial effects; the
-    # gamut_clip / input_gamut_compress / output_gamut_compress
-    # settings mirror the bundle's bake-time configuration so the
-    # stress test renders what the bundle would actually produce.
+    # input_gamut_compress / output_gamut_compress settings mirror the
+    # bundle's bake-time configuration so the stress test renders what
+    # the bundle would actually produce.
     params = init_params(film_profile=spec.film_profile, print_profile=print_profile)
     params.debug.lut_mode = True
     params.io.input_color_space = in_entry.primaries
     params.io.output_color_space = out_entry.primaries
     params.io.input_cctf_decoding = False
     params.io.output_cctf_encoding = False
-    params.io.gamut_clip = spec.gamut_clip
     params.io.input_gamut_compress = spec.input_gamut_compress
     params.io.output_gamut_compress = spec.output_gamut_compress
     params = digest_params(params)

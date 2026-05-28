@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from spektrafilm.utils.gamut_compression import (
-    GamutCompressSpec,
+    InputGamutCompressSpec,
     OutputGamutCompressSpec,
 )
 from spektrafilm_lut_creator.formats import Lut
@@ -20,7 +20,6 @@ from spektrafilm_lut_creator.metadata import BundleMeta
 
 
 _VALID_TOPOLOGIES = frozenset({"1lut", "2lut", "3lut", "4lut"})
-_VALID_GAMUT_CLIPS = frozenset({"hard", "soft"})
 _VALID_CONTAINERS = frozenset({"directory", "zip"})
 
 
@@ -59,15 +58,6 @@ class BundleSpec:
     ``"directory"`` writes a normal folder. ``"zip"`` writes the folder
     contents, then archives that folder into a sibling ``.zip`` file and
     returns the archive path."""
-    gamut_clip: str = "soft"
-    """How the runtime handles negative RGB values that emerge when the
-    simulated chromaticity falls outside the output primaries' gamut
-    triangle. ``"soft"`` (LUT export default) applies a smooth soft-plus
-    that maps negatives to small positives and is near-identity for the
-    rest of the cube — better for downstream interpolation. ``"hard"``
-    matches the runtime's GUI-default ``np.clip(0, 1)``. The physical
-    reflectance bound (``Y <= 1``) is upstream and always satisfied; this
-    knob only controls per-channel behavior at the gamut boundary."""
     qa: bool = False
     """Whether :class:`BundleBuilder.write` should auto-run the QA suite
     after writing the bundle. The reports land at
@@ -80,13 +70,13 @@ class BundleSpec:
     explicit integer runs QA for only that print. Validated against the
     bundle's print count up-front so a wrong index fails fast at spec
     construction rather than partway through a long build."""
-    input_gamut_compress: GamutCompressSpec = field(default_factory=GamutCompressSpec)
+    input_gamut_compress: InputGamutCompressSpec = field(default_factory=InputGamutCompressSpec)
     """Input gamut compression spec (algorithm + Reinhard knee parameters)
     used when baking the per-film tc_lut. Default is the ACES Reference
     Gamut Compression v1.3 cyan threshold and power with the asymptote
     limit reduced to 1.0 so the knee converges exactly at the spectral
     locus boundary (see spektrafilm-research n100 §5). Pass a
-    :class:`GamutCompressSpec` (or a TOML table whose fields match the
+    :class:`InputGamutCompressSpec` (or a TOML table whose fields match the
     dataclass) for custom knee tuning or to disable via ``active=False``.
     The chosen spec is forwarded to ``params.io.input_gamut_compress``
     so GUI users and bundle bakes share the same code path."""
@@ -245,11 +235,6 @@ class BundleSpec:
         # independent.
         if self.resolution < 2:
             raise ValueError(f"resolution must be >= 2, got {self.resolution}")
-        if self.gamut_clip not in _VALID_GAMUT_CLIPS:
-            raise ValueError(
-                f"gamut_clip must be one of {sorted(_VALID_GAMUT_CLIPS)}, "
-                f"got {self.gamut_clip!r}"
-            )
         if self.container not in _VALID_CONTAINERS:
             raise ValueError(
                 f"container must be one of {sorted(_VALID_CONTAINERS)}, "

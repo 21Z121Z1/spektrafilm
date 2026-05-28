@@ -125,10 +125,15 @@ def _rgb_to_tc_b(rgb, color_space='ITU-R BT.2020', apply_cctf_decoding=False, re
     #                                 adaptation_transform='Bradford')    
     # illu_xy = colour.CCS_ILLUMINANTS['CIE 1931 2 Degree Standard Observer'][reference_illuminant]
     illu_xy = _illuminant_to_xy(reference_illuminant)
+    # CAT16 (Li et al. 2017) replaces the cone-primary instabilities
+    # of CAT02 around blue and violet; it is the adaptation matrix
+    # CIECAM16 and the spektrafilm output-side CAM16-UCS algorithm use
+    # internally, so the input chromaticity projection stays in the
+    # same adaptation family as the output gamut compression.
     xyz = colour.RGB_to_XYZ(rgb, colourspace=color_space,
                             apply_cctf_decoding=apply_cctf_decoding,
                             illuminant=illu_xy,
-                            chromatic_adaptation_transform='CAT02')
+                            chromatic_adaptation_transform='CAT16')
     b = np.sum(xyz, axis=-1)
     xy = xyz[...,0:2] / np.fmax(b[...,None], 1e-10)
     # Previously: xy = np.clip(xy, 0, 1). Removed because the input gamut
@@ -315,7 +320,6 @@ def rgb_to_raw_mallett2019(RGB, sensitivity,
     lrgb = colour.RGB_to_RGB(RGB, color_space, 'sRGB',
                     apply_cctf_decoding=apply_cctf_decoding,
                     apply_cctf_encoding=False)
-    lrgb = np.clip(lrgb, 0, None)
     raw  = contract('ijk,lk,lm->ijm', lrgb, basis_set_with_illuminant, sensitivity)
     raw = np.nan_to_num(raw)
     raw = np.ascontiguousarray(raw)
@@ -338,7 +342,7 @@ def compute_hanatos2025_tc_lut(sensitivity, hanatos2025_adaptation, gamut_compre
     sensitivity, hanatos2025_adaptation :
         As before.
     gamut_compress :
-        Optional ``spektrafilm.utils.gamut_compression.GamutCompressSpec``.
+        Optional ``spektrafilm.utils.gamut_compression.InputGamutCompressSpec``.
         When provided and ``gamut_compress.active``, the returned
         LUT has the input gamut compression baked into it via remap-resample
         (see n100 §3.1): a runtime lookup ``new_lut[xy]`` returns the same

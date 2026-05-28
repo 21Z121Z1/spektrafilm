@@ -6,7 +6,7 @@ import numpy as np
 
 from spektrafilm.model.illuminants import Illuminants
 from spektrafilm.model.stocks import FilmStocks, PrintPapers
-from spektrafilm.utils.gamut_compression import GamutCompressSpec
+from spektrafilm.utils.gamut_compression import InputGamutCompressSpec
 from spektrafilm_gui.params_mapper import build_params_from_state
 import spektrafilm_gui.state as state_module
 from spektrafilm_gui.state import (
@@ -169,7 +169,7 @@ def test_gui_state_from_params_maps_inactive_input_gamut_compress_to_off() -> No
         film_profile=FilmStocks.kodak_gold_200.value,
         print_profile=PrintPapers.kodak_supra_endura.value,
     )
-    params.io.input_gamut_compress = GamutCompressSpec(active=False)
+    params.io.input_gamut_compress = InputGamutCompressSpec(active=False)
 
     state = gui_state_from_params(
         params,

@@ -445,10 +445,9 @@ def _run_unbounded_pipeline_for_rim(
     params.io.output_color_space = out_entry.primaries
     params.io.input_cctf_decoding = False
     params.io.output_cctf_encoding = False
-    # Disable both the soft-plus and the final [0,1] clip so we can
-    # actually see the simulation's unbounded reach. The shipping bake
-    # always clips; this is QA-only.
-    params.io.gamut_clip = "off"
+    # Disable output gamut compression so we can see the simulation's
+    # unbounded reach. The shipping bake always has output compression
+    # engaged; this is QA-only.
     params.io.input_gamut_compress = spec.input_gamut_compress
     params.io.output_gamut_compress = OutputGamutCompressSpec(algorithm="off")
     params = digest_params(params)

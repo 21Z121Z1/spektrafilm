@@ -364,7 +364,6 @@ def write_report(results: list[Result], ctx: QAContext, path: Path) -> None:
     lines.append(f"- **Input color space**: `{spec.input_color_space}`")
     lines.append(f"- **Output color space**: `{spec.output_color_space}`")
     lines.append(f"- **Topology**: `{bundle.meta.topology}`  ·  **Resolution**: `{spec.resolution}^3`")
-    lines.append(f"- **Gamut clip**: `{spec.gamut_clip}`")
     lines.append(f"- **spektrafilm version**: `{bundle.meta.provenance.spektrafilm_version}`")
     lines.append(f"- **Generated**: `{bundle.meta.provenance.created}`")
     lines.append("")

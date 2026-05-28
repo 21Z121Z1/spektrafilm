@@ -144,7 +144,7 @@ def rg_plane_slices(
                 slice_linear,
                 out_entry.primaries,
                 "sRGB",
-                chromatic_adaptation_transform="CAT02",
+                chromatic_adaptation_transform="CAT16",
             ), dtype=float,
         )
         srgb_encoded = np.asarray(

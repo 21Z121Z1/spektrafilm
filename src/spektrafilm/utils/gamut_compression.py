@@ -8,7 +8,7 @@ inside the locus; chromaticities outside it produce extrapolation noise.
 
 This module provides:
 
-- :class:`GamutCompressSpec` — the per-bundle configuration object that
+- :class:`InputGamutCompressSpec` — the per-bundle configuration object that
   selects the algorithm and parameters.
 - :func:`compress_xy` — the algorithm dispatcher; takes CIE xy values
   and returns compressed CIE xy values.
@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 import colour
-import numpy as np
+import numpy as np 
 from matplotlib.path import Path as MplPath
 from scipy.ndimage import map_coordinates
 
@@ -40,7 +40,7 @@ from scipy.ndimage import map_coordinates
 
 
 @dataclass(frozen=True)
-class GamutCompressSpec:
+class InputGamutCompressSpec:
     """Configuration for input gamut compression.
 
     Attributes
@@ -69,7 +69,7 @@ class GamutCompressSpec:
 
     active: bool = True
     algorithm: Literal["xy", "oklch"] = "xy"
-    knee: tuple[float, float, float] = (0.815, 1.0, 1.2)
+    knee: tuple[float, float, float] = (0.0, 1.0, 6.0) #(0.815, 1.0, 1.2)
 
     def __post_init__(self) -> None:
         if self.algorithm not in ("xy", "oklch"):
@@ -91,7 +91,7 @@ class GamutCompressSpec:
 class OutputGamutCompressSpec:
     """Configuration for output gamut compression.
 
-    Independent of :class:`GamutCompressSpec` (which targets the visible
+    Independent of :class:`InputGamutCompressSpec` (which targets the visible
     spectral locus on the input side, in chromaticity). This spec targets
     the *output primaries cube* on the output side, in destination RGB.
     Both algorithms reuse the same Reinhard knee math.
@@ -100,8 +100,9 @@ class OutputGamutCompressSpec:
     ----------
     algorithm :
         ``"off"`` disables output gamut compression and passes output
-        RGB through unchanged (the existing per-channel ``gamut_clip``
-        in scanning.py is then the only output-side safety net).
+        RGB through unchanged. With nothing else clipping downstream
+        in the runtime, the LUT cube can then leak outside [0, 1] —
+        use ``"off"`` only for diagnostic builds.
 
         ``"oklch"`` (default) — perceptual-hue-preserving chroma
         reduction in OkLab. Convert output RGB → OkLab → OkLch
@@ -179,7 +180,22 @@ class OutputGamutCompressSpec:
     algorithm: Literal[
         "off", "aces_rgc", "oklch", "oklrab", "jzazbz", "cam16ucs",
     ] = "oklch"
-    knee: tuple[float, float, float] = (0.95, 1.0, 2.0)
+    knee: tuple[float, float, float] = (0.0, 1.0, 6.0) #(0.95, 1.0, 2.0)
+    # Two-sided Reinhard knee on the perceptual lightness coordinate
+    # (L for oklch/oklrab, Jz for jzazbz, Jp for cam16ucs), pulling
+    # values smoothly into [0, white]. The chroma knee above only
+    # touches chromaticity; pixels with lightness above the output
+    # whitepoint (super-bright highlights) or below black are otherwise
+    # left out-of-cube because C_max collapses to zero there. This
+    # residual-amplitude knee closes that loop. Parameters are in
+    # *normalized* units where 1.0 = the output color space's
+    # perceptual white; with the default (0.95, 1.0, 2.0) the identity
+    # band is [0.05·white, 0.95·white] and the asymptote sits exactly
+    # at 0 and white. Set to None to disable; with no downstream clip
+    # in the runtime, disabling this means lightness OOG escapes the
+    # cube. Not applied to algorithm="aces_rgc" (no perceptual
+    # lightness axis).
+    lightness_knee: tuple[float, float, float] | None = (0.7, 1.0, 2.2)
 
     def __post_init__(self) -> None:
         valid_algos = ("off", "aces_rgc", "oklch", "oklrab", "jzazbz", "cam16ucs")
@@ -197,6 +213,20 @@ class OutputGamutCompressSpec:
             raise ValueError(f"knee limit must be > 0, got {l}")
         if not (p > 0.0):
             raise ValueError(f"knee power must be > 0, got {p}")
+        if self.lightness_knee is not None:
+            lt, ll, lp = self.lightness_knee
+            if not (0.0 <= lt < 1.0):
+                raise ValueError(
+                    f"lightness_knee threshold must be in [0, 1), got {lt}"
+                )
+            if not (ll > 0.0):
+                raise ValueError(
+                    f"lightness_knee limit must be > 0, got {ll}"
+                )
+            if not (lp > 0.0):
+                raise ValueError(
+                    f"lightness_knee power must be > 0, got {lp}"
+                )
 
     @property
     def active(self) -> bool:
@@ -501,7 +531,7 @@ def compress_oklch_chroma(
 def compress_xy(
     xy: np.ndarray,
     white_xy: np.ndarray,
-    spec: GamutCompressSpec,
+    spec: InputGamutCompressSpec,
     *,
     locus: np.ndarray | None = None,
 ) -> np.ndarray:
@@ -569,11 +599,12 @@ def compress_rgb_aces_rgc(
     Notes on amplitude
     ------------------
     This operation does *not* touch the achromatic value itself, so
-    pixels with ``ach > 1`` retain ``ach > 1`` after compression. That
-    high-amplitude case is handled by the existing
-    ``params.io.gamut_clip`` safety net downstream (per-channel
-    soft-plus or ``np.clip(0, 1)``) — the LUT cube's [0, 1] invariant
-    is preserved by the combination.
+    pixels with ``ach > 1`` retain ``ach > 1`` after compression. The
+    perceptual sibling algorithms (``oklch`` / ``oklrab`` / ``jzazbz``
+    / ``cam16ucs``) have a companion ``lightness_knee`` that catches
+    this case on the lightness axis; ``aces_rgc`` does not. Bundles
+    that ship ``aces_rgc`` rely on the simulation staying in [0, 1]
+    by physical construction.
 
     References
     ----------
@@ -654,6 +685,41 @@ def _oklrab_Lr_to_oklab_L(Lr: np.ndarray) -> np.ndarray:
     """Inverse of :func:`_oklab_L_to_oklrab_Lr`."""
     k1, k2, k3 = _OKLRAB_K1, _OKLRAB_K2, _OKLRAB_K3
     return (Lr * (Lr + k1)) / (k3 * (Lr + k2))
+
+
+def _apply_lightness_knee(
+    L: np.ndarray,
+    *,
+    knee: tuple[float, float, float],
+    L_white: float,
+) -> np.ndarray:
+    """Two-sided Reinhard knee on a perceptual lightness coordinate.
+
+    Smoothly pulls ``L`` into ``[0, L_white]``. Identity inside the
+    band ``[(1 - threshold) * L_white, threshold * L_white]``; smooth
+    asymptote to ``0`` below and to ``L_white`` above.
+
+    ``(threshold, limit, power)`` are in *normalized* units where
+    ``1.0`` corresponds to ``L_white`` — i.e. the perceptual lightness
+    of the output color space's whitepoint. With the default
+    ``(0.95, 1.0, 2.0)`` the identity band is the middle 90% of the
+    lightness range; only the last 5% near black and white roll off.
+    """
+    threshold, limit, power = knee
+    L_norm = L / L_white
+    # High side: standard Reinhard, asymptotes at `limit` (= 1.0 in
+    # the typical default → asymptote at L_white after denormalize).
+    L_norm = reinhard_knee(
+        L_norm, threshold=threshold, limit=limit, power=power,
+    )
+    # Low side: mirror around 0.5 by remapping `L_norm → 1 - L_norm`,
+    # running the same knee, and inverting. Above `1 - (1 - threshold)
+    # = threshold` this composition is identity by construction, so
+    # the two passes do not interfere.
+    L_norm = 1.0 - reinhard_knee(
+        1.0 - L_norm, threshold=threshold, limit=limit, power=power,
+    )
+    return L_norm * L_white
 
 
 def _build_polar_perceptual_c_max_table(
@@ -793,6 +859,7 @@ def compress_rgb_oklch_chroma(
     threshold: float,
     limit: float,
     power: float,
+    lightness_knee: tuple[float, float, float] | None = None,
 ) -> np.ndarray:
     """OkLch chroma reduction to the output RGB cube.
 
@@ -802,13 +869,17 @@ def compress_rgb_oklch_chroma(
     knee on ``C / C_max``. Reconstruct OkLch → OkLab → XYZ → RGB.
 
     L (perceptual lightness) and h (perceptual hue) are preserved by
-    construction; only the perceptual chroma shrinks. With
-    ``limit = 1.0`` the knee asymptotes at ``C / C_max = 1``, i.e. the
-    cube boundary itself — outputs are guaranteed inside the RGB cube
-    by the OkLch math, no final clip needed for the chroma direction
-    (the achromatic lightness axis is unaffected and the cube's
-    [0, 1] amplitude bound is preserved by the OkLab transform when
-    L ∈ [0, 1]).
+    the chroma step; only the perceptual chroma shrinks. With
+    ``limit = 1.0`` the chroma knee asymptotes at ``C / C_max = 1``,
+    i.e. the cube boundary itself for the in-range lightness band.
+
+    If ``lightness_knee`` is supplied, a two-sided Reinhard knee is
+    applied to ``L`` *before* the chroma step (so the ``C_max(L, h)``
+    lookup runs at the corrected lightness and the cube guarantee is
+    exact). This closes the residual where the chroma step alone
+    cannot reach: ``L > 1`` super-bright highlights and ``L < 0``
+    below-black floats, both of which collapse ``C_max`` to zero and
+    would otherwise remain in the OOG region.
 
     Heavier per-pixel than :func:`compress_rgb_aces_rgc`: each call
     runs RGB ↔ XYZ ↔ OkLab, a hypot + atan2, a bilinear table lookup,
@@ -829,6 +900,13 @@ def compress_rgb_oklch_chroma(
     L = lab[..., 0]
     a = lab[..., 1]
     b = lab[..., 2]
+
+    # Lightness knee runs first so C_max is looked up at the corrected
+    # L; OkLab's perceptual white sits at L = 1.0 so the knee's
+    # normalized parameters apply directly.
+    if lightness_knee is not None:
+        L = _apply_lightness_knee(L, knee=lightness_knee, L_white=1.0)
+
     C = np.hypot(a, b)
     h = np.arctan2(b, a)
 
@@ -861,6 +939,7 @@ def compress_rgb_oklrab_chroma(
     threshold: float,
     limit: float,
     power: float,
+    lightness_knee: tuple[float, float, float] | None = None,
 ) -> np.ndarray:
     """Oklrab chroma reduction to the output RGB cube.
 
@@ -871,6 +950,12 @@ def compress_rgb_oklrab_chroma(
     touch ``L``, the round-trip reduces to: compute ``Lr`` once for the
     lookup, then run the same OkLab forward/inverse with ``L``
     preserved.
+
+    If ``lightness_knee`` is supplied, a two-sided Reinhard knee is
+    applied to ``L`` *before* both the ``Lr`` remap and the chroma
+    step. OkLab's perceptual white sits at L = 1.0 so the knee's
+    normalized parameters apply directly; the Lr remap then maps the
+    knee-corrected L to a knee-corrected Lr.
     """
     rgb = np.asarray(rgb, dtype=float)
     cs = colour.RGB_COLOURSPACES[output_color_space]
@@ -884,6 +969,10 @@ def compress_rgb_oklrab_chroma(
     L = lab[..., 0]
     a = lab[..., 1]
     b = lab[..., 2]
+
+    if lightness_knee is not None:
+        L = _apply_lightness_knee(L, knee=lightness_knee, L_white=1.0)
+
     Lr = _oklab_L_to_oklrab_Lr(L)
     C = np.hypot(a, b)
     h = np.arctan2(b, a)
@@ -899,8 +988,9 @@ def compress_rgb_oklrab_chroma(
 
     a_new = C_new * np.cos(h)
     b_new = C_new * np.sin(h)
-    # L is preserved (the knee touches only C), so OkLab → XYZ closes
-    # the round-trip with the original lightness.
+    # L is preserved through the chroma step (the knee touches only
+    # C); the optional lightness knee above is the only thing that
+    # changes L, and its result already lives in `L` here.
     lab_new = np.stack([L, a_new, b_new], axis=-1)
     xyz_new = np.asarray(colour.Oklab_to_XYZ(lab_new))
     rgb_new = np.asarray(colour.XYZ_to_RGB(
@@ -910,6 +1000,18 @@ def compress_rgb_oklrab_chroma(
     return rgb_new
 
 
+def _jzazbz_white_Jz(output_color_space: str) -> float:
+    """Jz coordinate of the output color space's whitepoint at the
+    absolute reference luminance ``_JZAZBZ_Y_W_CDM2``. Used as the
+    perceptual-white normalizer for the lightness knee."""
+    cs = colour.RGB_COLOURSPACES[output_color_space]
+    xyz_w_rel = _xy_to_xyz_unit_y(np.asarray(cs.whitepoint, dtype=float))
+    Jz_w = float(np.asarray(
+        colour.XYZ_to_Jzazbz(xyz_w_rel * _JZAZBZ_Y_W_CDM2),
+    )[..., 0])
+    return Jz_w
+
+
 def compress_rgb_jzazbz_chroma(
     rgb: np.ndarray,
     output_color_space: str,
@@ -917,6 +1019,7 @@ def compress_rgb_jzazbz_chroma(
     threshold: float,
     limit: float,
     power: float,
+    lightness_knee: tuple[float, float, float] | None = None,
 ) -> np.ndarray:
     """JzCzhz chroma reduction to the output RGB cube.
 
@@ -930,6 +1033,10 @@ def compress_rgb_jzazbz_chroma(
     Rec.2020). JzAzBz keeps perceived hue stable across the
     magenta↔cyan arc at the cost of a heavier per-pixel transform
     (PQ encoding + matrix vs OkLab's cube-root + matrix).
+
+    If ``lightness_knee`` is supplied, a two-sided Reinhard knee is
+    applied to ``Jz`` before the chroma step, normalized by the output
+    whitepoint's Jz (≈0.167 at Y_w = 100 cd/m² for typical SDR whites).
     """
     rgb = np.asarray(rgb, dtype=float)
     cs = colour.RGB_COLOURSPACES[output_color_space]
@@ -944,6 +1051,13 @@ def compress_rgb_jzazbz_chroma(
     Jz = jab[..., 0]
     az = jab[..., 1]
     bz = jab[..., 2]
+
+    if lightness_knee is not None:
+        Jz = _apply_lightness_knee(
+            Jz, knee=lightness_knee,
+            L_white=_jzazbz_white_Jz(output_color_space),
+        )
+
     Cz = np.hypot(az, bz)
     hz = np.arctan2(bz, az)
 
@@ -969,6 +1083,20 @@ def compress_rgb_jzazbz_chroma(
     return rgb_new
 
 
+def _cam16ucs_white_Jp(output_color_space: str) -> float:
+    """Jp coordinate of the output whitepoint under the module's fixed
+    CAM16-UCS viewing conditions. Used as the perceptual-white
+    normalizer for the lightness knee. ≈100 for typical displays.
+    """
+    xyz_w = _output_cs_whitepoint_xyz(output_color_space)
+    Jp_w = float(np.asarray(
+        colour.XYZ_to_CAM16UCS(
+            xyz_w, XYZ_w=xyz_w, L_A=_CAM16UCS_L_A, Y_b=_CAM16UCS_Y_B,
+        ),
+    )[..., 0])
+    return Jp_w
+
+
 def compress_rgb_cam16ucs_chroma(
     rgb: np.ndarray,
     output_color_space: str,
@@ -976,6 +1104,7 @@ def compress_rgb_cam16ucs_chroma(
     threshold: float,
     limit: float,
     power: float,
+    lightness_knee: tuple[float, float, float] | None = None,
 ) -> np.ndarray:
     """CAM16-UCS chroma reduction to the output RGB cube.
 
@@ -989,6 +1118,10 @@ def compress_rgb_cam16ucs_chroma(
     forward and inverse), but produces the cleanest constant-hue
     constraint of the three perceptual options — useful when smoothness
     around the blue/cyan arc matters more than bake time.
+
+    If ``lightness_knee`` is supplied, a two-sided Reinhard knee is
+    applied to ``Jp`` before the chroma step, normalized by the output
+    whitepoint's Jp (≈100 under the configured viewing conditions).
     """
     rgb = np.asarray(rgb, dtype=float)
     cs = colour.RGB_COLOURSPACES[output_color_space]
@@ -1006,6 +1139,13 @@ def compress_rgb_cam16ucs_chroma(
     Jp = jab[..., 0]
     ap = jab[..., 1]
     bp = jab[..., 2]
+
+    if lightness_knee is not None:
+        Jp = _apply_lightness_knee(
+            Jp, knee=lightness_knee,
+            L_white=_cam16ucs_white_Jp(output_color_space),
+        )
+
     Cp = np.hypot(ap, bp)
     hp = np.arctan2(bp, ap)
 
@@ -1077,6 +1217,7 @@ def compress_rgb(
         return perceptual_fns[spec.algorithm](
             rgb, output_color_space=output_color_space,
             threshold=threshold, limit=limit, power=power,
+            lightness_knee=spec.lightness_knee,
         )
     raise ValueError(f"unknown output algorithm {spec.algorithm!r}")
 
@@ -1089,7 +1230,7 @@ def compress_rgb(
 def remap_tc_lut_for_compression(
     tc_lut: np.ndarray,
     reference_illuminant_xy: np.ndarray,
-    spec: GamutCompressSpec,
+    spec: InputGamutCompressSpec,
     *,
     locus: np.ndarray | None = None,
 ) -> np.ndarray:

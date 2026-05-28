@@ -187,7 +187,6 @@ def _compute(
     params.io.output_color_space = out_entry.primaries
     params.io.input_cctf_decoding = False
     params.io.output_cctf_encoding = False
-    params.io.gamut_clip = spec.gamut_clip
     params.io.input_gamut_compress = spec.input_gamut_compress
     params.io.output_gamut_compress = spec.output_gamut_compress
     params = digest_params(params)
@@ -250,7 +249,6 @@ def run_pipeline_at(
     params.io.output_color_space = out_entry.primaries
     params.io.input_cctf_decoding = False
     params.io.output_cctf_encoding = False
-    params.io.gamut_clip = spec.gamut_clip
     params.io.input_gamut_compress = spec.input_gamut_compress
     params.io.output_gamut_compress = spec.output_gamut_compress
     params = digest_params(params)

@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 
 from spektrafilm.profiles.io import Profile
 from spektrafilm.utils.gamut_compression import (
-    GamutCompressSpec,
+    InputGamutCompressSpec,
     OutputGamutCompressSpec,
 )
 from spektrafilm.utils.morph_curves import PrintCurvesMorphParams
@@ -171,34 +171,19 @@ class IOParams:
     input_cctf_decoding: bool = False
     output_color_space: str = "sRGB"
     output_cctf_encoding: bool = True
-    # How to handle negative RGB values that emerge when the simulated
-    # chromaticity falls outside the output primaries' gamut triangle.
-    # The physical reflectance bound (Y <= 1) is upstream of this and is
-    # always satisfied; this knob only controls the per-channel response
-    # at the gamut boundary.
-    #   "hard": np.clip(rgb, 0, 1) — discontinuous at zero crossing.
-    #   "soft": (x + sqrt(x*x + eps)) / 2 — smooth soft-plus, near-identity
-    #           for positives, smoothly maps negatives to small positives.
-    #           Better for downstream interpolation (e.g., 3D LUT export);
-    #           may very slightly desaturate at the gamut boundary.
-    gamut_clip: str = "off"
-    # Input gamut compression: how to handle input chromaticities that fall
-    # outside the visible spectral locus (where Hanatos 2025's spectral
-    # upsampling is well-defined). The compression is applied at LUT-build
-    # time (baked into the per-film tc_lut) so the per-pixel hot path is
-    # unchanged. Default soft compression uses the ACES Reference Gamut
-    # Compression v1.3 cyan threshold and power, with the asymptote limit
-    # reduced to 1.0 so the knee converges exactly at the locus boundary.
-    # See spektrafilm-research/studies/a40_lut_system/n100_soft_input_clipping
-    # for the full rationale.
-    input_gamut_compress: GamutCompressSpec = field(default_factory=GamutCompressSpec)
+    # Input gamut compression: smoothly pulls input chromaticities that
+    # fall outside the visible spectral locus back inside (where Hanatos
+    # 2025's spectral upsampling is well-defined). Baked into the
+    # per-film tc_lut at build time so the per-pixel hot path is
+    # untouched. See spektrafilm-research/studies/a00/a40_lut_system/n100
+    # for the design.
+    input_gamut_compress: InputGamutCompressSpec = field(default_factory=InputGamutCompressSpec)
     # Output gamut compression: smoothly compresses out-of-output-gamut
-    # chromaticities into the output primaries cube via ACES Reference
-    # Gamut Compression v1.3 (per-channel in destination RGB). The
-    # existing per-channel ``gamut_clip`` knob still runs after this as
-    # the final safety net (handles any sub-pixel overshoots).
-    # See spektrafilm-research/studies/a40_lut_system/n100_soft_input_clipping
-    # for the parallel input-side reasoning.
+    # chromaticities (via the chroma knee) and out-of-[0,1] lightnesses
+    # (via the lightness_knee) into the output primaries cube. With both
+    # knees engaged the simulation output is guaranteed in [0, 1] and no
+    # downstream clip is needed. See spektrafilm-research/studies/a00/a40_lut_system/n110
+    # for the design and b40 for the smoothness analysis.
     output_gamut_compress: OutputGamutCompressSpec = field(default_factory=OutputGamutCompressSpec)
     crop: bool = False
     crop_center: tuple[float, float] = (0.5, 0.5)

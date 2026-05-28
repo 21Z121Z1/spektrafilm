@@ -13,11 +13,6 @@ from spektrafilm.utils.conversions import density_to_light
 from spektrafilm.utils.gamut_compression import compress_rgb
 
 
-# Knee softness for the optional soft-clip on negative-channel out-of-gamut
-# colors. ~sqrt(eps) ~ 1e-2 is the half-width of the transition zone.
-_SOFT_CLIP_EPS = 1.0e-4
-
-
 class ScanningStage:
     def __init__(
         self,
@@ -51,7 +46,7 @@ class ScanningStage:
     def scan(self, density_channels: np.ndarray) -> np.ndarray:
         rgb = self._density_to_rgb(density_channels, use_lut=self._settings.use_scanner_lut)
         rgb = self._apply_blur_and_unsharp(rgb)
-        return self._apply_cctf_encoding_and_clip(rgb)
+        return self._apply_cctf_encoding(rgb)
 
     # private methods
 
@@ -87,15 +82,15 @@ class ScanningStage:
             apply_cctf_encoding=False,
             illuminant=illuminant_xy,
         )
-        # Output gamut compression (ACES RGC native form by default,
-        # per-channel in destination RGB; OkLch chroma reduction
-        # available as an algorithm option). Compresses chromaticities
-        # the simulation reached that fall outside the output primaries
-        # cube — hue is preserved in the colorist sense (per-channel
-        # mixture ratios stay coherent for aces_rgc, perceptual hue
-        # for oklch). The downstream gamut_clip in
-        # _apply_cctf_encoding_and_clip handles any residual sub-pixel
-        # overshoots after this knee. See n110 for the design.
+        # Output gamut compression. Compresses chromaticities the
+        # simulation reached that fall outside the output primaries
+        # cube; for perceptual algorithms (oklch / oklrab / jzazbz /
+        # cam16ucs) the spec's lightness_knee also pulls
+        # super-bright and below-black pixels back into the cube via
+        # a two-sided Reinhard on the perceptual lightness axis. With
+        # both knees in place the output is in [0, 1] without a
+        # downstream clip; see n100 / n110 for the design and b40 for
+        # the smoothness analysis.
         rgb = compress_rgb(
             rgb, self._io.output_gamut_compress,
             output_color_space=self._io.output_color_space,
@@ -132,13 +127,7 @@ class ScanningStage:
             rgb = apply_unsharp_mask(rgb, sigma=sigma, amount=amount)
         return rgb
 
-    def _apply_cctf_encoding_and_clip(self, rgb: np.ndarray) -> np.ndarray:
-        if self._io.gamut_clip == "soft":
-            # Smooth soft-plus on each channel: identity for x >> sqrt(eps),
-            # smoothly maps negatives to small positives. Removes the hard
-            # discontinuity at out-of-gamut chromaticities, which matters
-            # for downstream interpolation (e.g., 3D LUT export).
-            rgb = (rgb + np.sqrt(rgb * rgb + _SOFT_CLIP_EPS)) * 0.5
+    def _apply_cctf_encoding(self, rgb: np.ndarray) -> np.ndarray:
         if self._io.output_cctf_encoding:
             rgb = colour.RGB_to_RGB(
                 rgb,
@@ -147,14 +136,7 @@ class ScanningStage:
                 apply_cctf_decoding=False,
                 apply_cctf_encoding=True,
             )
-        # gamut_clip="off" leaves the final [0, 1] clip out entirely so
-        # downstream diagnostics (the output_gamut_compression QA test's
-        # before/after panels) can capture the simulation's unbounded
-        # reach. Production bakes use "soft" or "hard" and the LUT cube
-        # stays in [0, 1].
-        if self._io.gamut_clip == "off":
-            return rgb
-        return np.clip(rgb, a_min=0, a_max=1)
+        return rgb
 
 
 

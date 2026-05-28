@@ -26,7 +26,7 @@ from importlib import resources
 from pathlib import Path
 
 from spektrafilm.utils.gamut_compression import (
-    GamutCompressSpec,
+    InputGamutCompressSpec,
     OutputGamutCompressSpec,
 )
 from spektrafilm_lut_creator import color_spaces, delivery_targets
@@ -110,10 +110,6 @@ def _build_parser() -> argparse.ArgumentParser:
     build.add_argument(
         "--container", choices=("directory", "zip"),
         help="On-disk packaging (default: directory).",
-    )
-    build.add_argument(
-        "--gamut-clip", choices=("hard", "soft"),
-        help="Per-channel gamut-edge handling (default: soft).",
     )
     build.add_argument(
         "--stops-above-gray", type=float, metavar="STOPS",
@@ -210,7 +206,7 @@ def _make_spec(fields: dict) -> BundleSpec:
     if "input_gamut_compress" in fields and isinstance(
         fields["input_gamut_compress"], dict
     ):
-        fields["input_gamut_compress"] = GamutCompressSpec(
+        fields["input_gamut_compress"] = InputGamutCompressSpec(
             **fields["input_gamut_compress"]
         )
     if "output_gamut_compress" in fields and isinstance(
@@ -253,7 +249,6 @@ def _merge_cli_overrides(fields: dict, args: argparse.Namespace) -> None:
         "resolution": "resolution",
         "target": "target",
         "container": "container",
-        "gamut_clip": "gamut_clip",
         "stops_above_midgray": "stops_above_midgray",
         "qa_print_index": "qa_print_index",
     }
