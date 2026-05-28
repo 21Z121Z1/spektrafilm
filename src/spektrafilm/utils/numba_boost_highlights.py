@@ -74,7 +74,7 @@ def boost_highlights(
     if midgray < 0.0:
         raise ValueError("midgray must be >= 0")
 
-    x = np.asarray(x, dtype=np.float64)
+    x = np.asarray(x)
     if x.ndim != 3:
         raise ValueError("x must be a 3D array, e.g. HxWxC")
     if not x.flags["C_CONTIGUOUS"]:
@@ -85,8 +85,6 @@ def boost_highlights(
     else:
         if out.shape != x.shape:
             raise ValueError("out must have the same shape as x")
-        if out.dtype != x.dtype:
-            raise ValueError("out must have the same dtype as x")
         if not out.flags["C_CONTIGUOUS"]:
             raise ValueError("out must be C-contiguous")
         y = out

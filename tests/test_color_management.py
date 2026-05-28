@@ -12,7 +12,6 @@ from spektrafilm.color_management import (
     output_encoding_from_io,
 )
 from spektrafilm.runtime.params_schema import IOParams
-from spektrafilm_gui.options import RGBColorSpaces
 
 
 def test_input_encoding_from_io_maps_decoding_flag_to_transfer() -> None:
@@ -95,6 +94,7 @@ def test_color_encoding_rejects_unknown_color_space() -> None:
 
 
 def test_gui_rgb_color_spaces_include_acescg_working_space() -> None:
+    RGBColorSpaces = pytest.importorskip("spektrafilm_gui.options").RGBColorSpaces
     assert RGBColorSpaces.ACEScg.value == ACES_WORKING_COLOR_SPACE
 
 

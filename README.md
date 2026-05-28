@@ -63,9 +63,9 @@
 最简运行时 API：
 
 ```python
-from spektrafilm import create_params, simulate
+from spektrafilm import init_params, simulate
 
-params = create_params(
+params = init_params(
 	film_profile="kodak_portra_400",
 	print_profile="kodak_portra_endura",
 )

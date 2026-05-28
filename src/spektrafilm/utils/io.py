@@ -6,6 +6,7 @@ import importlib.resources as pkg_resources
 import json
 import logging
 import re
+import warnings
 import struct
 import zlib
 from dataclasses import dataclass
@@ -687,7 +688,7 @@ def save_image_oiio(
 
         save_kwargs: dict[str, object] = {}
         if color_space is not None:
-            icc_bytes = _load_icc_profile(color_space, cctf_encoding)
+            icc_bytes = resolve_icc_profile_bytes(color_space, cctf_encoding)
             if icc_bytes is not None:
                 save_kwargs["icc_profile"] = icc_bytes
 
@@ -711,6 +712,15 @@ def save_image_oiio(
     if ext == "exr" and bit_depth == 16:
         # Convert the image data to 16-bit half precision.
         # Note: numpy's float16 is used here; OpenImageIO accepts "half" for 16-bit floats.
+        _float16_max = np.finfo(np.float16).max  # 65504.0
+        if np.any(image_data > _float16_max):
+            n_overflow = int(np.sum(image_data > _float16_max))
+            warnings.warn(
+                f"EXR float16 export: {n_overflow} pixel values exceed "
+                f"{_float16_max:.0f} and will become inf",
+                UserWarning,
+                stacklevel=2,
+            )
         img_half = image_data.astype(np.float16)
         spec = oiio.ImageSpec(width, height, nchannels, oiio.TypeDesc("half"))
         data_to_write = img_half

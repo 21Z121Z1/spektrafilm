@@ -92,7 +92,7 @@ def apply_grain_to_density(density_cmy,
     if n_sub_layers>1:
         n_particles_per_pixel /= n_sub_layers
     
-    density_cmy += density_min
+    density_cmy = density_cmy + density_min
     density_cmy_out = np.zeros_like(density_cmy)
     for ch in np.arange(3):
         for sl in np.arange(n_sub_layers):

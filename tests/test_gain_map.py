@@ -563,9 +563,9 @@ class TestGainMapIO:
         save_gain_map_jpeg(out_path, sdr, gain, meta)
 
         loaded = load_gain_map(out_path)
-        if loaded["metadata"] is not None:
-            assert loaded["metadata"].alternate_hdr_headroom == pytest.approx(4.0, abs=1e-3)
-            assert loaded["metadata"].is_multichannel is False
+        assert loaded["metadata"] is not None
+        assert loaded["metadata"].alternate_hdr_headroom == pytest.approx(4.0, abs=1e-3)
+        assert loaded["metadata"].is_multichannel is False
 
     def test_save_jpeg_uint8_input(self, tmp_path) -> None:
         """Verify uint8 images are handled correctly."""

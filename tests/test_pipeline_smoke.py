@@ -197,7 +197,7 @@ def test_lut_path_stays_close_to_direct_path(default_params) -> None:
     result_lut = simulate(gray, default_params)
 
     _assert_valid_output(result_lut, shape=(4, 4, 3))
-    np.testing.assert_allclose(result_lut, result_direct, atol=0.02)
+    np.testing.assert_allclose(result_lut, result_direct, atol=0.005)
 
 
 def test_auto_exposure_normalizes_bright_inputs(default_params) -> None:
@@ -220,6 +220,21 @@ def test_auto_exposure_normalizes_bright_inputs(default_params) -> None:
 
     assert np.mean(auto_result) < np.mean(manual_result)
     assert 0.45 < np.mean(auto_result) < 0.51
+
+
+def test_midgray_input_produces_expected_output_values(default_params) -> None:
+    """Known mid-gray input should produce deterministic output values."""
+    mid_gray = _tile_rgb((0.184, 0.184, 0.184), 4)
+    result = simulate(mid_gray, default_params)
+    _assert_valid_output(result, shape=(4, 4, 3))
+    center = result[1, 1, :]
+    # All channels should be in the mid-tone range (not zero, not clipped)
+    assert np.all(center > 0.1)
+    assert np.all(center < 0.9)
+    # Uniform input should produce uniform output (no spatial artifacts)
+    for row in range(4):
+        for col in range(4):
+            np.testing.assert_allclose(result[row, col, :], center, atol=0.05)
 
 
 def test_scene_linear_auto_exposure_keeps_middle_gray_stable_with_hdr_highlights(default_params) -> None:

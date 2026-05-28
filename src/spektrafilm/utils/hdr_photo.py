@@ -599,7 +599,7 @@ def _prepare_profile_aware_renditions(
         h_profile,
         np.maximum(s_profile, _EPS32),
         out=np.ones_like(h_profile, dtype=np.float32),
-        where=s_profile > np.float32(1e-6),
+        where=s_profile > _EPS32,
     )
 
     diagnostics_list: list[str] = []
@@ -935,6 +935,11 @@ def _graft_scene_luminance(
     scale = target_y / np.maximum(look_y, eps)
     unlifted_scale = unlifted_target_y / np.maximum(look_y, eps)
 
+    # Clamp scale to prevent inf/NaN when look_y is near zero but specular content exists.
+    max_scale = np.float32(float(mapping.max_headroom) / max(float(eps), 1e-6))
+    scale = np.minimum(scale, max_scale)
+    unlifted_scale = np.minimum(unlifted_scale, max_scale)
+
     hdr_rgb = look * scale[..., None]
     hdr_rgb = np.clip(hdr_rgb, 0.0, float(mapping.max_headroom))
 
@@ -1132,9 +1137,8 @@ def gamut_map_oklch(
         M = _working_to_srgb_matrix(working_color_space)
         srgb = np.clip(np.einsum('...i,ji->...j', rgb, M), 0.0, None)
 
-    # Linear sRGB → gamma-encoded sRGB → Oklch.
-    srgb_g = _linear_to_srgb(srgb)
-    L, C, h = _linear_srgb_to_oklch(srgb_g)
+    # Linear sRGB → Oklch (Oklab expects linear-light input).
+    L, C, h = _linear_srgb_to_oklch(srgb)
 
     # Per-pixel maximum chroma that stays within [0, peak_headroom].
     needs_work = np.any(np.abs(srgb - np.clip(srgb, 0.0, peak_headroom)) > 1e-6, axis=-1)
@@ -1144,14 +1148,12 @@ def gamut_map_oklch(
     C_max = np.where(needs_work, C, 0.0)
     for _ in range(max_iterations):
         C_mid = (C_max + C) * 0.5
-        trial_g = _oklch_to_linear_srgb(L, C_mid, h)
-        trial = _srgb_to_linear(trial_g)
+        trial = _oklch_to_linear_srgb(L, C_mid, h)
         ok = np.all((trial >= -1e-6) & (trial <= peak_headroom + 1e-6), axis=-1)
         C_max = np.where(ok, np.maximum(C_max, C_mid), C_max)
 
     C_compressed = np.where(needs_work, np.minimum(C, C_max * 0.9999), C)
-    result_g = _oklch_to_linear_srgb(L, C_compressed, h)
-    result_srgb = _srgb_to_linear(result_g)
+    result_srgb = _oklch_to_linear_srgb(L, C_compressed, h)
 
     # Convert back to working space.
     if working_color_space == "sRGB":

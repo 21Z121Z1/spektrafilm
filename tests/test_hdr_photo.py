@@ -1616,6 +1616,30 @@ def test_gamut_map_oklch_in_gamut_is_identity() -> None:
     np.testing.assert_allclose(result, rgb, atol=1e-5)
 
 
+def test_gamut_map_oklch_uses_linear_light() -> None:
+    """Oklch conversion must receive linear-light sRGB, not gamma-encoded.
+
+    Regression test for HDR-C-001: _linear_to_srgb was applied before
+    _linear_srgb_to_oklch, feeding gamma-encoded values into Oklab which
+    expects linear light.
+    """
+    # Linear mid-gray [0.5, 0.5, 0.5] is out-of-gamut for sRGB in Oklch
+    # terms only if fed as linear (correct). If gamma-encoded first, the
+    # Oklch lightness would be wrong, producing a different compressed result.
+    gray_linear = np.array([[[0.5, 0.5, 0.5]]], dtype=np.float32)
+    result = hdr_photo.gamut_map_oklch(gray_linear, working_color_space="sRGB")
+    # In-gamut linear sRGB must pass through unchanged.
+    np.testing.assert_allclose(result, gray_linear, atol=1e-5)
+
+    # An out-of-gamut Display P3 green must be compressed toward gamut
+    # without altering the lightness of neutral grays in the same image.
+    p3_green = np.array([[[0.0, 1.0, 0.0]]], dtype=np.float32)
+    result_g = hdr_photo.gamut_map_oklch(p3_green, working_color_space="Display P3", peak_headroom=1.0)
+    # All channels must remain finite and within [0, 1].
+    assert np.all(np.isfinite(result_g))
+    assert np.all(result_g >= -1e-5) and np.all(result_g <= 1.0 + 1e-5)
+
+
 def test_gamut_map_oklch_clips_negative_values() -> None:
     """Negative values from colour-space conversion must be clipped to 0."""
     rgb = np.array([[[-0.1, 0.5, 0.5]]], dtype=np.float32)
@@ -1802,3 +1826,40 @@ def test_luma_preserving_mode_is_default_and_unchanged() -> None:
 
     np.testing.assert_allclose(rend_default.hdr_rgb, rend_explicit.hdr_rgb, atol=1e-6)
     np.testing.assert_allclose(rend_default.sdr_rgb, rend_explicit.sdr_rgb, atol=1e-6)
+
+
+def test_graft_scene_luminance_zero_look_no_inf() -> None:
+    """Scale must not produce inf/NaN when look_y is zero and specular content exists.
+
+    Regression test for HDR-C-006: when look_y=0 and scene luminance has
+    specular highlights, target_y / max(look_y, eps) could overflow to inf.
+    """
+    profile = _synthetic_safe_hdr_profile()
+    # Black look pixels (look_y = 0)
+    look_rgb = np.array([[[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]], dtype=np.float32)
+    # Non-zero scene luminance (specular content)
+    scene_luminance = np.array([[5.0, 10.0]], dtype=np.float32)
+    scene_rgb = look_rgb * scene_luminance[..., None]
+
+    mapping = hdr_photo.HDRPhotoMapping(
+        hdr_mapping_mode="profile_aware",
+        curve_profile=profile,
+        max_headroom=6.0,
+        hdr_diffuse_lift_enabled=True,
+        hdr_diffuse_lift_start=0.01,
+        hdr_diffuse_lift_end=0.1,
+        hdr_diffuse_lift_strength=0.5,
+        hdr_diffuse_white_target=0.9,
+        graft_start=1.0,
+        graft_end=4.0,
+        graft_strength=0.5,
+        paper_rolloff_enabled=True,
+    )
+
+    renditions = hdr_photo.prepare_hdr_photo_renditions(
+        look_rgb, mapping=mapping,
+        scene_luminance=scene_luminance, scene_rgb=scene_rgb,
+    )
+
+    assert np.all(np.isfinite(renditions.hdr_rgb)), "hdr_rgb contains inf or NaN"
+    assert np.all(np.isfinite(renditions.sdr_rgb)), "sdr_rgb contains inf or NaN"

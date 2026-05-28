@@ -214,7 +214,7 @@ def _build_mpf_jpeg(
 
     # MPF APP2 segment
     base_offset = len(out)
-    mpf_payload = _build_mpf_payload(base_offset, len(base_jpeg), len(gm_data))
+    mpf_payload = _build_mpf_payload(base_offset, len(base_jpeg), len(gm_data) + len(_EOI))
     out += _build_app2_segment(b"MPF\x00" + mpf_payload)
 
     # Gain map data
@@ -273,30 +273,8 @@ def _patch_heif_for_iso21496(path: str, iso_meta: dict) -> bool:
     except ImportError:
         pass
 
-    # Inline minimal patching: add tmap brand to ftyp
-    with open(path, "rb") as f:
-        data = bytearray(f.read())
-
-    if len(data) < 8:
-        return False
-
-    ftyp_size = struct.unpack_from(">I", data, 0)[0]
-    if ftyp_size < 8 or ftyp_size > len(data):
-        return False
-
-    # Check if tmap brand already present
-    ftyp_content = data[8:ftyp_size]
-    if b"tmap" in ftyp_content:
-        return False
-
-    # Add tmap brand
-    data[ftyp_size:ftyp_size] = b"tmap"
-    # Update ftyp size
-    struct.pack_into(">I", data, 0, ftyp_size + 4)
-
-    with open(path, "wb") as f:
-        f.write(data)
-    return True
+    log.warning("_isobmff_patch module not available; skipping ISO 21496-1 HEIF brand patching")
+    return False
 
 
 def _gainmap_metadata_to_iso_dict(metadata: GainMapMetadata) -> dict:
