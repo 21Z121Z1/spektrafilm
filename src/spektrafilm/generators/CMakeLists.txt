@@ -40,55 +40,55 @@ add_halide_generator(lut_generator SOURCES lut_generator.cpp)
 
 # --- Spectral generators (3 functions) ---
 add_halide_library(density_to_light FROM spectral_generator
-                   GENERATOR DensityToLightGenerator
+                   GENERATOR density_to_light
                    TARGETS ${TARGET}
                    REGISTRATION density_to_light_reg)
 
 add_halide_library(light_to_raw FROM spectral_generator
-                   GENERATOR LightToRawGenerator
+                   GENERATOR light_to_raw
                    TARGETS ${TARGET}
                    REGISTRATION light_to_raw_reg)
 
 add_halide_library(compute_density_spectral FROM spectral_generator
-                   GENERATOR ComputeDensitySpectralGenerator
+                   GENERATOR compute_density_spectral
                    TARGETS ${TARGET}
                    REGISTRATION compute_density_spectral_reg)
 
 # --- Filter generators (2 functions) ---
 add_halide_library(gaussian_blur_fir FROM filter_generator
-                   GENERATOR GaussianBlurFIRGenerator
+                   GENERATOR gaussian_blur_fir
                    TARGETS ${TARGET}
                    REGISTRATION gaussian_blur_fir_reg)
 
 add_halide_library(gaussian_blur_iir FROM filter_generator
-                   GENERATOR GaussianBlurIIRGenerator
+                   GENERATOR gaussian_blur_iir
                    TARGETS ${TARGET}
                    REGISTRATION gaussian_blur_iir_reg)
 
 # --- Colour generators (3 functions) ---
 add_halide_library(cctf_encode FROM color_generator
-                   GENERATOR CCTFEncodeGenerator
+                   GENERATOR cctf_encode
                    TARGETS ${TARGET}
                    REGISTRATION cctf_encode_reg)
 
 add_halide_library(cctf_decode FROM color_generator
-                   GENERATOR CCTFDecodeGenerator
+                   GENERATOR cctf_decode
                    TARGETS ${TARGET}
                    REGISTRATION cctf_decode_reg)
 
 add_halide_library(highlight_boost FROM color_generator
-                   GENERATOR HighlightBoostGenerator
+                   GENERATOR highlight_boost
                    TARGETS ${TARGET}
                    REGISTRATION highlight_boost_reg)
 
 # --- LUT generators (2 functions) ---
 add_halide_library(interp_1d FROM lut_generator
-                   GENERATOR Interp1DGenerator
+                   GENERATOR interp_1d
                    TARGETS ${TARGET}
                    REGISTRATION interp_1d_reg)
 
 add_halide_library(lut_2d_cubic FROM lut_generator
-                   GENERATOR Lut2DCubicGenerator
+                   GENERATOR lut_2d_cubic
                    TARGETS ${TARGET}
                    REGISTRATION lut_2d_cubic_reg)
 

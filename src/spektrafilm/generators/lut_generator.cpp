@@ -57,7 +57,6 @@ public:
     }
 
     void schedule() {
-        if (auto_schedule) return;
         Var x("x"), y("y");
         output.vectorize(x, 8)
               .parallel(y);
@@ -143,7 +142,6 @@ public:
     }
 
     void schedule() {
-        if (auto_schedule) return;
         Var x("x"), y("y"), ch("ch");
 
         // Tile spatial dims; vectorize over the channel dimension.
@@ -152,7 +150,6 @@ public:
               .vectorize(xi, 4)
               .unroll(ch)
               .parallel(yo);
-        output.dim(2).set_bounds(0, 3);
     }
 };
 

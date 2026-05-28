@@ -46,12 +46,10 @@ public:
     }
 
     void schedule() {
-        if (auto_schedule) return;
         Var c("c"), x("x"), y("y");
         output.vectorize(x, 8)
               .unroll(c)
               .parallel(y);
-        output.dim(0).set_bounds(0, 3);
     }
 };
 
@@ -94,12 +92,10 @@ public:
     }
 
     void schedule() {
-        if (auto_schedule) return;
         Var c("c"), x("x"), y("y");
         output.vectorize(x, 8)
               .unroll(c)
               .parallel(y);
-        output.dim(0).set_bounds(0, 3);
     }
 };
 
@@ -144,12 +140,10 @@ public:
     }
 
     void schedule() {
-        if (auto_schedule) return;
         Var c("c"), x("x"), y("y");
         output.vectorize(x, 8)
               .unroll(c)
               .parallel(y);
-        output.dim(0).set_bounds(0, 3);
     }
 };
 
