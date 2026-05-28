@@ -4,6 +4,8 @@
 
 > [!IMPORTANT]
 > This project is in rapid development, some ares are still being build and will change fast. The core functionality of the tech demo is maturing. LUT export and easy integration in third party software will follow.
+>
+> **2026/05/28 big git history cleanup** (140MB -> 45MB) --> please reclone!
 > 
 
 An exploration of how to make good use of spectroscopic data from manufacturer datasheets in an end-to-end, physically based model with spectral calculations, with the goal of turning that data into convincing film, print, and scan renderings that can be explored interactively.
