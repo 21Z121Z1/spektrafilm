@@ -588,7 +588,7 @@ class HalideBackend:
 
         v = image_p[x, y, c]
         linear_part = a_p * v + b_p
-        gamma_part = hl.fast_pow(c_p * v + d_p, gamma_p)
+        gamma_part = c_p * hl.fast_pow(v, 1.0 / gamma_p) - d_p
         output[x, y, c] = hl.select(v <= threshold_p, linear_part, gamma_part)
         output.parallel(y)
         output.compile_jit(self.target)
@@ -621,7 +621,8 @@ class HalideBackend:
 
         (gamma_p, threshold_p, a_p, b_p, c_p, d_p, image_p, output) = self._cctf_decode_pipeline
         gamma_p.set(float(gamma))
-        threshold_p.set(float(threshold))
+        encoded_threshold = float(a) * float(threshold) + float(b)
+        threshold_p.set(encoded_threshold)
         a_p.set(float(a))
         b_p.set(float(b))
         c_p.set(float(c_coeff))
@@ -647,7 +648,7 @@ class HalideBackend:
 
         v = image_p[x, y, c]
         linear_part = (v - b_p) / a_p
-        gamma_part = (hl.fast_pow(v, 1.0 / gamma_p) - d_p) / c_p
+        gamma_part = hl.pow((v + d_p) / c_p, gamma_p)
         output[x, y, c] = hl.select(v <= threshold_p, linear_part, gamma_part)
         output.parallel(y)
         output.compile_jit(self.target)

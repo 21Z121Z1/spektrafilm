@@ -34,7 +34,7 @@ def numpy_cctf_encode(
     c32, d32 = np.float32(c_coeff), np.float32(d_coeff)
     g32, t32 = np.float32(gamma), np.float32(threshold)
     lo = a32 * linear + b32
-    hi = np.power(c32 * linear + d32, g32).astype(np.float32)
+    hi = (c32 * np.power(linear, 1.0 / g32) - d32).astype(np.float32)
     return np.where(linear <= t32, lo, hi).astype(np.float32)
 
 
@@ -52,8 +52,9 @@ def numpy_cctf_decode(
     c32, d32 = np.float32(c_coeff), np.float32(d_coeff)
     g32, t32 = np.float32(gamma), np.float32(threshold)
     lo = (encoded - b32) / a32
-    hi = (np.power(encoded, np.float32(1.0) / g32).astype(np.float32) - d32) / c32
-    return np.where(encoded <= t32, lo, hi).astype(np.float32)
+    hi = np.power((encoded + d32) / c32, g32).astype(np.float32)
+    encoded_threshold = a32 * t32 + b32
+    return np.where(encoded <= encoded_threshold, lo, hi).astype(np.float32)
 
 
 # ---------------------------------------------------------------------------
