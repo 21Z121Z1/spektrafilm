@@ -8,7 +8,7 @@
 # To integrate into a larger project, add this directory via add_subdirectory()
 # and link the generated libraries with target_link_libraries().
 
-cmake_minimum_required(VERSION 3.22)
+cmake_minimum_required(VERSION 3.28)
 project(spektrafilm_halide_generators LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -23,6 +23,14 @@ find_package(Halide REQUIRED)
 if(NOT DEFINED TARGET)
     set(TARGET host)
 endif()
+
+# ---------------------------------------------------------------------------
+# Generator executables — must be declared before add_halide_library() calls
+# ---------------------------------------------------------------------------
+add_halide_generator(spectral_generator SOURCES spectral_generator.cpp)
+add_halide_generator(filter_generator SOURCES filter_generator.cpp)
+add_halide_generator(color_generator SOURCES color_generator.cpp)
+add_halide_generator(lut_generator SOURCES lut_generator.cpp)
 
 # ---------------------------------------------------------------------------
 # Generators — each add_halide_library() call:

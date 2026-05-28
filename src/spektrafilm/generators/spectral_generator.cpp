@@ -33,10 +33,9 @@ public:
     }
 
     void schedule() {
-        if (auto_schedule) return;
+        Var c("c"), y("y"), w("w");
         output.vectorize(c, 4)
               .parallel(y);
-        output.dim(0).set_bounds(0, 3);
     }
 };
 
@@ -68,12 +67,9 @@ public:
     }
 
     void schedule() {
-        if (auto_schedule) return;
         Var c("c"), y("y"), s("s");
         output.vectorize(c, 4)
               .parallel(y);
-        output.dim(0).set_bounds(0, 3);
-        output.dim(2).set_bounds(0, 3);
     }
 };
 
@@ -116,10 +112,9 @@ public:
     }
 
     void schedule() {
-        if (auto_schedule) return;
+        Var c("c"), y("y"), w("w");
         output.vectorize(c, 4)
               .parallel(y);
-        output.dim(0).set_bounds(0, 3);
     }
 };
 

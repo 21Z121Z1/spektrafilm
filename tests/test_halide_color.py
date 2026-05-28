@@ -132,6 +132,25 @@ class TestCctfDecode:
         result = backend.cctf_decode(encoded, **params)
         np.testing.assert_allclose(result, expected, atol=1e-6)
 
+    def test_transition_region_roundtrip(self, backend: HalideBackend) -> None:
+        """Values around the 0.0031308 threshold must roundtrip without discontinuity."""
+        linear = np.array(
+            [0.001, 0.002, 0.003, 0.0031, 0.0031308, 0.0032, 0.004, 0.005, 0.01, 0.05, 0.1],
+            dtype=np.float32,
+        ).reshape(1, 1, -1)
+
+        encoded = backend.cctf_encode(linear, **SRGB_PARAMS)
+        decoded = backend.cctf_decode(encoded, **SRGB_PARAMS)
+
+        # Roundtrip must be close
+        np.testing.assert_allclose(decoded, linear, atol=1e-5)
+
+        # Encoded values must be monotonically increasing (no jump at threshold)
+        flat = encoded.ravel()
+        assert np.all(np.diff(flat) > 0), (
+            f"Encoded values not monotonic around threshold: {flat}"
+        )
+
 
 class TestInterp1D:
     def test_linear_ramp(self, backend: HalideBackend) -> None:

@@ -8,7 +8,7 @@ using Halide::Expr;
 using Halide::Func;
 using Halide::Generator;
 using Halide::ImageParam;
-using Halide::RVar;
+using Halide::RDom;
 using Halide::Var;
 
 // ---------------------------------------------------------------------------
@@ -24,6 +24,7 @@ public:
     ImageParam kernel_1d{Float(32), 1, "kernel_1d"}; // [K]
 
     Func output{"output"}; // [C, H, W]
+    Func blur_x{"blur_x"}; // intermediate horizontal pass
 
     void generate() {
         Var c("c"), x("x"), y("y");
@@ -36,7 +37,6 @@ public:
         Expr half = kw / 2;
 
         // Horizontal pass
-        Func blur_x{"blur_x"};
         RDom rx(0, kw, "rx");
         blur_x(c, x, y) += padded(c, x + rx - half, y) * kernel_1d(rx);
 
@@ -46,7 +46,6 @@ public:
     }
 
     void schedule() {
-        if (auto_schedule) return;
         Var c("c"), x("x"), y("y");
 
         // Tile spatial dims, vectorize channel, parallelize outer tile loop.
@@ -77,23 +76,16 @@ public:
     Input<float> sigma{"sigma"};
 
     Func output{"output"}; // [C, H, W]
+    Func h_fwd{"h_fwd"}, h_out{"h_out"}, v_fwd{"v_fwd"}, v_out{"v_out"};
 
     void generate() {
         Var c("c"), x("x"), y("y");
 
         // --- Compute YvV coefficients from sigma ---
-        // The Young-van Vliet recursive Gaussian approximation uses 4 poles.
-        // Standard coefficients for a given sigma:
-        //   q = sigma * sigma (variance)
-        //   For 4-tap: use the math from Young & van Vliet (1995)
-        // We express the coefficients as derived quantities.
         Expr q = sigma * sigma;
-        // Approximate pole magnitude (empirical fit for moderate sigmas)
         Expr m = 1.0f / (1.0f + 0.3186f * q + 0.01487f * q * q);
-        // Reflection coefficients for the 4-tap lattice
         Expr rho = select(q > 0.0f, 1.0f / (1.0f + 0.7038f * q), 0.0f);
 
-        // Feedforward and feedback taps (simplified closed-form)
         Expr b0 = m;
         Expr b1 = 4.0f * m * rho;
         Expr b2 = 6.0f * m * rho * rho;
@@ -102,16 +94,14 @@ public:
         Expr a2 = 6.0f * rho * rho;
         Expr a3 = -4.0f * rho * rho * rho;
         Expr a4 = rho * rho * rho * rho;
-        // Normalise so DC gain = 1
         Expr gain = b0 + b1 + b2 + b3;
         Expr norm = select(gain > 1e-12f, 1.0f / gain, 1.0f);
         Expr nb0 = b0 * norm, nb1 = b1 * norm, nb2 = b2 * norm, nb3 = b3 * norm;
 
         Func padded = mirror_interior(image);
-        int W = image.dim(2).extent();
+        Expr W = image.dim(2).extent();
 
         // --- Horizontal: forward causal scan ---
-        Func h_fwd{"h_fwd"};
         h_fwd(c, x, y) = padded(c, x, y);  // boundary
         RDom xf(4, W - 4, "xf");
         h_fwd(c, xf, y) = nb0 * padded(c, xf, y)
@@ -124,7 +114,6 @@ public:
                          - a4 * h_fwd(c, xf - 4, y);
 
         // --- Horizontal: backward anti-causal scan ---
-        Func h_out{"h_out"};
         h_out(c, x, y) = h_fwd(c, x, y);  // boundary
         RDom xb(0, W - 4, "xb");  // reverse
         Expr xr = W - 1 - xb;
@@ -137,10 +126,9 @@ public:
                           - a3 * h_out(c, xr + 3, y)
                           - a4 * h_out(c, xr + 4, y);
 
-        int H = image.dim(1).extent();
+        Expr H = image.dim(1).extent();
 
         // --- Vertical: forward causal scan ---
-        Func v_fwd{"v_fwd"};
         v_fwd(c, x, y) = h_out(c, x, y);
         RDom yf(4, H - 4, "yf");
         v_fwd(c, x, yf) = nb0 * h_out(c, x, yf)
@@ -153,7 +141,6 @@ public:
                          - a4 * v_fwd(c, x, yf - 4);
 
         // --- Vertical: backward anti-causal scan ---
-        Func v_out{"v_out"};
         v_out(c, x, y) = v_fwd(c, x, y);
         RDom yb(0, H - 4, "yb");
         Expr yr = H - 1 - yb;
@@ -170,22 +157,15 @@ public:
     }
 
     void schedule() {
-        if (auto_schedule) return;
         Var c("c"), x("x"), y("y");
 
         // IIR is inherently sequential in scan direction — parallelize the
         // independent axis.  Horizontal scans are parallel over y; vertical
         // scans are parallel over x.
-        Func h_fwd = Func("h_fwd");
-        Func h_out = Func("h_out");
-        Func v_fwd = Func("v_fwd");
-        Func v_out = Func("v_out");
-
         // Store intermediate rows for vertical pass reuse.
         h_out.compute_root().parallel(y).vectorize(c, 4);
         v_out.compute_root().parallel(x).vectorize(c, 4);
         output.parallel(y).vectorize(c, 4);
-        output.dim(0).set_bounds(0, 3);
     }
 };
 
