@@ -4,10 +4,10 @@
 #include <Halide.h>
 
 using Halide::BoundaryConditions::mirror_interior;
+using Halide::Buffer;
 using Halide::Expr;
 using Halide::Func;
 using Halide::Generator;
-using Halide::ImageParam;
 using Halide::RDom;
 using Halide::Var;
 
@@ -20,10 +20,10 @@ using Halide::Var;
 // ---------------------------------------------------------------------------
 class GaussianBlurFIRGenerator : public Generator<GaussianBlurFIRGenerator> {
 public:
-    ImageParam image{Float(32), 3, "image"};        // [C, H, W]
-    ImageParam kernel_1d{Float(32), 1, "kernel_1d"}; // [K]
+    Input<Buffer<float, 3>> image{"image"};        // [C, H, W]
+    Input<Buffer<float, 1>> kernel_1d{"kernel_1d"}; // [K]
 
-    Func output{"output"}; // [C, H, W]
+    Output<Buffer<float, 3>> output{"output"}; // [C, H, W]
     Func blur_x{"blur_x"}; // intermediate horizontal pass
 
     void generate() {
@@ -72,10 +72,10 @@ HALIDE_REGISTER_GENERATOR(GaussianBlurFIRGenerator, gaussian_blur_fir)
 // ---------------------------------------------------------------------------
 class GaussianBlurIIRGenerator : public Generator<GaussianBlurIIRGenerator> {
 public:
-    ImageParam image{Float(32), 3, "image"}; // [C, H, W]
+    Input<Buffer<float, 3>> image{"image"}; // [C, H, W]
     Input<float> sigma{"sigma"};
 
-    Func output{"output"}; // [C, H, W]
+    Output<Buffer<float, 3>> output{"output"}; // [C, H, W]
     Func h_fwd{"h_fwd"}, h_out{"h_out"}, v_fwd{"v_fwd"}, v_out{"v_out"};
 
     void generate() {

@@ -3,9 +3,8 @@
 
 #include <Halide.h>
 
+using Halide::Buffer;
 using Halide::Generator;
-using Halide::ImageParam;
-using Halide::OutputImageParam;
 using Halide::RDom;
 
 // ---------------------------------------------------------------------------
@@ -16,10 +15,10 @@ using Halide::RDom;
 // ---------------------------------------------------------------------------
 class DensityToLightGenerator : public Generator<DensityToLightGenerator> {
 public:
-    ImageParam density{Float(32), 3, "density"};      // [3, H, W]
-    ImageParam illuminant{Float(32), 2, "illuminant"}; // [81, 3]
+    Input<Buffer<float, 3>> density{"density"};      // [3, H, W]
+    Input<Buffer<float, 2>> illuminant{"illuminant"}; // [81, 3]
 
-    Func output{"output"}; // [3, H, 81]
+    Output<Buffer<float, 3>> output{"output"}; // [3, H, 81]
 
     void generate() {
         Var c("c"), y("y"), w("w");
@@ -50,10 +49,10 @@ HALIDE_REGISTER_GENERATOR(DensityToLightGenerator, density_to_light)
 // ---------------------------------------------------------------------------
 class LightToRawGenerator : public Generator<LightToRawGenerator> {
 public:
-    ImageParam light{Float(32), 3, "light"};         // [3, H, 81]
-    ImageParam sensitivity{Float(32), 2, "sensitivity"}; // [81, 3]
+    Input<Buffer<float, 3>> light{"light"};         // [3, H, 81]
+    Input<Buffer<float, 2>> sensitivity{"sensitivity"}; // [81, 3]
 
-    Func output{"output"}; // [3, H, 3]
+    Output<Buffer<float, 3>> output{"output"}; // [3, H, 3]
 
     void generate() {
         Var c("c"), y("y"), s("s");
@@ -84,10 +83,10 @@ HALIDE_REGISTER_GENERATOR(LightToRawGenerator, light_to_raw)
 // ---------------------------------------------------------------------------
 class ComputeDensitySpectralGenerator : public Generator<ComputeDensitySpectralGenerator> {
 public:
-    ImageParam density_cmy{Float(32), 3, "density_cmy"};       // [3, H, W]
-    ImageParam channel_density{Float(32), 2, "channel_density"}; // [3, 81]
+    Input<Buffer<float, 3>> density_cmy{"density_cmy"};       // [3, H, W]
+    Input<Buffer<float, 2>> channel_density{"channel_density"}; // [3, 81]
 
-    Func output{"output"}; // [3, H, 81]
+    Output<Buffer<float, 3>> output{"output"}; // [3, H, 81]
 
     void generate() {
         Var c("c"), y("y"), w("w");

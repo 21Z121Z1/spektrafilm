@@ -3,10 +3,10 @@
 
 #include <Halide.h>
 
+using Halide::Buffer;
 using Halide::Expr;
 using Halide::Func;
 using Halide::Generator;
-using Halide::ImageParam;
 using Halide::Var;
 
 // ---------------------------------------------------------------------------
@@ -25,13 +25,13 @@ using Halide::Var;
 // ---------------------------------------------------------------------------
 class CCTFEncodeGenerator : public Generator<CCTFEncodeGenerator> {
 public:
-    ImageParam linear{Float(32), 3, "linear"};  // [C, H, W]
+    Input<Buffer<float, 3>> linear{"linear"};  // [C, H, W]
     Input<float> gamma{"gamma"};
     Input<float> threshold{"threshold"};
     Input<float> linear_slope{"linear_slope"};
     Input<float> alpha{"alpha"};
 
-    Func output{"output"}; // [C, H, W]
+    Output<Buffer<float, 3>> output{"output"}; // [C, H, W]
 
     void generate() {
         Var c("c"), x("x"), y("y");
@@ -48,7 +48,7 @@ public:
     void schedule() {
         Var c("c"), x("x"), y("y");
         output.vectorize(x, 8)
-              .unroll(c)
+              .unroll(c, 3)
               .parallel(y);
     }
 };
@@ -70,13 +70,13 @@ HALIDE_REGISTER_GENERATOR(CCTFEncodeGenerator, cctf_encode)
 // ---------------------------------------------------------------------------
 class CCTFDecodeGenerator : public Generator<CCTFDecodeGenerator> {
 public:
-    ImageParam encoded{Float(32), 3, "encoded"}; // [C, H, W]
+    Input<Buffer<float, 3>> encoded{"encoded"}; // [C, H, W]
     Input<float> gamma{"gamma"};
     Input<float> threshold{"threshold"};
     Input<float> linear_slope{"linear_slope"};
     Input<float> alpha{"alpha"};
 
-    Func output{"output"}; // [C, H, W]
+    Output<Buffer<float, 3>> output{"output"}; // [C, H, W]
 
     void generate() {
         Var c("c"), x("x"), y("y");
@@ -94,7 +94,7 @@ public:
     void schedule() {
         Var c("c"), x("x"), y("y");
         output.vectorize(x, 8)
-              .unroll(c)
+              .unroll(c, 3)
               .parallel(y);
     }
 };
@@ -118,12 +118,12 @@ HALIDE_REGISTER_GENERATOR(CCTFDecodeGenerator, cctf_decode)
 // ---------------------------------------------------------------------------
 class HighlightBoostGenerator : public Generator<HighlightBoostGenerator> {
 public:
-    ImageParam image{Float(32), 3, "image"}; // [C, H, W]
+    Input<Buffer<float, 3>> image{"image"}; // [C, H, W]
     Input<float> threshold{"threshold"};
     Input<float> scale{"scale"};
     Input<float> pivot{"pivot"};
 
-    Func output{"output"}; // [C, H, W]
+    Output<Buffer<float, 3>> output{"output"}; // [C, H, W]
 
     void generate() {
         Var c("c"), x("x"), y("y");
@@ -142,7 +142,7 @@ public:
     void schedule() {
         Var c("c"), x("x"), y("y");
         output.vectorize(x, 8)
-              .unroll(c)
+              .unroll(c, 3)
               .parallel(y);
     }
 };

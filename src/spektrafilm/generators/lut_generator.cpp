@@ -3,10 +3,10 @@
 
 #include <Halide.h>
 
+using Halide::Buffer;
 using Halide::Expr;
 using Halide::Func;
 using Halide::Generator;
-using Halide::ImageParam;
 using Halide::Var;
 
 // ---------------------------------------------------------------------------
@@ -22,11 +22,11 @@ using Halide::Var;
 // ---------------------------------------------------------------------------
 class Interp1DGenerator : public Generator<Interp1DGenerator> {
 public:
-    ImageParam values{Float(32), 1, "values"};       // [N]
-    ImageParam positions{Float(32), 1, "positions"};  // [N]
-    ImageParam query{Float(32), 2, "query"};          // [H, W]
+    Input<Buffer<float, 1>> values{"values"};       // [N]
+    Input<Buffer<float, 1>> positions{"positions"};  // [N]
+    Input<Buffer<float, 2>> query{"query"};          // [H, W]
 
-    Func output{"output"}; // [H, W]
+    Output<Buffer<float, 2>> output{"output"}; // [H, W]
 
     void generate() {
         Var x("x"), y("y");
@@ -76,10 +76,10 @@ HALIDE_REGISTER_GENERATOR(Interp1DGenerator, interp_1d)
 // ---------------------------------------------------------------------------
 class Lut2DCubicGenerator : public Generator<Lut2DCubicGenerator> {
 public:
-    ImageParam lut{Float(32), 3, "lut"};     // [size, size, C]
-    ImageParam image{Float(32), 3, "image"}; // [H, W, 2]
+    Input<Buffer<float, 3>> lut{"lut"};     // [size, size, C]
+    Input<Buffer<float, 3>> image{"image"}; // [H, W, 2]
 
-    Func output{"output"}; // [H, W, C]
+    Output<Buffer<float, 3>> output{"output"}; // [H, W, C]
 
     void generate() {
         Var x("x"), y("y"), ch("ch");
@@ -148,7 +148,6 @@ public:
         Var xo("xo"), yo("yo"), xi("xi"), yi("yi");
         output.tile(x, y, xo, yo, xi, yi, 32, 32)
               .vectorize(xi, 4)
-              .unroll(ch)
               .parallel(yo);
     }
 };
