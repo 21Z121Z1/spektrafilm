@@ -21,6 +21,8 @@ from spektrafilm_lut_creator.delivery_targets import (
     register,
 )
 
+from .factories import make_bundle_spec
+
 
 _LUT_LICENSE_PATH = Path(__file__).resolve().parents[2] / "SPEKTRAFILM_LICENSE.txt"
 
@@ -68,32 +70,24 @@ class TestRegistry:
 class TestBundleSpecTargetValidation:
     def test_accepts_valid_combination(self):
         # No error.
-        BundleSpec(
+        make_bundle_spec(
             name="ok",
-            film_profile="kodak_portra_400",
-            print_profiles=("kodak_portra_endura",),
             input_color_space="Panasonic V-Log",
-            output_color_space="sRGB",
             target="lumix_realtime_vlog",
         )
 
     def test_rejects_input_outside_target(self):
         with pytest.raises(ValueError, match="requires input"):
-            BundleSpec(
+            make_bundle_spec(
                 name="bad_input",
-                film_profile="kodak_portra_400",
-                print_profiles=("kodak_portra_endura",),
                 input_color_space="ACEScg",  # not in valid_inputs for Lumix target
-                output_color_space="sRGB",
                 target="lumix_realtime_vlog",
             )
 
     def test_rejects_output_outside_target(self):
         with pytest.raises(ValueError, match="requires output"):
-            BundleSpec(
+            make_bundle_spec(
                 name="bad_output",
-                film_profile="kodak_portra_400",
-                print_profiles=("kodak_portra_endura",),
                 input_color_space="Panasonic V-Log",
                 output_color_space="Adobe RGB",  # not in valid_outputs for Lumix
                 target="lumix_realtime_vlog",
@@ -101,22 +95,17 @@ class TestBundleSpecTargetValidation:
 
     def test_unknown_target_name_raises(self):
         with pytest.raises(KeyError, match="not_a_target"):
-            BundleSpec(
+            make_bundle_spec(
                 name="x",
-                film_profile="kodak_portra_400",
-                print_profiles=("kodak_portra_endura",),
                 input_color_space="sRGB",
-                output_color_space="sRGB",
                 target="not_a_target",
             )
 
     def test_none_target_is_unconstrained(self):
         # No target set: any input/output combination from the color-space
         # registry is allowed (only registry-level validation applies).
-        BundleSpec(
+        make_bundle_spec(
             name="any",
-            film_profile="kodak_portra_400",
-            print_profiles=("kodak_portra_endura",),
             input_color_space="ACEScg",
             output_color_space="Rec.2020",
             target=None,
@@ -131,12 +120,9 @@ class TestBuilderEmitsTargetVariant:
         format file (no generic Adobe sibling). Filename is canonical."""
         from spektrafilm_lut_creator.builders import BundleBuilder
 
-        spec = BundleSpec(
+        spec = make_bundle_spec(
             name="target_test",
-            film_profile="kodak_portra_400",
-            print_profiles=("kodak_portra_endura",),
             input_color_space="Panasonic V-Log",
-            output_color_space="sRGB",
             target="lumix_realtime_vlog",
             resolution=5,
         )
@@ -173,12 +159,8 @@ class TestBuilderEmitsTargetVariant:
         format with the rich provenance comment header."""
         from spektrafilm_lut_creator.builders import BundleBuilder
 
-        spec = BundleSpec(
+        spec = make_bundle_spec(
             name="no_target",
-            film_profile="kodak_portra_400",
-            print_profiles=("kodak_portra_endura",),
-            input_color_space="ACEScg",
-            output_color_space="sRGB",
             target=None,
             resolution=5,
         )
@@ -198,12 +180,9 @@ class TestBuilderEmitsTargetVariant:
     def test_target_write_copies_lut_license(self, tmp_path):
         from spektrafilm_lut_creator.builders import BundleBuilder
 
-        spec = BundleSpec(
+        spec = make_bundle_spec(
             name="target_license",
-            film_profile="kodak_portra_400",
-            print_profiles=("kodak_portra_endura",),
             input_color_space="Panasonic V-Log",
-            output_color_space="sRGB",
             target="lumix_realtime_vlog",
             resolution=5,
         )
@@ -216,12 +195,8 @@ class TestBuilderEmitsTargetVariant:
     def test_no_target_write_copies_lut_license(self, tmp_path):
         from spektrafilm_lut_creator.builders import BundleBuilder
 
-        spec = BundleSpec(
+        spec = make_bundle_spec(
             name="generic_license",
-            film_profile="kodak_portra_400",
-            print_profiles=("kodak_portra_endura",),
-            input_color_space="ACEScg",
-            output_color_space="sRGB",
             target=None,
             resolution=5,
         )

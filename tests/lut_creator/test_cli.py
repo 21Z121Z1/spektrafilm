@@ -43,7 +43,7 @@ class TestListSubcommand:
         # appear so the user sees what they can paste into --input.
         assert any(l.startswith("Panasonic V-Log") and l.endswith("vlog")
                    for l in lines)
-        assert any(l.startswith("ACEScg") and l.endswith("acescg")
+        assert any(l.startswith("ACEScct") and l.endswith("acescct")
                    for l in lines)
         assert any(l.startswith("sRGB") and l.endswith("srgb")
                    for l in lines)

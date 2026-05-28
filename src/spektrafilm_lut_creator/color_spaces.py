@@ -45,6 +45,9 @@ SCENE_REFERRED_DEFAULT_STOPS = 6.0
 # 1.0 represents a bright scene highlight rather than literal display white.
 ENCODED_SDR_DEFAULT_STOPS = 4.0
 
+_BT2100_PQ_CCTF = "ITU-R BT.2100 PQ"
+_BT2100_HLG_CCTF = "ITU-R BT.2100 HLG"
+
 
 @dataclass(frozen=True)
 class ColorSpaceEntry:
@@ -200,6 +203,10 @@ def decode_cctf(rgb, name: str) -> np.ndarray:
     rgb = np.asarray(rgb, dtype=float)
     if entry.cctf is None:
         return rgb
+    if entry.cctf == _BT2100_PQ_CCTF:
+        return np.asarray(colour.models.eotf_BT2100_PQ(np.clip(rgb, 0.0, 1.0)), dtype=float)
+    if entry.cctf == _BT2100_HLG_CCTF:
+        return np.asarray(colour.models.eotf_BT2100_HLG(np.clip(rgb, 0.0, 1.0)), dtype=float)
     return np.asarray(colour.cctf_decoding(rgb, function=entry.cctf), dtype=float)
 
 
@@ -209,6 +216,20 @@ def encode_cctf(rgb, name: str) -> np.ndarray:
     rgb = np.asarray(rgb, dtype=float)
     if entry.cctf is None:
         return rgb
+    if entry.cctf == _BT2100_PQ_CCTF:
+        return np.asarray(
+            colour.models.eotf_inverse_BT2100_PQ(np.clip(rgb, 0.0, None)),
+            dtype=float,
+        )
+    if entry.cctf == _BT2100_HLG_CCTF:
+        # colour-science's ARIB STD-B67 implementation evaluates both
+        # branches of an internal np.where, so valid low-end samples can
+        # emit a spurious invalid-log warning from the unused log branch.
+        with np.errstate(invalid="ignore"):
+            return np.asarray(
+                colour.models.eotf_inverse_BT2100_HLG(np.clip(rgb, 0.0, None)),
+                dtype=float,
+            )
     return np.asarray(colour.cctf_encoding(rgb, function=entry.cctf), dtype=float)
 
 

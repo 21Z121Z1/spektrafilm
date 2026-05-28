@@ -26,26 +26,21 @@ from spektrafilm_lut_creator.color_spaces import (
 )
 from spektrafilm_lut_creator.formats import get_format
 from spektrafilm_lut_creator.grid import cube_grid, grid_as_image
+from spektrafilm_lut_creator.qa.result import Result
 from spektrafilm.utils.gamut_compression import OutputGamutCompressSpec
+
+from .factories import make_bundle_spec
 
 
 _RESOLUTION = 5  # small enough to run quickly, large enough to exercise the cube layout
-_INPUT_CS = "ACEScg"  # linear, scene-referred
-_OUTPUT_CS = "sRGB"   # encoded SDR
+_INPUT_CS = "ACEScct"  # log; identity gain under stops_above_midgray="auto"
+_OUTPUT_CS = "sRGB"    # encoded SDR
 _LUT_LICENSE_PATH = Path(__file__).resolve().parents[2] / "SPEKTRAFILM_LICENSE.txt"
 
 
 @pytest.fixture(scope="module")
 def builder() -> BundleBuilder:
-    return BundleBuilder(BundleSpec(
-        name="test_1lut",
-        film_profile="kodak_portra_400",
-        print_profiles=("kodak_portra_endura",),
-        input_color_space=_INPUT_CS,
-        output_color_space=_OUTPUT_CS,
-        topology="1lut",
-        resolution=_RESOLUTION,
-    ))
+    return BundleBuilder(make_bundle_spec(name="test_1lut"))
 
 
 @pytest.fixture(scope="module")
@@ -59,25 +54,15 @@ class TestBuilderConstruction:
         # implemented as of M6. An unknown topology string is rejected at
         # BundleSpec construction by the _VALID_TOPOLOGIES gate.
         with pytest.raises(ValueError, match="topology must be one of"):
-            BundleSpec(
+            make_bundle_spec(
                 name="x",
-                film_profile="kodak_portra_400",
-                print_profiles=("kodak_portra_endura",),
-                input_color_space=_INPUT_CS,
-                output_color_space=_OUTPUT_CS,
                 topology="6-lut-something",
-                resolution=5,
             )
 
     def test_accepts_output_gamut_compress_off_string(self):
-        spec = BundleSpec(
+        spec = make_bundle_spec(
             name="x",
-            film_profile="kodak_portra_400",
-            print_profiles=("kodak_portra_endura",),
-            input_color_space=_INPUT_CS,
-            output_color_space=_OUTPUT_CS,
             output_gamut_compress="off",
-            resolution=5,
         )
 
         assert spec.output_gamut_compress == OutputGamutCompressSpec(algorithm="off")
@@ -85,13 +70,9 @@ class TestBuilderConstruction:
     def test_rejects_input_role_mismatch(self):
         # ACEScg is registered input-only; using it as the bundle's output
         # should fail role validation at build time.
-        spec = BundleSpec(
+        spec = make_bundle_spec(
             name="x",
-            film_profile="kodak_portra_400",
-            print_profiles=("kodak_portra_endura",),
-            input_color_space=_INPUT_CS,
             output_color_space="ACEScg",
-            resolution=5,
         )
         with pytest.raises(ValueError, match="not registered as an output"):
             BundleBuilder(spec).build()
@@ -122,7 +103,7 @@ class TestBuildResult:
     def test_metadata_records_color_spaces(self, built):
         cs = built.meta.color_spaces
         assert cs["input"].name == _INPUT_CS
-        assert cs["input"].cctf is False  # ACEScg is linear
+        assert cs["input"].cctf is True   # ACEScct carries a log curve
         assert cs["output"].name == _OUTPUT_CS
         assert cs["output"].cctf is True  # sRGB carries a CCTF
 
@@ -231,14 +212,9 @@ class TestMultiPrintOneLut:
 
     @pytest.fixture(scope="class")
     def multi_print_bundle(self):
-        spec = BundleSpec(
+        spec = make_bundle_spec(
             name="portra400_two_prints",
-            film_profile="kodak_portra_400",
             print_profiles=("kodak_portra_endura", "fujifilm_crystal_archive_typeii"),
-            input_color_space="ACEScg",
-            output_color_space="sRGB",
-            topology="1lut",
-            resolution=5,
         )
         return BundleBuilder(spec).build()
 
@@ -290,13 +266,9 @@ class TestMultiPrintOneLut:
         assert not np.array_equal(table_a, table_b)
 
     def test_write_emits_one_cube_per_print(self, tmp_path):
-        spec = BundleSpec(
+        spec = make_bundle_spec(
             name="multi_write",
-            film_profile="kodak_portra_400",
             print_profiles=("kodak_portra_endura", "fujifilm_crystal_archive_typeii"),
-            input_color_space="ACEScg",
-            output_color_space="sRGB",
-            resolution=5,
         )
         builder = BundleBuilder(spec)
         bundle = builder.build()
@@ -318,55 +290,42 @@ class TestGamutClip:
 
     def test_bundle_spec_rejects_unknown_gamut_clip(self):
         with pytest.raises(ValueError, match="gamut_clip"):
-            BundleSpec(
+            make_bundle_spec(
                 name="bad_gc",
-                film_profile="kodak_portra_400",
-                print_profiles=("kodak_portra_endura",),
-                input_color_space=_INPUT_CS,
-                output_color_space=_OUTPUT_CS,
-                resolution=5,
                 gamut_clip="medium",
             )
 
     def test_bundle_spec_accepts_short_tag_color_spaces(self):
-        spec = BundleSpec(
+        spec = make_bundle_spec(
             name="short_tag_cs",
-            film_profile="kodak_portra_400",
-            print_profiles=("kodak_portra_endura",),
             input_color_space="acescg",
             output_color_space="rec2100pq",
-            resolution=5,
         )
         assert spec.input_color_space == "ACEScg"
         assert spec.output_color_space == "Rec.2100 PQ"
 
     def test_stops_above_midgray_auto_resolves_to_native_stops_for_pq(self):
-        spec = BundleSpec(
+        spec = make_bundle_spec(
             name="pq_auto",
-            film_profile="kodak_portra_400",
-            print_profiles=("kodak_portra_endura",),
             input_color_space="rec2100pq",
             output_color_space="rec709",
-            resolution=5,
             stops_above_midgray="auto",
         )
         # 100-nit (SDR ref white) midgray on a 10000-nit peak → log2(100) ≈ 6.64 stops.
         # This puts midgray near PQ-encoded 0.5, where the LUT cube samples sensibly.
         assert spec.stops_above_midgray == pytest.approx(6.64, abs=0.05)
 
-    def test_stops_above_midgray_auto_is_native_headroom_for_sdr(self):
-        # sRGB midgray is already at 0.18 linear, so "auto"
-        # resolves to log2(1.0 / 0.18) ≈ 2.47 (the input's native headroom).
-        spec = BundleSpec(
+    def test_stops_above_midgray_auto_for_encoded_sdr(self):
+        # Encoded SDR inputs (sRGB, Adobe RGB, Rec.709, Rec.2020) resolve
+        # to ENCODED_SDR_DEFAULT_STOPS (4.0): native headroom is only ≈2.47,
+        # which leaves the film shoulder unused; bumping to +4 engages it.
+        spec = make_bundle_spec(
             name="srgb_auto",
-            film_profile="kodak_portra_400",
-            print_profiles=("kodak_portra_endura",),
             input_color_space="sRGB",
             output_color_space="sRGB",
-            resolution=5,
             stops_above_midgray="auto",
         )
-        assert spec.stops_above_midgray == pytest.approx(2.47, abs=0.02)
+        assert spec.stops_above_midgray == pytest.approx(4.0, abs=0.001)
 
     def test_pq_output_bake_is_not_crushed_black(self):
         # Regression: encoding film output (reflectance scale) through
@@ -374,13 +333,10 @@ class TestGamutClip:
         # 0.18 as 0.18 nits — the LUT comes out almost entirely black.
         # color_spaces.output_midgray_gain fixes this; here we just
         # check the baked cube has a healthy spread of nonzero values.
-        spec = BundleSpec(
+        spec = make_bundle_spec(
             name="pq_out_smoke",
-            film_profile="kodak_portra_400",
-            print_profiles=("kodak_portra_endura",),
             input_color_space="rec2100pq",
             output_color_space="rec2100pq",
-            resolution=5,
             stops_above_midgray="auto",
         )
         bundle = BundleBuilder(spec).build()
@@ -397,35 +353,24 @@ class TestGamutClip:
 
     def test_stops_above_midgray_rejects_unknown_sentinel(self):
         with pytest.raises(ValueError, match="must be a float, None, or 'auto'"):
-            BundleSpec(
+            make_bundle_spec(
                 name="bad_sentinel",
-                film_profile="kodak_portra_400",
-                print_profiles=("kodak_portra_endura",),
                 input_color_space="rec2100pq",
                 output_color_space="rec709",
-                resolution=5,
                 stops_above_midgray="native",  # type: ignore[arg-type]
             )
 
     def test_bundle_spec_rejects_unknown_color_space(self):
         with pytest.raises(KeyError, match="Unknown color space"):
-            BundleSpec(
+            make_bundle_spec(
                 name="bad_cs",
-                film_profile="kodak_portra_400",
-                print_profiles=("kodak_portra_endura",),
                 input_color_space="not_a_real_space",
                 output_color_space=_OUTPUT_CS,
-                resolution=5,
             )
 
     def test_default_bundle_spec_is_soft(self):
-        spec = BundleSpec(
+        spec = make_bundle_spec(
             name="default_gc",
-            film_profile="kodak_portra_400",
-            print_profiles=("kodak_portra_endura",),
-            input_color_space=_INPUT_CS,
-            output_color_space=_OUTPUT_CS,
-            resolution=5,
         )
         assert spec.gamut_clip == "soft"
 
@@ -434,15 +379,8 @@ class TestGamutClip:
         output tables differ where the print's chromaticity falls outside
         the output gamut. We don't make claims about *where* they differ
         without imagery; we just need them not to be byte-equal."""
-        common = dict(
-            film_profile="kodak_portra_400",
-            print_profiles=("kodak_portra_endura",),
-            input_color_space="ACEScg",
-            output_color_space="sRGB",
-            resolution=5,
-        )
-        soft = BundleBuilder(BundleSpec(name="soft", gamut_clip="soft", **common)).build()
-        hard = BundleBuilder(BundleSpec(name="hard", gamut_clip="hard", **common)).build()
+        soft = BundleBuilder(make_bundle_spec(name="soft", gamut_clip="soft")).build()
+        hard = BundleBuilder(make_bundle_spec(name="hard", gamut_clip="hard")).build()
         soft_table = soft.luts[0][1].table
         hard_table = hard.luts[0][1].table
         # Identical shape, finite, in [0, 1]
@@ -459,95 +397,65 @@ class TestGamutClip:
         )
 
 
-class TestBundleContainer:
+class TestBundleOutput:
+    """Bundle write surface: directory layout, container variants, file
+    contents, provenance metadata, and cube header attribution. Merges
+    what used to be TestBundleContainer + TestBundleWrite + TestProvenance,
+    keeping one cube round-trip (the previous "round-trip still works
+    with header" assertion was identical to the basic round-trip)."""
+
     def test_bundle_spec_rejects_unknown_container(self):
         with pytest.raises(ValueError, match="container"):
-            BundleSpec(
+            make_bundle_spec(
                 name="bad_container",
-                film_profile="kodak_portra_400",
-                print_profiles=("kodak_portra_endura",),
-                input_color_space=_INPUT_CS,
-                output_color_space=_OUTPUT_CS,
-                resolution=5,
                 container="archive",
             )
 
-    def test_write_zip_returns_archive_with_bundle_contents(self, tmp_path):
-        spec = BundleSpec(
+    def test_directory_write_creates_cube_json_readme_license(self, builder, built, tmp_path):
+        out_dir = builder.write(built, tmp_path / "bundle")
+        rel_path, _ = built.luts[0]
+        assert (out_dir / rel_path).exists()
+        assert (out_dir / "bundle.json").exists()
+        # README smoke: file exists and names the bundle's stocks / color
+        # spaces. Marketing-copy phrasing is no longer pinned here.
+        readme_text = (out_dir / "README.md").read_text(encoding="utf-8")
+        for token in ("ACEScct", "sRGB", "kodak_portra_400", "kodak_portra_endura"):
+            assert token in readme_text, f"README missing {token!r}"
+        # License file is copied verbatim.
+        license_copy = out_dir / "SPEKTRAFILM_LICENSE.txt"
+        assert license_copy.read_text(encoding="utf-8") == _LUT_LICENSE_PATH.read_text(encoding="utf-8")
+
+    def test_zip_container_packages_bundle_directory(self, tmp_path):
+        spec = make_bundle_spec(
             name="zip_bundle",
-            film_profile="kodak_portra_400",
-            print_profiles=("kodak_portra_endura",),
-            input_color_space=_INPUT_CS,
-            output_color_space=_OUTPUT_CS,
-            resolution=5,
             container="zip",
         )
         builder = BundleBuilder(spec)
         bundle = builder.build()
-
         archive_path = builder.write(bundle, tmp_path / "bundle")
+        rel_path, _ = bundle.luts[0]
 
         assert archive_path == tmp_path / "bundle.zip"
         assert archive_path.is_file()
         assert (tmp_path / "bundle").is_dir()
         with zipfile.ZipFile(archive_path) as archive:
             members = set(archive.namelist())
-        rel_path, _ = bundle.luts[0]
-        assert "bundle/" in members
-        assert "bundle/bundle.json" in members
-        assert "bundle/README.md" in members
-        assert "bundle/SPEKTRAFILM_LICENSE.txt" in members
-        assert f"bundle/{rel_path}" in members
+        for expected in ("bundle/", "bundle/bundle.json", "bundle/README.md",
+                         "bundle/SPEKTRAFILM_LICENSE.txt", f"bundle/{rel_path}"):
+            assert expected in members, f"zip missing {expected!r}"
 
-
-class TestBundleWrite:
-    def test_write_creates_cube_and_json(self, builder, built, tmp_path):
-        out_dir = builder.write(built, tmp_path / "bundle")
-        rel_path, _ = built.luts[0]
-        assert (out_dir / rel_path).exists()
-        assert (out_dir / "bundle.json").exists()
-
-    def test_write_creates_bundle_readme(self, builder, built, tmp_path):
-        out_dir = builder.write(built, tmp_path / "bundle_readme")
-        readme = out_dir / "README.md"
-        assert readme.exists()
-        text = readme.read_text(encoding="utf-8")
-        assert "# spektrafilm LUT bundle" in text
-        assert "ACEScg" in text
-        assert "sRGB" in text
-        assert "kodak_portra_400" in text
-        assert "kodak_portra_endura" in text
-        assert "bundle.json" in text
-
-    def test_readme_includes_what_this_is_and_isnt_framing(self, builder, built, tmp_path):
-        """n090 §5.1 — the bundle README must lead with the
-        'what this is / what this isn't' framing so a colorist scanning
-        the first screen reads 'calibrated technical transform', not
-        'another LUT pack'."""
-        out_dir = builder.write(built, tmp_path / "framing")
-        text = (out_dir / "README.md").read_text(encoding="utf-8")
-        assert "## What this is" in text
-        assert "## What this is not" in text
-        assert "stylistic look-up grade" in text
-        # The 'what this is' section must precede 'Quick info'.
-        assert text.index("## What this is") < text.index("## Quick info")
-
-    def test_write_copies_lut_license(self, builder, built, tmp_path):
-        out_dir = builder.write(built, tmp_path / "bundle_license")
-        copied = out_dir / "SPEKTRAFILM_LICENSE.txt"
-        assert copied.exists()
-        assert copied.read_text(encoding="utf-8") == _LUT_LICENSE_PATH.read_text(encoding="utf-8")
-
-    def test_write_cube_round_trips(self, builder, built, tmp_path):
+    def test_cube_round_trips_after_write(self, builder, built, tmp_path):
+        """The cube reader recovers the original table from the on-disk
+        cube — and the comment header doesn't interfere with parsing."""
         out_dir = builder.write(built, tmp_path / "rt")
         rel_path, lut = built.luts[0]
-        cube = get_format("cube")
-        loaded = cube.read(out_dir / rel_path)
+        loaded = get_format("cube").read(out_dir / rel_path)
         np.testing.assert_allclose(loaded.table, lut.table, atol=1e-9)
 
-    def test_bundle_json_carries_metadata(self, builder, built, tmp_path):
+    def test_bundle_json_carries_metadata_and_provenance(self, builder, built, tmp_path):
         out_dir = builder.write(built, tmp_path / "meta")
         payload = json.loads((out_dir / "bundle.json").read_text(encoding="utf-8"))
+        # Core metadata.
         assert payload["name"] == "test_1lut"
         assert payload["topology"] == "1lut"
         assert payload["resolution"] == _RESOLUTION
@@ -556,64 +464,38 @@ class TestBundleWrite:
         assert payload["color_spaces"]["input"]["name"] == _INPUT_CS
         assert payload["color_spaces"]["output"]["name"] == _OUTPUT_CS
         assert payload["luts"][0]["role"] == "combined"
-        # The path field matches the actual on-disk filename.
         assert payload["luts"][0]["path"] == built.luts[0][0]
-
-
-class TestProvenance:
-    """The bundle.json provenance block and the .cube header are the two
-    places downstream users learn that this LUT came from spektrafilm.
-    """
-
-    def test_meta_has_provenance_with_essential_fields(self, built):
-        prov = built.meta.provenance
-        assert prov.spektrafilm_version
-        assert prov.spektrafilm_version != "0+unknown"  # spektrafilm IS installed for tests
-        assert prov.lut_creator_version
-        assert prov.created  # ISO 8601
-        assert "spektrafilm" in prov.copyright
-        assert "CC BY-SA 4.0" in prov.license
-        assert "SPEKTRAFILM_LICENSE.txt" in prov.license
-        assert "github.com/andreavolpato/spektrafilm" in prov.license
-        assert "spektrafilm" in prov.citation
-        assert "CITATION.cff" in prov.citation
-        assert prov.project_url == "https://github.com/andreavolpato/spektrafilm"
-        assert prov.notes  # non-empty
-
-    def test_bundle_json_includes_provenance_block(self, builder, built, tmp_path):
-        out_dir = builder.write(built, tmp_path / "prov")
-        payload = json.loads((out_dir / "bundle.json").read_text(encoding="utf-8"))
-        assert "provenance" in payload
+        # Provenance block is present and complete.
         prov = payload["provenance"]
         for key in ("spektrafilm_version", "lut_creator_version", "created",
                     "copyright", "license", "citation", "project_url", "notes"):
             assert key in prov, f"missing provenance field {key!r}"
 
-    def test_cube_file_has_header_with_attribution(self, builder, built, tmp_path):
+    def test_meta_object_has_provenance_with_essential_fields(self, built):
+        prov = built.meta.provenance
+        assert prov.spektrafilm_version and prov.spektrafilm_version != "0+unknown"
+        assert prov.lut_creator_version
+        assert prov.created  # ISO 8601
+        assert "spektrafilm" in prov.copyright
+        assert "CC BY-SA 4.0" in prov.license
+        assert "github.com/andreavolpato/spektrafilm" in prov.license
+        assert "CITATION.cff" in prov.citation
+        assert prov.project_url == "https://github.com/andreavolpato/spektrafilm"
+
+    def test_cube_file_header_carries_attribution(self, builder, built, tmp_path):
         out_dir = builder.write(built, tmp_path / "cubehdr")
         rel_path = built.luts[0][0]
         text = (out_dir / rel_path).read_text(encoding="utf-8")
         head = text.splitlines()[:60]
         head_blob = "\n".join(head)
-        # The comment block must carry the essentials.
-        assert "spektrafilm LUT" in head_blob
-        assert built.meta.name in head_blob
-        assert "CC BY-SA 4.0" in head_blob
-        assert "github.com/andreavolpato/spektrafilm" in head_blob
-        assert "CITATION.cff" in head_blob
-        # Every comment-block line starts with '#'.
+        for token in ("spektrafilm LUT", built.meta.name, "CC BY-SA 4.0",
+                      "github.com/andreavolpato/spektrafilm", "CITATION.cff"):
+            assert token in head_blob, f"cube header missing {token!r}"
+        # Every comment-block line starts with '#' until the data section.
         for line in head:
             if "DOMAIN_MIN" in line or "TITLE" in line:
                 break
             assert line.startswith("#") or line == "", f"non-comment header line: {line!r}"
-
-    def test_cube_round_trip_still_works_with_header(self, builder, built, tmp_path):
-        """Adding a comment header must not interfere with cube parsing."""
-        out_dir = builder.write(built, tmp_path / "rt2")
-        rel_path, lut = built.luts[0]
-        cube = get_format("cube")
-        loaded = cube.read(out_dir / rel_path)
-        np.testing.assert_allclose(loaded.table, lut.table, atol=1e-9)
 
 
 # ---------------------------------------------------------------------------
@@ -635,17 +517,17 @@ class TestDefaultBundleName:
         spec = BundleSpec(
             film_profile="kodak_portra_400",
             print_profiles=("kodak_portra_endura",),
-            input_color_space="ACEScg",
+            input_color_space="ACEScct",
             output_color_space="sRGB",
             topology="1lut",
             resolution=5,
         )
-        # spektrafilm_v032_portra400_portraendura_1lut_acescg_srgb
+        # spektrafilm_v032_portra400_portraendura_1lut_acescct_srgb
         assert spec.name.startswith("spektrafilm_v")
         assert "_portra400_" in spec.name
         assert "_portraendura_" in spec.name
         assert "_1lut_" in spec.name
-        assert "_acescg_" in spec.name
+        assert "_acescct_" in spec.name
         assert spec.name.endswith("_srgb")
 
     def test_single_print_2lut_vlog_rec2020(self):
@@ -667,7 +549,7 @@ class TestDefaultBundleName:
         spec = BundleSpec(
             film_profile="kodak_portra_400",
             print_profiles=("kodak_portra_endura",),
-            input_color_space="ACEScg",
+            input_color_space="ACEScct",
             output_color_space="sRGB",
             topology="4lut",
             resolution=5,
@@ -680,7 +562,7 @@ class TestDefaultBundleName:
         spec = BundleSpec(
             film_profile="kodak_portra_400",
             print_profiles=("kodak_portra_endura", "fujifilm_crystal_archive_typeii"),
-            input_color_space="ACEScg",
+            input_color_space="ACEScct",
             output_color_space="sRGB",
             topology="1lut",
             resolution=5,
@@ -692,7 +574,7 @@ class TestDefaultBundleName:
         # Film, topology, color spaces survive unchanged.
         assert "_portra400_" in spec.name
         assert "_1lut_" in spec.name
-        assert "_acescg_" in spec.name
+        assert "_acescct_" in spec.name
         assert spec.name.endswith("_srgb")
 
     def test_three_print_bundle_uses_3printpack_token(self):
@@ -703,7 +585,7 @@ class TestDefaultBundleName:
                 "fujifilm_crystal_archive_typeii",
                 "kodak_supra_endura",
             ),
-            input_color_space="ACEScg",
+            input_color_space="ACEScct",
             output_color_space="sRGB",
             topology="2lut",
             resolution=5,
@@ -716,7 +598,7 @@ class TestDefaultBundleName:
             name="my_custom_bundle_name",
             film_profile="kodak_portra_400",
             print_profiles=("kodak_portra_endura",),
-            input_color_space="ACEScg",
+            input_color_space="ACEScct",
             output_color_space="sRGB",
         )
         # Explicit name wins; the canonical pattern doesn't override it.
@@ -835,15 +717,8 @@ class TestTwoLutBundle:
             assert d > 0.1, f"channel {c} d_max suspiciously small: {d}"
             assert d < 10.0, f"channel {c} d_max suspiciously large: {d}"
 
-    def test_cmy_film_reserves_below_zero_headroom(self, two_lut_bundle):
-        """cmy_film density is above base+fog; d_min sits slightly below
-        zero to give downstream grain models headroom (grain fluctuates
-        around the dye density and can briefly dip into the fog)."""
-        wires = two_lut_bundle.meta.wires
-        d_min = wires.cmy_film.d_min
-        assert d_min == (-0.2, -0.2, -0.2), (
-            f"cmy_film.d_min should reserve 0.2 of below-fog headroom; got {d_min}"
-        )
+    # cmy_film below-zero headroom is asserted once in
+    # test_bundle_json_includes_density_wire (covers both d_min and d_max).
 
     # ---- behavior -------------------------------------------------------
 
@@ -893,7 +768,7 @@ class TestTwoLutBundle:
         grid = cube_grid(n)
         image_enc = grid.reshape(1, n ** 3, 3)
         # n150: mirror the bake's input transform (decode + exposure gain).
-        # Fixture uses default stops_above_midgray=None → gain 1.0.
+        # Fixture is ACEScct under stops_above_midgray="auto" → identity gain.
         image_lin = decode_cctf(image_enc, _INPUT_CS)
         image_lin = (image_lin * input_exposure_gain(_INPUT_CS, None)).astype(np.float32)
         cmy_film = np.asarray(pipeline.process(image_lin, collect="cmy_film"),
@@ -943,7 +818,7 @@ class TestTwoLutBundle:
 
         # Live pipeline end-to-end:
         # n150: mirror the bake's decode + exposure-gain path.
-        # Fixture uses default stops_above_midgray=None → gain 1.0.
+        # Fixture is ACEScct under stops_above_midgray="auto" → identity gain.
         samples_linear = decode_cctf(samples_encoded, _INPUT_CS)
         samples_linear = (samples_linear * input_exposure_gain(_INPUT_CS, None)).astype(np.float32)
         live_rgb_linear = np.asarray(
@@ -1008,39 +883,10 @@ class TestTwoLutBundle:
         assert payload["wires"]["log_e_film"] is None
         assert payload["wires"]["cmy_print"] is None
 
-    def test_readme_explains_apply_order_for_2lut(self, two_lut_spec, tmp_path):
-        bundle = BundleBuilder(two_lut_spec).build()
-        builder = BundleBuilder(two_lut_spec)
-        out_dir = builder.write(bundle, tmp_path / "two_lut_readme")
-        readme = (out_dir / "README.md").read_text(encoding="utf-8")
-        # The README must tell users to apply film first, then print.
-        assert "Apply order" in readme
-        assert "film LUT first" in readme
-
-    def test_readme_describes_intermediate_grain_injection(self, two_lut_spec, tmp_path):
-        """The 2-LUT bundle exposes the cmy_film tap; the README must
-        tell users that grain injection belongs at that tap, with
-        d_max-based decoding."""
-        bundle = BundleBuilder(two_lut_spec).build()
-        builder = BundleBuilder(two_lut_spec)
-        out_dir = builder.write(bundle, tmp_path / "two_lut_grain")
-        readme = (out_dir / "README.md").read_text(encoding="utf-8")
-        assert "intermediate space" in readme.lower()
-        assert "grain" in readme.lower()
-        assert "cmy_film" in readme
-        assert "d_max" in readme
-
-    def test_readme_describes_fog_headroom_for_2lut(self, two_lut_spec, tmp_path):
-        """The 2-LUT README must explain why d_min sits below zero — so
-        grain noise that dips into the fog can survive the wire's
-        [0, 1] code clamp."""
-        bundle = BundleBuilder(two_lut_spec).build()
-        builder = BundleBuilder(two_lut_spec)
-        out_dir = builder.write(bundle, tmp_path / "two_lut_fog")
-        readme = (out_dir / "README.md").read_text(encoding="utf-8").lower()
-        assert "base+fog" in readme
-        assert "d_min" in readme
-        assert "headroom" in readme
+# Marketing-copy README assertions (apply-order phrasing, grain/fog
+# explanations, etc.) were culled: the smoke test in TestBundleWrite
+# covers "README exists and names the bundle's color spaces / stocks";
+# everything beyond that pins prose, not behavior.
 
 
 # ---------------------------------------------------------------------------
@@ -1124,48 +970,19 @@ class TestThreeLutBundle:
         assert wires.log_e_print is None
         assert wires.cmy_print is None
 
-    def test_density_wire_has_fog_headroom(self, three_lut_bundle):
-        wires = three_lut_bundle.meta.wires
-        assert wires.cmy_film.d_min == (-0.2, -0.2, -0.2)
+    # cmy_film d_min headroom is already pinned by the 2-LUT class; same
+    # invariant applies for 3-LUT, no point asserting twice.
 
     def test_log_e_film_wire_has_positive_span(self, three_lut_bundle):
         wire = three_lut_bundle.meta.wires.log_e_film
         assert wire.max > wire.min
         assert wire.max - wire.min < 25.0
 
-    # ---- on-disk ---------------------------------------------------------
-
-    def test_bundle_json_records_three_lut_wires(self, three_lut_spec, tmp_path):
-        bundle = BundleBuilder(three_lut_spec).build()
-        builder = BundleBuilder(three_lut_spec)
-        out_dir = builder.write(bundle, tmp_path / "three_lut_json")
-        payload = json.loads((out_dir / "bundle.json").read_text(encoding="utf-8"))
-        assert payload["topology"] == "3lut"
-        wires = payload["wires"]
-        assert wires["log_e_film"] is not None
-        assert wires["cmy_film"] is not None
-        assert wires["log_e_print"] is None
-        assert wires["cmy_print"] is None
-
-    def test_readme_explains_three_lut_apply_order(self, three_lut_spec, tmp_path):
-        bundle = BundleBuilder(three_lut_spec).build()
-        builder = BundleBuilder(three_lut_spec)
-        out_dir = builder.write(bundle, tmp_path / "three_lut_readme")
-        readme = (out_dir / "README.md").read_text(encoding="utf-8")
-        assert "Apply order" in readme
-        assert "L1" in readme and "L2" in readme and "L3" in readme
-        assert "L4" not in readme  # No L4 in a 3-LUT bundle.
-
-    def test_readme_calls_out_collapsed_log_e_print(self, three_lut_spec, tmp_path):
-        """The 3-LUT README must warn users that the log_e_print tap is
-        not available — enlarger-stage effects belong in 4-LUT instead."""
-        bundle = BundleBuilder(three_lut_spec).build()
-        builder = BundleBuilder(three_lut_spec)
-        out_dir = builder.write(bundle, tmp_path / "three_lut_collapsed")
-        readme = (out_dir / "README.md").read_text(encoding="utf-8").lower()
-        assert "log_e_print" in readme
-        assert "collapsed" in readme
-        assert "4-lut" in readme
+    # 3-LUT bundle.json wires structure is covered by the meta-level
+    # test_wire_exposure_is_log_e_film_plus_cmy_film. The on-disk JSON
+    # is a 1:1 serialization of the meta object — pinning it twice
+    # adds no behavior coverage.
+    # 3-LUT README prose assertions culled (see comment under 2-LUT).
 
 
 # ---------------------------------------------------------------------------
@@ -1355,7 +1172,7 @@ class TestFourLutBundle:
         rng = np.random.default_rng(20260516)
         samples_encoded = rng.uniform(0.0, 1.0, size=(200, 3)).astype(np.float32)
         # n150: mirror the bake's decode + exposure-gain path.
-        # Fixture uses default stops_above_midgray=None → gain 1.0.
+        # Fixture is ACEScct under stops_above_midgray="auto" → identity gain.
         samples_linear = decode_cctf(samples_encoded, _INPUT_CS)
         samples_linear = (samples_linear * input_exposure_gain(_INPUT_CS, None)).astype(np.float32)
         live_rgb_linear = np.asarray(
@@ -1399,58 +1216,9 @@ class TestFourLutBundle:
         assert len(l3_cubes) == len(self._FOUR_LUT_PRINTS)
         assert len(l4_cubes) == len(self._FOUR_LUT_PRINTS)
 
-    def test_bundle_json_includes_all_three_wires(self, four_lut_spec, tmp_path):
-        bundle = BundleBuilder(four_lut_spec).build()
-        builder = BundleBuilder(four_lut_spec)
-        out_dir = builder.write(bundle, tmp_path / "four_lut_json")
-        payload = json.loads((out_dir / "bundle.json").read_text(encoding="utf-8"))
-        wires = payload["wires"]
-        assert wires["log_e_film"] is not None
-        assert "min" in wires["log_e_film"] and "max" in wires["log_e_film"]
-        assert wires["log_e_film"]["max"] > wires["log_e_film"]["min"]
-        assert wires["cmy_film"] is not None
-        assert len(wires["cmy_film"]["d_max"]) == 3
-        assert wires["log_e_print"] is not None
-        assert wires["log_e_print"]["max"] > wires["log_e_print"]["min"]
-        # cmy_print stays null (L4 collapses it).
-        assert wires["cmy_print"] is None
-
-    def test_readme_explains_apply_order_for_4lut(self, four_lut_spec, tmp_path):
-        bundle = BundleBuilder(four_lut_spec).build()
-        builder = BundleBuilder(four_lut_spec)
-        out_dir = builder.write(bundle, tmp_path / "four_lut_readme")
-        readme = (out_dir / "README.md").read_text(encoding="utf-8")
-        assert "Apply order" in readme
-        # The README must spell out L1 → L2 → L3 → L4.
-        assert "L1" in readme and "L2" in readme and "L3" in readme and "L4" in readme
-
-    def test_readme_describes_intermediate_effect_injection_for_4lut(
-        self, four_lut_spec, tmp_path,
-    ):
-        """The 4-LUT bundle exposes three intermediate taps; the README
-        must describe what to do at each (halation/scatter/diffusion at
-        log_e_film, grain at cmy_film, enlarger diffusion at log_e_print).
-        """
-        bundle = BundleBuilder(four_lut_spec).build()
-        builder = BundleBuilder(four_lut_spec)
-        out_dir = builder.write(bundle, tmp_path / "four_lut_intermediates")
-        readme = (out_dir / "README.md").read_text(encoding="utf-8")
-        readme_lower = readme.lower()
-        # log_e_film tap → linear-light spatial effects.
-        assert "log_e_film" in readme
-        assert "halation" in readme_lower
-        assert "scattering" in readme_lower or "scatter" in readme_lower
-        # cmy_film tap → grain.
-        assert "cmy_film" in readme
-        assert "grain" in readme_lower
-        # log_e_print tap → enlarger diffusion.
-        assert "log_e_print" in readme
-        assert "enlarger" in readme_lower
-        assert "diffusion" in readme_lower
-        # cmy_film density is above base+fog; the README must explain
-        # the d_min below-zero headroom so grain models don't get clipped.
-        assert "base+fog" in readme_lower
-        assert "d_min" in readme
+    # 4-LUT bundle.json wire structure is a 1:1 serialization of the
+    # meta object asserted elsewhere — not pinned twice. README prose
+    # assertions culled (see comment under 2-LUT).
 
     def test_4lut_cmy_film_reserves_fog_headroom(self, four_lut_bundle):
         wires = four_lut_bundle.meta.wires
@@ -1471,7 +1239,7 @@ class TestBundleSpecQaFields:
         spec = BundleSpec(
             film_profile="kodak_portra_400",
             print_profiles=("kodak_portra_endura",),
-            input_color_space="ACEScg",
+            input_color_space="ACEScct",
             output_color_space="sRGB",
         )
         assert spec.qa is False
@@ -1482,7 +1250,7 @@ class TestBundleSpecQaFields:
             BundleSpec(
                 film_profile="kodak_portra_400",
                 print_profiles=("kodak_portra_endura",),
-                input_color_space="ACEScg",
+                input_color_space="ACEScct",
                 output_color_space="sRGB",
                 qa=True,
                 qa_print_index=3,
@@ -1492,7 +1260,7 @@ class TestBundleSpecQaFields:
         spec = BundleSpec(
             film_profile="kodak_portra_400",
             print_profiles=("kodak_portra_endura",),
-            input_color_space="ACEScg",
+            input_color_space="ACEScct",
             output_color_space="sRGB",
             qa=True,
             qa_print_index=0,
@@ -1501,23 +1269,33 @@ class TestBundleSpecQaFields:
 
 
 class TestBundleSpecStopsAboveGray:
-    """``BundleSpec.stops_above_midgray`` defaults to ``None`` (native, no
-    gain) and can be overridden with a float to apply a linear gain so
-    source encoded 1.0 lands at ``0.18 * 2 ** stops_above_midgray`` in the
-    film's frame (n150)."""
+    """``BundleSpec.stops_above_midgray`` defaults to ``"auto"``, which
+    ``__post_init__`` resolves to a concrete float via
+    :func:`native_stops_above_midgray` — different per input kind. Passing
+    ``None`` skips the gain entirely; passing a float overrides."""
 
-    @pytest.mark.parametrize("input_cs", [
-        "Rec.2020",         # encoded_sdr
-        "sRGB",             # encoded_sdr
-        "ACEScg",           # linear
-        "Panasonic V-Log",  # log
+    @pytest.mark.parametrize("input_cs,expected", [
+        ("Rec.2020",        4.0),    # encoded_sdr → ENCODED_SDR_DEFAULT_STOPS
+        ("sRGB",            4.0),    # encoded_sdr → ENCODED_SDR_DEFAULT_STOPS
+        ("ACEScct",         pytest.approx(10.27, abs=0.05)),  # log: encoded 1.0 → 65504 linear
+        ("Panasonic V-Log", pytest.approx(7.99, abs=0.1)),    # log → native ≈8
     ])
-    def test_every_kind_defaults_to_none(self, input_cs):
+    def test_auto_default_resolves_per_kind(self, input_cs, expected):
         spec = BundleSpec(
             film_profile="kodak_portra_400",
             print_profiles=("kodak_portra_endura",),
             input_color_space=input_cs,
             output_color_space="sRGB",
+        )
+        assert spec.stops_above_midgray == expected
+
+    def test_explicit_none_is_preserved(self):
+        spec = BundleSpec(
+            film_profile="kodak_portra_400",
+            print_profiles=("kodak_portra_endura",),
+            input_color_space="sRGB",
+            output_color_space="sRGB",
+            stops_above_midgray=None,
         )
         assert spec.stops_above_midgray is None
 
@@ -1543,7 +1321,7 @@ class TestDefaultOutputDirectory:
         spec = BundleSpec(
             film_profile="kodak_portra_400",
             print_profiles=("kodak_portra_endura",),
-            input_color_space="ACEScg",
+            input_color_space="ACEScct",
             output_color_space="sRGB",
             resolution=5,
         )
@@ -1559,7 +1337,7 @@ class TestDefaultOutputDirectory:
             name="explicit_test",
             film_profile="kodak_portra_400",
             print_profiles=("kodak_portra_endura",),
-            input_color_space="ACEScg",
+            input_color_space="ACEScct",
             output_color_space="sRGB",
             resolution=5,
         )
@@ -1577,11 +1355,36 @@ class TestQaAutoRun:
     ship-ready.
     """
 
+    @pytest.fixture(autouse=True)
+    def _stub_qa_run(self, monkeypatch):
+        import spektrafilm_lut_creator.qa as qa_module
+
+        def fake_run(_spec, _bundle, out_dir, *, suite=None, print_index=0):
+            out_dir = Path(out_dir)
+            figures_dir = out_dir / "figures"
+            cache_dir = out_dir / "cache"
+            figures_dir.mkdir(parents=True, exist_ok=True)
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            (figures_dir / f"qa_stub_{print_index}.png").write_bytes(b"stub")
+            (cache_dir / "scratch.tmp").write_text("stub", encoding="utf-8")
+            (out_dir / "report.md").write_text("# stub qa report\n", encoding="utf-8")
+            (out_dir / "report.html").write_text("<html></html>\n", encoding="utf-8")
+            return [
+                Result(
+                    name=f"qa_stub_{print_index}",
+                    summary={"print_index": print_index},
+                    interpretation="stubbed QA run",
+                    passed=True,
+                )
+            ]
+
+        monkeypatch.setattr(qa_module, "run", fake_run)
+
     def _make_spec(self, *, qa: bool, qa_print_index=None, prints=None):
         return BundleSpec(
             film_profile="kodak_portra_400",
             print_profiles=prints or ("kodak_portra_endura",),
-            input_color_space="ACEScg",
+            input_color_space="ACEScct",
             output_color_space="sRGB",
             topology="2lut",
             resolution=5,
@@ -1603,12 +1406,16 @@ class TestQaAutoRun:
         bundle = builder.build()
         out = builder.write(bundle, tmp_path / "qa_all")
         qa_dir = out / "qa"
+        readme = (out / "README.md").read_text(encoding="utf-8")
         # One report folder per print, named with that print substituted
         # into the bundle's canonical pattern.
         report_names = sorted(p.name for p in qa_dir.iterdir() if p.is_dir())
         assert len(report_names) == 2
         assert any("portraendura" in n for n in report_names)
         assert any("crystalarchive" in n for n in report_names)
+        assert "## Quality" in readme
+        assert "qa_stub_0" in readme
+        assert "qa_stub_1" in readme
         # Each report carries a report.md and a figures/ subdir.
         for sub in qa_dir.iterdir():
             assert (sub / "report.md").is_file()
@@ -1624,8 +1431,12 @@ class TestQaAutoRun:
         bundle = builder.build()
         out = builder.write(bundle, tmp_path / "qa_one")
         qa_dir = out / "qa"
+        readme = (out / "README.md").read_text(encoding="utf-8")
         report_dirs = [p for p in qa_dir.iterdir() if p.is_dir()]
         assert len(report_dirs) == 1
         # The single report is for the second print (index 1).
         assert "crystalarchive" in report_dirs[0].name
         assert "portraendura" not in report_dirs[0].name
+        assert "## Quality" in readme
+        assert "qa_stub_1" in readme
+        assert "qa_stub_0" not in readme

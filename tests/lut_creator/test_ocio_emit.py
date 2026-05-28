@@ -30,6 +30,8 @@ from spektrafilm_lut_creator import ocio_emit
 from spektrafilm_lut_creator.builders import BundleBuilder
 from spektrafilm_lut_creator.bundles import BundleSpec
 
+from .factories import make_bundle_spec
+
 
 pytest.importorskip(
     "PyOpenColorIO",
@@ -41,7 +43,7 @@ pytest.importorskip(
 _RESOLUTION = 5
 _FILM = "kodak_portra_400"
 _PRINT = "kodak_portra_endura"
-_INPUT_CS = "ACEScg"
+_INPUT_CS = "ACEScct"
 _OUTPUT_CS = "sRGB"
 
 
@@ -51,18 +53,11 @@ _OUTPUT_CS = "sRGB"
 
 class TestSupportedPredicate:
     def _spec(self, **overrides) -> BundleSpec:
-        defaults = dict(
+        return make_bundle_spec(
             name="t",
-            film_profile=_FILM,
-            print_profiles=(_PRINT,),
-            input_color_space=_INPUT_CS,
-            output_color_space=_OUTPUT_CS,
-            topology="1lut",
-            resolution=5,
             ocio_config=True,  # tests below assume the OCIO path is opted-in
+            **overrides,
         )
-        defaults.update(overrides)
-        return BundleSpec(**defaults)
 
     def test_supported_for_1lut_acescg_to_srgb(self):
         assert ocio_emit.is_supported(self._spec())
@@ -99,16 +94,7 @@ def written_bundle(tmp_path_factory) -> tuple[Path, BundleSpec, "Bundle"]:
     """Build and write one tiny 1-LUT bundle. Used by every test below."""
     from spektrafilm_lut_creator.bundles import Bundle  # noqa: F401 (typing)
 
-    spec = BundleSpec(
-        name="ocio_emit_fixture",
-        film_profile=_FILM,
-        print_profiles=(_PRINT,),
-        input_color_space=_INPUT_CS,
-        output_color_space=_OUTPUT_CS,
-        topology="1lut",
-        resolution=_RESOLUTION,
-        ocio_config=True,
-    )
+    spec = make_bundle_spec(name="ocio_emit_fixture", ocio_config=True)
     builder = BundleBuilder(spec)
     bundle = builder.build()
     out_dir = tmp_path_factory.mktemp("ocio_bundle")
@@ -132,31 +118,14 @@ class TestConfigOnDisk:
 
     def test_default_skips_emission(self, tmp_path):
         """OCIO emission is opt-in; the default BundleSpec produces no config.ocio."""
-        spec = BundleSpec(
-            name="default_no_ocio",
-            film_profile=_FILM,
-            print_profiles=(_PRINT,),
-            input_color_space=_INPUT_CS,
-            output_color_space=_OUTPUT_CS,
-            topology="1lut",
-            resolution=_RESOLUTION,
-        )
+        spec = make_bundle_spec(name="default_no_ocio")
         assert spec.ocio_config is False
         builder = BundleBuilder(spec)
         out_dir = builder.write(builder.build(), tmp_path / spec.name)
         assert not (out_dir / "config.ocio").exists()
 
     def test_explicit_false_skips_emission(self, tmp_path):
-        spec = BundleSpec(
-            name="explicit_no_ocio",
-            film_profile=_FILM,
-            print_profiles=(_PRINT,),
-            input_color_space=_INPUT_CS,
-            output_color_space=_OUTPUT_CS,
-            topology="1lut",
-            resolution=_RESOLUTION,
-            ocio_config=False,
-        )
+        spec = make_bundle_spec(name="explicit_no_ocio", ocio_config=False)
         builder = BundleBuilder(spec)
         out_dir = builder.write(builder.build(), tmp_path / spec.name)
         assert not (out_dir / "config.ocio").exists()
@@ -286,14 +255,9 @@ def topology_bundle(request, tmp_path_factory) -> tuple[Path, BundleSpec, "Bundl
     from spektrafilm_lut_creator.bundles import Bundle  # noqa: F401
 
     topo = request.param
-    spec = BundleSpec(
+    spec = make_bundle_spec(
         name=f"topo_{topo}_fixture",
-        film_profile=_FILM,
-        print_profiles=(_PRINT,),
-        input_color_space=_INPUT_CS,
-        output_color_space=_OUTPUT_CS,
         topology=topo,
-        resolution=_RESOLUTION,
         ocio_config=True,
     )
     builder = BundleBuilder(spec)
@@ -360,10 +324,13 @@ class TestAllTopologies:
         the description so a downstream consumer can decode normalized
         code values to physical units."""
         bundle_dir, spec, bundle = topology_bundle
-        if spec.topology == "1lut":
-            pytest.skip("1-LUT has no intermediates")
         text = (bundle_dir / "config.ocio").read_text(encoding="utf-8")
         wires = bundle.meta.wires
+        if spec.topology == "1lut":
+            assert wires.cmy_film is None
+            assert wires.log_e_film is None
+            assert wires.log_e_print is None
+            return
         if wires.cmy_film is not None:
             # Each per-channel d_max value should appear as a 4-decimal float.
             for c in wires.cmy_film.d_max:
@@ -382,14 +349,10 @@ class TestMultiPrintFourLut:
 
     @pytest.fixture(scope="class")
     def multi_print_4lut(self, tmp_path_factory):
-        spec = BundleSpec(
+        spec = make_bundle_spec(
             name="multi_print_4lut",
-            film_profile=_FILM,
             print_profiles=(_PRINT, "fujifilm_crystal_archive_typeii"),
-            input_color_space=_INPUT_CS,
-            output_color_space=_OUTPUT_CS,
             topology="4lut",
-            resolution=_RESOLUTION,
             ocio_config=True,
         )
         builder = BundleBuilder(spec)
@@ -458,14 +421,9 @@ class TestDisplayAndViews:
         assert "Kodak Portra Endura" in spektrafilm_views[0]
 
     def test_one_lut_multi_print_emits_view_per_print(self, tmp_path):
-        spec = BundleSpec(
+        spec = make_bundle_spec(
             name="multi_print_views",
-            film_profile=_FILM,
             print_profiles=(_PRINT, "fujifilm_crystal_archive_typeii"),
-            input_color_space=_INPUT_CS,
-            output_color_space=_OUTPUT_CS,
-            topology="1lut",
-            resolution=_RESOLUTION,
             ocio_config=True,
         )
         builder = BundleBuilder(spec)
@@ -497,14 +455,9 @@ class TestDisplayAndViews:
         """Per n120 §1: multi-LUT bundles get colorspace-only emission;
         Views beyond the Raw fallback would hide the very intermediates
         the user asked for."""
-        spec = BundleSpec(
+        spec = make_bundle_spec(
             name=f"gating_{topo}",
-            film_profile=_FILM,
-            print_profiles=(_PRINT,),
-            input_color_space=_INPUT_CS,
-            output_color_space=_OUTPUT_CS,
             topology=topo,
-            resolution=_RESOLUTION,
             ocio_config=True,
         )
         builder = BundleBuilder(spec)
@@ -560,14 +513,10 @@ class TestExtendedColorSpaceCoverage:
     def test_validates_and_evaluates(self, input_cs, output_cs, tmp_path):
         import PyOpenColorIO as ocio
 
-        spec = BundleSpec(
+        spec = make_bundle_spec(
             name=f"coverage_{input_cs.split()[0]}_{output_cs.split()[0]}".lower(),
-            film_profile=_FILM,
-            print_profiles=(_PRINT,),
             input_color_space=input_cs,
             output_color_space=output_cs,
-            topology="1lut",
-            resolution=_RESOLUTION,
             ocio_config=True,
         )
         builder = BundleBuilder(spec)

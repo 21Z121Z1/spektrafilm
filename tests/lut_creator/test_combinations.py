@@ -29,38 +29,28 @@ from spektrafilm_lut_creator.builders import (
 )
 from spektrafilm_lut_creator.bundles import BundleSpec
 
+from .factories import make_bundle_spec
+
 
 _RESOLUTION = 5
-_INPUT_CS = "ACEScg"
+_INPUT_CS = "ACEScct"
 _OUTPUT_CS = "sRGB"
 _FILM = "kodak_portra_400"
 _PRINT = "kodak_portra_endura"
 
 
 def _spec(topology: str, *, include_combinations: bool, prints=(_PRINT,)) -> BundleSpec:
-    return BundleSpec(
+    return make_bundle_spec(
         name=f"combo_test_{topology}",
-        film_profile=_FILM,
         print_profiles=prints,
-        input_color_space=_INPUT_CS,
-        output_color_space=_OUTPUT_CS,
         topology=topology,
-        resolution=_RESOLUTION,
         include_combinations=include_combinations,
     )
 
 
 class TestSpecDefault:
     def test_include_combinations_defaults_to_false(self):
-        spec = BundleSpec(
-            name="x",
-            film_profile=_FILM,
-            print_profiles=(_PRINT,),
-            input_color_space=_INPUT_CS,
-            output_color_space=_OUTPUT_CS,
-            topology="4lut",
-            resolution=_RESOLUTION,
-        )
+        spec = make_bundle_spec(name="x", topology="4lut")
         assert spec.include_combinations is False
 
 

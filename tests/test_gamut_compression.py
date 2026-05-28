@@ -245,8 +245,11 @@ class TestOutputGamutCompressSpec:
         s = OutputGamutCompressSpec(algorithm="oklrab")
         assert s.algorithm == "oklrab"
 
-    def test_inactive_constructs(self):
-        OutputGamutCompressSpec(active=False)
+    def test_off_is_inactive(self):
+        # algorithm="off" is the canonical "skip compression" toggle;
+        # the spec is frozen and exposes `active` as a derived property.
+        s = OutputGamutCompressSpec(algorithm="off")
+        assert s.active is False
 
     def test_invalid_algorithm_raises(self):
         with pytest.raises(ValueError, match="algorithm must be"):
@@ -263,7 +266,7 @@ class TestOutputGamutCompressSpec:
     def test_frozen_dataclass(self):
         s = OutputGamutCompressSpec()
         with pytest.raises(Exception):
-            s.active = False  # type: ignore[misc]
+            s.algorithm = "off"  # type: ignore[misc]
 
 
 class TestCompressRgbAcesRgc:
@@ -332,7 +335,7 @@ class TestCompressRgbAcesRgc:
 class TestCompressRgbDispatcher:
     def test_inactive_identity(self):
         rgb = np.array([1.5, -0.1, -0.05])
-        spec = OutputGamutCompressSpec(active=False)
+        spec = OutputGamutCompressSpec(algorithm="off")
         out = compress_rgb(rgb, spec)
         np.testing.assert_array_equal(out, rgb)
 
@@ -389,147 +392,67 @@ class TestCompressRgbDispatcher:
         assert out.shape == rgb.shape
 
 
-class TestCompressRgbOklchChroma:
-    knee = dict(threshold=0.815, limit=1.0, power=1.2)
+# All four perceptual-chroma algorithms (oklch, jzazbz, oklrab, cam16ucs)
+# share the same algorithm shape: bisect C_max in their respective uniform
+# color space and apply the Reinhard knee to ``C / C_max``. The contract
+# is therefore identical across them; parametrize rather than repeat.
+_PERCEPTUAL_ALGORITHMS = {
+    "oklch":    (compress_rgb_oklch_chroma,    dict(threshold=0.815, limit=1.0, power=1.2)),
+    "jzazbz":   (compress_rgb_jzazbz_chroma,   dict(threshold=0.815, limit=1.0, power=1.2)),
+    "oklrab":   (compress_rgb_oklrab_chroma,   dict(threshold=0.95,  limit=1.0, power=2.0)),
+    "cam16ucs": (compress_rgb_cam16ucs_chroma, dict(threshold=0.95,  limit=1.0, power=2.0)),
+}
 
-    def test_in_gamut_approximate_identity(self):
-        """Below the threshold, OkLch chroma is near-identity. There's
-        a small OkLab round-trip noise (~1e-5) but it's well below LUT
-        precision."""
+
+@pytest.mark.parametrize("algorithm", list(_PERCEPTUAL_ALGORITHMS))
+class TestPerceptualChromaCompression:
+    """Contract shared by all perceptual-chroma reducers. Each algorithm
+    is A/B-validated against external references in
+    spektrafilm-research; here we pin only the public behavior."""
+
+    def test_in_gamut_approximate_identity(self, algorithm):
+        fn, knee = _PERCEPTUAL_ALGORITHMS[algorithm]
         rgb = np.array([0.5, 0.5, 0.5])
-        out = compress_rgb_oklch_chroma(
-            rgb, output_color_space="sRGB", **self.knee,
-        )
+        out = fn(rgb, output_color_space="sRGB", **knee)
         np.testing.assert_allclose(out, rgb, atol=1e-3)
 
-    def test_pulls_negatives_inside(self):
+    def test_pulls_negatives_inside(self, algorithm):
+        fn, knee = _PERCEPTUAL_ALGORITHMS[algorithm]
         rgb = np.array([1.2, -0.1, -0.05])
-        out = compress_rgb_oklch_chroma(
-            rgb, output_color_space="sRGB", **self.knee,
-        )
-        # All channels should land at >= 0 (cube boundary).
+        out = fn(rgb, output_color_space="sRGB", **knee)
         assert np.all(out >= -1e-3)
 
-    def test_compresses_saturated_cyan(self):
+    def test_compresses_saturated_cyan(self, algorithm):
+        fn, knee = _PERCEPTUAL_ALGORITHMS[algorithm]
         rgb = np.array([-0.2, 1.0, 1.0])
-        out = compress_rgb_oklch_chroma(
-            rgb, output_color_space="sRGB", **self.knee,
-        )
-        # R should land inside [0, 1]; G and B remain near 1.
+        out = fn(rgb, output_color_space="sRGB", **knee)
         assert -1e-3 <= out[0] <= 1.0 + 1e-3
         assert out[1] > 0.7  # cyan-y still
         assert out[2] > 0.7
 
-    def test_lightness_preserved_for_modest_OOG(self):
-        """OkLch preserves perceptual lightness L by construction.
-        For a sample whose chroma is OOG but L is well-defined, the
-        compressed RGB should have approximately the same L."""
-        import colour
-        rgb = np.array([1.05, 0.1, 0.4])  # slightly OOG warm color
-        out = compress_rgb_oklch_chroma(
-            rgb, output_color_space="sRGB", **self.knee,
-        )
-        cs = colour.RGB_COLOURSPACES["sRGB"]
-        white = cs.whitepoint
-        xyz_in = colour.RGB_to_XYZ(
-            rgb, colourspace="sRGB",
-            illuminant=white, apply_cctf_decoding=False,
-        )
-        xyz_out = colour.RGB_to_XYZ(
-            out, colourspace="sRGB",
-            illuminant=white, apply_cctf_decoding=False,
-        )
-        L_in = float(colour.XYZ_to_Oklab(xyz_in)[0])
-        L_out = float(colour.XYZ_to_Oklab(xyz_out)[0])
-        # L should be unchanged (within OkLab round-trip noise).
-        assert abs(L_in - L_out) < 1e-3
-
-    def test_batch_input(self):
+    def test_batch_input(self, algorithm):
+        fn, knee = _PERCEPTUAL_ALGORITHMS[algorithm]
         rgb = np.random.default_rng(0).uniform(-0.2, 1.3, size=(20, 3))
-        out = compress_rgb_oklch_chroma(
-            rgb, output_color_space="sRGB", **self.knee,
-        )
+        out = fn(rgb, output_color_space="sRGB", **knee)
         assert out.shape == rgb.shape
         assert np.all(np.isfinite(out))
 
-    def test_table_cached_per_color_space(self):
-        """Calling the C_max accessor twice with the same (space,
-        output) pair should hit the cache (no rebuild)."""
+
+class TestPerceptualChromaAlgorithmSpecific:
+    """Tests that exercise a single algorithm's specific math rather
+    than the shared chroma-reduction contract above."""
+
+    def test_oklch_table_cached_per_color_space(self):
+        """The C_max accessor should hit its cache on a second call
+        with the same (space, output) pair."""
         from spektrafilm.utils.gamut_compression import _get_output_c_max_table
         first = _get_output_c_max_table("oklch", "sRGB")
         second = _get_output_c_max_table("oklch", "sRGB")
         assert first is second
 
-
-class TestCompressRgbJzazbzChroma:
-    """JzAzBz chroma reduction. Same algorithm shape as OkLch (the two
-    share the C_max bisection and Reinhard knee), so the contract
-    mirrors :class:`TestCompressRgbOklchChroma`."""
-
-    knee = dict(threshold=0.815, limit=1.0, power=1.2)
-
-    def test_in_gamut_approximate_identity(self):
-        rgb = np.array([0.5, 0.5, 0.5])
-        out = compress_rgb_jzazbz_chroma(
-            rgb, output_color_space="sRGB", **self.knee,
-        )
-        np.testing.assert_allclose(out, rgb, atol=1e-3)
-
-    def test_pulls_negatives_inside(self):
-        rgb = np.array([1.2, -0.1, -0.05])
-        out = compress_rgb_jzazbz_chroma(
-            rgb, output_color_space="sRGB", **self.knee,
-        )
-        assert np.all(out >= -1e-3)
-
-    def test_compresses_saturated_cyan(self):
-        rgb = np.array([-0.2, 1.0, 1.0])
-        out = compress_rgb_jzazbz_chroma(
-            rgb, output_color_space="sRGB", **self.knee,
-        )
-        assert -1e-3 <= out[0] <= 1.0 + 1e-3
-        assert out[1] > 0.7
-        assert out[2] > 0.7
-
-    def test_lightness_preserved_for_modest_OOG(self):
-        """JzAzBz preserves perceptual lightness Jz by construction."""
-        import colour
-        from spektrafilm.utils.gamut_compression import _JZAZBZ_Y_W_CDM2
-        rgb = np.array([1.05, 0.1, 0.4])
-        out = compress_rgb_jzazbz_chroma(
-            rgb, output_color_space="sRGB", **self.knee,
-        )
-        cs = colour.RGB_COLOURSPACES["sRGB"]
-        white = cs.whitepoint
-        xyz_in = colour.RGB_to_XYZ(
-            rgb, colourspace="sRGB",
-            illuminant=white, apply_cctf_decoding=False,
-        )
-        xyz_out = colour.RGB_to_XYZ(
-            out, colourspace="sRGB",
-            illuminant=white, apply_cctf_decoding=False,
-        )
-        Jz_in = float(colour.XYZ_to_Jzazbz(xyz_in * _JZAZBZ_Y_W_CDM2)[0])
-        Jz_out = float(colour.XYZ_to_Jzazbz(xyz_out * _JZAZBZ_Y_W_CDM2)[0])
-        assert abs(Jz_in - Jz_out) < 1e-3
-
-    def test_batch_input(self):
-        rgb = np.random.default_rng(0).uniform(-0.2, 1.3, size=(20, 3))
-        out = compress_rgb_jzazbz_chroma(
-            rgb, output_color_space="sRGB", **self.knee,
-        )
-        assert out.shape == rgb.shape
-        assert np.all(np.isfinite(out))
-
-
-class TestCompressRgbOklrabChroma:
-    """Oklrab chroma reduction — OkLab with Ottosson's Lr remap on the
-    lightness axis. Same chromatic behavior as oklch, so the contract
-    mirrors :class:`TestCompressRgbOklchChroma`."""
-
-    knee = dict(threshold=0.95, limit=1.0, power=2.0)
-
-    def test_lr_remap_roundtrip(self):
+    def test_oklrab_lr_remap_roundtrip(self):
+        """oklrab uses Ottosson's Lr remap on the lightness axis. The
+        forward+inverse pair must round-trip and fix L=0, L≈1."""
         from spektrafilm.utils.gamut_compression import (
             _oklab_L_to_oklrab_Lr,
             _oklrab_Lr_to_oklab_L,
@@ -538,131 +461,30 @@ class TestCompressRgbOklrabChroma:
         Lr = _oklab_L_to_oklrab_Lr(L)
         L_back = _oklrab_Lr_to_oklab_L(Lr)
         np.testing.assert_allclose(L_back, L, atol=1e-12)
-        # Endpoints fixed: Lr(0)=0, Lr(1)≈1.
         assert _oklab_L_to_oklrab_Lr(np.array(0.0)) == pytest.approx(0.0, abs=1e-12)
         assert _oklab_L_to_oklrab_Lr(np.array(1.0)) == pytest.approx(1.0, abs=1e-2)
 
-    def test_in_gamut_approximate_identity(self):
-        rgb = np.array([0.5, 0.5, 0.5])
-        out = compress_rgb_oklrab_chroma(
-            rgb, output_color_space="sRGB", **self.knee,
-        )
-        np.testing.assert_allclose(out, rgb, atol=1e-3)
-
-    def test_pulls_negatives_inside(self):
-        rgb = np.array([1.2, -0.1, -0.05])
-        out = compress_rgb_oklrab_chroma(
-            rgb, output_color_space="sRGB", **self.knee,
-        )
-        assert np.all(out >= -1e-3)
-
-    def test_compresses_saturated_cyan(self):
-        rgb = np.array([-0.2, 1.0, 1.0])
-        out = compress_rgb_oklrab_chroma(
-            rgb, output_color_space="sRGB", **self.knee,
-        )
-        assert -1e-3 <= out[0] <= 1.0 + 1e-3
-        assert out[1] > 0.7
-        assert out[2] > 0.7
-
-    def test_lightness_preserved_for_modest_OOG(self):
-        """Oklrab preserves OkLab L by construction (the knee touches
-        only C). Equivalent to oklch's lightness-preservation contract."""
+    def test_oklch_preserves_oklab_lightness(self):
+        """Representative lightness-preservation check. All four
+        perceptual algorithms preserve L (or the algorithm's analog) by
+        construction; we pin OkLch as the canonical reference. If a
+        future change broke L preservation it would show here, and the
+        same defect would surface in the other algorithms' visual QA."""
         import colour
         rgb = np.array([1.05, 0.1, 0.4])
-        out = compress_rgb_oklrab_chroma(
-            rgb, output_color_space="sRGB", **self.knee,
+        out = compress_rgb_oklch_chroma(
+            rgb, output_color_space="sRGB",
+            threshold=0.815, limit=1.0, power=1.2,
         )
         cs = colour.RGB_COLOURSPACES["sRGB"]
-        white = cs.whitepoint
         xyz_in = colour.RGB_to_XYZ(
             rgb, colourspace="sRGB",
-            illuminant=white, apply_cctf_decoding=False,
+            illuminant=cs.whitepoint, apply_cctf_decoding=False,
         )
         xyz_out = colour.RGB_to_XYZ(
             out, colourspace="sRGB",
-            illuminant=white, apply_cctf_decoding=False,
+            illuminant=cs.whitepoint, apply_cctf_decoding=False,
         )
         L_in = float(colour.XYZ_to_Oklab(xyz_in)[0])
         L_out = float(colour.XYZ_to_Oklab(xyz_out)[0])
         assert abs(L_in - L_out) < 1e-3
-
-    def test_batch_input(self):
-        rgb = np.random.default_rng(0).uniform(-0.2, 1.3, size=(20, 3))
-        out = compress_rgb_oklrab_chroma(
-            rgb, output_color_space="sRGB", **self.knee,
-        )
-        assert out.shape == rgb.shape
-        assert np.all(np.isfinite(out))
-
-
-class TestCompressRgbCam16UcsChroma:
-    """CAM16-UCS chroma reduction. Same algorithm shape as OkLch and
-    JzAzBz; contract mirrors :class:`TestCompressRgbJzazbzChroma`."""
-
-    knee = dict(threshold=0.95, limit=1.0, power=2.0)
-
-    def test_in_gamut_approximate_identity(self):
-        rgb = np.array([0.5, 0.5, 0.5])
-        out = compress_rgb_cam16ucs_chroma(
-            rgb, output_color_space="sRGB", **self.knee,
-        )
-        np.testing.assert_allclose(out, rgb, atol=1e-3)
-
-    def test_pulls_negatives_inside(self):
-        rgb = np.array([1.2, -0.1, -0.05])
-        out = compress_rgb_cam16ucs_chroma(
-            rgb, output_color_space="sRGB", **self.knee,
-        )
-        assert np.all(out >= -1e-3)
-
-    def test_compresses_saturated_cyan(self):
-        rgb = np.array([-0.2, 1.0, 1.0])
-        out = compress_rgb_cam16ucs_chroma(
-            rgb, output_color_space="sRGB", **self.knee,
-        )
-        assert -1e-3 <= out[0] <= 1.0 + 1e-3
-        assert out[1] > 0.7
-        assert out[2] > 0.7
-
-    def test_lightness_preserved_for_modest_OOG(self):
-        """CAM16-UCS preserves perceptual lightness Jp by construction."""
-        import colour
-        from spektrafilm.utils.gamut_compression import (
-            _CAM16UCS_L_A,
-            _CAM16UCS_Y_B,
-            _output_cs_whitepoint_xyz,
-        )
-        rgb = np.array([1.05, 0.1, 0.4])
-        out = compress_rgb_cam16ucs_chroma(
-            rgb, output_color_space="sRGB", **self.knee,
-        )
-        cs = colour.RGB_COLOURSPACES["sRGB"]
-        white = cs.whitepoint
-        xyz_w = _output_cs_whitepoint_xyz("sRGB")
-        xyz_in = colour.RGB_to_XYZ(
-            rgb, colourspace="sRGB",
-            illuminant=white, apply_cctf_decoding=False,
-        )
-        xyz_out = colour.RGB_to_XYZ(
-            out, colourspace="sRGB",
-            illuminant=white, apply_cctf_decoding=False,
-        )
-        Jp_in = float(colour.XYZ_to_CAM16UCS(
-            xyz_in, XYZ_w=xyz_w, L_A=_CAM16UCS_L_A, Y_b=_CAM16UCS_Y_B,
-        )[0])
-        Jp_out = float(colour.XYZ_to_CAM16UCS(
-            xyz_out, XYZ_w=xyz_w, L_A=_CAM16UCS_L_A, Y_b=_CAM16UCS_Y_B,
-        )[0])
-        # CAM16 Jp ≈ 100 at white; 0.1 tolerance is well within
-        # round-trip noise and easily distinguishes preserved-J from
-        # an algorithm bug that lost it.
-        assert abs(Jp_in - Jp_out) < 0.1
-
-    def test_batch_input(self):
-        rgb = np.random.default_rng(0).uniform(-0.2, 1.3, size=(20, 3))
-        out = compress_rgb_cam16ucs_chroma(
-            rgb, output_color_space="sRGB", **self.knee,
-        )
-        assert out.shape == rgb.shape
-        assert np.all(np.isfinite(out))

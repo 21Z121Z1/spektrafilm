@@ -21,6 +21,8 @@ from spektrafilm_lut_creator.naming import (
     normalize_version as _normalize_version,
 )
 
+from .factories import make_bundle_spec
+
 
 def _canonical_lut_filename(spec, print_stock, version_tag):
     """Test helper — mirrors the old combined-1-LUT shape."""
@@ -80,24 +82,20 @@ class TestNormalizeVersion:
 class TestCanonicalFilename:
     def test_user_example(self):
         """Matches the user's stated reference example."""
-        spec = BundleSpec(
+        spec = make_bundle_spec(
             name="any",
-            film_profile="kodak_portra_400",
             print_profiles=("kodak_supra_endura",),
             input_color_space="Panasonic V-Log",
-            output_color_space="sRGB",
             resolution=33,
         )
         filename = _canonical_lut_filename(spec, "kodak_supra_endura", "v032")
         assert filename == "lut_v032_portra400_supraendura.cube"
 
     def test_per_print_in_multi_bundle(self):
-        spec = BundleSpec(
+        spec = make_bundle_spec(
             name="any",
-            film_profile="kodak_portra_400",
             print_profiles=("kodak_supra_endura", "fujifilm_crystal_archive_typeii"),
             input_color_space="Panasonic V-Log",
-            output_color_space="sRGB",
             resolution=33,
         )
         a = _canonical_lut_filename(spec, "kodak_supra_endura", "v032")
@@ -109,12 +107,10 @@ class TestCanonicalFilename:
 
 class TestCanonicalTitle:
     def test_drops_color_spaces(self):
-        spec = BundleSpec(
+        spec = make_bundle_spec(
             name="any",
-            film_profile="kodak_portra_400",
             print_profiles=("kodak_supra_endura",),
             input_color_space="Panasonic V-Log",
-            output_color_space="sRGB",
             resolution=33,
         )
         title = _canonical_lut_title(spec, "kodak_supra_endura", "v032")
