@@ -9,6 +9,10 @@ from typing import Any, Mapping
 import numpy as np
 
 
+_PROJECT_URL = 'https://github.com/andreavolpato/spektrafilm'
+_PROFILE_LICENSE_URL = f'{_PROJECT_URL}/blob/main/SPEKTRAFILM_LICENSE.txt'
+
+
 PROFILE_TYPES = frozenset({'negative', 'positive'})
 PROFILE_SUPPORTS = frozenset({'film', 'paper'})
 PROFILE_STAGES = frozenset({'filming', 'printing'})
@@ -79,13 +83,17 @@ class ProfileMetadata:
     copyright: str = field(default_factory=_copyright_statement)
     created: str = field(default_factory=_created_date)
     license: str = (
-        "spektrafilm profile by Andrea Volpato "
-        "(https://github.com/andreavolpato/spektrafilm), licensed under "
-        "CC BY-SA 4.0. Full text and attribution requirements in "
-        "SPEKTRAFILM_LICENSE.txt: "
-        "https://github.com/andreavolpato/spektrafilm/blob/main/SPEKTRAFILM_LICENSE.txt"
+        "spektrafilm profile by Andrea Volpato, licensed under CC BY-SA 4.0. "
+        "Redistribution and derivatives must credit the author, link the "
+        f"project ({_PROJECT_URL}),"
+        "preserve this license, and remain CC BY-SA 4.0."
+        "Modifications must be noted. Full text of the license and "
+        f"attribution requirements: {_PROFILE_LICENSE_URL}."
     )
-    citation: str = "If you use this profile in your work, please cite the spektrafilm project: https://github.com/andreavolpato/spektrafilm, see CITATION.cff for details."
+    citation: str = (
+        "If you use this profile in your work, please cite the spektrafilm "
+        f"project: {_PROJECT_URL}, see CITATION.cff for details."
+    )
     datasource: str = """
     This profile was created by processing raw measurement data from data-sheets and/or scientific papers. Original data are property of the respective holders.
     Film/photo-paper: Kodak and Fujifilm data-sheets, scientific publications, and technical material.
