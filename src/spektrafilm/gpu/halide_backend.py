@@ -442,8 +442,8 @@ class HalideBackend:
         H_extent = image_param.dim(1).extent()
 
         def _mirror_y(val: Any) -> Any:
-            neg = -val
-            past = hl.f32(2.0) * (H_extent - 1) - val
+            neg = -val - 1
+            past = 2 * (H_extent - 1) - val + 1
             return hl.clamp(
                 hl.select(val < 0, neg, hl.select(val >= H_extent, past, val)),
                 0,
