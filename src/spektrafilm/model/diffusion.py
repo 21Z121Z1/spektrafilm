@@ -1,16 +1,9 @@
-import warnings
-
 import numpy as np
 import scipy.ndimage
-from scipy.signal import fftconvolve
-from spektrafilm.gpu.kernels.filters import (
-    exponential_filter_backend,
-    fft_convolve_same_backend,
-    gaussian_filter_backend,
-    reflect_pad_hw_backend,
-)
+from spektrafilm.utils.fast_gaussian_filter import fast_exponential_filter, fast_gaussian_filter
+from spektrafilm.utils.numba_boost_hightlights import boost_highlights
 
-def apply_unsharp_mask(image, sigma=0.0, amount=0.0, *, backend=None):
+def apply_unsharp_mask(image, sigma=0.0, amount=0.0):
     """
     Apply an unsharp mask to an image.
     
@@ -22,12 +15,13 @@ def apply_unsharp_mask(image, sigma=0.0, amount=0.0, *, backend=None):
     Returns:
     ndarray: The processed image after applying the unsharp mask.
     """
-    image_blur = gaussian_filter_backend(image, sigma, backend)
+    # image_blur = scipy.ndimage.gaussian_filter(image, sigma=(sigma, sigma, 0))
+    image_blur = fast_gaussian_filter(image, sigma)
     image_sharp = image + amount * (image - image_blur)
     return image_sharp
 
 
-def apply_halation_um(raw, halation, pixel_size_um, *, backend=None):
+def apply_halation_um(raw, halation, pixel_size_um):
     """Apply highlight boost, in-emulsion scatter, and back-reflection halation.
 
     Ordering is boost -> scatter -> halation: the boost reconstructs pre-clip
@@ -53,13 +47,12 @@ def apply_halation_um(raw, halation, pixel_size_um, *, backend=None):
     s_amount = float(halation.scatter_amount)
     s_scale = float(halation.scatter_spatial_scale)
     w_s = np.asarray(halation.scatter_tail_weight, dtype=np.float64)
-    w_s_b = backend.asarray(w_s) if backend is not None and backend.supports_gpu else w_s
     sigma_c_px = np.asarray(halation.scatter_core_um, dtype=np.float64) * s_scale / pixel_size_um
     lambda_t_px = np.asarray(halation.scatter_tail_um, dtype=np.float64) * s_scale / pixel_size_um
     if s_amount > 0 and (np.any(sigma_c_px > 0) or np.any(lambda_t_px > 0)):
-        core = gaussian_filter_backend(raw, np.maximum(sigma_c_px, 1e-6), backend)
-        tail = exponential_filter_backend(raw, np.maximum(lambda_t_px, 1e-6), backend)
-        scattered = (1.0 - w_s_b) * core + w_s_b * tail
+        core = fast_gaussian_filter(raw, np.maximum(sigma_c_px, 1e-6))
+        tail = fast_exponential_filter(raw, np.maximum(lambda_t_px, 1e-6))
+        scattered = (1.0 - w_s) * core + w_s * tail
         raw = (1.0 - s_amount) * raw + s_amount * scattered
 
     # 2. Halation pass — additive multi-bounce sum scaled by halation_amount:
@@ -69,34 +62,38 @@ def apply_halation_um(raw, halation, pixel_size_um, *, backend=None):
     h_amount = float(halation.halation_amount)
     h_scale = float(halation.halation_spatial_scale)
     a_tot = np.asarray(halation.halation_strength, dtype=np.float64) * h_amount
-    a_tot_b = backend.asarray(a_tot) if backend is not None and backend.supports_gpu else a_tot
     sigma_h_px = np.asarray(halation.halation_first_sigma_um, dtype=np.float64) * h_scale / pixel_size_um
     N = int(halation.halation_n_bounces)
     rho = float(halation.halation_bounce_decay)
     if N >= 1 and np.any(a_tot > 0) and np.any(sigma_h_px > 0):
         decay = np.array([rho ** (k - 1) for k in range(1, N + 1)], dtype=np.float64)
         decay /= decay.sum()
-        halation_blur = raw * 0.0 if backend is not None and backend.supports_gpu else np.zeros_like(raw)
+        halation_blur = np.zeros_like(raw)
         for k, wk in zip(range(1, N + 1), decay):
             sigma_k_px = np.maximum(sigma_h_px * np.sqrt(k), 1e-6)
-            component = gaussian_filter_backend(raw, sigma_k_px, backend)
-            halation_blur += wk * component
-        raw = raw + a_tot_b * halation_blur
+            halation_blur += wk * fast_gaussian_filter(raw, sigma_k_px)
+        raw = raw + a_tot * halation_blur
         if halation.halation_renormalize:
-            raw = raw / (1.0 + a_tot_b)
+            raw = raw / (1.0 + a_tot)
 
     return raw
 
-def apply_gaussian_blur(data, sigma, *, backend=None):
+def apply_gaussian_blur(data, sigma):
     if sigma > 0:
-        return gaussian_filter_backend(data, sigma, backend)
+        # return scipy.ndimage.gaussian_filter(data, (sigma, sigma, 0))
+        # data = np.double(data)
+        # data = np.ascontiguousarray(data)
+        return fast_gaussian_filter(data, sigma)
     else:
         return data
-
-def apply_gaussian_blur_um(data, sigma_um, pixel_size_um, *, backend=None):
+    
+def apply_gaussian_blur_um(data, sigma_um, pixel_size_um):
     sigma = sigma_um / pixel_size_um
     if sigma > 0:
-        return gaussian_filter_backend(data, sigma, backend)
+        # return scipy.ndimage.gaussian_filter(data, (sigma, sigma, 0))
+        # data = np.double(data)
+        # data = np.ascontiguousarray(data)
+        return fast_gaussian_filter(data, sigma)
     else:
         return data
 
@@ -110,12 +107,7 @@ def apply_diffusion_filter_mm(data, diffusion_filter_params, pixel_size_um):
     max_sigma = sigma * (growth ** max(iterations - 1, 0))
     image_size = min(data.shape[:2])
     if max_sigma > image_size / 6:
-        warnings.warn(
-            f"diffusion filter size {max_sigma:.1f} pixels is too large for the image size {image_size}. "
-            f"Capping it to {image_size / 6:.1f} pixels.",
-            UserWarning,
-            stacklevel=2,
-        )
+        print(f"Warning: diffusion filter size {max_sigma:.1f} pixels is too large for the image size {image_size}. Capping it to {image_size / 6:.1f} pixels.")
         max_sigma = image_size / 6
     
     radius = max(int(np.ceil(max_sigma * 3)), 0)
@@ -132,6 +124,8 @@ def apply_diffusion_filter_mm(data, diffusion_filter_params, pixel_size_um):
         return result[radius:-radius, radius:-radius, :]
     return result
 
+
+from scipy.signal import fftconvolve
 
 
 # Per-family strength-independent PSF shape, as three groups
@@ -502,6 +496,46 @@ def _radial_components(
     return {'core': core, 'halo': halo_channels, 'bloom': bloom}
 
 
+def diffusion_filter_radial_profile(
+    radius_um: np.ndarray,
+    *,
+    family: str = 'black_pro_mist',
+    spatial_scale: float = 1.0,
+    halo_warmth: float = 0.0,
+    overrides: dict | None = None,
+) -> dict[str, np.ndarray]:
+    """Analytic radial profile of the diffusion-filter PSF, unit-normalised in 2D.
+
+    Returns each component contribution in 1/μm**2:
+      - 'core', 'bloom': shape matching `radius_um` (channel-independent).
+      - 'halo': shape (3, *radius_um.shape), one per channel.
+      - 'total_per_channel': shape (3, *radius_um.shape), sum of all three.
+    `halo_warmth` is added to the family base before the channel weights
+    are redistributed. `overrides` accepts the same per-group multiplier
+    keys as `_resolve_family_cfg`.
+    """
+    if family not in _DIFFUSION_FILTER_SHAPES:
+        raise ValueError(f"Unknown diffusion filter family: {family!r}; "
+                         f"available: {list(_DIFFUSION_FILTER_SHAPES)}")
+    cfg = _resolve_family_cfg(family, overrides)
+    effective_warmth = float(cfg.get('halo_warmth_base', 0.0)) + float(halo_warmth)
+    parts = _radial_components(
+        np.asarray(radius_um, dtype=np.float64),
+        family=family,
+        spatial_scale=spatial_scale,
+        pixel_size_um=1.0,
+        halo_warmth=effective_warmth,
+        overrides=overrides,
+    )
+    total_per_channel = parts['halo'] + parts['core'][None, ...] + parts['bloom'][None, ...]
+    return {
+        'core': parts['core'],
+        'halo': parts['halo'],
+        'bloom': parts['bloom'],
+        'total_per_channel': total_per_channel,
+    }
+
+
 def diffusion_filter_psf(
     kernel_shape: tuple[int, int],
     *,
@@ -545,7 +579,7 @@ def diffusion_filter_psf(
     return psf
 
 
-def apply_diffusion_filter_um(image, diffusion_filter, pixel_size_um, *, backend=None):
+def apply_diffusion_filter_um(image, diffusion_filter, pixel_size_um):
     """Apply a diffusion-filter PSF to an RGB image.
 
     Implements the energy-conserving convex combination
@@ -591,19 +625,15 @@ def apply_diffusion_filter_um(image, diffusion_filter, pixel_size_um, *, backend
         overrides=overrides,
     )
 
-    if backend is not None and backend.supports_gpu:
-        image_b = backend.asarray(image)
-        padded = reflect_pad_hw_backend(image_b, radius, backend)
-        blurred = fft_convolve_same_backend(padded, psf_per_channel, backend)
-        blurred = blurred[radius:-radius, radius:-radius, :]
-        image = image_b
-    else:
-        padded = np.pad(image, ((radius, radius), (radius, radius), (0, 0)), mode='reflect')
-        blurred = np.empty_like(padded)
-        for channel in range(image.shape[2]):
-            blurred[:, :, channel] = fftconvolve(
-                padded[:, :, channel], psf_per_channel[..., channel], mode='same',
-            )
-        blurred = blurred[radius:-radius, radius:-radius, :]
+    padded = np.pad(image, ((radius, radius), (radius, radius), (0, 0)), mode='reflect')
+    blurred = np.empty_like(padded)
+    for channel in range(image.shape[2]):
+        blurred[:, :, channel] = fftconvolve(
+            padded[:, :, channel], psf_per_channel[..., channel], mode='same',
+        )
+    blurred = blurred[radius:-radius, radius:-radius, :]
 
     return (1.0 - p_s) * image + p_s * blurred
+
+
+

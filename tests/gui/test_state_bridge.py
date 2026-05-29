@@ -102,7 +102,6 @@ def _make_widgets(state: GuiState) -> WidgetBundle:
         spectral_upsampling=object(),
         tune=object(),
         output=object(),
-        hdr_export=StubSection(clone_state_section(state.hdr_export)),
     )
 
 

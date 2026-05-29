@@ -21,7 +21,6 @@ QTimer = getattr(QtCore, 'QTimer')
 class _LayerAnimationHandle:
     timer: Any
     final_image: np.ndarray
-    generation: int
 
 
 INPUT_LAYER_NAME = 'input'
@@ -67,7 +66,7 @@ def _watermark_raster_size(
     return target_height, target_width
 
 
-@lru_cache(maxsize=4)
+@lru_cache(maxsize=32)
 def _build_watermark_image(height: int, width: int) -> np.ndarray:
     safe_height = max(int(height), 1)
     safe_width = max(int(width), 1)
@@ -223,31 +222,16 @@ def set_output_layer_metadata(
     float_image: np.ndarray,
     output_color_space: str,
     output_cctf_encoding: bool,
-    output_encoding: object,
     use_display_transform: bool,
-    hdr_scene_luminance: np.ndarray | None,
-    hdr_scene_energy_metadata: object | None,
     output_float_data_key: str,
     output_color_space_key: str,
     output_cctf_encoding_key: str,
-    output_color_encoding_key: str,
     output_display_transform_key: str,
-    hdr_scene_luminance_key: str,
-    hdr_scene_energy_metadata_key: str,
 ) -> None:
     layer.metadata[output_float_data_key] = np.asarray(float_image, dtype=np.float32)
     layer.metadata[output_color_space_key] = output_color_space
     layer.metadata[output_cctf_encoding_key] = output_cctf_encoding
-    layer.metadata[output_color_encoding_key] = output_encoding
     layer.metadata[output_display_transform_key] = use_display_transform
-    if hdr_scene_luminance is None:
-        layer.metadata.pop(hdr_scene_luminance_key, None)
-    else:
-        layer.metadata[hdr_scene_luminance_key] = np.asarray(hdr_scene_luminance, dtype=np.float32)
-    if hdr_scene_energy_metadata is None:
-        layer.metadata.pop(hdr_scene_energy_metadata_key, None)
-    else:
-        layer.metadata[hdr_scene_energy_metadata_key] = hdr_scene_energy_metadata
 
 
 def set_output_layer_interpolation(layer: NapariImageLayer, mode: str) -> None:
@@ -282,12 +266,8 @@ class ViewerLayerService:
     output_float_data_key: str
     output_color_space_key: str
     output_cctf_encoding_key: str
-    output_color_encoding_key: str
     output_display_transform_key: str
-    hdr_scene_luminance_key: str = 'hdr_scene_luminance'
-    hdr_scene_energy_metadata_key: str = 'hdr_scene_energy_metadata'
     _output_animations: dict[int, _LayerAnimationHandle] = field(default_factory=dict, init=False, repr=False)
-    _output_animation_generation: int = field(default=0, init=False, repr=False)
 
     def image_layer(self, layer_name: str) -> NapariImageLayer | None:
         return next(
@@ -382,10 +362,7 @@ class ViewerLayerService:
         float_image: np.ndarray,
         output_color_space: str,
         output_cctf_encoding: bool,
-        output_encoding: object,
         use_display_transform: bool,
-        hdr_scene_luminance: np.ndarray | None = None,
-        hdr_scene_energy_metadata: object | None = None,
         output_interpolation_mode: str = 'spline36',
     ) -> None:
         existing_layer = self.image_layer(OUTPUT_LAYER_NAME)
@@ -396,9 +373,9 @@ class ViewerLayerService:
         use_crossfade = False
         replace_layer = False
         if existing_layer is not None:
-            self._stop_output_layer_animation(existing_layer)
             existing_data = np.asarray(existing_layer.data)
             existing_shape = tuple(int(dimension) for dimension in existing_data.shape)
+            self._stop_output_layer_animation(existing_layer, restore_final=False)
             if animate_on_show:
                 replace_layer = existing_shape != output_shape
             else:
@@ -423,17 +400,11 @@ class ViewerLayerService:
             float_image=float_image,
             output_color_space=output_color_space,
             output_cctf_encoding=output_cctf_encoding,
-            output_encoding=output_encoding,
             use_display_transform=use_display_transform,
-            hdr_scene_luminance=hdr_scene_luminance,
-            hdr_scene_energy_metadata=hdr_scene_energy_metadata,
             output_float_data_key=self.output_float_data_key,
             output_color_space_key=self.output_color_space_key,
             output_cctf_encoding_key=self.output_cctf_encoding_key,
-            output_color_encoding_key=self.output_color_encoding_key,
             output_display_transform_key=self.output_display_transform_key,
-            hdr_scene_luminance_key=self.hdr_scene_luminance_key,
-            hdr_scene_energy_metadata_key=self.hdr_scene_energy_metadata_key,
         )
         set_output_layer_interpolation(layer, output_interpolation_mode)
         image_world_size = self.current_image_world_size()
@@ -470,8 +441,6 @@ class ViewerLayerService:
         if layer is None or not layer.visible:
             return
         self._stop_output_layer_animation(layer)
-        if layer_name == OUTPUT_LAYER_NAME:
-            self._clear_output_layer_large_metadata(layer)
         layer.visible = False
 
     def remove_layer(self, layer_name: str) -> None:
@@ -479,17 +448,10 @@ class ViewerLayerService:
         if layer is None:
             return
         self._stop_output_layer_animation(layer)
-        if layer_name == OUTPUT_LAYER_NAME:
-            self._clear_output_layer_large_metadata(layer)
         try:
             self.viewer.layers.remove(layer)
         except ValueError:
             return
-
-    def _clear_output_layer_large_metadata(self, layer: NapariImageLayer) -> None:
-        """Remove large float arrays from the output layer metadata to free memory."""
-        for key in (self.output_float_data_key,):
-            layer.metadata.pop(key, None)
 
     def move_layer_to_top(self, layer: NapariImageLayer) -> None:
         current_index = self.viewer.layers.index(layer)
@@ -559,28 +521,24 @@ class ViewerLayerService:
             return
 
         current_index = 0
-        generation = self._next_output_animation_generation()
 
         def _tick() -> None:
             nonlocal current_index
-            if not self._is_current_output_animation(layer, generation):
-                return
             current_index += 1
             if current_index >= len(frame_times):
-                self._stop_output_layer_animation(layer, generation=generation)
+                self._stop_output_layer_animation(layer)
                 return
             _set_layer_data(layer, _coerce_output_animation_frame(
                 render_polaroid_frame(state, float(frame_times[current_index])),
                 reference_image=output_image,
             ))
             if current_index >= len(frame_times) - 1:
-                self._stop_output_layer_animation(layer, generation=generation)
+                self._stop_output_layer_animation(layer)
 
         connect(_tick)
         self._output_animations[id(layer)] = _LayerAnimationHandle(
             timer=timer,
             final_image=output_image,
-            generation=generation,
         )
         _set_layer_data(layer, _coerce_output_animation_frame(
             render_polaroid_frame(state, float(frame_times[0])),
@@ -622,15 +580,12 @@ class ViewerLayerService:
         current_step = 0
         source_frame = np.array(source_image, copy=True)
         final_image = np.array(target_image, copy=True)
-        generation = self._next_output_animation_generation()
 
         def _tick() -> None:
             nonlocal current_step
-            if not self._is_current_output_animation(layer, generation):
-                return
             current_step += 1
             if current_step >= safe_frame_count:
-                self._stop_output_layer_animation(layer, generation=generation)
+                self._stop_output_layer_animation(layer)
                 return
             _set_layer_data(layer, _blend_output_animation_frame(
                 source_frame,
@@ -642,32 +597,18 @@ class ViewerLayerService:
         self._output_animations[id(layer)] = _LayerAnimationHandle(
             timer=timer,
             final_image=final_image,
-            generation=generation,
         )
         start()
-
-    def _next_output_animation_generation(self) -> int:
-        self._output_animation_generation += 1
-        return self._output_animation_generation
-
-    def _is_current_output_animation(self, layer: NapariImageLayer, generation: int) -> bool:
-        handle = self._output_animations.get(id(layer))
-        return handle is not None and handle.generation == generation
 
     def _stop_output_layer_animation(
         self,
         layer: NapariImageLayer,
         *,
         restore_final: bool = True,
-        generation: int | None = None,
     ) -> None:
-        layer_id = id(layer)
-        handle = self._output_animations.get(layer_id)
+        handle = self._output_animations.pop(id(layer), None)
         if handle is None:
             return
-        if generation is not None and handle.generation != generation:
-            return
-        self._output_animations.pop(layer_id, None)
         timer = handle.timer
         stop = getattr(timer, 'stop', None)
         if callable(stop):
@@ -699,13 +640,3 @@ class ViewerLayerService:
         color_space = output_layer.metadata.get(self.output_color_space_key, default_color_space)
         cctf_encoding = output_layer.metadata.get(self.output_cctf_encoding_key, default_cctf_encoding)
         return str(color_space), bool(cctf_encoding)
-
-    def output_layer_encoding(self, *, default_encoding: object | None = None) -> object | None:
-        """Return the ColorEncoding stored in the output layer metadata, or the default."""
-        output_layer = self.output_layer()
-        if output_layer is None:
-            return default_encoding
-        encoding = output_layer.metadata.get(self.output_color_encoding_key)
-        if encoding is not None:
-            return encoding
-        return default_encoding

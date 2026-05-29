@@ -16,7 +16,6 @@ from spektrafilm_gui.widget_sections import (
     GrainSection,
     GuiConfigSection,
     HalationSection,
-    HdrExportSection,
     InputImageSection,
     LoadRawSection,
     OutputSection,
@@ -67,7 +66,6 @@ class WidgetBundle:
     spectral_upsampling: SpectralUpsamplingSection
     tune: TuneSection
     output: OutputSection
-    hdr_export: HdrExportSection
 
 
 def create_widget_bundle() -> WidgetBundle:
@@ -102,5 +100,4 @@ def create_widget_bundle() -> WidgetBundle:
         spectral_upsampling=SpectralUpsamplingSection(input_image),
         tune=TuneSection(special),
         output=OutputSection(simulation),
-        hdr_export=HdrExportSection(),
     )

@@ -25,7 +25,6 @@ from spektrafilm_gui.state import (
     GlareState,
     GrainState,
     HalationState,
-    HdrExportState,
     InputImageState,
     LoadRawState,
     PreflashingState,
@@ -34,20 +33,9 @@ from spektrafilm_gui.state import (
 )
 from spektrafilm_gui.persistence import load_dialog_dir, save_dialog_dir
 from spektrafilm_gui.theme_palette import SIZE_FOOTER_ITEM_SPACING
-from spektrafilm_gui.widget_editors import (
-    BoolEditor,
-    EnumEditor,
-    FloatEditor,
-    FloatTupleEditor,
-    IntEditor,
-    IntTupleEditor,
-    ProfileEnumEditor,
-    SliderFloatEditor,
-)
+from spektrafilm_gui.widget_editors import BoolEditor, EnumEditor, FloatEditor, FloatTupleEditor, IntEditor, IntTupleEditor, ProfileEnumEditor
 from spektrafilm_gui.widget_primitives import CollapsibleSection, normalize_ui_text as _normalize_ui_text
 from spektrafilm_gui.widget_specs import GUI_SECTION_ENUMS, get_auxiliary_spec, get_button_spec, get_widget_spec
-
-MAX_SLIDER_STEPS = 256
 
 
 def _enum_values(enum_cls):
@@ -273,13 +261,6 @@ class DataclassSection(QWidget):
         if annotation is int:
             return IntEditor()
         if annotation is float:
-            if self._bounded_float_spec_supports_slider(spec):
-                return SliderFloatEditor(
-                    minimum=float(spec.min_value),
-                    maximum=float(spec.max_value),
-                    step=float(spec.step),
-                    decimals=2 if spec.decimals is None else spec.decimals,
-                )
             return FloatEditor(decimals=2 if spec.decimals is None else spec.decimals)
         if get_origin(annotation) is tuple:
             element_types = get_args(annotation)
@@ -295,9 +276,6 @@ class DataclassSection(QWidget):
             widget = getattr(self, field_name)
             if spec.tooltip:
                 widget.setToolTip(spec.tooltip)
-            widget.setAccessibleName(spec.label or _format_label(field_name))
-            if spec.tooltip:
-                widget.setAccessibleDescription(spec.tooltip)
             if spec.min_value is not None:
                 self._apply_numeric_attr(widget, 'setMinimum', spec.min_value)
             if spec.max_value is not None:
@@ -315,19 +293,6 @@ class DataclassSection(QWidget):
         if editors is not None:
             for editor in editors:
                 getattr(editor, method_name)(value)
-
-    @staticmethod
-    def _bounded_float_spec_supports_slider(spec) -> bool:
-        if spec.min_value is None or spec.max_value is None or spec.step is None:
-            return False
-        try:
-            step = float(spec.step)
-            span = float(spec.max_value) - float(spec.min_value)
-        except (TypeError, ValueError):
-            return False
-        if step <= 0.0 or span <= 0.0:
-            return False
-        return round(span / step) <= MAX_SLIDER_STEPS
 
     def set_state(self, state: Any) -> None:
         for field_info in fields(self._state_cls):
@@ -369,6 +334,9 @@ class InputImageSection(SimpleDataclassSection):
         'crop_center',
         'crop_size',
         'spectral_upsampling_method',
+        'apply_hanatos2025_adaptation_window',
+        'apply_hanatos2025_adaptation_surface',
+        'spectral_gaussian_blur',
         'filter_uv',
         'filter_ir',
     }
@@ -482,7 +450,6 @@ class SpecialSection(DataclassSection):
             state_cls=SpecialState,
             section_name='special',
             title='Experimental',
-            enum_fields=GUI_SECTION_ENUMS['special'],
             collapsed_by_default=True,
             hidden_fields={
                 'film_gamma_factor',
@@ -502,6 +469,9 @@ class SpectralUpsamplingSection(QWidget):
                 'Spectral upsampling',
                 [
                     _spec_row('input_image', 'spectral_upsampling_method', input_image_section.spectral_upsampling_method),
+                    _spec_row('input_image', 'apply_hanatos2025_adaptation_window', input_image_section.apply_hanatos2025_adaptation_window),
+                    _spec_row('input_image', 'apply_hanatos2025_adaptation_surface', input_image_section.apply_hanatos2025_adaptation_surface),
+                    _spec_row('input_image', 'spectral_gaussian_blur', input_image_section.spectral_gaussian_blur),
                     _spec_row('input_image', 'filter_uv', input_image_section.filter_uv),
                     _spec_row('input_image', 'filter_ir', input_image_section.filter_ir),
                 ],
@@ -671,8 +641,6 @@ class SimulationSection(DataclassSection):
                 'output_color_space',
                 'saving_color_space',
                 'saving_cctf_encoding',
-                'hdr_exr_output',
-                'color_management_workflow',
             },
         )
 
@@ -798,51 +766,13 @@ class OutputSection(QWidget):
             _build_linked_form_section(
                 'Output',
                 [
-                    _spec_row('simulation', 'color_management_workflow', simulation_section.color_management_workflow),
                     _spec_row('simulation', 'output_color_space', simulation_section.output_color_space),
-                    _spec_row('simulation', 'hdr_exr_output', simulation_section.hdr_exr_output),
                     _spec_row('simulation', 'saving_color_space', simulation_section.saving_color_space),
                     _spec_row('simulation', 'saving_cctf_encoding', simulation_section.saving_cctf_encoding),
                 ],
                 expanded=False,
             ),
         )
-
-
-class HdrExportSection(SimpleDataclassSection):
-    STATE_CLS = HdrExportState
-    SECTION_NAME = 'hdr_export'
-    TITLE = 'HDR Export Settings'
-    COLLAPSED_BY_DEFAULT = True
-    ENUM_FIELDS_KEY = 'hdr_export'
-
-    def _add_extra_rows_after(self, form: QFormLayout) -> None:
-        super()._add_extra_rows_after(form)
-        self._form = form
-        self.hdr_mapping_mode.currentTextChanged.connect(self._sync_mode)
-        self._sync_mode(self.hdr_mapping_mode.value)
-
-    def _sync_mode(self, mode: str) -> None:
-        is_generic = (mode == "generic")
-        for widget in (
-            self.hdr_diffuse_lift_strength,
-            self.graft_strength,
-            self.paper_rolloff_exposure_scale,
-            self.paper_rolloff_k,
-            self.max_headroom,
-        ):
-            widget.setEnabled(is_generic)
-        is_profile_aware = (mode == "profile_aware")
-        for widget in (
-            self.profile_hdr_mode,
-            self.profile_hdr_target_peak_ev,
-            self.profile_hdr_recovery_ratio,
-        ):
-            widget.setEnabled(is_profile_aware)
-            widget.setVisible(is_profile_aware)
-            label = self._form.labelForField(widget)
-            if label is not None:
-                label.setVisible(is_profile_aware)
 
 
 class ExposureControlSection(QWidget):

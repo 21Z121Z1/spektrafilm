@@ -10,9 +10,6 @@ import numpy as np
 import rawpy
 from scipy.ndimage import map_coordinates
 
-from spektrafilm.color_management import is_aces_scene_linear_space
-from spektrafilm.utils.dtypes import validate_float_dtype
-
 _TUNGSTEN_TEMPERATURE = 2850.0
 _DAYLIGHT_REFERENCE_TEMPERATURE = 6504.0
 _ACES_COLOURSPACE = colour.RGB_COLOURSPACES["ACES2065-1"]
@@ -26,31 +23,6 @@ class ExifData:
     lens_model: str
     focal_length: float
     f_number: float
-
-
-@dataclass(frozen=True, slots=True)
-class RawImportDiagnostics:
-    rawpy_rgb_min: float
-    rawpy_rgb_max: float
-    rawpy_rgb_p50: float
-    rawpy_rgb_p99: float
-    rawpy_rgb_p999: float
-    rawpy_rgb_clip_fraction: float
-    diffuse_white_estimate: float
-    headroom_estimate: float
-    method: str
-    confidence: str
-    raw_sensor_white_level: float | None = None
-    raw_sensor_black_level: float | None = None
-    raw_sensor_normalized_max: float | None = None
-    raw_sensor_normalized_p99: float | None = None
-    raw_sensor_normalized_p999: float | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class RawProcessingResult:
-    image: np.ndarray
-    diagnostics: RawImportDiagnostics
 
 
 def _whitepoint_xyz_from_temperature(temperature: float) -> np.ndarray:
@@ -95,7 +67,7 @@ def _apply_white_balance_adaptation(
         colourspace=_ACES_COLOURSPACE,
         chromatic_adaptation_transform=None,
         apply_cctf_encoding=False,
-    ).astype(np.asarray(rgb).dtype, copy=False)
+    ).astype(np.float32)
 
 
 def _apply_tint_adjustment(rgb: np.ndarray, tint: float | None) -> np.ndarray:
@@ -104,9 +76,8 @@ def _apply_tint_adjustment(rgb: np.ndarray, tint: float | None) -> np.ndarray:
     if tint is None or np.isclose(tint, 1.0):
         return rgb
 
-    rgb = np.asarray(rgb)
-    tint_scale = np.array([1.0, float(tint), 1.0], dtype=rgb.dtype)
-    return (rgb * tint_scale).astype(rgb.dtype, copy=False)
+    tint_scale = np.array([1.0, float(tint), 1.0], dtype=np.float32)
+    return (rgb * tint_scale).astype(np.float32)
 
 
 def _postprocess_params(
@@ -159,110 +130,6 @@ def _postprocess_params(
     return params, postprocess_adaptation, tint_multiplier
 
 
-def _raw_sensor_stats(raw: object) -> dict[str, float | None]:
-    stats: dict[str, float | None] = {
-        "raw_sensor_white_level": None,
-        "raw_sensor_black_level": None,
-        "raw_sensor_normalized_max": None,
-        "raw_sensor_normalized_p99": None,
-        "raw_sensor_normalized_p999": None,
-    }
-    try:
-        raw_image = np.asarray(getattr(raw, "raw_image_visible"), dtype=np.float64)
-        white_level = float(getattr(raw, "white_level"))
-        black_levels = np.asarray(getattr(raw, "black_level_per_channel"), dtype=np.float64)
-    except (AttributeError, TypeError, ValueError):
-        return stats
-
-    if raw_image.size == 0 or not np.isfinite(white_level):
-        return stats
-
-    black_level = float(np.nanmin(black_levels)) if black_levels.size else 0.0
-    denominator = white_level - black_level
-    if not np.isfinite(black_level) or not np.isfinite(denominator) or denominator <= 0.0:
-        return stats
-
-    normalized = (raw_image - black_level) / denominator
-    finite = normalized[np.isfinite(normalized)]
-    if finite.size == 0:
-        return stats
-
-    stats.update(
-        {
-            "raw_sensor_white_level": white_level,
-            "raw_sensor_black_level": black_level,
-            "raw_sensor_normalized_max": float(np.max(finite)),
-            "raw_sensor_normalized_p99": float(np.percentile(finite, 99.0)),
-            "raw_sensor_normalized_p999": float(np.percentile(finite, 99.9)),
-        }
-    )
-    return stats
-
-
-def estimate_raw_hdr_import_diagnostics(
-    rgb: np.ndarray,
-    *,
-    raw_sensor_stats: dict[str, float | None] | None = None,
-    auto_percentile: float = 99.0,
-    headroom_percentile: float = 99.9,
-    min_auto_diffuse_white: float = 0.10,
-    low_key_median_threshold: float = 0.03,
-    max_headroom: float = 8.0,
-) -> RawImportDiagnostics:
-    image = np.asarray(rgb)
-    if image.ndim != 3 or image.shape[2] < 3:
-        raise ValueError("RAW HDR diagnostics require an RGB image with shape (height, width, 3).")
-    if image.shape[0] <= 0 or image.shape[1] <= 0:
-        raise ValueError("RAW HDR diagnostics cannot analyze an empty image.")
-    if not np.issubdtype(image.dtype, np.floating):
-        raise ValueError("RAW HDR diagnostics require floating-point linear RGB data.")
-
-    linear_rgb = np.asarray(image[..., :3], dtype=np.float64)
-    if not np.all(np.isfinite(linear_rgb)):
-        raise ValueError("RAW HDR diagnostics require finite RGB values.")
-
-    intensity = np.maximum(np.max(linear_rgb, axis=2), 0.0)
-    flat_intensity = intensity.reshape(-1)
-    p50 = float(np.percentile(flat_intensity, 50.0))
-    p99 = float(np.percentile(flat_intensity, auto_percentile))
-    p999 = float(np.percentile(flat_intensity, headroom_percentile))
-    maximum = float(np.max(flat_intensity))
-    minimum = float(np.min(flat_intensity))
-
-    min_auto = float(min_auto_diffuse_white)
-    if p99 < min_auto and p50 < float(low_key_median_threshold):
-        diffuse_white = min_auto
-        method = "auto_floor_low_key"
-        confidence = "low"
-    else:
-        diffuse_white = float(np.clip(p99, min_auto, 1.0))
-        method = "auto_percentile"
-        confidence = "medium"
-
-    headroom = min(max(p999 / max(diffuse_white, 1e-8), 1.0), float(max_headroom))
-    clip_threshold = 1.0 - 0.5 / 65535.0
-    clip_fraction = float(np.mean(linear_rgb >= clip_threshold))
-
-    sensor_stats = {} if raw_sensor_stats is None else raw_sensor_stats
-    return RawImportDiagnostics(
-        rawpy_rgb_min=minimum,
-        rawpy_rgb_max=maximum,
-        rawpy_rgb_p50=p50,
-        rawpy_rgb_p99=p99,
-        rawpy_rgb_p999=p999,
-        rawpy_rgb_clip_fraction=clip_fraction,
-        diffuse_white_estimate=diffuse_white,
-        headroom_estimate=float(headroom),
-        method=method,
-        confidence=confidence,
-        raw_sensor_white_level=sensor_stats.get("raw_sensor_white_level"),
-        raw_sensor_black_level=sensor_stats.get("raw_sensor_black_level"),
-        raw_sensor_normalized_max=sensor_stats.get("raw_sensor_normalized_max"),
-        raw_sensor_normalized_p99=sensor_stats.get("raw_sensor_normalized_p99"),
-        raw_sensor_normalized_p999=sensor_stats.get("raw_sensor_normalized_p999"),
-    )
-
-
 def _read_exif_metadata(raw_path: str | PathLike[str]) -> ExifData:
     """Read basic EXIF data from a RAW file for lens correction.
 
@@ -285,7 +152,7 @@ def _read_exif_metadata(raw_path: str | PathLike[str]) -> ExifData:
         image = exiv2.ImageFactory.open(str(raw_path))
         image.readMetadata()
         exif = image.exifData()
-    except (OSError, RuntimeError, exiv2.Exiv2Error, exiv2.extras.Exiv2Error):
+    except Exception:
         return ExifData(
             make="",
             model="",
@@ -510,18 +377,14 @@ def load_and_process_raw_file(
     lens_correction: bool = False,
     output_colorspace: str = "ACES2065-1",
     output_cctf_encoding: bool = False,
-    output_dtype=np.float32,
     lens_info_out: dict[str, str] | None = None,
-    return_diagnostics: bool = False,
-) -> np.ndarray | RawProcessingResult:
+) -> np.ndarray:
     """Load a RAW file into linear RGB and optionally convert its colourspace.
 
-    The RAW is demosaiced by ``rawpy`` into linear 16-bit ACES2065-1 RGB with
-    auto brightening disabled. ``'as_shot'`` white balance comes from the camera
+    The RAW is demosaiced by ``rawpy`` into linear 16-bit ACES RGB with auto
+    brightening disabled. ``'as_shot'`` white balance comes from the camera
     metadata; the other white-balance modes use LibRaw's daylight-balanced base
-    output and colour-science chromatic adaptation in linear ACES RGB. When
-    ``output_colorspace`` is an ACES scene-linear space such as ACEScg, any
-    requested CCTF encoding is ignored because those encodings are linear.
+    output and colour-science chromatic adaptation in linear ACES RGB.
 
     Parameters
     ----------
@@ -545,23 +408,16 @@ def load_and_process_raw_file(
     output_cctf_encoding
         Whether to apply the output colourspace transfer function when a
         colourspace conversion is requested.
-    output_dtype
-        Floating point dtype for the returned image. Supported values are
-        ``np.float32`` and ``np.float64``.
 
     Returns
     -------
     numpy.ndarray
-        RGB image in the requested output colourspace and dtype.
+        RGB image as ``float32`` in the requested output colourspace.
     """
-    output_dtype = _runtime_raw_dtype(output_dtype)
-    if is_aces_scene_linear_space(output_colorspace):
-        output_cctf_encoding = False
 
     with rawpy.imread(str(raw_path)) as raw:
         params, postprocess_adaptation, tint_multiplier = _postprocess_params(white_balance, temperature, tint)
-        raw_sensor_stats = _raw_sensor_stats(raw)
-        rgb = np.asarray(raw.postprocess(**params), dtype=output_dtype) / output_dtype.type(65535.0)
+        rgb = raw.postprocess(**params).astype(np.float32) / np.float32(65535.0)
 
     if lens_correction:
         exif_metadata = _read_exif_metadata(raw_path)
@@ -575,16 +431,7 @@ def load_and_process_raw_file(
 
     rgb = _apply_tint_adjustment(rgb, tint_multiplier)
 
-    diagnostics_rgb = rgb
     if output_colorspace != 'ACES2065-1':
-        if return_diagnostics and output_cctf_encoding:
-            diagnostics_rgb = colour.RGB_to_RGB(
-                rgb,
-                input_colourspace=_ACES_COLOURSPACE,
-                output_colourspace=colour.RGB_COLOURSPACES[output_colorspace],
-                apply_cctf_decoding=False,
-                apply_cctf_encoding=False,
-            )
         rgb = colour.RGB_to_RGB(
             rgb,
             input_colourspace=_ACES_COLOURSPACE,
@@ -592,27 +439,8 @@ def load_and_process_raw_file(
             apply_cctf_decoding=False,
             apply_cctf_encoding=output_cctf_encoding,
         )
-    else:
-        diagnostics_rgb = rgb
 
-    image = np.asarray(rgb, dtype=output_dtype)
-    if not return_diagnostics:
-        return image
-
-    diagnostics = estimate_raw_hdr_import_diagnostics(
-        np.asarray(diagnostics_rgb, dtype=output_dtype),
-        raw_sensor_stats=raw_sensor_stats,
-    )
-    return RawProcessingResult(image=image, diagnostics=diagnostics)
+    return rgb
 
 
-def _runtime_raw_dtype(dtype) -> np.dtype:
-    return validate_float_dtype(dtype)
-
-
-__all__ = [
-    'RawImportDiagnostics',
-    'RawProcessingResult',
-    'estimate_raw_hdr_import_diagnostics',
-    'load_and_process_raw_file',
-]
+__all__ = ['load_and_process_raw_file']

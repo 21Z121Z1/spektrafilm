@@ -12,6 +12,9 @@ PROFILE_SYNC_FIELDS: dict[str, tuple[str, ...]] = {
         'input_color_space',
         'apply_cctf_decoding',
         'spectral_upsampling_method',
+        'apply_hanatos2025_adaptation_window',
+        'apply_hanatos2025_adaptation_surface',
+        'spectral_gaussian_blur',
         'filter_uv',
         'filter_ir',
     ),
@@ -72,7 +75,6 @@ PROFILE_SYNC_FIELDS: dict[str, tuple[str, ...]] = {
         'print_gamma_factor',
     ),
     'simulation': (
-        'color_management_workflow',
         'film_stock',
         'film_format_mm',
         'camera_lens_blur_um',

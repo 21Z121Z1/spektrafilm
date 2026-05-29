@@ -1,5 +1,6 @@
 import numpy as np
 import scipy
+import scipy.ndimage
 from spektrafilm.model.density_curves import interp_density_cmy_layers
 from spektrafilm.runtime.params_schema import GrainParams
 from spektrafilm.utils.fast_stats import fast_binomial, fast_poisson, fast_lognormal_from_mean_std
@@ -19,35 +20,29 @@ def layer_particle_model(density,
                          use_fast_stats=False,
                          ):
     if seed is not None:
-        rng = np.random.default_rng(seed)
-    else:
-        rng = np.random.default_rng()
-
+        np.random.seed(seed) # scipy uses np.random
+    
     probability_of_development = density/density_max
     probability_of_development = np.clip(probability_of_development, 1e-6, 1-1e-6) # for safe calc
     od_particle = density_max/n_particles_per_pixel
     
     grain = np.zeros_like(density)
     if method=='gamma_beta':
-        seeds = scipy.stats.gamma.rvs(n_particles_per_pixel/(1-grain_uniformity+1e-6), size=density.shape, random_state=rng) * (1-grain_uniformity+1e-6)
-        grain = scipy.stats.beta.rvs(probability_of_development*n_particles_per_pixel,
-                        (1-probability_of_development)*n_particles_per_pixel, random_state=rng)*seeds*od_particle
+        gamma_rvs = scipy.stats.gamma.rvs
+        beta_rvs = scipy.stats.beta.rvs
+        seeds = gamma_rvs(n_particles_per_pixel/(1-grain_uniformity+1e-6), size=density.shape) * (1-grain_uniformity+1e-6)
+        grain = beta_rvs(probability_of_development*n_particles_per_pixel,
+                        (1-probability_of_development)*n_particles_per_pixel)*seeds*od_particle
     elif method=='poisson_binomial':
-        saturation = 1 - probability_of_development*grain_uniformity*(1-1e-6)
         if use_fast_stats:
-            # Numba fast_stats use legacy np.random internally. Save/restore
-            # global state so callers do not observe that implementation detail.
-            legacy_state = np.random.get_state()
-            try:
-                legacy_seed = int(seed) if seed is not None else int(rng.integers(0, 2**32 - 1))
-                np.random.seed(legacy_seed)
-                seeds = fast_poisson(n_particles_per_pixel/saturation)
-                grain = fast_binomial(seeds, probability_of_development)
-            finally:
-                np.random.set_state(legacy_state)
+            binom_rvs = fast_binomial
+            poisson_rvs = fast_poisson
         else:
-            seeds = scipy.stats.poisson.rvs(n_particles_per_pixel/saturation, random_state=rng)
-            grain = scipy.stats.binom.rvs(seeds, probability_of_development, random_state=rng)
+            binom_rvs = scipy.stats.binom.rvs
+            poisson_rvs = scipy.stats.poisson.rvs
+        saturation = 1 - probability_of_development*grain_uniformity*(1-1e-6)
+        seeds = poisson_rvs(n_particles_per_pixel/saturation)
+        grain = binom_rvs(seeds, probability_of_development)
         grain = np.double(grain)*od_particle*saturation
     
     if blur_particle>0:
@@ -71,10 +66,10 @@ def add_micro_structure(density_cmy_out, micro_structure, pixel_size_um):
 def apply_grain_to_density(density_cmy,
                            pixel_size_um=10,
                            agx_particle_area_um2=0.2,
-                           agx_particle_scale=(1, 0.8, 3),
-                           density_min=(0.03, 0.06, 0.04),
-                           density_max_curves=(2.2, 2.2, 2.2),
-                           grain_uniformity=(0.98, 0.98, 0.98),
+                           agx_particle_scale=[1,0.8,3],
+                           density_min=[0.03,0.06,0.04],
+                           density_max_curves=[2.2,2.2,2.2],
+                           grain_uniformity=[0.98,0.98,0.98],
                            grain_blur=1.0,
                            n_sub_layers=1,
                            fixed_seed=None,
@@ -86,13 +81,15 @@ def apply_grain_to_density(density_cmy,
     n_particles_per_pixel = pixel_area_um2/agx_particle_area_um2
     sigma_blur_pixel = grain_blur
     
-    seed_base = int(fixed_seed) if fixed_seed is not None else 0
-    seed = (seed_base, seed_base + 1, seed_base + 2)
+    if fixed_seed is not None:
+        seed = None
+    else:
+        seed = [0, 1, 2]
     
     if n_sub_layers>1:
         n_particles_per_pixel /= n_sub_layers
     
-    density_cmy = density_cmy + density_min
+    density_cmy += density_min
     density_cmy_out = np.zeros_like(density_cmy)
     for ch in np.arange(3):
         for sl in np.arange(n_sub_layers):
@@ -116,10 +113,10 @@ def apply_grain_to_density_layers(density_cmy_layers, # x,y,sublayers,rgb
                                   density_max_layers, # 3x3 [sublayers,rgb]
                                   pixel_size_um=10,
                                   agx_particle_area_um2=0.2,
-                                  agx_particle_scale=(1, 0.8, 3), # rgb
-                                  agx_particle_scale_layers=(3, 1, 0.3), # sublayers
-                                  density_min=(0.03, 0.06, 0.04),
-                                  grain_uniformity=(0.98, 0.98, 0.98),
+                                  agx_particle_scale=[1,0.8,3], # rgb
+                                  agx_particle_scale_layers=[3,1,0.3], # sublayers
+                                  density_min=[0.03,0.06,0.04],
+                                  grain_uniformity=[0.98,0.98,0.98],
                                   grain_blur=1.0,
                                   grain_blur_dye_clouds_um=1.0,
                                   grain_micro_structure=(0.1, 30),
@@ -138,8 +135,10 @@ def apply_grain_to_density_layers(density_cmy_layers, # x,y,sublayers,rgb
     n_particles_per_pixel = pixel_area_um2*density_max_fractions/agx_particle_area_um2_layers
 
     
-    seed_base = int(fixed_seed) if fixed_seed is not None else 0
-    seed = (seed_base, seed_base + 1, seed_base + 2)
+    if fixed_seed is not None:
+        seed = None
+    else:
+        seed = [0, 1, 2]
     
     density_cmy_layers += density_min_layers
     density_cmy_out = np.zeros(density_cmy_layers.shape[0:3])
@@ -173,14 +172,11 @@ def apply_grain(
     profile_type,
     bypass_grain=False,
     use_fast_stats=False,
-    backend=None,
 ):
     if not grain.active or bypass_grain:
         return density_cmy
 
     if not grain.sublayers_active:
-        if backend is not None and getattr(backend, "supports_gpu", False):
-            density_cmy = backend.to_numpy(density_cmy)
         density_max = np.nanmax(density_curves, axis=0)
         return apply_grain_to_density(
             density_cmy,
@@ -199,10 +195,7 @@ def apply_grain(
         density_curves,
         density_curves_layers,
         positive_film=profile_type == 'positive',
-        backend=backend,
     )
-    if backend is not None and getattr(backend, "supports_gpu", False):
-        density_cmy_layers = backend.to_numpy(density_cmy_layers)
     density_max_layers = np.nanmax(density_curves_layers, axis=0)
     return apply_grain_to_density_layers(
         density_cmy_layers,

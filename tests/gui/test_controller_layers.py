@@ -3,11 +3,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from spektrafilm.color_management import ColorEncoding
 from spektrafilm_gui import controller_layers as controller_layers_module
 from spektrafilm_gui.controller import (
     OUTPUT_CCTF_ENCODING_KEY,
-    OUTPUT_COLOR_ENCODING_KEY,
     OUTPUT_COLOR_SPACE_KEY,
     OUTPUT_DISPLAY_TRANSFORM_KEY,
     OUTPUT_FLOAT_DATA_KEY,
@@ -23,16 +21,12 @@ from spektrafilm_gui.controller_layers import (
 from .helpers import FakeLayer, FakeLayerList, FakeViewer
 
 
-OUTPUT_ENCODING = ColorEncoding(color_space='ACES2065-1', transfer='cctf', role='display')
-
-
 def _make_service(viewer: FakeViewer) -> ViewerLayerService:
     return ViewerLayerService(
         viewer=viewer,
         output_float_data_key=OUTPUT_FLOAT_DATA_KEY,
         output_color_space_key=OUTPUT_COLOR_SPACE_KEY,
         output_cctf_encoding_key=OUTPUT_CCTF_ENCODING_KEY,
-        output_color_encoding_key=OUTPUT_COLOR_ENCODING_KEY,
         output_display_transform_key=OUTPUT_DISPLAY_TRANSFORM_KEY,
     )
 
@@ -207,7 +201,6 @@ def test_set_or_add_output_layer_matches_existing_input_world_geometry() -> None
         float_image=float_image,
         output_color_space='ACES2065-1',
         output_cctf_encoding=True,
-        output_encoding=OUTPUT_ENCODING,
         use_display_transform=False,
     )
 
@@ -220,7 +213,6 @@ def test_set_or_add_output_layer_matches_existing_input_world_geometry() -> None
     np.testing.assert_allclose(output_layer.metadata[OUTPUT_FLOAT_DATA_KEY], float_image)
     assert output_layer.metadata[OUTPUT_COLOR_SPACE_KEY] == 'ACES2065-1'
     assert output_layer.metadata[OUTPUT_CCTF_ENCODING_KEY] is True
-    assert output_layer.metadata[OUTPUT_COLOR_ENCODING_KEY] is OUTPUT_ENCODING
     assert output_layer.metadata[OUTPUT_DISPLAY_TRANSFORM_KEY] is False
     assert output_layer.interpolation2d == 'spline36'
     assert output_layer.visible is True
@@ -242,7 +234,6 @@ def test_set_or_add_output_layer_applies_requested_interpolation_mode() -> None:
         float_image=np.full((8, 4, 3), 0.5, dtype=np.float32),
         output_color_space='ACES2065-1',
         output_cctf_encoding=True,
-        output_encoding=OUTPUT_ENCODING,
         use_display_transform=False,
         output_interpolation_mode='nearest',
     )
@@ -267,7 +258,6 @@ def test_set_or_add_output_layer_preserves_square_pixels_for_cropped_aspect_chan
         float_image=float_image,
         output_color_space='ACES2065-1',
         output_cctf_encoding=True,
-        output_encoding=OUTPUT_ENCODING,
         use_display_transform=False,
     )
 
@@ -292,7 +282,6 @@ def test_repeated_output_updates_skip_redundant_visibility_write_but_restore_hid
         float_image=float_image,
         output_color_space='ACES2065-1',
         output_cctf_encoding=True,
-        output_encoding=OUTPUT_ENCODING,
         use_display_transform=False,
     )
 
@@ -305,7 +294,6 @@ def test_repeated_output_updates_skip_redundant_visibility_write_but_restore_hid
         float_image=float_image,
         output_color_space='ACES2065-1',
         output_cctf_encoding=True,
-        output_encoding=OUTPUT_ENCODING,
         use_display_transform=False,
     )
 
@@ -318,7 +306,6 @@ def test_repeated_output_updates_skip_redundant_visibility_write_but_restore_hid
         float_image=float_image,
         output_color_space='ACES2065-1',
         output_cctf_encoding=True,
-        output_encoding=OUTPUT_ENCODING,
         use_display_transform=False,
     )
 
@@ -343,7 +330,6 @@ def test_input_preview_hides_existing_output_layer_but_reuses_it_for_next_output
         float_image=float_image,
         output_color_space='ACES2065-1',
         output_cctf_encoding=True,
-        output_encoding=OUTPUT_ENCODING,
         use_display_transform=False,
     )
 
@@ -366,7 +352,6 @@ def test_input_preview_hides_existing_output_layer_but_reuses_it_for_next_output
         float_image=float_image,
         output_color_space='ACES2065-1',
         output_cctf_encoding=True,
-        output_encoding=OUTPUT_ENCODING,
         use_display_transform=False,
     )
 
@@ -391,7 +376,6 @@ def test_hidden_output_with_changed_shape_is_recreated_for_next_output() -> None
         float_image=np.full((4, 4, 3), 0.5, dtype=np.float32),
         output_color_space='ACES2065-1',
         output_cctf_encoding=True,
-        output_encoding=OUTPUT_ENCODING,
         use_display_transform=False,
     )
 
@@ -408,7 +392,6 @@ def test_hidden_output_with_changed_shape_is_recreated_for_next_output() -> None
         float_image=np.full((8, 8, 3), 0.6, dtype=np.float32),
         output_color_space='ACES2065-1',
         output_cctf_encoding=True,
-        output_encoding=OUTPUT_ENCODING,
         use_display_transform=False,
     )
 
@@ -435,7 +418,6 @@ def test_input_preview_update_can_preserve_visible_output_and_active_layer() -> 
         float_image=float_image,
         output_color_space='ACES2065-1',
         output_cctf_encoding=True,
-        output_encoding=OUTPUT_ENCODING,
         use_display_transform=False,
     )
 

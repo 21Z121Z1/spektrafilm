@@ -1,19 +1,19 @@
-import logging
 import numpy as np
-import scipy.special
+import scipy
+import colour
+import scipy.interpolate
+import matplotlib.pyplot as plt
 from spektrafilm.config import SPECTRAL_SHAPE
 from spektrafilm.utils.io import load_dichroic_filters, load_filter
-
-_log = logging.getLogger(__name__)
 
 ################################################################################
 # Color Filter class
 ################################################################################
 
-def create_combined_dichroic_filter(wavelength: np.ndarray,
-                                    transitions: list[float],
-                                    edges: list[float],
-                                    ) -> np.ndarray:
+def create_combined_dichroic_filter(wavelength,
+                                    transitions,
+                                    edges,
+                                    ):
     # data from https://qd-europe.com/se/en/product/dichroic-filters-and-sets/
     dichroics = np.zeros((np.size(wavelength),3))
     dichroics[:,2] = scipy.special.erf( (wavelength-edges[0])/transitions[0])
@@ -34,7 +34,6 @@ class DichroicFilters():
             self.filters = load_dichroic_filters(self.wavelengths, brand)
             
     def plot(self):
-        import matplotlib.pyplot as plt
         colors = ['tab:cyan', 'tab:pink', 'gold']
         _, ax = plt.subplots()
         for i in range(3):
@@ -45,28 +44,20 @@ class DichroicFilters():
         ax.set_xlim(np.min(self.wavelengths), np.max(self.wavelengths))
         ax.legend(('C','M','Y'))
     
-    def apply(self, illuminant, filter_transmittance_values=None):
-        if filter_transmittance_values is None:
-            filter_transmittance_values = [1, 1, 1]
+    def apply(self, illuminant, filter_transmittance_values=[1,1,1]):
         dimmed_filters = 1 - (1-self.filters)*(1-np.array(filter_transmittance_values)) # following durst 605 wheels values, with 170 max
         total_filter = np.prod(dimmed_filters, axis=1)
         filtered_illuminant = illuminant*total_filter
         return filtered_illuminant
-
-    def apply_cc(self, illuminant, filter_cc_values=None):
-        if filter_cc_values is None:
-            filter_cc_values = [0, 0, 0]
+    
+    def apply_cc(self, illuminant, filter_cc_values=[0,0,0]):
         # Filter values are in Kodak CC units proportional to density, 100 units means 1.0 density, or 90% reduction in transmittance
         filter_transmittance_values = 10 ** -(np.array(filter_cc_values)/100.0)
         return self.apply(illuminant, filter_transmittance_values=filter_transmittance_values)
-
+    
     def create_custom_filters(self,
-                               edges=None,
-                               transitions=None):
-        if edges is None:
-            edges = [516, 500, 610, 607]
-        if transitions is None:
-            transitions = [12, 8, 8, 8]
+                               edges=[516,500,610,607],
+                               transitions=[12,8,8,8]):
         self.filters = create_combined_dichroic_filter(self.wavelengths,
                                                        transitions=transitions,
                                                        edges=edges)
@@ -94,14 +85,10 @@ class GenericFilter():
 ################################################################################
 # Band pass filter
 
-def sigmoid_erf(x: np.ndarray, center: float, width: float = 1.0) -> np.ndarray:
+def sigmoid_erf(x, center, width=1):
     return scipy.special.erf((x-center)/width)*0.5+0.5
 
-def compute_band_pass_filter(filter_uv: list[float] | None = None, filter_ir: list[float] | None = None) -> np.ndarray:
-    if filter_uv is None:
-        filter_uv = [1, 410, 8]
-    if filter_ir is None:
-        filter_ir = [1, 675, 15]
+def compute_band_pass_filter(filter_uv=[1, 410, 8], filter_ir=[1, 675, 15]):
     amp_uv = filter_uv[0]
     wl_uv = filter_uv[1]
     width_uv = filter_uv[2]
@@ -121,48 +108,29 @@ def compute_band_pass_filter(filter_uv: list[float] | None = None, filter_ir: li
         
 
 # color filter variables
-try:
-    dichroic_filters = DichroicFilters()
-    thorlabs_dichroic_filters = DichroicFilters(brand='thorlabs')
-    edmund_optics_dichroic_filters = DichroicFilters(brand='edmund_optics')
-    durst_digital_light_dicrhoic_filters = DichroicFilters(brand='durst_digital_light')
-    custom_dichroic_filters = DichroicFilters(brand='custom')
-    schott_kg1_heat_filter = GenericFilter(name='KG1', type='heat_absorbing', brand='schott')
-    schott_kg3_heat_filter = GenericFilter(name='KG3', type='heat_absorbing', brand='schott')
-    schott_kg5_heat_filter = GenericFilter(name='KG5', type='heat_absorbing', brand='schott')
-    generic_lens_transmission = GenericFilter(name='canon_24_f28_is', type='lens_transmission',
-                                              brand='canon', data_in_percentage=True)
-except (FileNotFoundError, OSError) as exc:
-    _log.warning("Filter data files not found at import time: %s. "
-                 "Filter-based features will not work until the data files are installed.", exc)
-    dichroic_filters = None
-    thorlabs_dichroic_filters = None
-    edmund_optics_dichroic_filters = None
-    durst_digital_light_dicrhoic_filters = None
-    custom_dichroic_filters = None
-    schott_kg1_heat_filter = None
-    schott_kg3_heat_filter = None
-    schott_kg5_heat_filter = None
-    generic_lens_transmission = None
+dichroic_filters = DichroicFilters()
+thorlabs_dichroic_filters = DichroicFilters(brand='thorlabs')
+edmund_optics_dichroic_filters = DichroicFilters(brand='edmund_optics')
+durst_digital_light_dicrhoic_filters = DichroicFilters(brand='durst_digital_light')
+custom_dichroic_filters = DichroicFilters(brand='custom')
+schott_kg1_heat_filter = GenericFilter(name='KG1', type='heat_absorbing', brand='schott')
+schott_kg3_heat_filter = GenericFilter(name='KG3', type='heat_absorbing', brand='schott')
+schott_kg5_heat_filter = GenericFilter(name='KG5', type='heat_absorbing', brand='schott')
+generic_lens_transmission = GenericFilter(name='canon_24_f28_is', type='lens_transmission',
+                                          brand='canon', data_in_percentage=True)
 
 
 ################################################################################
 
 def color_enlarger(light_source, filter_cc_values=(0,65,55),
-                   filters=custom_dichroic_filters) -> np.ndarray:
+                   filters=custom_dichroic_filters):
     # Filter values are in Kodak CC units proportional to density, 100 units means 1.0 density, or 90% reduction in transmittance
     # cc_filter_values are in CMY order
-    if filters is None:
-        raise RuntimeError(
-            "Dichroic filter data files not found. "
-            "color_enlarger() requires filter data to be installed."
-        )
     filter_cc_values = np.array(filter_cc_values)
     filtered_illuminant = filters.apply_cc(light_source, filter_cc_values=filter_cc_values)
     return filtered_illuminant
 
 if __name__=="__main__":
-    import matplotlib.pyplot as plt
     from spektrafilm.model.illuminants import standard_illuminant
     from spektrafilm.profiles.io import load_profile
     

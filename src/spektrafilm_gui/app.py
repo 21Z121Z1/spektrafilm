@@ -65,7 +65,6 @@ def _warmup_full_gui() -> None:
     pil_image_module = import_module('PIL.Image')
     imagecms_module = import_module('PIL.ImageCms')
     controller_runtime = import_module('spektrafilm_gui.controller_runtime')
-    color_management = import_module('spektrafilm.color_management')
     params_mapper = import_module('spektrafilm_gui.params_mapper')
     runtime_api = import_module('spektrafilm.runtime.api')
     import_module('spektrafilm.utils.io')
@@ -83,12 +82,11 @@ def _warmup_full_gui() -> None:
     params = params_mapper.build_params_from_state(gui_state)
     simulator = runtime_api.Simulator(runtime_api.digest_params(params))
     scan = np.asarray(simulator.process(warmup_image), dtype=np.float32)
-    output_encoding = color_management.output_encoding_from_io(params.io)
 
     # Force the display path once as part of startup so the first preview avoids lazy import/setup cost.
     controller_runtime.prepare_output_display_image(
         scan,
-        output_encoding=output_encoding,
+        output_color_space=gui_state.simulation.output_color_space,
         use_display_transform=True,
         imagecms_module=imagecms_module,
         colour_module=colour_module,
@@ -104,7 +102,7 @@ class _WarmupTask(QRunnable):
     def run(self) -> None:
         try:
             self._warmup_fn()
-        except BaseException:
+        except (AttributeError, ImportError, LookupError, OSError, RuntimeError, TypeError, ValueError):
             return
 
 
@@ -230,8 +228,8 @@ def connect_auto_preview_signals(controller: GuiController, widgets: WidgetBundl
 def connect_controller_signals(controller: GuiController, widgets: WidgetBundle) -> None:
     widgets.filepicker.load_requested.connect(controller.load_input_image)
     widgets.load_raw.load_requested.connect(controller.load_raw_image)
-    widgets.simulation.film_stock.textActivated.connect(controller.apply_film_profile_defaults)
-    widgets.simulation.print_paper.textActivated.connect(controller.apply_print_profile_defaults)
+    widgets.simulation.film_stock.textActivated.connect(controller.apply_profile_defaults)
+    widgets.simulation.print_paper.textActivated.connect(controller.apply_profile_defaults)
     widgets.gui_config.save_current_as_default_requested.connect(controller.save_current_as_default)
     widgets.gui_config.save_current_to_file_requested.connect(controller.save_current_state_to_file)
     widgets.gui_config.load_from_file_requested.connect(controller.load_state_from_file)

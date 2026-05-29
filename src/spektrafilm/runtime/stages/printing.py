@@ -3,14 +3,8 @@ from __future__ import annotations
 import numpy as np
 from opt_einsum import contract
 
-from spektrafilm.gpu.kernels.density import (
-    density_to_light as density_to_light_backend,
-    interpolate_exposure_to_density_backend,
-    light_to_raw,
-)
-from spektrafilm.gpu.kernels.density import compute_density_spectral as compute_density_spectral_backend
 from spektrafilm.model.diffusion import apply_diffusion_filter_um
-from spektrafilm.model.emulsion import compute_density_spectral
+from spektrafilm.model.emulsion import compute_density_spectral, develop_simple
 from spektrafilm.model.illuminants import standard_illuminant
 from spektrafilm.utils.timings import timeit
 from spektrafilm.utils.conversions import density_to_light
@@ -29,7 +23,6 @@ class PrintingStage:
         enlarger_service,
         resize_service,
         color_reference_service,
-        backend=None,
     ):
         self._film = film
         self._film_render = film_render_params
@@ -41,7 +34,6 @@ class PrintingStage:
         self._enlarger_service = enlarger_service
         self._resize_service = resize_service
         self._color_reference_service = color_reference_service
-        self._backend = backend
 
     # public methods
 
@@ -50,13 +42,8 @@ class PrintingStage:
         
         cmy_film_black = np.zeros((1,1,3)) - np.array(self._film_render.grain.density_min)
         cmy_film_white = np.nanmax(self._film.data.density_curves, axis=0)[None, None, :]
-        log_raw_print_black = self._film_cmy_to_print_log_raw(cmy_film_black)
-        log_raw_print_white = self._film_cmy_to_print_log_raw(cmy_film_white)
-        if self._backend is not None and self._backend.supports_gpu:
-            log_raw_print_black = self._backend.to_numpy(log_raw_print_black)
-            log_raw_print_white = self._backend.to_numpy(log_raw_print_white)
-        self._color_reference_service.log_raw_print_black = log_raw_print_black
-        self._color_reference_service.log_raw_print_white = log_raw_print_white
+        self._color_reference_service.log_raw_print_black = self._film_cmy_to_print_log_raw(cmy_film_black)
+        self._color_reference_service.log_raw_print_white = self._film_cmy_to_print_log_raw(cmy_film_white)
         
         log_raw_print = self._lut_service.spectral_compute_enlarger(
             cmy_film_density,
@@ -65,31 +52,24 @@ class PrintingStage:
             data_max=np.nanmax(self._film.data.density_curves, axis=0),
             use_lut=self._settings.use_enlarger_lut,
         )    
-        if self._backend is not None and self._backend.supports_gpu:
-            raw = self._backend.power(10.0, log_raw_print)
-        else:
-            raw = 10**log_raw_print
-        raw = raw * self._enlarger.print_exposure
-        raw = raw * self._color_reference_service.black_white_printing_exposure_correction()
+        raw = 10**log_raw_print
+        raw *= self._enlarger.print_exposure
+        raw *= self._color_reference_service.black_white_printing_exposure_correction()
         raw = apply_diffusion_filter_um(
             raw,
             self._enlarger.diffusion_filter,
             pixel_size_um=self._resize_service.pixel_size_um,
-            backend=self._backend,
         )
-        if self._backend is not None and self._backend.supports_gpu:
-            return self._backend.log10(self._backend.fmax(raw, 0.0) + 1e-10)
         return np.log10(np.fmax(raw, 0.0) + 1e-10)
 
     @timeit("develop")
     def develop(self, log_raw: np.ndarray) -> np.ndarray:
                 
-        return interpolate_exposure_to_density_backend(
+        return develop_simple(
             log_raw,
             self._print.data.log_exposure,
             self._print.data.density_curves,
-            self._print_render.density_curve_gamma,
-            backend=self._backend,
+            gamma_factor=self._print_render.density_curve_gamma,
         )
 
     # private methods
@@ -99,41 +79,17 @@ class PrintingStage:
         sensitivity = np.nan_to_num(sensitivity)
         enlarger_light_source = standard_illuminant(self._enlarger.illuminant)
 
+        raw = np.zeros_like(cmy_film_density)
+        density_spectral = compute_density_spectral(
+            self._film.data.channel_density,
+            cmy_film_density,
+            base_density=self._film.data.base_density,
+        )
         print_illuminant = self._enlarger_service.enlarger_filtered_illuminant(enlarger_light_source)
-        if self._backend is not None and self._backend.supports_gpu:
-            density_spectral = compute_density_spectral_backend(
-                self._backend.asarray(self._film.data.channel_density),
-                self._backend.asarray(cmy_film_density),
-                self._backend.asarray(self._film.data.base_density),
-                self._backend,
-            )
-            light = density_to_light_backend(
-                density_spectral,
-                self._backend.asarray(print_illuminant),
-                self._backend,
-            )
-            raw = light_to_raw(
-                light,
-                self._backend.asarray(sensitivity),
-                self._backend,
-            )
-        else:
-            density_spectral = compute_density_spectral(
-                self._film.data.channel_density,
-                cmy_film_density,
-                base_density=self._film.data.base_density,
-            )
-            light = density_to_light(density_spectral, print_illuminant)
-            raw = contract("ijk, kl->ijl", light, sensitivity)
-        exposure_factor = self._compute_exposure_factor_midgray(sensitivity, print_illuminant)
-        raw_preflash = self._compute_raw_preflash(enlarger_light_source, sensitivity)
-        if self._backend is not None and self._backend.supports_gpu:
-            exposure_factor = self._backend.asarray(exposure_factor)
-            raw_preflash = self._backend.asarray(raw_preflash)
-        raw = raw * exposure_factor
-        raw = raw + raw_preflash
-        if self._backend is not None and self._backend.supports_gpu:
-            return self._backend.log10(self._backend.fmax(raw, 0.0) + 1e-10)
+        light = density_to_light(density_spectral, print_illuminant)
+        raw = contract("ijk, kl->ijl", light, sensitivity)
+        raw *= self._compute_exposure_factor_midgray(sensitivity, print_illuminant)
+        raw += self._compute_raw_preflash(enlarger_light_source, sensitivity)
         return np.log10(np.fmax(raw, 0.0) + 1e-10)
 
     def _compute_raw_preflash(self, light_source, sensitivity):
@@ -143,7 +99,7 @@ class PrintingStage:
             light_preflash = density_to_light(density_base, preflash_illuminant)
             raw_preflash = contract("ijk, kl->ijl", light_preflash, sensitivity)
             return raw_preflash * self._enlarger.preflash_exposure
-        return np.zeros((1, 1, 3))
+        return np.zeros((3,))
 
     def _compute_exposure_factor_midgray(self, sensitivity, print_illuminant):
         factor_midgray = _exposure_factor(sensitivity, print_illuminant, self._enlarger_service.density_spectral_midgray)

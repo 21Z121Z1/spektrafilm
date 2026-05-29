@@ -1,23 +1,6 @@
 import numpy as np
 import pyfftw.interfaces.numpy_fft as fft  # use pyFFTW FFT routines
 
-def _normalize_sigma_for_image(image_ndim, channels, sigma):
-    sigma_array = np.asarray(sigma, dtype=float)
-    if sigma_array.ndim == 0:
-        sigma_value = float(sigma_array)
-        return sigma_value if image_ndim == 2 else np.full(channels, sigma_value, dtype=float)
-
-    sigma_values = sigma_array.ravel()
-    if image_ndim == 2:
-        if sigma_values.size != 1:
-            raise ValueError("Length of sigma array must be 1 for a 2D image.")
-        return float(sigma_values[0])
-
-    if sigma_values.size != channels:
-        raise ValueError("Length of sigma array must equal the number of channels in the image.")
-    return sigma_values.astype(float, copy=False)
-
-
 def fft_gaussian_filter(image, sigma, truncate=7.0, pad=True, parallel=True):
     """
     Apply a Gaussian filter using FFT-based convolution with optional
@@ -43,23 +26,32 @@ def fft_gaussian_filter(image, sigma, truncate=7.0, pad=True, parallel=True):
             The filtered image.
     """
     if image.ndim == 2:
-        sigma_val = _normalize_sigma_for_image(image.ndim, None, sigma)
+        sigma_val = sigma if np.isscalar(sigma) else sigma[0]
         return _fft_gaussian_filter_2d(image, sigma_val, truncate, pad)
     elif image.ndim == 3:
         H, W, C = image.shape
         filtered = np.empty_like(image)
-        sigma_values = _normalize_sigma_for_image(image.ndim, C, sigma)
         if parallel:
             import concurrent.futures
             def process_channel(c):
-                return _fft_gaussian_filter_2d(image[..., c], sigma_values[c], truncate, pad)
+                if np.isscalar(sigma):
+                    return _fft_gaussian_filter_2d(image[..., c], sigma, truncate, pad)
+                else:
+                    return _fft_gaussian_filter_2d(image[..., c], sigma[c], truncate, pad)
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 results = list(executor.map(process_channel, range(C)))
             for c in range(C):
                 filtered[..., c] = results[c]
         else:
-            for c in range(C):
-                filtered[..., c] = _fft_gaussian_filter_2d(image[..., c], sigma_values[c], truncate, pad)
+            if np.isscalar(sigma):
+                for c in range(C):
+                    filtered[..., c] = _fft_gaussian_filter_2d(image[..., c], sigma, truncate, pad)
+            else:
+                sigma = np.asarray(sigma)
+                if sigma.size != C:
+                    raise ValueError("Length of sigma array must equal the number of channels in the image.")
+                for c in range(C):
+                    filtered[..., c] = _fft_gaussian_filter_2d(image[..., c], sigma[c], truncate, pad)
         return filtered
     else:
         raise ValueError("Unsupported image dimension: {}".format(image.ndim))

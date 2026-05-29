@@ -1,5 +1,3 @@
-import warnings
-
 import numpy as np
 from scipy.interpolate import interp1d, CubicSpline
 from scipy.optimize import least_squares
@@ -32,7 +30,17 @@ def measure_density_min(log_exposure, density_curves, info_type, control_plot=Fa
     dc = density_curves
     le = log_exposure
     density_min = np.zeros(3)
-
+    
+    # # fitting model for the toe
+    # def curve_toe(e, k):
+    #     gamma = k[0]
+    #     e0    = k[1]
+    #     d0    = k[2]
+    #     c1    = k[3] 
+    #     y = (  gamma/c1 * np.log10(1 + 10**(c1 * (e - e0) ) ) 
+    #         ) + d0
+    #     return y
+    
     def curve_toe(e, k):
         d_max = k[0]
         e0    = k[1]
@@ -65,12 +73,6 @@ def measure_density_min(log_exposure, density_curves, info_type, control_plot=Fa
             res = np.nan_to_num(res)
             return res
         fit = least_squares(residues, k0, bounds=(lb, ub))
-        if not fit.success:
-            warnings.warn(
-                f"density_min curve fitting failed for channel {i}: {fit.message}",
-                RuntimeWarning,
-                stacklevel=2,
-            )
         fits.append(fit)
         k = fit.x
         density_min[i] = k[2]

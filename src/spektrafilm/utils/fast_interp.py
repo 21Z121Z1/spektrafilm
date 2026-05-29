@@ -1,5 +1,6 @@
 import numpy as np
 import numba
+import time
 
 @numba.njit(parallel=True, fastmath=True, cache=True)
 def fast_interp(image, x_axis, y_vals):
@@ -117,8 +118,6 @@ def warmup_fast_interp():
     _ = fast_interp(dummy_image, dummy_x_axis2, dummy_y_vals)
 
 if __name__ == '__main__':
-    import time
-
     # Precompile the fast_interp function.
     warmup_fast_interp()
     

@@ -20,6 +20,9 @@ class InputImageState:
     input_color_space: str
     apply_cctf_decoding: bool
     spectral_upsampling_method: str
+    apply_hanatos2025_adaptation_window: bool
+    apply_hanatos2025_adaptation_surface: bool
+    spectral_gaussian_blur: float
     filter_uv: tuple[float, float, float]
     filter_ir: tuple[float, float, float]
 
@@ -104,22 +107,6 @@ class SpecialState:
     film_gamma_factor: float
     print_channel_swap: tuple[int, int, int]
     print_gamma_factor: float
-    runtime_float_precision: str = "float32"
-
-
-@dataclass(slots=True)
-class HdrExportState:
-    hdr_mapping_mode: str
-    exr_mode: str
-    hdr_diffuse_lift_strength: float
-    graft_strength: float
-    paper_rolloff_exposure_scale: float
-    paper_rolloff_k: float
-    max_headroom: float
-    path_to_white_enabled: bool = True
-    profile_hdr_mode: str = "strict_preserving"
-    profile_hdr_target_peak_ev: float = 2.03
-    profile_hdr_recovery_ratio: float = 0.50
 
 
 @dataclass(slots=True)
@@ -141,7 +128,6 @@ class SimulationState:
     exposure_compensation_ev: float
     auto_exposure: bool
     auto_exposure_method: str
-    compute_backend: str
     print_paper: str
     print_illuminant: str
     print_exposure: float
@@ -170,8 +156,6 @@ class SimulationState:
     saving_cctf_encoding: bool
     auto_preview: bool
     scan_film: bool
-    hdr_exr_output: bool = False
-    color_management_workflow: str = "manual"
 
 
 @dataclass(slots=True)
@@ -195,8 +179,6 @@ class GuiState:
     special: SpecialState
     simulation: SimulationState
     display: DisplayState
-    hdr_export: HdrExportState
-
 
 
 def clone_state_section(section: StateSection) -> StateSection:
@@ -217,7 +199,6 @@ def clone_gui_state(state: GuiState) -> GuiState:
         special=clone_state_section(state.special),
         simulation=clone_state_section(state.simulation),
         display=clone_state_section(state.display),
-        hdr_export=clone_state_section(state.hdr_export),
     )
 
 
@@ -236,6 +217,9 @@ def gui_state_from_params(
             input_color_space=params.io.input_color_space,
             apply_cctf_decoding=params.io.input_cctf_decoding,
             spectral_upsampling_method=params.settings.rgb_to_raw_method,
+            apply_hanatos2025_adaptation_window=params.settings.apply_hanatos2025_adaptation_window,
+            apply_hanatos2025_adaptation_surface=params.settings.apply_hanatos2025_adaptation_surface,
+            spectral_gaussian_blur=params.settings.spectral_gaussian_blur,
             filter_uv=tuple(params.camera.filter_uv),
             filter_ir=tuple(params.camera.filter_ir),
         ),
@@ -302,7 +286,6 @@ def gui_state_from_params(
             film_gamma_factor=params.film_render.density_curve_gamma,
             print_channel_swap=(0, 1, 2),
             print_gamma_factor=params.print_render.density_curve_gamma,
-            runtime_float_precision=params.settings.float_precision,
         ),
         simulation=SimulationState(
             film_stock=film_stock,
@@ -322,7 +305,6 @@ def gui_state_from_params(
             exposure_compensation_ev=params.camera.exposure_compensation_ev,
             auto_exposure=params.camera.auto_exposure,
             auto_exposure_method=params.camera.auto_exposure_method,
-            compute_backend=params.settings.compute_backend,
             print_paper=print_paper,
             print_illuminant=params.enlarger.illuminant,
             print_exposure=params.enlarger.print_exposure,
@@ -351,9 +333,6 @@ def gui_state_from_params(
             saving_cctf_encoding=params.io.output_cctf_encoding,
             auto_preview=True,
             scan_film=params.io.scan_film,
-            hdr_exr_output=not bool(params.io.output_cctf_encoding)
-            and not bool(getattr(params.io, "output_clip_max", True)),
-            color_management_workflow=getattr(params.settings, "color_management_workflow", "manual"),
         ),
         display=DisplayState(
             use_display_transform=True,
@@ -361,19 +340,6 @@ def gui_state_from_params(
             output_interpolation='spline36',
             white_padding=0.03,
             preview_max_size=params.settings.preview_max_size,
-        ),
-        hdr_export=HdrExportState(
-            hdr_mapping_mode='generic',
-            exr_mode='scene_linear_archive',
-            hdr_diffuse_lift_strength=1.0,
-            graft_strength=0.5,
-            paper_rolloff_exposure_scale=2.5,
-            paper_rolloff_k=5.5,
-            max_headroom=16.0,
-            path_to_white_enabled=True,
-            profile_hdr_mode='strict_preserving',
-            profile_hdr_target_peak_ev=2.03,
-            profile_hdr_recovery_ratio=0.50,
         ),
     )
 

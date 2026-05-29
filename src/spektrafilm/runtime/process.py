@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import numpy as np
-
-from spektrafilm.gpu.metal_serialization import serialized_metal_runtime
 from spektrafilm.runtime.params_schema import RuntimePhotoParams
-from spektrafilm.runtime.pipeline import SimulationPipeline, SimulationPipelineResult
+from spektrafilm.runtime.pipeline import SimulationPipeline
 from spektrafilm.utils.preview import resize_for_preview
 from spektrafilm.runtime.params_builder import (
     digest_params,
@@ -20,106 +17,41 @@ class Simulator:
     """
 
     def __init__(self, params: RuntimePhotoParams):
-        if _params_may_require_serial_runtime(params):
-            with serialized_metal_runtime():
-                self._pipeline = SimulationPipeline(params) # should stay private
-        else:
-            self._pipeline = SimulationPipeline(params) # should stay private
+        self._pipeline = SimulationPipeline(params) # should stay private
 
-    def process(self, image: np.ndarray) -> np.ndarray:
+    def process(self, image):
         """Process the input image through the simulation pipeline and return the final result."""
-        if self._uses_serial_runtime():
-            with serialized_metal_runtime():
-                result = self._pipeline.process(image)
-                self._synchronize_serial_runtime()
-                return result
         return self._pipeline.process(image)
 
-    def process_with_metadata(
-        self,
-        image: np.ndarray,
-        *,
-        include_scene_rgb: bool = False,
-    ) -> SimulationPipelineResult:
-        """Process the input image and return rendered output plus runtime metadata."""
-        if self._uses_serial_runtime():
-            with serialized_metal_runtime():
-                if include_scene_rgb:
-                    result = self._pipeline.process_with_metadata(
-                        image,
-                        include_scene_rgb=True,
-                    )
-                else:
-                    result = self._pipeline.process_with_metadata(image)
-                self._synchronize_serial_runtime()
-                return result
-        if include_scene_rgb:
-            return self._pipeline.process_with_metadata(
-                image,
-                include_scene_rgb=True,
-            )
-        return self._pipeline.process_with_metadata(image)
-
-    def update_params(self, params: RuntimePhotoParams) -> None:
+    def update_params(self, params):
         """Update the parameters of the simulation pipeline."""
-        if self._uses_serial_runtime() or _params_may_require_serial_runtime(params):
-            with serialized_metal_runtime():
-                try:
-                    self._pipeline.update(params)
-                finally:
-                    self._synchronize_serial_runtime()
-            return
         self._pipeline.update(params)
 
-    def soft_update(self, **kwargs) -> None:
+    def soft_update(self, **kwargs):
         """Soft update parameters by only changing the provided fields, keeping the rest unchanged.
         only selected safe parameters can be updated with this method
         """
-        if self._uses_serial_runtime():
-            with serialized_metal_runtime():
-                try:
-                    self._pipeline.soft_update(**kwargs)
-                finally:
-                    self._synchronize_serial_runtime()
-            return
         self._pipeline.soft_update(**kwargs)
 
-    def _uses_serial_runtime(self) -> bool:
-        backend = getattr(self._pipeline, "_array_backend", None)
-        return bool(getattr(backend, "requires_serial_runtime", False))
-
-    def _synchronize_serial_runtime(self) -> None:
-        backend = getattr(self._pipeline, "_array_backend", None)
-        synchronize = getattr(backend, "synchronize", None)
-        if callable(synchronize):
-            synchronize()
-
-    def get_timings(self) -> dict[str, float]:
+    def get_timings(self):
         """Get the timings of the different stages of the simulation pipeline."""
         return self._pipeline.get_timings()
 
-    def get_total_elapsed_time(self) -> float | None:
+    def get_total_elapsed_time(self):
         """Get the total wall-clock time of the last process call."""
         return self._pipeline.get_total_elapsed_time()
 
-    def format_timings(self) -> str:
+    def format_timings(self):
         """Format the last recorded timings for display."""
         return self._pipeline.format_timings()
 
-    def print_timings(self) -> None:
+    def print_timings(self):
         """Print the formatted timings of the last process call."""
         self._pipeline.print_timings()
 
 
 ######################################################################################
 # Convenience functions for single-call simulation without needing to instantiate the Simulator class.
-
-def _params_may_require_serial_runtime(params: RuntimePhotoParams) -> bool:
-    settings = getattr(params, "settings", None)
-    compute_backend = str(getattr(settings, "compute_backend", "auto")).strip().lower()
-    float_precision = str(getattr(settings, "float_precision", "float32")).strip().lower()
-    return compute_backend in {"auto", "mlx", "halide"} and float_precision != "float64"
-
 
 def simulate(image, params: RuntimePhotoParams,
              digest_params_first: bool = True,
@@ -168,6 +100,8 @@ def photo_params(film_profile, print_profile) -> RuntimePhotoParams:
     print_profile - label string for the print profile to use, e.g. "kodak_portra_endura"
     """
     params = init_params(film_profile=film_profile, print_profile=print_profile)
+    params.io.full_image = True # legacy compatibility, has no effect
+    params.io.preview_resize_factor = 1.0 # legacy compatibility, has no effect
     return params
 
 __all__ = [

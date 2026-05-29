@@ -1,7 +1,6 @@
-import numpy as np
 from skimage.transform import resize
 
-def resize_for_preview(image: np.ndarray, max_size: int) -> np.ndarray:
+def resize_for_preview(image, max_size):
     h, w = image.shape[:2]
     if max(h, w) > max_size:
         scale_factor = max_size / max(h, w)
