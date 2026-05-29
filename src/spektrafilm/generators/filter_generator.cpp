@@ -3,6 +3,7 @@
 
 #include <Halide.h>
 
+using Halide::BoundaryConditions::mirror_image;
 using Halide::BoundaryConditions::mirror_interior;
 using Halide::Buffer;
 using Halide::Expr;
@@ -16,7 +17,7 @@ using Halide::Var;
 //   image     [C, H, W]
 //   kernel_1d [K]           (K = radius*2 + 1)
 //   → blurred [C, H, W]
-// Two-pass: horizontal then vertical, mirror_interior boundary.
+// Two-pass: horizontal then vertical, mirror_image boundary.
 // ---------------------------------------------------------------------------
 class GaussianBlurFIRGenerator : public Generator<GaussianBlurFIRGenerator> {
 public:
@@ -29,8 +30,8 @@ public:
     void generate() {
         Var c("c"), x("x"), y("y");
 
-        // Pad with mirror_interior boundary conditions.
-        Func padded = mirror_interior(image);
+        // Pad with mirror_image boundary conditions (matches JIT).
+        Func padded = mirror_image(image);
 
         // kernel half-width
         Expr kw = kernel_1d.dim(0).extent();
@@ -40,9 +41,21 @@ public:
         RDom rx(0, kw, "rx");
         blur_x(c, x, y) += padded(c, x + rx - half, y) * kernel_1d(rx);
 
-        // Vertical pass
+        // Vertical pass — manual mirror_y on blur_x (mirror_image semantics).
+        // mirror_interior on a Func with RDom can produce incorrect boundary
+        // accesses, so we compute the mirrored y coordinate explicitly.
+        Expr H = image.dim(1).extent();
+        auto mirror_y = [&](Expr val) -> Expr {
+            Expr neg = -val - 1;
+            Expr past = 2 * (H - 1) - val + 1;
+            return clamp(
+                select(val < 0, neg, select(val >= H, past, val)),
+                0,
+                H - 1);
+        };
+
         RDom ry(0, kw, "ry");
-        output(c, x, y) += blur_x(c, x, y + ry - half) * kernel_1d(ry);
+        output(c, x, y) += blur_x(c, x, mirror_y(y + ry - half)) * kernel_1d(ry);
     }
 
     void schedule() {

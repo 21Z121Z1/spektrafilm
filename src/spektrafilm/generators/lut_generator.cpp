@@ -11,14 +11,16 @@ using Halide::Var;
 
 // ---------------------------------------------------------------------------
 // interp_1d: linear interpolation in a 1-D LUT with clamp boundary
-//   values    [N]             — evenly spaced LUT values
-//   positions [N]             — corresponding input positions (monotonic)
+//   values    [N]             — LUT values at arbitrary positions
+//   positions [N]             — corresponding input positions (monotonic ascending)
 //   query     [H, W]          — input samples
 //   → result  [H, W]
 //
 // For each query point, find the two bracketing LUT entries and linearly
-// interpolate.  Positions are assumed monotonically increasing.
+// interpolate.  Positions are monotonically increasing but NOT necessarily
+// evenly spaced.  An RDom scan finds the correct interval.
 // Out-of-range queries are clamped to the nearest endpoint.
+// Matches JIT semantics in halide_backend.py _build_interp_1d_pipeline.
 // ---------------------------------------------------------------------------
 class Interp1DGenerator : public Generator<Interp1DGenerator> {
 public:
@@ -33,27 +35,34 @@ public:
         Expr N = values.dim(0).extent();
         Expr q = query(x, y);
 
-        // Binary-search–free approach: scan positions to find bracket.
-        // For an AOT generator we assume positions are evenly spaced or
-        // use a simple linear scan (acceptable for small N).
-        // A production version would bake in a binary search via select tree
-        // or require evenly-spaced positions.  Here we use the evenly-spaced
-        // shortcut: pos = (q - pos_min) / step, clamped.
-        Expr pos_min = positions(0);
-        Expr pos_max = positions(N - 1);
-        Expr step = (pos_max - pos_min) / cast<float>(N - 1);
+        // Clamp query to [positions[0], positions[N-1]]
+        Expr q_clamped = clamp(q, positions(0), positions(N - 1));
 
-        // Normalised index in [0, N-1]
-        Expr idx_f = clamp((q - pos_min) / step, 0.0f, cast<float>(N - 1));
-        Expr idx_lo = clamp(cast<int>(floor(idx_f)), 0, N - 2);
-        Expr idx_hi = idx_lo + 1;
-        Expr frac = idx_f - cast<float>(idx_lo);
+        // Scan all intervals with RDom.  For each interval i, if
+        // positions[i] <= q < positions[i+1], accumulate the interpolated value.
+        // Strict < on upper bound prevents double-counting at shared boundary points.
+        // Exactly one interval matches (monotonic positions), so the sum is correct.
+        // Edge case: q == positions[N-1] matches no interval (handled below).
+        RDom r(0, N - 1, "ri");
+        Expr pos_lo = positions(r);
+        Expr pos_hi = positions(r + 1);
+        Expr in_interval = (pos_lo <= q_clamped) && (q_clamped < pos_hi);
+        Expr t = clamp((q_clamped - pos_lo) / (pos_hi - pos_lo), 0.0f, 1.0f);
+        Expr interp_val = values(r) + t * (values(r + 1) - values(r));
 
-        Expr v_lo = values(idx_lo);
-        Expr v_hi = values(idx_hi);
+        Func scan{"interp_scan"};
+        scan(x, y) = 0.0f;
+        scan(x, y) += select(in_interval, interp_val, 0.0f);
 
-        // Linear blend
-        output(x, y) = v_lo + frac * (v_hi - v_lo);
+        // Track whether any interval matched (flag, not a value comparison).
+        Func matched{"interp_matched"};
+        matched(x, y) = 0.0f;
+        matched(x, y) += select(in_interval, 1.0f, 0.0f);
+
+        // If no interval matched (q == positions[N-1] exactly), use last value.
+        output(x, y) = select(matched(x, y) > 0.0f,
+                              scan(x, y),
+                              values(N - 1));
     }
 
     void schedule() {

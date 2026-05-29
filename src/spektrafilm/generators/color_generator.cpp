@@ -13,15 +13,16 @@ using Halide::Var;
 // cctf_encode: piecewise sRGB-style encoding transfer function
 //   linear      [C, H, W]
 //   gamma       (float)        — gamma for the power-law segment
-//   coefficients (float[3])    — {threshold, linear_slope, alpha}
-//     threshold:   boundary between linear and power segments
-//     linear_slope: multiplier for the linear segment  (typically 12.92)
-//     alpha:        multiplier inside pow()             (typically 1.055)
+//   threshold   (float)        — boundary between linear and power segments
+//   linear_slope (float)       — multiplier for the linear segment (typically 12.92)
+//   offset_b    (float)        — additive offset in linear segment (typically 0.0)
+//   alpha       (float)        — multiplier inside pow() (typically 1.055)
+//   d_coeff     (float)        — subtracted constant in pow() segment (typically 0.055)
 //   → encoded   [C, H, W]
 //
 //   f(x) = select(x <= threshold,
-//                 linear_slope * x,
-//                 alpha * pow(x, 1/gamma) - (alpha - 1))
+//                 linear_slope * x + offset_b,
+//                 alpha * pow(x, 1/gamma) - d_coeff)
 // ---------------------------------------------------------------------------
 class CCTFEncodeGenerator : public Generator<CCTFEncodeGenerator> {
 public:
@@ -29,7 +30,9 @@ public:
     Input<float> gamma{"gamma"};
     Input<float> threshold{"threshold"};
     Input<float> linear_slope{"linear_slope"};
+    Input<float> offset_b{"offset_b"};
     Input<float> alpha{"alpha"};
+    Input<float> d_coeff{"d_coeff"};
 
     Output<Buffer<float, 3>> output{"output"}; // [C, H, W]
 
@@ -41,8 +44,8 @@ public:
         // The power-law segment uses 1/gamma (encode = raise to inverse gamma).
         Expr inv_gamma = 1.0f / gamma;
         output(c, x, y) = select(v <= threshold,
-                                  linear_slope * v,
-                                  alpha * fast_pow(v, inv_gamma) - (alpha - 1.0f));
+                                  linear_slope * v + offset_b,
+                                  alpha * fast_pow(v, inv_gamma) - d_coeff);
     }
 
     void schedule() {
@@ -59,14 +62,17 @@ HALIDE_REGISTER_GENERATOR(CCTFEncodeGenerator, cctf_encode)
 // cctf_decode: inverse encoding transfer function (linearise)
 //   encoded     [C, H, W]
 //   gamma       (float)
-//   threshold   (float)  — same threshold used during encoding
-//   linear_slope (float)
-//   alpha       (float)
+//   threshold   (float)   — raw threshold (in linear space), NOT pre-encoded
+//   linear_slope (float)  — 'a' coefficient
+//   offset_b    (float)   — 'b' additive offset in linear segment
+//   alpha       (float)   — 'c' coefficient in pow() segment
+//   d_coeff     (float)   — 'd' subtracted constant in pow() segment
 //   → linear    [C, H, W]
 //
-//   f⁻¹(y) = select(y <= threshold,
-//                    y / linear_slope,
-//                    pow((y + (alpha - 1)) / alpha, gamma))
+//   encoded_threshold = linear_slope * threshold + offset_b
+//   f⁻¹(y) = select(y <= encoded_threshold,
+//                    (y - offset_b) / linear_slope,
+//                    pow((y + d_coeff) / alpha, gamma))
 // ---------------------------------------------------------------------------
 class CCTFDecodeGenerator : public Generator<CCTFDecodeGenerator> {
 public:
@@ -74,7 +80,9 @@ public:
     Input<float> gamma{"gamma"};
     Input<float> threshold{"threshold"};
     Input<float> linear_slope{"linear_slope"};
+    Input<float> offset_b{"offset_b"};
     Input<float> alpha{"alpha"};
+    Input<float> d_coeff{"d_coeff"};
 
     Output<Buffer<float, 3>> output{"output"}; // [C, H, W]
 
@@ -82,13 +90,12 @@ public:
         Var c("c"), x("x"), y("y");
         Expr v = encoded(c, x, y);
 
-        // Threshold in encoded space: encode(threshold) = linear_slope * threshold
-        // because the linear segment applies at/below that density.
-        Expr encoded_threshold = linear_slope * threshold;
+        // Threshold in encoded space: encode(threshold) = linear_slope * threshold + offset_b
+        Expr encoded_threshold = linear_slope * threshold + offset_b;
 
         output(c, x, y) = select(v <= encoded_threshold,
-                                  v / linear_slope,
-                                  fast_pow((v + (alpha - 1.0f)) / alpha, gamma));
+                                  (v - offset_b) / linear_slope,
+                                  fast_pow((v + d_coeff) / alpha, gamma));
     }
 
     void schedule() {
@@ -102,26 +109,26 @@ public:
 HALIDE_REGISTER_GENERATOR(CCTFDecodeGenerator, cctf_decode)
 
 // ---------------------------------------------------------------------------
-// highlight_boost: piecewise exponential highlight compression
+// highlight_boost: piecewise highlight boost (pass-through below threshold,
+//   linear gain + offset above)
 //   image      [C, H, W]
-//   threshold  (float) — pivot between linear and exponential regions
-//   scale      (float) — linear-region gain multiplier
-//   pivot      (float) — exponential curve anchor (density-space pivot)
+//   threshold  (float) — boundary between pass-through and boosted regions
+//   boost      (float) — gain multiplier for highlights
+//   offset     (float) — additive offset before gain
 //   → boosted  [C, H, W]
 //
 //   f(x) = select(x < threshold,
-//                 x * scale,
-//                 pivot + (x - pivot) * exp(-(x - pivot) * scale))
+//                 x,
+//                 (x + offset) * boost)
 //
-// This compresses highlights by blending toward the pivot value via an
-// exponential decay, while leaving shadows linearly scaled.
+// Matches JIT semantics in halide_backend.py _build_highlight_boost_pipeline.
 // ---------------------------------------------------------------------------
 class HighlightBoostGenerator : public Generator<HighlightBoostGenerator> {
 public:
     Input<Buffer<float, 3>> image{"image"}; // [C, H, W]
     Input<float> threshold{"threshold"};
-    Input<float> scale{"scale"};
-    Input<float> pivot{"pivot"};
+    Input<float> boost{"boost"};
+    Input<float> offset{"offset"};
 
     Output<Buffer<float, 3>> output{"output"}; // [C, H, W]
 
@@ -129,14 +136,11 @@ public:
         Var c("c"), x("x"), y("y");
         Expr v = image(c, x, y);
 
-        // Linear region: simple gain
-        Expr linear_part = v * scale;
-
-        // Highlight region: exponential compression toward pivot
-        Expr diff = v - pivot;
-        Expr exp_part = pivot + diff * fast_exp(-diff * scale);
-
-        output(c, x, y) = select(v < threshold, linear_part, exp_part);
+        // Below threshold: pass through unchanged
+        // Above threshold: apply gain with offset
+        output(c, x, y) = select(v < threshold,
+                                  v,
+                                  (v + offset) * boost);
     }
 
     void schedule() {
