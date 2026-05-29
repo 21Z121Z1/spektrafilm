@@ -477,25 +477,15 @@ def _apply_lut_pchip_3d_prepared(lut, slope_x, slope_y, slope_z, cell_min, cell_
             output[i, j, 2] = out_val[2]
     return output
 
-def apply_lut_pchip_3d_prepared(prepared_lut, image):
+def apply_lut_pchip_3d(lut, image):
     """
-    Apply a prepared PCHIP 3D LUT to an image.
-
-    ``prepared_lut`` must be the tuple returned by ``prepare_lut_pchip_3d()``.
-    This public wrapper lets callers cache the expensive slope and cell-bound
-    preparation once per LUT instead of repeating it for every image.
+    Apply the PCHIP 3D LUT path using precomputed per-axis slopes.
+    Pass the tuple returned by prepare_lut_pchip_3d().
     """
-    lut, slope_x, slope_y, slope_z, cell_min, cell_max = prepared_lut
+    lut, slope_x, slope_y, slope_z, cell_min, cell_max = prepare_lut_pchip_3d(lut)
     if lut.shape[0] == 1:
         return _apply_lut_constant_3d(lut, image)
     return _apply_lut_pchip_3d_prepared(lut, slope_x, slope_y, slope_z, cell_min, cell_max, image)
-
-
-def apply_lut_pchip_3d(lut, image):
-    """
-    Apply the PCHIP 3D LUT path, preparing per-axis slopes on demand.
-    """
-    return apply_lut_pchip_3d_prepared(prepare_lut_pchip_3d(lut), image)
 
 
 #########################

@@ -187,6 +187,7 @@ cython_debug/
 .DS_Store
 
 # uv
+uv.lock
 
 # claude
 .claude

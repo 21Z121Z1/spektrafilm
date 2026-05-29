@@ -151,10 +151,6 @@ def test_warmup_task_swallows_background_failures() -> None:
     app_module._WarmupTask(warmup_fn=lambda: (_ for _ in ()).throw(RuntimeError('boom'))).run()
 
 
-def test_warmup_task_swallows_base_exception_boundary_failures() -> None:
-    app_module._WarmupTask(warmup_fn=lambda: (_ for _ in ()).throw(KeyboardInterrupt('stop'))).run()
-
-
 def test_warmup_launch_input_path_primes_first_image_load(monkeypatch) -> None:
     captured: dict[str, object] = {}
     fake_state = SimpleNamespace(
@@ -207,8 +203,6 @@ def test_warmup_full_gui_runs_preview_pipeline(monkeypatch) -> None:
     fake_io_module = object()
     fake_preview_module = object()
     fake_raw_module = object()
-    fake_output_encoding = SimpleNamespace(color_space='Display P3')
-    raw_params = SimpleNamespace(io=object())
 
     def fake_prepare_input_color_preview_image(image, **kwargs):
         captured['input_preview'] = (np.asarray(image), kwargs)
@@ -220,7 +214,7 @@ def test_warmup_full_gui_runs_preview_pipeline(monkeypatch) -> None:
 
     def fake_build_params_from_state(state):
         captured['params_state'] = state
-        return raw_params
+        return 'raw-params'
 
     class FakeSimulator:
         def __init__(self, params) -> None:
@@ -242,14 +236,12 @@ def test_warmup_full_gui_runs_preview_pipeline(monkeypatch) -> None:
         prepare_input_color_preview_image=fake_prepare_input_color_preview_image,
         prepare_output_display_image=fake_prepare_output_display_image,
     )
-    fake_color_management = SimpleNamespace(output_encoding_from_io=lambda io: fake_output_encoding)
     fake_params_mapper = SimpleNamespace(build_params_from_state=fake_build_params_from_state)
     module_map = {
         'colour': fake_colour_module,
         'PIL.Image': fake_pil_image_module,
         'PIL.ImageCms': fake_imagecms_module,
         'spektrafilm_gui.controller_runtime': fake_controller_runtime,
-        'spektrafilm.color_management': fake_color_management,
         'spektrafilm_gui.params_mapper': fake_params_mapper,
         'spektrafilm.runtime.api': fake_runtime_api,
         'spektrafilm.utils.io': fake_io_module,
@@ -265,7 +257,7 @@ def test_warmup_full_gui_runs_preview_pipeline(monkeypatch) -> None:
 
     assert captured['numba_warmup'] is True
     assert captured['params_state'] is fake_state
-    assert captured['digested_params'] is raw_params
+    assert captured['digested_params'] == 'raw-params'
     assert captured['simulator_params'] == 'digested-params'
     process_image = captured['process_image']
     assert process_image.shape == app_module.WARMUP_IMAGE_SHAPE
@@ -277,7 +269,7 @@ def test_warmup_full_gui_runs_preview_pipeline(monkeypatch) -> None:
     assert input_preview_kwargs['colour_module'] is fake_colour_module
     output_preview_image, output_preview_kwargs = captured['output_preview']
     assert output_preview_image.shape == app_module.WARMUP_IMAGE_SHAPE
-    assert output_preview_kwargs['output_encoding'] is fake_output_encoding
+    assert output_preview_kwargs['output_color_space'] == 'Display P3'
     assert output_preview_kwargs['use_display_transform'] is True
     assert output_preview_kwargs['imagecms_module'] is fake_imagecms_module
     assert output_preview_kwargs['colour_module'] is fake_colour_module
@@ -374,8 +366,6 @@ def test_connect_controller_signals_wires_all_widget_events() -> None:
         load_input_image=object(),
         load_raw_image=object(),
         apply_profile_defaults=object(),
-        apply_film_profile_defaults=object(),
-        apply_print_profile_defaults=object(),
         save_current_as_default=object(),
         save_current_state_to_file=object(),
         load_state_from_file=object(),
@@ -423,8 +413,8 @@ def test_connect_controller_signals_wires_all_widget_events() -> None:
 
     assert widgets.filepicker.load_requested.connected == [controller.load_input_image]
     assert widgets.load_raw.load_requested.connected == [controller.load_raw_image]
-    assert widgets.simulation.film_stock.textActivated.connected == [controller.apply_film_profile_defaults]
-    assert widgets.simulation.print_paper.textActivated.connected == [controller.apply_print_profile_defaults]
+    assert widgets.simulation.film_stock.textActivated.connected == [controller.apply_profile_defaults]
+    assert widgets.simulation.print_paper.textActivated.connected == [controller.apply_profile_defaults]
     assert widgets.gui_config.save_current_as_default_requested.connected == [controller.save_current_as_default]
     assert widgets.gui_config.save_current_to_file_requested.connected == [controller.save_current_state_to_file]
     assert widgets.gui_config.load_from_file_requested.connected == [controller.load_state_from_file]
@@ -501,11 +491,9 @@ def test_connect_auto_preview_signals_covers_hidden_linked_controls_and_footer_t
                 'scan_unsharp_mask',
                 'auto_preview',
                 'scan_film',
-                'color_management_workflow',
                 'output_color_space',
                 'saving_color_space',
                 'saving_cctf_encoding',
-                'hdr_exr_output',
             },
         )
         for field_info in fields(type(state_section)):
@@ -531,7 +519,6 @@ def test_connect_auto_preview_signals_covers_hidden_linked_controls_and_footer_t
     assert widgets.simulation.scan_unsharp_mask._editors[0].valueChanged.connected == [controller.request_auto_preview]
     assert widgets.display.output_interpolation.currentTextChanged.connected == []
     assert widgets.display.preview_max_size.valueChanged.connected == []
-    assert widgets.simulation.color_management_workflow.currentTextChanged.connected == [controller.request_auto_preview]
     assert widgets.simulation.output_color_space.currentTextChanged.connected == [controller.request_auto_preview]
     assert widgets.simulation.bottom_auto_preview.toggled.connected == [controller.request_auto_preview]
     assert widgets.simulation.bottom_scan_film.toggled.connected == [controller.request_auto_preview]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+from typing import Callable
 from colour import RGB_to_RGB
 
 from spektrafilm.model.emulsion import develop_simple
@@ -11,24 +12,19 @@ class ColorReferenceService:
                        print_profile, print_render,
                        black_correction, white_correction,
                        black_level, white_level,
-                       io_params, output_encoding=None):
+                       io_params):
         self._film = film_profile
         self._film_render = film_render
         self._print = print_profile
         self._print_render = print_render
         self._scan_film = io_params.scan_film
         self._output_color_space = io_params.output_color_space
-        if output_encoding is not None:
-            self._output_clip_min = output_encoding.clip_negatives
-            self._output_clip_max = output_encoding.clip_highlights
-        else:
-            self._output_clip_min = getattr(io_params, "output_clip_min", True)
-            self._output_clip_max = getattr(io_params, "output_clip_max", True)
+        self._output_cctf_encoding = io_params.output_cctf_encoding
 
         self._black_correction = black_correction
         self._white_correction = white_correction
-        self._black_level = _remove_cctf(black_level, self._output_color_space)
-        self._white_level = _remove_cctf(white_level, self._output_color_space)
+        self._black_level = _remove_sRGB_cctf(black_level)
+        self._white_level = _remove_sRGB_cctf(white_level)
         
         # local memory for black and white reference densities, to avoid redundant calculations during correction
         self._y_black = None # positive film or print cmy density for black
@@ -82,7 +78,7 @@ class ColorReferenceService:
         elif self._scan_film and self._film.info.type == 'positive':
             density_midgray = -np.log10(0.184)
             self._update_cmy_black_white_references(in_print=False)
-            midgray_corrected = self._correction_function()[1]
+            midgray_corrected = self._correction_fucntion()[1]
             density_midgray_corrected = -np.log10(midgray_corrected)
             density_curve_av = np.nanmean(self._film.data.density_curves, axis=1)
             density_min_av = np.nanmean(self._film.data.base_density)
@@ -102,7 +98,7 @@ class ColorReferenceService:
         elif self._print.info.type == 'negative':
             density_midgray = -np.log10(0.184)
             self._update_cmy_black_white_references(in_print=True)
-            midgray_corrected = self._correction_function()[1]
+            midgray_corrected = self._correction_fucntion()[1]
             density_midgray_corrected = -np.log10(midgray_corrected)
             density_curve_av = np.nanmean(self._print.data.density_curves, axis=1)
             density_min_av = np.nanmean(self._print.data.base_density)
@@ -124,43 +120,34 @@ class ColorReferenceService:
         if self._scan_film and self._film.info.type == 'negative':
             return xyz # do not correct negative film scans
         else:
-            correction_func, _ = self._correction_function()
+            correction_func, _ = self._correction_fucntion()
             y = xyz[:, :, 1]
             y_corrected = correction_func(y)
             scale = y_corrected / (y + 1e-10)
             return xyz * scale[:, :, None]
 
 
-    def _correction_function(self):
+    def _correction_fucntion(self):
         white_level = self._white_level
         black_level = self._black_level
         if self._black_correction and not self._white_correction:
             white_level = self._y_white
         if self._white_correction and not self._black_correction:
             black_level = self._y_black
-        if self._black_correction or self._white_correction:
+        if self._black_correction or self._white_correction:                           
             m = (white_level - black_level) / (self._y_white - self._y_black + 1e-10)
             q = black_level - m * self._y_black
             def correction_func(y):
-                value = m * y + q
-                if self._output_clip_min:
-                    value = np.maximum(value, 0.0)
-                if self._output_clip_max:
-                    value = np.minimum(value, 1.0)
-                return value
-            midgray_black_white_corrected = (0.184 - q)/m
-            return correction_func, midgray_black_white_corrected
-        def correction_func(y):
-            return y
-        return correction_func, 0.184
+                return np.clip(m * y + q, 0, 1)
+        midgray_black_white_corrected = (0.184 - q)/m
+        return correction_func, midgray_black_white_corrected
 
 # private functions
     
-def _remove_cctf(y_input, color_space='sRGB'):
-    """Decode a single luminance value from CCTF to linear for the given colour space."""
+def _remove_sRGB_cctf(y_input):
     return RGB_to_RGB(y_input*np.ones((1,1,3)),
-                    color_space,
-                    color_space,
+                    'sRGB',
+                    'sRGB',
                     apply_cctf_decoding=True,
                     apply_cctf_encoding=False,
                 ).mean()

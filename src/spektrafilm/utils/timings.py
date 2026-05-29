@@ -1,5 +1,6 @@
 import time
 import functools
+import matplotlib.pyplot as plt
 
 
 ANSI_RED = "\033[31m"
@@ -39,7 +40,7 @@ def format_elapsed_time(seconds: float) -> str:
     return f"{value:.{precision}f} {unit}"
 
 
-def format_timings(timings: dict[str, float], total_elapsed_time: float | None = None, header: str = "Simulation timings") -> str:
+def format_timings(timings, total_elapsed_time=None, header="Simulation timings"):
     if not timings:
         if total_elapsed_time is None:
             return f"{header}\n  No recorded timings"
@@ -84,3 +85,20 @@ def format_timings(timings: dict[str, float], total_elapsed_time: float | None =
                 f"  {'-' * label_width}  {'-' * value_width}  {'-' * percentage_width}"
             )
     return "\n".join(lines)
+
+def plot_timings(timings):
+    labels = list(timings.keys())
+    values = [timings[label] for label in labels]
+    x_positions = list(range(len(labels)))
+    
+    fig, ax = plt.subplots(figsize=(8, 4))
+    bar_width = 0.8
+    ax.bar(x_positions, values, color='skyblue', align='edge', width=bar_width)
+    ax.set_xlabel("Function")
+    ax.set_ylabel("Time (s)")
+    ax.set_title("Execution Time per Function")
+    # Adjust tick positions to be at the center of each bar:
+    ax.set_xticks([x + bar_width/2 for x in x_positions])
+    ax.set_xticklabels(labels, rotation=45, ha='right')
+    plt.tight_layout()
+    plt.show()

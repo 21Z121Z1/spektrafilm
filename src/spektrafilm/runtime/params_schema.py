@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import warnings
 from dataclasses import dataclass, field
 
 from spektrafilm.profiles.io import Profile
@@ -45,7 +44,7 @@ class DiffusionFilterParams:
 class CameraParams:
     exposure_compensation_ev: float = 0.0
     auto_exposure: bool = True
-    auto_exposure_method: str = "scene_linear"
+    auto_exposure_method: str = "center_weighted"
     lens_blur_um: float = 0.0
     film_format_mm: float = 35.0
     filter_uv: tuple[float, float, float] = (0.0, 410.0, 8.0)
@@ -165,31 +164,11 @@ class IOParams:
     input_cctf_decoding: bool = False
     output_color_space: str = "sRGB"
     output_cctf_encoding: bool = True
-    output_clip_min: bool = True
-    output_clip_max: bool = True
     crop: bool = False
     crop_center: tuple[float, float] = (0.5, 0.5)
     crop_size: tuple[float, float] = (0.1, 0.1)
     upscale_factor: float = 1.0
     scan_film: bool = False
-
-    # Temporary compatibility shim while the GUI still carries compute_full_image.
-    @property
-    def full_image(self) -> bool:
-        warnings.warn(
-            "IOParams.full_image is deprecated and always returns True.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return True
-
-    @full_image.setter
-    def full_image(self, _value: bool) -> None:
-        warnings.warn(
-            "IOParams.full_image is deprecated and the setter is a no-op.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
 
 
 @dataclass
@@ -206,17 +185,10 @@ class DebugParams:
 
 @dataclass
 class SettingsParams:
-    color_management_workflow: str = "manual"
-    compute_backend: str = "auto"
-    float_precision: str = "float32"
-    gpu_precision: str = "float32"
-    gpu_validate: bool = False
     rgb_to_raw_method: str = "hanatos2025"
-    spectral_negative_rgb: str = "clip"
-    spectral_xy_out_of_bounds: str = "clip"
-    spectral_report_stats: bool = True
-    hanatos2025_sensitivity_adaptation: bool = False
-    bandpass_hanatos2025: bool = True
+    apply_hanatos2025_adaptation_window: bool = True
+    apply_hanatos2025_adaptation_surface: bool = False
+    spectral_gaussian_blur: float = 0.0
     use_enlarger_lut: bool = False
     use_scanner_lut: bool = False
     lut_resolution: int = 17
@@ -224,7 +196,7 @@ class SettingsParams:
     preview_max_size: int = 640
     preview_mode: bool = False
     neutral_print_filters_from_database: bool = True
-
+    
 
 @dataclass
 class RuntimePhotoParams:

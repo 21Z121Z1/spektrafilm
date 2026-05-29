@@ -5,7 +5,6 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from spektrafilm.color_management import ColorEncoding
 from spektrafilm_gui import controller as controller_module
 from spektrafilm_gui.controller import (
     GuiController,
@@ -15,7 +14,7 @@ from spektrafilm_gui.controller import (
     OUTPUT_FLOAT_DATA_KEY,
 )
 
-from .helpers import FakeLayer, FakeViewer, StubToggle, make_test_controller_gui_state
+from .helpers import FakeLayer, StubToggle, make_test_controller_gui_state
 
 
 pytestmark = pytest.mark.integration
@@ -39,16 +38,7 @@ def _make_output_layer(
     )
 
 
-def _configure_save_output(
-    monkeypatch,
-    controller: GuiController,
-    output_layer: FakeLayer,
-    gui_state,
-    captured: dict[str, object],
-    *,
-    filepath: str = 'output.png',
-    selected_filter: str = 'Images (*.png)',
-) -> None:
+def _configure_save_output(monkeypatch, controller: GuiController, output_layer: FakeLayer, gui_state, captured: dict[str, object]) -> None:
     monkeypatch.setattr(controller, '_output_layer', lambda: output_layer)
     monkeypatch.setattr(controller_module, 'dialog_parent', lambda viewer: None)
     monkeypatch.setattr(controller_module, 'set_status', lambda viewer, message: captured.setdefault('status', message))
@@ -57,7 +47,7 @@ def _configure_save_output(
     monkeypatch.setattr(
         controller_module.QFileDialog,
         'getSaveFileName',
-        staticmethod(lambda *args, **kwargs: (filepath, selected_filter)),
+        staticmethod(lambda *args, **kwargs: ('output.png', 'Images (*.png)')),
     )
     monkeypatch.setattr(controller_module, 'collect_gui_state', lambda *, widgets: gui_state)
 
@@ -65,7 +55,7 @@ def _configure_save_output(
 def _capture_saved_output(monkeypatch, captured: dict[str, object]) -> None:
     def fake_save_image_oiio(filepath, image_data, **kwargs) -> None:
         captured.setdefault('saved', (filepath, image_data.copy()))
-        captured.setdefault('save_kwargs', kwargs)
+        captured.setdefault('saved_kwargs', kwargs)
 
     def fake_write_image_metadata(filepath, source_metadata=None, **kwargs) -> None:
         captured.setdefault('metadata', {
@@ -247,647 +237,15 @@ def test_save_output_layer_respects_recorded_render_metadata(
     saved_path, saved_image = captured['saved']
     assert saved_path == 'output.png'
     np.testing.assert_allclose(saved_image, captured['float_image'] + expected_saved_delta)
-    assert captured['save_kwargs']['encoding'].color_space == saving_color_space
-    assert captured['save_kwargs']['encoding'].is_cctf_encoded is saving_cctf_encoding
-
-
-def test_save_output_layer_falls_back_to_hdr_state_when_cctf_metadata_missing(monkeypatch) -> None:
-    float_image = np.full((2, 2, 3), 1.25, dtype=np.float32)
-    output_layer = FakeLayer(
-        np.uint8(np.clip(float_image, 0.0, 1.0) * 255),
-        metadata={
-            OUTPUT_FLOAT_DATA_KEY: float_image,
-            OUTPUT_COLOR_SPACE_KEY: 'ACES2065-1',
-        },
-    )
-    controller = GuiController(viewer=object(), widgets=object())
-    captured: dict[str, object] = {}
-    gui_state = make_test_controller_gui_state()
-    gui_state.simulation.output_color_space = 'ACES2065-1'
-    gui_state.simulation.saving_color_space = 'ACES2065-1'
-    gui_state.simulation.saving_cctf_encoding = False
-    gui_state.simulation.hdr_exr_output = True
-
-    _configure_save_output(monkeypatch, controller, output_layer, gui_state, captured)
-    _capture_saved_output(monkeypatch, captured)
-
-    def fail_rgb_to_rgb(*args, **kwargs):
-        raise AssertionError('linear HDR output should not be decoded as CCTF when layer metadata is missing')
-
-    monkeypatch.setattr(controller_module.colour, 'RGB_to_RGB', fail_rgb_to_rgb)
-
-    controller.save_output_layer()
-
-    saved_path, saved_image = captured['saved']
-    assert saved_path == 'output.png'
-    np.testing.assert_allclose(saved_image, float_image)
-    assert captured['save_kwargs']['encoding'].is_cctf_encoded is False
 
     metadata_call = captured['metadata']
     assert metadata_call['filepath'] == 'output.png'
-    assert metadata_call['saving_color_space'] == 'ACES2065-1'
-    assert metadata_call['saving_cctf_encoding'] is False
-
-
-def test_save_output_layer_heic_uses_hdr_photo_contract_and_skips_metadata(monkeypatch) -> None:
-    float_image = np.full((2, 2, 3), 1.5, dtype=np.float32)
-    output_layer = _make_output_layer(
-        float_image,
-        output_color_space='Display P3',
-        output_cctf_encoding=False,
-    )
-    controller = GuiController(viewer=object(), widgets=object())
-    captured: dict[str, object] = {}
-    gui_state = make_test_controller_gui_state()
-    gui_state.simulation.saving_color_space = 'Display P3'
-    gui_state.simulation.saving_cctf_encoding = True
-
-    _configure_save_output(
-        monkeypatch,
-        controller,
-        output_layer,
-        gui_state,
-        captured,
-        filepath='output.heic',
-        selected_filter='Images (*.heic)',
-    )
-    _capture_saved_output(monkeypatch, captured)
-
-    def fail_metadata(*args, **kwargs):
-        raise AssertionError('HEIC HDR photo export should not use the generic metadata rewrite path')
-
-    monkeypatch.setattr(controller_module, 'write_image_metadata', fail_metadata)
-
-    controller.save_output_layer()
-
-    saved_path, saved_image = captured['saved']
-    assert saved_path == 'output.heic'
-    np.testing.assert_allclose(saved_image, float_image)
-    save_encoding = captured['save_kwargs']['encoding']
-    assert save_encoding.color_space == 'Display P3'
-    assert save_encoding.is_linear is True
-    assert save_encoding.clip_highlights is False
-    assert captured['status'] == 'Saved output image to output.heic (HEIC HDR photo with gain map)'
-    assert 'metadata' not in captured
-
-
-def test_on_simulation_finished_stores_hdr_scene_energy_on_output_layer(monkeypatch) -> None:
-    viewer = FakeViewer()
-    controller = GuiController(viewer=viewer, widgets=object())
-    scene_luminance = np.array([[0.5, 2.0]], dtype=np.float32)
-    metadata = controller_module.HDRSceneEnergyMetadata(
-        scene_luminance=scene_luminance,
-        diffuse_white_estimate=0.5,
-        headroom_estimate=4.0,
-        auto_exposure_ev=-1.0,
-        method='auto_percentile',
-        confidence='medium',
-    )
-    result = controller_module.SimulationResult(
-        mode_label='Scan',
-        display_image=np.full((1, 2, 3), 128, dtype=np.uint8),
-        float_image=np.full((1, 2, 3), 0.6, dtype=np.float32),
-        output_encoding=ColorEncoding(color_space='Display P3', transfer='linear'),
-        use_display_transform=False,
-        status_message='Display transform: disabled',
-        hdr_scene_energy=metadata,
-    )
-    monkeypatch.setattr(controller_module, 'set_status', lambda *args, **kwargs: None)
-
-    controller._on_simulation_finished(result)
-
-    output_layer = next(layer for layer in viewer.layers if layer.name == 'output')
-    assert output_layer.metadata[controller_module.HDR_SCENE_ENERGY_METADATA_KEY] is metadata
-    np.testing.assert_allclose(output_layer.metadata[controller_module.HDR_SCENE_LUMINANCE_KEY], scene_luminance)
-
-
-def test_save_output_layer_heic_passes_hdr_scene_luminance(monkeypatch) -> None:
-    float_image = np.full((1, 2, 3), 0.7, dtype=np.float32)
-    scene_luminance = np.array([[0.5, 3.0]], dtype=np.float32)
-    output_layer = _make_output_layer(
-        float_image,
-        output_color_space='Display P3',
-        output_cctf_encoding=False,
-    )
-    output_layer.metadata[controller_module.HDR_SCENE_LUMINANCE_KEY] = scene_luminance
-    controller = GuiController(viewer=object(), widgets=object())
-    captured: dict[str, object] = {}
-    gui_state = make_test_controller_gui_state()
-    gui_state.simulation.saving_color_space = 'Display P3'
-    gui_state.simulation.saving_cctf_encoding = True
-
-    _configure_save_output(
-        monkeypatch,
-        controller,
-        output_layer,
-        gui_state,
-        captured,
-        filepath='output.heic',
-        selected_filter='Images (*.heic)',
-    )
-    _capture_saved_output(monkeypatch, captured)
-
-    controller.save_output_layer()
-
-    np.testing.assert_allclose(captured['save_kwargs']['scene_luminance'], scene_luminance)
-
-
-def test_save_output_layer_heic_passes_profile_aware_film_paper(monkeypatch) -> None:
-    float_image = np.full((1, 2, 3), 0.7, dtype=np.float32)
-    scene_luminance = np.array([[0.5, 3.0]], dtype=np.float32)
-    output_layer = _make_output_layer(
-        float_image,
-        output_color_space='Display P3',
-        output_cctf_encoding=False,
-    )
-    output_layer.metadata[controller_module.HDR_SCENE_LUMINANCE_KEY] = scene_luminance
-    controller = GuiController(viewer=object(), widgets=object())
-    captured: dict[str, object] = {}
-    gui_state = make_test_controller_gui_state()
-    gui_state.simulation.film_stock = 'kodak_portra_400'
-    gui_state.simulation.print_paper = 'kodak_portra_endura'
-    gui_state.simulation.saving_color_space = 'Display P3'
-    gui_state.simulation.saving_cctf_encoding = True
-    gui_state.hdr_export.hdr_mapping_mode = 'profile_aware'
-
-    _configure_save_output(
-        monkeypatch,
-        controller,
-        output_layer,
-        gui_state,
-        captured,
-        filepath='output.heic',
-        selected_filter='Images (*.heic)',
-    )
-    _capture_saved_output(monkeypatch, captured)
-
-    controller.save_output_layer()
-
-    hdr_kwargs = captured['save_kwargs']['hdr_mapping_kwargs']
-    assert hdr_kwargs['hdr_mapping_mode'] == 'profile_aware'
-    assert hdr_kwargs['film'] == 'kodak_portra_400'
-    assert hdr_kwargs['paper'] == 'kodak_portra_endura'
-
-
-def test_save_output_layer_disables_profile_path_to_white_when_gui_toggle_is_off(monkeypatch) -> None:
-    float_image = np.full((1, 2, 3), 0.7, dtype=np.float32)
-    scene_luminance = np.array([[0.5, 3.0]], dtype=np.float32)
-    output_layer = _make_output_layer(
-        float_image,
-        output_color_space='Display P3',
-        output_cctf_encoding=False,
-    )
-    output_layer.metadata[controller_module.HDR_SCENE_LUMINANCE_KEY] = scene_luminance
-    controller = GuiController(viewer=object(), widgets=object())
-    captured: dict[str, object] = {}
-    gui_state = make_test_controller_gui_state()
-    gui_state.simulation.saving_color_space = 'Display P3'
-    gui_state.simulation.saving_cctf_encoding = True
-    gui_state.hdr_export.hdr_mapping_mode = 'profile_aware'
-    gui_state.hdr_export.path_to_white_enabled = False
-
-    _configure_save_output(
-        monkeypatch,
-        controller,
-        output_layer,
-        gui_state,
-        captured,
-        filepath='output.heic',
-        selected_filter='Images (*.heic)',
-    )
-    _capture_saved_output(monkeypatch, captured)
-
-    controller.save_output_layer()
-
-    hdr_kwargs = captured['save_kwargs']['hdr_mapping_kwargs']
-    assert hdr_kwargs['hdr_highlight_path_to_white'] == 0.0
-    assert hdr_kwargs['profile_hdr_path_to_white_strength'] == 0.0
-
-
-def test_save_output_layer_heic_does_not_read_source_metadata(monkeypatch) -> None:
-    float_image = np.full((2, 2, 3), 1.5, dtype=np.float32)
-    output_layer = _make_output_layer(
-        float_image,
-        output_color_space='Display P3',
-        output_cctf_encoding=False,
-    )
-    controller = GuiController(viewer=object(), widgets=object())
-    controller._current_input_path = '/tmp/source.nef'
-    captured: dict[str, object] = {}
-    gui_state = make_test_controller_gui_state()
-    gui_state.simulation.saving_color_space = 'Display P3'
-    gui_state.simulation.saving_cctf_encoding = True
-
-    _configure_save_output(
-        monkeypatch,
-        controller,
-        output_layer,
-        gui_state,
-        captured,
-        filepath='output.heic',
-        selected_filter='Images (*.heic)',
-    )
-    _capture_saved_output(monkeypatch, captured)
-    monkeypatch.setattr(
-        controller_module,
-        'read_image_metadata',
-        lambda path: (_ for _ in ()).throw(RuntimeError('source metadata should not be read for HEIC')),
-    )
-
-    controller.save_output_layer()
-
-    saved_path, saved_image = captured['saved']
-    assert saved_path == 'output.heic'
-    np.testing.assert_allclose(saved_image, float_image)
-    assert captured['status'] == 'Saved output image to output.heic (HEIC HDR photo with gain map)'
-
-
-def test_save_output_layer_exr_writes_hdr_reference_white_luminance(monkeypatch) -> None:
-    float_image = np.full((2, 2, 3), 1.5, dtype=np.float32)
-    output_layer = _make_output_layer(
-        float_image,
-        output_color_space='Display P3',
-        output_cctf_encoding=False,
-    )
-    controller = GuiController(viewer=object(), widgets=object())
-    captured: dict[str, object] = {}
-    gui_state = make_test_controller_gui_state()
-    gui_state.simulation.saving_color_space = 'Display P3'
-
-    _configure_save_output(
-        monkeypatch,
-        controller,
-        output_layer,
-        gui_state,
-        captured,
-        filepath='output.exr',
-        selected_filter='Images (*.exr)',
-    )
-    _capture_saved_output(monkeypatch, captured)
-
-    controller.save_output_layer()
-
-    assert captured['save_kwargs']['white_luminance'] == pytest.approx(203.0)
-
-
-def test_save_output_layer_hdr_rendition_exr_passes_explicit_mode_and_sidecar(monkeypatch) -> None:
-    float_image = np.full((1, 2, 3), 0.7, dtype=np.float32)
-    scene_luminance = np.array([[0.5, 3.0]], dtype=np.float32)
-    output_layer = _make_output_layer(
-        float_image,
-        output_color_space='Display P3',
-        output_cctf_encoding=False,
-    )
-    output_layer.metadata[controller_module.HDR_SCENE_LUMINANCE_KEY] = scene_luminance
-    controller = GuiController(viewer=object(), widgets=object())
-    captured: dict[str, object] = {}
-    gui_state = make_test_controller_gui_state()
-    gui_state.simulation.saving_color_space = 'Display P3'
-    gui_state.hdr_export.exr_mode = 'hdr_rendition'
-    gui_state.hdr_export.hdr_mapping_mode = 'profile_aware'
-
-    _configure_save_output(
-        monkeypatch,
-        controller,
-        output_layer,
-        gui_state,
-        captured,
-        filepath='output.exr',
-        selected_filter='Images (*.exr)',
-    )
-    _capture_saved_output(monkeypatch, captured)
-
-    controller.save_output_layer()
-
-    assert captured['save_kwargs']['exr_mode'] == 'hdr_rendition'
-    np.testing.assert_allclose(captured['save_kwargs']['scene_luminance'], scene_luminance)
-    assert captured['save_kwargs']['hdr_mapping_kwargs']['hdr_mapping_mode'] == 'profile_aware'
-
-
-def test_save_output_layer_hdr_rendition_exr_reports_diagnostics(monkeypatch) -> None:
-    float_image = np.full((1, 2, 3), 0.7, dtype=np.float32)
-    output_layer = _make_output_layer(
-        float_image,
-        output_color_space='Display P3',
-        output_cctf_encoding=False,
-    )
-    controller = GuiController(viewer=object(), widgets=object())
-    captured: dict[str, object] = {}
-    gui_state = make_test_controller_gui_state()
-    gui_state.simulation.saving_color_space = 'Display P3'
-    gui_state.hdr_export.exr_mode = 'hdr_rendition'
-
-    _configure_save_output(
-        monkeypatch,
-        controller,
-        output_layer,
-        gui_state,
-        captured,
-        filepath='output.exr',
-        selected_filter='Images (*.exr)',
-    )
-
-    def fake_save_image_oiio(filepath, image_data, **kwargs) -> tuple[str, ...]:
-        captured.setdefault('saved', (filepath, image_data.copy()))
-        captured.setdefault('save_kwargs', kwargs)
-        return ("source_chroma fallback: scene_rgb is missing, degrading to off",)
-
-    monkeypatch.setattr(controller_module, 'save_image_oiio', fake_save_image_oiio)
-    monkeypatch.setattr(controller_module, 'write_image_metadata', lambda *args, **kwargs: None)
-
-    controller.save_output_layer()
-
-    assert captured['status'] == (
-        "Saved output image to output.exr (EXR saved as HDR rendition) - "
-        "source_chroma fallback: scene_rgb is missing, degrading to off"
-    )
-
-
-def test_save_output_layer_still_saves_when_source_metadata_read_fails(monkeypatch, caplog) -> None:
-    float_image = np.full((2, 2, 3), 0.5, dtype=np.float32)
-    output_layer = _make_output_layer(
-        float_image,
-        output_color_space='Display P3',
-        output_cctf_encoding=True,
-    )
-    controller = GuiController(viewer=object(), widgets=object())
-    controller._current_input_path = '/tmp/source.nef'
-    captured: dict[str, object] = {}
-    gui_state = make_test_controller_gui_state()
-    gui_state.simulation.saving_color_space = 'Display P3'
-    gui_state.simulation.saving_cctf_encoding = True
-
-    _configure_save_output(monkeypatch, controller, output_layer, gui_state, captured)
-    _capture_saved_output(monkeypatch, captured)
-    monkeypatch.setattr(
-        controller_module,
-        'read_image_metadata',
-        lambda path: (_ for _ in ()).throw(RuntimeError('bad metadata')),
-    )
-
-    controller.save_output_layer()
-
-    saved_path, saved_image = captured['saved']
-    assert saved_path == 'output.png'
-    np.testing.assert_allclose(saved_image, float_image)
-    assert captured['metadata']['source_metadata'] is None
-    assert captured['status'] == 'Saved output image to output.png, but failed to copy metadata: bad metadata'
-    assert "Failed to read source metadata from /tmp/source.nef" in caplog.text
-
-
-def test_save_output_layer_exr_uses_unclipped_float_metadata_not_preview_pixels(monkeypatch) -> None:
-    float_image = np.array(
-        [[[0.25, 1.5, 3.0], [0.1, 0.2, 0.3]]],
-        dtype=np.float32,
-    )
-    preview = np.uint8(np.clip(float_image, 0.0, 1.0) * 255)
-    output_layer = FakeLayer(
-        preview,
-        metadata={
-            OUTPUT_FLOAT_DATA_KEY: float_image,
-            OUTPUT_COLOR_SPACE_KEY: 'Display P3',
-            OUTPUT_CCTF_ENCODING_KEY: False,
-        },
-    )
-    controller = GuiController(viewer=object(), widgets=object())
-    captured: dict[str, object] = {}
-    gui_state = make_test_controller_gui_state()
-    gui_state.simulation.saving_color_space = 'Display P3'
-    gui_state.simulation.saving_cctf_encoding = True
-
-    _configure_save_output(
-        monkeypatch,
-        controller,
-        output_layer,
-        gui_state,
-        captured,
-        filepath='output.exr',
-        selected_filter='Images (*.exr)',
-    )
-    _capture_saved_output(monkeypatch, captured)
-
-    controller.save_output_layer()
-
-    saved_path, saved_image = captured['saved']
-    assert saved_path == 'output.exr'
-    np.testing.assert_allclose(saved_image, float_image)
-    assert float(np.max(saved_image)) > 1.0
-
-
-def test_save_output_layer_exr_uses_linear_scene_unclipped_encoding(monkeypatch) -> None:
-    float_image = np.full((2, 2, 3), 1.5, dtype=np.float32)
-    output_layer = _make_output_layer(
-        float_image,
-        output_color_space='Display P3',
-        output_cctf_encoding=False,
-    )
-    controller = GuiController(viewer=object(), widgets=object())
-    captured: dict[str, object] = {}
-    gui_state = make_test_controller_gui_state()
-    gui_state.simulation.saving_color_space = 'Display P3'
-    gui_state.simulation.saving_cctf_encoding = True
-
-    _configure_save_output(
-        monkeypatch,
-        controller,
-        output_layer,
-        gui_state,
-        captured,
-        filepath='output.exr',
-        selected_filter='Images (*.exr)',
-    )
-    _capture_saved_output(monkeypatch, captured)
-
-    controller.save_output_layer()
-
-    save_encoding = captured['save_kwargs']['encoding']
-    assert save_encoding.color_space == 'Display P3'
-    assert save_encoding.transfer == 'linear'
-    assert save_encoding.role == 'scene'
-    assert save_encoding.clip_highlights is False
-
-
-def test_save_output_layer_appends_hdr_default_extension_when_panel_returns_stem(monkeypatch) -> None:
-    float_image = np.full((2, 2, 3), 1.5, dtype=np.float32)
-    output_layer = _make_output_layer(
-        float_image,
-        output_color_space='Display P3',
-        output_cctf_encoding=False,
-    )
-    controller = GuiController(viewer=object(), widgets=object())
-    captured: dict[str, object] = {}
-    gui_state = make_test_controller_gui_state()
-    gui_state.simulation.hdr_exr_output = True
-    gui_state.simulation.saving_color_space = 'Display P3'
-
-    _configure_save_output(
-        monkeypatch,
-        controller,
-        output_layer,
-        gui_state,
-        captured,
-        filepath='output',
-        selected_filter='Images (*.jpg *.jpeg *.png *.tif *.tiff *.exr *.heic *.heif)',
-    )
-    _capture_saved_output(monkeypatch, captured)
-
-    controller.save_output_layer()
-
-    saved_path, saved_image = captured['saved']
-    assert saved_path == 'output.exr'
-    np.testing.assert_allclose(saved_image, float_image)
-    assert captured['save_kwargs']['white_luminance'] == pytest.approx(203.0)
-
-
-def test_save_output_layer_uses_specific_filter_extension_when_panel_returns_stem(monkeypatch) -> None:
-    float_image = np.full((2, 2, 3), 1.5, dtype=np.float32)
-    output_layer = _make_output_layer(
-        float_image,
-        output_color_space='Display P3',
-        output_cctf_encoding=False,
-    )
-    controller = GuiController(viewer=object(), widgets=object())
-    captured: dict[str, object] = {}
-    gui_state = make_test_controller_gui_state()
-    gui_state.simulation.hdr_exr_output = True
-    gui_state.simulation.saving_color_space = 'Display P3'
-
-    _configure_save_output(
-        monkeypatch,
-        controller,
-        output_layer,
-        gui_state,
-        captured,
-        filepath='output',
-        selected_filter='Images (*.heic *.heif)',
-    )
-    _capture_saved_output(monkeypatch, captured)
-
-    controller.save_output_layer()
-
-    saved_path, _ = captured['saved']
-    assert saved_path == 'output.heic'
-    assert captured['save_kwargs']['encoding'].color_space == 'Display P3'
-    assert captured['save_kwargs']['encoding'].clip_highlights is False
-    assert 'white_luminance' not in captured['save_kwargs']
-
-
-def test_save_output_layer_aces_reference_defaults_to_aces2065_interchange_exr(monkeypatch) -> None:
-    float_image = np.full((2, 2, 3), 1.25, dtype=np.float32)
-    output_layer = _make_output_layer(
-        float_image,
-        output_color_space='ACEScg',
-        output_cctf_encoding=False,
-    )
-    controller = GuiController(viewer=object(), widgets=object())
-    captured: dict[str, object] = {}
-    gui_state = make_test_controller_gui_state()
-    gui_state.simulation.color_management_workflow = 'aces_reference'
-    gui_state.simulation.saving_color_space = 'Display P3'
-    gui_state.simulation.saving_cctf_encoding = True
-
-    _configure_save_output(
-        monkeypatch,
-        controller,
-        output_layer,
-        gui_state,
-        captured,
-        filepath='output.exr',
-        selected_filter='Images (*.exr)',
-    )
-    _capture_saved_output(monkeypatch, captured)
-
-    def fake_rgb_to_rgb(image_data, input_color_space, output_color_space, apply_cctf_decoding, apply_cctf_encoding):
-        captured['rgb_to_rgb'] = {
-            'image_data': np.asarray(image_data).copy(),
-            'input_color_space': input_color_space,
-            'output_color_space': output_color_space,
-            'apply_cctf_decoding': apply_cctf_decoding,
-            'apply_cctf_encoding': apply_cctf_encoding,
-        }
-        return image_data + 0.1
-
-    monkeypatch.setattr(controller_module.colour, 'RGB_to_RGB', fake_rgb_to_rgb)
-
-    controller.save_output_layer()
-
-    assert captured['rgb_to_rgb']['input_color_space'] == 'ACEScg'
-    assert captured['rgb_to_rgb']['output_color_space'] == 'ACES2065-1'
-    assert captured['rgb_to_rgb']['apply_cctf_decoding'] is False
-    assert captured['rgb_to_rgb']['apply_cctf_encoding'] is False
-    saved_path, saved_image = captured['saved']
-    assert saved_path == 'output.exr'
-    np.testing.assert_allclose(saved_image, float_image + 0.1)
-    save_encoding = captured['save_kwargs']['encoding']
-    assert save_encoding.color_space == 'ACES2065-1'
-    assert save_encoding.is_linear is True
-    assert save_encoding.clip_negatives is False
-    assert save_encoding.clip_highlights is False
-    assert captured['metadata']['saving_color_space'] == 'ACES2065-1'
-    assert captured['metadata']['saving_cctf_encoding'] is False
-
-
-def test_save_output_layer_aces_reference_uses_exr_default_filename(monkeypatch) -> None:
-    float_image = np.full((2, 2, 3), 0.5, dtype=np.float32)
-    output_layer = _make_output_layer(
-        float_image,
-        output_color_space='ACEScg',
-        output_cctf_encoding=False,
-    )
-    controller = GuiController(viewer=object(), widgets=object())
-    controller._current_input_path = '/tmp/source.nef'
-    gui_state = make_test_controller_gui_state()
-    gui_state.simulation.color_management_workflow = 'aces_reference'
-    captured: dict[str, object] = {}
-
-    monkeypatch.setattr(controller, '_output_layer', lambda: output_layer)
-    monkeypatch.setattr(controller_module, 'dialog_parent', lambda viewer: None)
-    monkeypatch.setattr(controller_module, 'load_dialog_dir', lambda key: '')
-    monkeypatch.setattr(controller_module, 'collect_gui_state', lambda *, widgets: gui_state)
-
-    def fake_get_save_file_name(parent, title, initial, file_filter):
-        captured['initial'] = initial
-        return '', ''
-
-    monkeypatch.setattr(
-        controller_module.QFileDialog,
-        'getSaveFileName',
-        staticmethod(fake_get_save_file_name),
-    )
-
-    controller.save_output_layer()
-
-    assert captured['initial'] == 'source.exr'
-
-
-def test_prepare_simulation_input_converts_source_pixels_to_acescg_working_space(monkeypatch) -> None:
-    controller = GuiController(viewer=object(), widgets=object())
-    state = make_test_controller_gui_state()
-    state.simulation.color_management_workflow = 'aces_reference'
-    state.input_image.input_color_space = 'Display P3'
-    state.input_image.apply_cctf_decoding = True
-    image = np.full((1, 1, 3), 0.25, dtype=np.float32)
-    captured: dict[str, object] = {}
-
-    def fake_rgb_to_rgb(image_data, input_color_space, output_color_space, apply_cctf_decoding, apply_cctf_encoding):
-        captured['rgb_to_rgb'] = {
-            'image_data': np.asarray(image_data).copy(),
-            'input_color_space': input_color_space,
-            'output_color_space': output_color_space,
-            'apply_cctf_decoding': apply_cctf_decoding,
-            'apply_cctf_encoding': apply_cctf_encoding,
-        }
-        return np.full((1, 1, 3), 0.5, dtype=np.float32)
-
-    monkeypatch.setattr(controller_module.colour, 'RGB_to_RGB', fake_rgb_to_rgb)
-
-    converted = controller._prepare_simulation_input_image(image, state)
-
-    np.testing.assert_allclose(converted, np.full((1, 1, 3), 0.5, dtype=np.float32))
-    assert captured['rgb_to_rgb']['input_color_space'] == 'Display P3'
-    assert captured['rgb_to_rgb']['output_color_space'] == 'ACEScg'
-    assert captured['rgb_to_rgb']['apply_cctf_decoding'] is True
-    assert captured['rgb_to_rgb']['apply_cctf_encoding'] is False
+    assert metadata_call['saving_color_space'] == saving_color_space
+    assert metadata_call['saving_cctf_encoding'] is saving_cctf_encoding
+
+    saved_kwargs = captured['saved_kwargs']
+    assert saved_kwargs['color_space'] == saving_color_space
+    assert saved_kwargs['cctf_encoding'] is saving_cctf_encoding
 
 
 @pytest.mark.parametrize(
@@ -921,7 +279,7 @@ def test_prepare_output_display_image_without_transform(
 
     preview, status = controller._prepare_output_display_image(
         image_data,
-        output_encoding=ColorEncoding(color_space='sRGB', transfer='cctf', role='display'),
+        output_color_space='sRGB',
         use_display_transform=False,
         padding_pixels=padding_pixels,
     )
@@ -949,7 +307,6 @@ def test_prepare_output_display_image_uses_imagecms_transform(monkeypatch) -> No
     monkeypatch.setattr(controller_module.ImageCms, 'getProfileName', lambda profile: 'Studio Display ICC\x00')
     monkeypatch.setattr(controller_module.colour, 'RGB_to_RGB', lambda *args, **kwargs: np.full((1, 1, 3), 0.5, dtype=np.float32))
     monkeypatch.setattr(controller_module.ImageCms, 'createProfile', lambda name: f'profile:{name}')
-    monkeypatch.setattr(controller_module.ImageCms, 'ImageCmsProfile', lambda stream: 'profile:icc')
     monkeypatch.setattr(
         controller_module.PILImage,
         'fromarray',
@@ -969,18 +326,15 @@ def test_prepare_output_display_image_uses_imagecms_transform(monkeypatch) -> No
 
     preview, status = controller._prepare_output_display_image(
         image_data,
-        output_encoding=ColorEncoding(color_space='Display P3', transfer='cctf', role='display'),
+        output_color_space='Display P3',
         use_display_transform=True,
     )
 
     np.testing.assert_array_equal(preview, np.full((1, 1, 3), 64, dtype=np.uint8))
     assert status == 'Display transform: active (Studio Display ICC)'
-    assert captured['profile_to_profile']['source_profile'] == 'profile:icc'
+    assert captured['profile_to_profile']['source_profile'] == 'profile:sRGB'
     assert captured['profile_to_profile']['output_mode'] == 'RGB'
-    np.testing.assert_array_equal(
-        captured['profile_to_profile']['image_data'],
-        np.array([[[51, 102, 153]]], dtype=np.uint8),
-    )
+    np.testing.assert_array_equal(captured['profile_to_profile']['image_data'], np.full((1, 1, 3), 127, dtype=np.uint8))
 
 
 def test_prepare_output_display_image_reports_missing_display_profile(monkeypatch) -> None:
@@ -991,7 +345,7 @@ def test_prepare_output_display_image_reports_missing_display_profile(monkeypatc
 
     preview, status = controller._prepare_output_display_image(
         image_data,
-        output_encoding=ColorEncoding(color_space='Display P3', transfer='cctf', role='display'),
+        output_color_space='Display P3',
         use_display_transform=True,
     )
 
@@ -1014,7 +368,7 @@ def test_prepare_output_display_image_reports_transform_failure(monkeypatch) -> 
 
     preview, status = controller._prepare_output_display_image(
         image_data,
-        output_encoding=ColorEncoding(color_space='Display P3', transfer='cctf', role='display'),
+        output_color_space='Display P3',
         use_display_transform=True,
     )
 

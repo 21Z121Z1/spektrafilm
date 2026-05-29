@@ -1,17 +1,13 @@
 import copy
+from datetime import date
+from importlib.metadata import PackageNotFoundError, version as distribution_version
 import importlib.resources as pkg_resources
 import json
-import logging
-import re
 from dataclasses import dataclass, field, is_dataclass, replace
 from typing import Any, Mapping
 
-_log = logging.getLogger(__name__)
-
 import numpy as np
 
-
-_SAFE_NAME_RE = re.compile(r'^[A-Za-z0-9_-]+$')
 
 PROFILE_TYPES = frozenset({'negative', 'positive'})
 PROFILE_SUPPORTS = frozenset({'film', 'paper'})
@@ -19,23 +15,82 @@ PROFILE_STAGES = frozenset({'filming', 'printing'})
 PROFILE_USES = frozenset({'still', 'cine'})
 PROFILE_ANTIHALATION = frozenset({'strong', 'weak', 'no'})
 PROFILE_CHANNEL_MODELS = frozenset({'color', 'bw'})
+LEGACY_PROFILE_INFO_KEYS = frozenset({
+    'fitted_cmy_midscale_neutral_density',
+    'log_exposure_midscale_neutral',
+})
+
+
+def _package_version() -> str:
+    try:
+        return distribution_version('spektrafilm')
+    except PackageNotFoundError:
+        return '0+unknown'
+
+def _created_date() -> str:
+    return date.today().isoformat()
+
+def _copyright_statement() -> str:
+    return f"Copyright (c) {date.today().year} Andrea Volpato. All rights reserved."
 
 def _empty_vector() -> np.ndarray:
     return np.empty((0,), dtype=float)
 
-
 def _empty_matrix() -> np.ndarray:
     return np.empty((0, 3), dtype=float)
-
 
 def _empty_tensor() -> np.ndarray:
     return np.empty((0, 3, 3), dtype=float)
 
 
+def _empty_layer_matrix() -> np.ndarray:
+    return np.empty((3, 0), dtype=float)
+
+
+@dataclass
+class DensityCurvesModel:
+    """Parametric model of the density curves.
+
+    `centers`, `amplitudes`, `sigmas` are 2D arrays shaped (n_channels, n_layers).
+    n_layers can be 2, 3, ... — set by the array shape.
+    """
+    model_type: str = 'cdfs'
+    centers: np.ndarray = field(default_factory=_empty_layer_matrix)
+    amplitudes: np.ndarray = field(default_factory=_empty_layer_matrix)
+    sigmas: np.ndarray = field(default_factory=_empty_layer_matrix)
+
+    def __post_init__(self):
+        self.centers = np.asarray(self.centers, dtype=float)
+        self.amplitudes = np.asarray(self.amplitudes, dtype=float)
+        self.sigmas = np.asarray(self.sigmas, dtype=float)
+
+    @property
+    def n_channels(self) -> int:
+        return self.centers.shape[0] if self.centers.ndim == 2 else 0
+
+    @property
+    def n_layers(self) -> int:
+        return self.centers.shape[1] if self.centers.ndim == 2 else 0
+
+
+@dataclass
+class ProfileMetadata:
+    version: str = field(default_factory=_package_version)
+    copyright: str = field(default_factory=_copyright_statement)
+    created: str = field(default_factory=_created_date)
+    license: str = "This profile is part of spektrafilm, licensed under GNU GPL v3.0. See https://github.com/andreavolpato/spektrafilm/blob/main/LICENSE for details."
+    citation: str = "If you use this profile in your work, please cite the spektrafilm project: https://github.com/andreavolpato/spektrafilm, see CITATION.cff for details."
+    datasource: str = """
+    This profile was created by processing raw measurement data from data-sheets and/or scientific papers. Original data are property of the respective holders.
+    Film/photo-paper: Kodak and Fujifilm data-sheets, scientific publications, and technical material.
+    Reflectance: Otsu (https://github.com/enneract/otsu2018), Munsell (https://zenodo.org/records/3269912), human skin (https://www.nist.gov/programs-projects/reflectance-measurements-human-skin), forest colors (https://zenodo.org/records/3269920), Japan colors (https://zenodo.org/records/5217752).
+    All data publicly available.
+    """.strip()
+
 @dataclass
 class ProfileInfo:
-    stock: str = ''
-    name: str = ''
+    stock: str = None
+    name: str = None
     type: str = 'negative'
     support: str = 'film'
     stage: str = 'filming'
@@ -47,56 +102,22 @@ class ProfileInfo:
     log_sensitivity_density_over_min: float = 0.2
     reference_illuminant: str = 'D55'
     viewing_illuminant: str = 'D50'
-    fitted_cmy_midscale_neutral_density: Any = None
-    log_exposure_midscale_neutral: Any = None
 
-    @property
-    def is_positive(self) -> bool:
-        return self.type == 'positive'
-
-    @property
-    def is_negative(self) -> bool:
-        return self.type == 'negative'
-
-    @property
-    def is_paper(self) -> bool:
-        return self.support == 'paper'
-
-    @property
-    def is_film(self) -> bool:
-        return self.support == 'film'
-    
-    @property
-    def is_color(self) -> bool:
-        return self.channel_model == 'color'
-    
-    @property
-    def is_bw(self) -> bool:
-        return self.channel_model == 'bw'
-
-    @property
-    def is_filming(self) -> bool:
-        return self.stage == 'filming'
-
-    @property
-    def is_printing(self) -> bool:
-        return self.stage == 'printing'
-
-    @property
-    def is_still(self) -> bool:
-        return self.use == 'still'
-
-    @property
-    def is_cine(self) -> bool:
-        return self.use == 'cine'
-
+@dataclass
+class Hanatos2025SensitivityAdaptation:
+    window_params: np.ndarray = field(default_factory=_empty_vector)
+    surface_params: np.ndarray = field(default_factory=_empty_vector)
+    spectral_gaussian_blur: float = 0.0 # sigma in nm for gaussian blur of the spectra
+    reference_illuminant: str = None # "D55" or "T"
+    apply_window: bool = True
+    apply_surface: bool = True
+    active: bool = None
 
 @dataclass
 class ProfileData:
     wavelengths: np.ndarray = field(default_factory=_empty_vector)
     log_sensitivity: np.ndarray = field(default_factory=_empty_matrix)
-    bandpass_hanatos2025: np.ndarray = field(default_factory=_empty_matrix)
-    hanatos2025_adaptation_bandpass_params: np.ndarray = field(default_factory=_empty_vector)
+    hanatos2025_adaptation_window_params: np.ndarray = field(default_factory=_empty_vector)
     hanatos2025_adaptation_surface_params: np.ndarray = field(default_factory=_empty_vector)
     channel_density: np.ndarray = field(default_factory=_empty_matrix)
     base_density: np.ndarray = field(default_factory=_empty_vector)
@@ -104,33 +125,39 @@ class ProfileData:
     log_exposure: np.ndarray = field(default_factory=_empty_vector)
     density_curves: np.ndarray = field(default_factory=_empty_matrix)
     density_curves_layers: np.ndarray = field(default_factory=_empty_tensor)
+    density_curves_model: DensityCurvesModel = field(default_factory=DensityCurvesModel)
 
     def __post_init__(self):
         self.wavelengths = np.asarray(self.wavelengths, dtype=float)
         self.log_sensitivity = np.asarray(self.log_sensitivity, dtype=float)
-        self.hanatos2025_adaptation_bandpass_params = np.asarray(self.hanatos2025_adaptation_bandpass_params, dtype=float)
-        if self.hanatos2025_adaptation_bandpass_params.size == 0:
-            self.hanatos2025_adaptation_bandpass_params = _empty_matrix()
+        self.hanatos2025_adaptation_window_params = np.asarray(self.hanatos2025_adaptation_window_params, dtype=float)
+        if self.hanatos2025_adaptation_window_params.size == 0:
+            self.hanatos2025_adaptation_window_params = _empty_vector()
         self.hanatos2025_adaptation_surface_params = np.asarray(self.hanatos2025_adaptation_surface_params, dtype=float)
         if self.hanatos2025_adaptation_surface_params.size == 0:
             self.hanatos2025_adaptation_surface_params = _empty_matrix()
-        self.bandpass_hanatos2025 = np.asarray(self.bandpass_hanatos2025, dtype=float)
-        if self.bandpass_hanatos2025.size == 0:
-            self.bandpass_hanatos2025 = _empty_matrix()
         self.channel_density = np.asarray(self.channel_density, dtype=float)
         self.base_density = np.asarray(self.base_density, dtype=float)
         self.midscale_neutral_density = np.asarray(self.midscale_neutral_density, dtype=float)
         self.log_exposure = np.asarray(self.log_exposure, dtype=float)
         self.density_curves = np.asarray(self.density_curves, dtype=float)
         self.density_curves_layers = np.asarray(self.density_curves_layers, dtype=float)
+        if not isinstance(self.density_curves_model, DensityCurvesModel):
+            if isinstance(self.density_curves_model, Mapping):
+                self.density_curves_model = DensityCurvesModel(**dict(self.density_curves_model))
+            else:
+                raise TypeError('density_curves_model must be a DensityCurvesModel or Mapping')
 
 
 @dataclass
 class Profile:
+    metadata: ProfileMetadata = field(default_factory=ProfileMetadata)
     info: ProfileInfo = field(default_factory=ProfileInfo)
     data: ProfileData = field(default_factory=ProfileData)
 
     def __post_init__(self):
+        if not isinstance(self.metadata, ProfileMetadata):
+            raise TypeError('metadata must be a ProfileMetadata instance')
         if not isinstance(self.info, ProfileInfo):
             raise TypeError('info must be a ProfileInfo instance')
         if not isinstance(self.data, ProfileData):
@@ -153,6 +180,13 @@ class Profile:
         if data:
             self.update_data(**data)
         return self
+
+    def hanatos2025_adaptation(self) -> Hanatos2025SensitivityAdaptation:
+        return Hanatos2025SensitivityAdaptation(
+            window_params=self.data.hanatos2025_adaptation_window_params,
+            surface_params=self.data.hanatos2025_adaptation_surface_params,
+            reference_illuminant=self.info.reference_illuminant,
+        )
     
     @property
     def is_positive(self) -> bool:
@@ -202,15 +236,23 @@ def profile_from_dict(data: Any) -> Profile:
     if not isinstance(data, Mapping):
         raise TypeError('Unsupported profile payload')
 
+    metadata_payload = data.get('metadata', {})
     info_payload = data.get('info', {})
     data_payload = data.get('data', {})
+    if not isinstance(metadata_payload, Mapping):
+        raise TypeError("Profile 'metadata' must be a mapping")
     if not isinstance(info_payload, Mapping):
         raise TypeError("Profile 'info' must be a mapping")
     if not isinstance(data_payload, Mapping):
         raise TypeError("Profile 'data' must be a mapping")
 
+    info_payload = dict(info_payload)
+    for key in LEGACY_PROFILE_INFO_KEYS:
+        info_payload.pop(key, None)
+
     return Profile(
-        info=ProfileInfo(**dict(info_payload)),
+        metadata=ProfileMetadata(**dict(metadata_payload)),
+        info=ProfileInfo(**info_payload),
         data=ProfileData(**dict(data_payload)),
     )
 
@@ -267,8 +309,6 @@ def _validate_profile(profile, stock):
             and data.density_curves.shape[0] == data.log_exposure.shape[0]
             and data.log_sensitivity.ndim == 2
             and data.log_sensitivity.shape[1] == 3
-            and data.bandpass_hanatos2025.ndim == 2
-            and (data.bandpass_hanatos2025.size == 0 or data.bandpass_hanatos2025.shape == data.log_sensitivity.shape)
             and data.wavelengths.ndim == 1
             and data.channel_density.ndim == 2
             and data.channel_density.shape[1] == 3
@@ -284,25 +324,17 @@ def _validate_profile(profile, stock):
     if not valid:
         raise ValueError(f"Invalid profile '{stock}'")
 
-def _validate_stock_name(stock: str) -> None:
-    if not _SAFE_NAME_RE.match(stock):
-        raise ValueError(
-            f"Invalid stock name {stock!r}: must contain only letters, digits, hyphens, and underscores."
-        )
-
 def save_profile(profile, suffix=''):
-    _validate_stock_name(profile.info.stock + suffix)
     profile = copy.deepcopy(profile)
     profile.info.stock = profile.info.stock + suffix
     package = pkg_resources.files('spektrafilm.data.profiles')
     filename = profile.info.stock + '.json'
     resource = package / filename
-    _log.debug('Saving profile to: %s', filename)
+    print('Saving profile to:', filename)
     with resource.open("w") as file:
         json.dump(_json_safe(profile_to_dict(profile)), file, indent=4, allow_nan=False)
 
 def load_profile(stock):
-    _validate_stock_name(stock)
     package = pkg_resources.files('spektrafilm.data.profiles')
     filename = stock + '.json'
     resource = package / filename
@@ -317,6 +349,7 @@ load_processed_profile = load_profile
 save_processed_profile = save_profile
 
 __all__ = [
+    "DensityCurvesModel",
     "Profile",
     "ProfileData",
     "ProfileInfo",

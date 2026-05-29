@@ -409,45 +409,22 @@ def build_controls_panel(viewer: napari.Viewer, widgets: WidgetBundle) -> QWidge
                 widgets.preview_crop,
                 widgets.input_image,
                 widgets.camera,
-            ),
-        ),
-        'IMPORT',
-    )
-    panel.addTab(
-        _wrap_scrollable(
-            _build_controls_tab(
                 widgets.simulation,
                 widgets.exposure_control,
-                widgets.halation,
-                widgets.couplers,
-                widgets.grain,
-            ),
-        ),
-        'FILM',
-    )
-    panel.addTab(
-        _wrap_scrollable(
-            _build_controls_tab(
                 widgets.enlarger,
-                widgets.diffusion,
-                widgets.glare,
-                widgets.preflashing,
                 widgets.scanner,
-            ),
-        ),
-        'PRINT',
-    )
-    panel.addTab(
-        _wrap_scrollable(
-            _build_controls_tab(
-                widgets.hdr_export,
                 widgets.output,
             ),
         ),
-        'OUTPUT',
+        'MAIN',
     )
     panel.addTab(
-        _wrap_scrollable(_build_controls_tab(widgets.spectral_upsampling, widgets.tune, widgets.special, widgets.camera_diffusion)),
+        _wrap_scrollable(_build_controls_tab(widgets.halation, widgets.couplers, widgets.grain, widgets.camera_diffusion)),
+        'FILM',
+    )
+    panel.addTab(_wrap_scrollable(_build_controls_tab(widgets.glare, widgets.preflashing, widgets.diffusion)), 'PRINT')
+    panel.addTab(
+        _wrap_scrollable(_build_controls_tab(widgets.spectral_upsampling, widgets.tune, widgets.special)),
         'ADVANCED',
     )
 

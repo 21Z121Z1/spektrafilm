@@ -34,12 +34,12 @@ def _profile_use_text_and_color(profile_name: str) -> tuple[str, str]:
     if not profile_name:
         return '', ACCENT_COLOR_TEXT
     try:
-        info = load_profile(profile_name).info
+        profile = load_profile(profile_name)
     except (FileNotFoundError, TypeError, ValueError):
         return '', ACCENT_COLOR_TEXT
-    if info.is_cine:
+    if profile.is_cine:
         return 'cine', ACCENT_COLOR_TEXT_SECONDARY
-    if info.is_still:
+    if profile.is_still:
         return 'still', ACCENT_COLOR_TEXT
     return '', ACCENT_COLOR_TEXT
 
@@ -304,16 +304,6 @@ class TupleEditor(QtWidgets.QWidget):
         for editor in self._editors:
             editor.setToolTip(text)
 
-    def setAccessibleName(self, name: str) -> None:  # noqa: N802 - Qt API name
-        super().setAccessibleName(name)
-        for editor in self._editors:
-            editor.setAccessibleName(name)
-
-    def setAccessibleDescription(self, description: str) -> None:  # noqa: N802 - Qt API name
-        super().setAccessibleDescription(description)
-        for editor in self._editors:
-            editor.setAccessibleDescription(description)
-
 
 class FloatTupleEditor(TupleEditor):
     def __init__(self, length: int, *, decimals: int = 2, minimum: float = -1_000_000.0, maximum: float = 1_000_000.0):
@@ -339,7 +329,6 @@ class SliderFloatEditor(QtWidgets.QWidget):
         self._slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
         self._slider.setRange(0, self._n_steps())
         self._slider.setFixedHeight(24)
-        self._slider.setTracking(False)
 
         self._label = QtWidgets.QLabel()
         self._label.setFixedWidth(52)
@@ -352,7 +341,6 @@ class SliderFloatEditor(QtWidgets.QWidget):
         layout.addWidget(self._label)
 
         self._slider.valueChanged.connect(self._on_slider_changed)
-        self._slider.sliderMoved.connect(self._on_slider_moved)
         self._update_label()
 
     def _n_steps(self) -> int:
@@ -360,25 +348,16 @@ class SliderFloatEditor(QtWidgets.QWidget):
             return 0
         return int(round((self._maximum - self._minimum) / self._step))
 
-    def _value_for_tick(self, tick: int) -> float:
-        return self._minimum + int(tick) * self._step
-
-    def _label_text_for_value(self, value: float) -> str:
-        return f'{value:.{self._decimals}f}{self._suffix}'
-
     def _on_slider_changed(self, _tick: int) -> None:
         self._update_label()
         self.valueChanged.emit(self.value)
 
-    def _on_slider_moved(self, tick: int) -> None:
-        self._update_label(self._value_for_tick(tick))
-
-    def _update_label(self, value: float | None = None) -> None:
-        self._label.setText(self._label_text_for_value(self.value if value is None else value))
+    def _update_label(self) -> None:
+        self._label.setText(f'{self.value:.{self._decimals}f}{self._suffix}')
 
     @property
     def value(self) -> float:
-        return self._value_for_tick(self._slider.value())
+        return self._minimum + self._slider.value() * self._step
 
     @value.setter
     def value(self, v: float) -> None:
@@ -405,13 +384,3 @@ class SliderFloatEditor(QtWidgets.QWidget):
         super().setToolTip(text)
         self._slider.setToolTip(text)
         self._label.setToolTip(text)
-
-    def setAccessibleName(self, name: str) -> None:  # noqa: N802 - Qt API name
-        super().setAccessibleName(name)
-        self._slider.setAccessibleName(name)
-        self._label.setAccessibleName(f'{name} value')
-
-    def setAccessibleDescription(self, description: str) -> None:  # noqa: N802 - Qt API name
-        super().setAccessibleDescription(description)
-        self._slider.setAccessibleDescription(description)
-        self._label.setAccessibleDescription(description)
