@@ -1,12 +1,13 @@
 ![spektrafilm banner](img/readme/banner.jpg)
 
-# Spectral film simulations of analog photography
-
-> [!IMPORTANT]
-> This project is in rapid development, some ares are still being build and will change fast. The core functionality of the tech demo is maturing. LUT export and easy integration in third party software will follow.
+> [!WARNING]
 >
+> **I love building spektrafilm**, and I invested already hundreds of hours in it. Right now it’s a nights-and-weekends project. If it will help pay some bills, I can keep improving it for everyone. 🙂 Any **support** is really appreciated.
+> 
 > **2026/05/28 big git history cleanup** (140MB -> 45MB) --> please reclone!
 > 
+
+# Spectral film simulations of analog photography
 
 An exploration of how to make good use of spectroscopic data from manufacturer datasheets in an end-to-end, physically based model with spectral calculations, with the goal of turning that data into convincing film, print, and scan renderings that can be explored interactively.
 
@@ -19,7 +20,7 @@ In practice, spektrafilm is both a research playground and a half usable experim
 The desktop GUI exposes the Python tech-demo functionality without writing code, letting you import RAW files or prepared linear images, explore different film and paper profiles, adjust the simulation interactively, and move quickly between fast(-ish) previews and more detailed final scans. Full resolution export is very slow at the moment.
 
 > [!IMPORTANT]
->   spektrafilm (all lower caps) is open for research, integration, and production use.
+>   spektrafilm (all lower caps) is open for research, integration, and production use. The project is in rapid development, some ares are still being build and will change fast.
 >
 > If you find it useful:
 >  * Acknowledge spektrafilm in plugin descriptions, marketing, or credits
@@ -28,6 +29,8 @@ The desktop GUI exposes the Python tech-demo functionality without writing code,
 >  * Cite the repo/Zenodo DOI in academic work (see `CITATION.cff`).
 >
 >  *The project is GPLv3 licensed*, so any derivative work must also be open source under the same license. Derivatve work includes any software, plugin, or tool that incorporates spektrafilm code or is directly inspired by its methods.
+>
+> *JSON profiles and LUTs are CC BY-SA 4.0.*
 >  
 >  *If GPLv3 is not compatible with your project*, please reach out to discuss alternative options. I am very open to collaboration and integration, but I want to ensure that spektrafilm remains open source and grows with the community. 
 >
