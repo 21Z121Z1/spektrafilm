@@ -52,11 +52,11 @@ than accidentally reusing wavelength 0.
 This does **not** prove Android NDK cross-compilation or Android device runtime.
 Those remain separate future gates.
 
-### 1.3 Android JNI — NOT STARTED
+### 1.3 Android JNI — NOT STARTED (Foundation laid - see amendment at top)
 
 No JNI wrapper, no Android NDK project, no `.so` packaging exists.
 
-### 1.4 Kotlin UI — NOT STARTED
+### 1.4 Kotlin UI — NOT STARTED (Foundation laid - see amendment at top)
 
 No Kotlin/Compose code exists.
 
@@ -221,7 +221,7 @@ The following operations are **not** represented as AOT generators:
 **No JNI, APK, or device-side Android code has been shipped.**
 
 What exists:
-- Python JIT/backend foundation: fully verified by 71/71 Halide-focused tests on the local host
+- Python JIT/backend foundation: fully verified by 67/67 Halide-focused tests on the local host
 - C++ AOT generator sources: 10 generators across 4 files, CMake build system configured
 - CMake can produce host `.a`/`.h` files (Android cross-compilation not yet validated)
 

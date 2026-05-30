@@ -1,3 +1,5 @@
+> **STATUS: ARCHIVED**. Verbose duplicate of code-review-2026-05-26.md. Findings addressed in adversarial-review-report.md.
+
 # Full Workspace Code Review - Spektrafilm - 2026-05-26
 
 Review goal: read-only full-workspace review of the Spektrafilm repository state, with special focus on SDR preservation, profile-aware HDR export, color management, GPU/MLX/Metal paths, numeric precision, Qt runtime behavior, film/profile defaults, and test validity.

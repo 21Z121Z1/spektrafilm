@@ -1,3 +1,5 @@
+> **STATUS: ARCHIVED** (historical). Findings addressed in subsequent rounds or adversarial review pass.
+
 # Code Quality Review — Spektrafilm — Round 1
 
 **Date:** 2026-05-27

@@ -69,9 +69,9 @@ A more detailed description of colour couplers can be found in Chapter 15 of Hun
 
 ## Package layout
 
-The codebase is organized as three packages under [src/spektrafilm](src/spektrafilm), [src/spektrafilm_gui](src/spektrafilm_gui):
+The codebase is organized as two packages under [src/spektrafilm](src/spektrafilm) and [src/spektrafilm_gui](src/spektrafilm_gui):
 
-1. [src/spektrafilm](src/spektrafilm): runtime simulation pipeline and processed profile consumption.
+1. [src/spektrafilm](src/spektrafilm): runtime simulation pipeline and processed profile consumption. Key directories include `generators/` (spectral generators), `gpu/` (GPU backends such as `halide_backend.py`), `runtime/`, and `utils/`.
 2. [src/spektrafilm_gui](src/spektrafilm_gui): desktop GUI built on top of the runtime package.
 
 Canonical import surfaces:
@@ -82,9 +82,9 @@ Canonical import surfaces:
 Minimal runtime API:
 
 ```python
-from spektrafilm import create_params, simulate
+from spektrafilm import init_params, simulate
 
-params = create_params(
+params = init_params(
 	film_profile="kodak_portra_400",
 	print_profile="kodak_portra_endura",
 )
@@ -94,14 +94,12 @@ result = simulate(image, params)
 Dependency direction:
 
 1. `spektrafilm_gui` depends on `spektrafilm`.
-2. `spektrafilm_profile_creator` depends on `spektrafilm`.
-3. `spektrafilm` does not depend on either higher-level package.
+2. `spektrafilm` does not depend on any higher-level package.
 
 ## Installation
 
 > [!NOTE]
-> Since spektrafilm is not compatible with the latest Python version, an older
-> version like 3.13 must be used.
+> spektrafilm requires Python 3.13 or newer.
 
 ### Using `uv`
 
@@ -237,7 +235,7 @@ spektrafilm is developed in my free time, often during late nights after my rese
 ## References
 
 [^1]: Giorgianni, Madden, Digital Color Management, 2nd edition, 2008 Wiley
-[^2]: Hung, The Reproduction of Color, 6th edition, 2004 Wiley
+[^2]: Hunt, The Reproduction of Color, 6th edition, 2004 Wiley
 [^3]: Mallett, Yuksel, Spectral Primary Decomposition for Rendering with sRGB Reflectance, Eurographics Symposium on Rendering - DL-only and Industry Track, 2019, doi:10.2312/SR.20191216
 
 Sample images are from [signatureedits.com](https://www.signatureedits.com/)/free-raw-photos.

@@ -1,3 +1,5 @@
+> **STATUS: ARCHIVED** (historical). Findings addressed in subsequent rounds or adversarial review pass.
+
 # Code Quality Review -- Round 4 -- Spektrafilm -- 2026-05-27
 
 Comprehensive code quality review covering: type hints, error handling, dead code, code duplication, API consistency, test coverage, performance anti-patterns, and security concerns.

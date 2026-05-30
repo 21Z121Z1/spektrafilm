@@ -11,7 +11,7 @@ Review goal: read-only full-workspace review of the Spektrafilm repository state
 
 ## Critical Findings
 
-### C1. HDR Rendition EXR mode is exposed and reports success, but saves the scene-linear archive instead
+### C1. HDR Rendition EXR mode is exposed and reports success, but saves the scene-linear archive instead — FIXED
 
 - File/symbol: src/spektrafilm_gui/controller.py:543, src/spektrafilm_gui/controller.py:552, src/spektrafilm_gui/controller.py:594, src/spektrafilm_gui/controller.py:628; src/spektrafilm/utils/io.py:477; tests/gui/test_controller_output.py:498; tests/test_image_io_color_metadata.py:168; README.md:254.
 - Observed problem: the controller detects hdr_exr_mode == "hdr_rendition" and collects sidecar data, but the non-HEIC save branch only passes encoding and white_luminance to save_image_oiio. It never passes exr_mode, scene_luminance, scene_rgb, or hdr_mapping_kwargs, and save_image_oiio has no parameters for them.
@@ -34,7 +34,7 @@ The user-visible status still says EXR saved as HDR rendition.
 
 ## High Findings
 
-### H1. ACEScg ICC profiles exist but are not mapped, breaking TIFF ICC export and display-transform ICC conversion
+### H1. ACEScg ICC profiles exist but are not mapped, breaking TIFF ICC export and display-transform ICC conversion — FIXED
 
 - File/symbol: src/spektrafilm/utils/io.py:157, src/spektrafilm/utils/io.py:211, src/spektrafilm/utils/io.py:222, src/spektrafilm_gui/controller_runtime.py:181, src/spektrafilm_gui/controller_runtime.py:191, tests/test_image_io_color_metadata.py:294, tests/gui/test_controller_runtime_module.py:193.
 - Observed problem: src/spektrafilm/data/icc/ellelstone/ACEScg-elle-V2-g10.icc and ACEScg-elle-V2-srgbtrc.icc are bundled, but _ICC_FILENAMES and _ICC_PROFILES do not include "ACEScg". resolve_icc_profile_bytes("ACEScg", cctf_encoding=False) returns None.
@@ -48,7 +48,7 @@ The user-visible status still says EXR saved as HDR rendition.
   - Add direct tests for resolve_icc_profile_bytes("ACEScg", cctf_encoding=False).
   - Add display-transform test with a fake ImageCmsProfile that proves the ICC path is used.
 
-### H2. The GUI "Enable Path to White" toggle does not disable profile-aware HDR path-to-white
+### H2. The GUI "Enable Path to White" toggle does not disable profile-aware HDR path-to-white — FIXED
 
 - File/symbol: src/spektrafilm_gui/state.py:365, src/spektrafilm_gui/widget_specs.py:680, src/spektrafilm_gui/controller.py:560, src/spektrafilm_gui/controller.py:569, src/spektrafilm/utils/hdr_photo.py:95, src/spektrafilm/utils/hdr_photo.py:110, src/spektrafilm/utils/hdr_photo.py:662.
 - Observed problem: the GUI state exposes path_to_white_enabled, and the controller maps it only to legacy hdr_highlight_path_to_white. Profile-aware HDR color recovery uses profile_hdr_path_to_white_strength, which remains at the default 0.30.
@@ -60,7 +60,7 @@ The user-visible status still says EXR saved as HDR rendition.
   - Controller test: set gui_state.hdr_export.path_to_white_enabled=False and assert HDRPhotoMapping.profile_hdr_path_to_white_strength == 0.0.
   - HDR unit test: profile-aware highlights remain saturated when the GUI-equivalent mapping disables path-to-white.
 
-### H3. GUI preview/full scan always computes and stores full-size HDR sidecars, creating large memory pressure
+### H3. GUI preview/full scan always computes and stores full-size HDR sidecars, creating large memory pressure — DEFERRED
 
 - File/symbol: src/spektrafilm_gui/controller.py:926, src/spektrafilm/runtime/pipeline.py:299, src/spektrafilm/runtime/pipeline.py:140, src/spektrafilm/runtime/pipeline.py:143, src/spektrafilm/runtime/pipeline.py:542, src/spektrafilm_gui/controller.py:699, src/spektrafilm_gui/controller_layers.py:421.
 - Observed problem: GuiController._process_image_with_runtime calls process_with_metadata whenever it exists, for normal preview and scan. process_with_metadata always builds scene_luminance and scene_rgb sidecars and attempts dynamic profile characterization, then the GUI stores those sidecars on the output layer.
@@ -72,7 +72,7 @@ The user-visible status still says EXR saved as HDR rendition.
 
 ## Medium Findings
 
-### M1. HDR SDR-base test expectations conflict with the current SDR-preservation implementation
+### M1. HDR SDR-base test expectations conflict with the current SDR-preservation implementation — FIXED
 
 - File/symbol: src/spektrafilm/utils/hdr_photo.py:49, src/spektrafilm/utils/hdr_photo.py:454, tests/test_hdr_photo.py:24, README.md:256.
 - Observed problem: HDRPhotoMapping.preserve_sdr_base defaults to True, and generic HDR rendition creation clips the original image into sdr_rgb. The first HDR photo unit test still expects diffuse white to map to sdr_paper_white=0.9.
@@ -81,7 +81,7 @@ The user-visible status still says EXR saved as HDR rendition.
   - If yes, update early HDR photo tests to assert SDR-base preservation and move old tone-map coverage to preserve_sdr_base=False.
   - If no, change default behavior and add regression tests proving SDR output is not globally darkened.
 
-### M2. Modern profile-HDR mapping parameters are accepted with invalid ranges
+### M2. Modern profile-HDR mapping parameters are accepted with invalid ranges — FIXED
 
 - File/symbol: src/spektrafilm/utils/hdr_photo.py:118, src/spektrafilm/utils/hdr_photo.py:121, src/spektrafilm/utils/hdr_photo.py:181, src/spektrafilm/utils/hdr_curve_profiles.py:892, src/spektrafilm/utils/hdr_curve_profiles.py:897.
 - Observed problem: HDRPhotoMapping.__post_init__ validates profile_hdr_mode, target peak, and recovery ratio, but accepts invalid profile_hdr_normalize_percentile, negative profile_hdr_recovery_knee_ev, negative or reversed recovery spans, zero profile_hdr_max_chroma_gain, and reversed path-to-white EV ranges.
@@ -102,7 +102,7 @@ The user-visible status still says EXR saved as HDR rendition.
   - Add a HEIC-specific capture helper that monkeypatches controller_module.save_hdr_photo_heic.
   - Monkeypatch QMessageBox.critical in error-path tests, or use a Qt test fixture that owns a QApplication.
 
-### M4. save_image_oiio and HDR export API boundaries are unclear and inconsistent across tests/docs
+### M4. save_image_oiio and HDR export API boundaries are unclear and inconsistent across tests/docs — FIXED
 
 - File/symbol: src/spektrafilm/utils/io.py:477, src/spektrafilm_gui/controller.py:157, tests/test_image_io_color_metadata.py:137, tests/test_image_io_color_metadata.py:204, docs/superpowers/plans/2026-05-24-scene-energy-hdr-gainmap-autoexposure.md:55.
 - Observed problem: tests and plans expect save_image_oiio to accept HEIC/HDR sidecar arguments, while the implementation treats HEIC as a controller-level special case and save_image_oiio as generic raster/EXR writing only.
@@ -113,7 +113,7 @@ The user-visible status still says EXR saved as HDR rendition.
 
 ## Low Findings
 
-### L1. README still advertises a missing src/spektrafilm_profile_creator package
+### L1. README still advertises a missing src/spektrafilm_profile_creator package — STILL LIVE
 
 - File/symbol: README.md:53.
 - Observed problem: the README tree lists src/spektrafilm_profile_creator/, but the reviewed source tree contains src/spektrafilm and src/spektrafilm_gui only.

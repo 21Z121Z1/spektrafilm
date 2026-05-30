@@ -1,3 +1,5 @@
+> **STATUS: COMPLETED**. upstream/main merge into develop completed 2026-05-29 (commit 7cb4f87).
+
 # Develop Upstream Branch Integration Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:verification-before-completion before claiming completion. This integration is history and behavior preservation work, not a blind upstream replacement.

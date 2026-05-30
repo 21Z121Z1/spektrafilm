@@ -1,3 +1,5 @@
+> **STATUS: COMPLETED**. Android foundation exists under android/. See android-port-status-20260528.md.
+
 # Android Port Implementation Plan - 2026-05-28
 
 ## Goal

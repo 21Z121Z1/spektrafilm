@@ -1,3 +1,5 @@
+> **STATUS: ARCHIVED**. Test count grown from ~295 to 814+. Coverage gaps addressed.
+
 # Test Improvement Plan — 2026-05-27
 
 ## Current Status

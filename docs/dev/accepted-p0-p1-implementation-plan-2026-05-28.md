@@ -1,3 +1,5 @@
+> **STATUS: COMPLETED** (2026-05-28). P0 and P1 findings fixed during adversarial review pass.
+
 # Accepted P0/P1 Fix Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

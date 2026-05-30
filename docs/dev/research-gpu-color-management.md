@@ -1,5 +1,7 @@
 # GPU Acceleration & Color Management Research
 
+> **UPDATE** (2026-05-28): ACEScg ICC mapping and HDR EXR rendition gaps have been fixed. macOS HDR HEIC export remains macOS-only.
+
 Research date: 2026-05-27
 
 ## ⚠️ CRITICAL CONSTRAINT: ZERO Precision Loss

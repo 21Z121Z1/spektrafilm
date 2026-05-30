@@ -1,3 +1,5 @@
+> **STATUS: ARCHIVED** (historical). Findings addressed in subsequent rounds or adversarial review pass.
+
 # Code Quality Review — Round 6
 
 Date: 2026-05-27

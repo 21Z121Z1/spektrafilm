@@ -1,3 +1,5 @@
+> **STATUS: COMPLETED**. All 8 planned kernels plus 4 additional implemented. See halide-backend-implementation.md.
+
 # Halide Backend Implementation Plan
 
 ## Goal

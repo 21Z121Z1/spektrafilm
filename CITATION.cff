@@ -8,7 +8,7 @@ message: |
   * Consider starring the repo or sharing your results.
   * Cite the repository/Zenodo DOI in academic work.
 
-  The project is GPLv3 licensed, so any derivative work must also be open source under the same license. Derivatve work includes any software, plugin, or tool that incorporates spektrafilm code or is directly inspired by its methods.
+  The project is GPLv3 licensed, so any derivative work must also be open source under the same license. Derivative work includes any software, plugin, or tool that incorporates spektrafilm code or is directly inspired by its methods.
   
   If GPLv3 is not compatible with your project, please reach out to discuss alternative options. I am very open to collaboration and integration, but I want to ensure that spektrafilm remains open source and grows with the community. 
 
@@ -23,7 +23,6 @@ authors:
 
 title: "spektrafilm: spectral simulation of analog photography"
 version: "0.3.2"
-doi: "xxxxx"
 repository: "https://github.com/andreavolpato/spektrafilm"
 license: "GPL-3.0-or-later"
 
@@ -33,8 +32,6 @@ preferred-citation:
   authors:
     - family-names: "Volpato"
       given-names: "Andrea"
-  publisher: ""
-  doi: ""
   year: "2026"
 
 references:
