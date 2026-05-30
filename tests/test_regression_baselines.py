@@ -9,7 +9,9 @@ from tests.regression_baselines import (
 )
 
 
-pytestmark = pytest.mark.regression
+pytestmark = [
+    pytest.mark.regression,
+]
 
 
 class TestRegressionBaselines:

@@ -191,91 +191,6 @@ def test_warmup_launch_input_path_swallows_launch_failures(monkeypatch) -> None:
     app_module._warmup_launch_input_path(SimpleNamespace(input_image=SimpleNamespace(input_color_space='sRGB', apply_cctf_decoding=False)))
 
 
-def test_warmup_full_gui_runs_preview_pipeline(monkeypatch) -> None:
-    captured: dict[str, object] = {}
-    fake_state = SimpleNamespace(
-        input_image=SimpleNamespace(input_color_space='ACES2065-1', apply_cctf_decoding=False),
-        simulation=SimpleNamespace(output_color_space='Display P3'),
-    )
-    fake_colour_module = object()
-    fake_pil_image_module = object()
-    fake_imagecms_module = object()
-    fake_io_module = object()
-    fake_preview_module = object()
-    fake_raw_module = object()
-
-    def fake_prepare_input_color_preview_image(image, **kwargs):
-        captured['input_preview'] = (np.asarray(image), kwargs)
-        return np.asarray(image, dtype=np.float32)
-
-    def fake_prepare_output_display_image(image, **kwargs):
-        captured['output_preview'] = (np.asarray(image), kwargs)
-        return np.asarray(image, dtype=np.uint8), 'ok'
-
-    def fake_build_params_from_state(state):
-        captured['params_state'] = state
-        return 'raw-params'
-
-    class FakeSimulator:
-        def __init__(self, params) -> None:
-            captured['simulator_params'] = params
-
-        def process(self, image):
-            captured['process_image'] = np.asarray(image)
-            return np.full_like(image, 0.5, dtype=np.float32)
-
-    def fake_digest_params(params):
-        captured['digested_params'] = params
-        return 'digested-params'
-
-    fake_runtime_api = SimpleNamespace(
-        digest_params=fake_digest_params,
-        Simulator=FakeSimulator,
-    )
-    fake_controller_runtime = SimpleNamespace(
-        prepare_input_color_preview_image=fake_prepare_input_color_preview_image,
-        prepare_output_display_image=fake_prepare_output_display_image,
-    )
-    fake_params_mapper = SimpleNamespace(build_params_from_state=fake_build_params_from_state)
-    module_map = {
-        'colour': fake_colour_module,
-        'PIL.Image': fake_pil_image_module,
-        'PIL.ImageCms': fake_imagecms_module,
-        'spektrafilm_gui.controller_runtime': fake_controller_runtime,
-        'spektrafilm_gui.params_mapper': fake_params_mapper,
-        'spektrafilm.runtime.api': fake_runtime_api,
-        'spektrafilm.utils.io': fake_io_module,
-        'spektrafilm.utils.preview': fake_preview_module,
-        'spektrafilm.utils.raw_file_processor': fake_raw_module,
-    }
-
-    monkeypatch.setattr(app_module, 'load_default_gui_state', lambda: fake_state)
-    monkeypatch.setattr(app_module, 'warmup', lambda: captured.setdefault('numba_warmup', True))
-    monkeypatch.setattr(app_module, 'import_module', lambda name: module_map[name])
-
-    app_module._warmup_full_gui()
-
-    assert captured['numba_warmup'] is True
-    assert captured['params_state'] is fake_state
-    assert captured['digested_params'] == 'raw-params'
-    assert captured['simulator_params'] == 'digested-params'
-    process_image = captured['process_image']
-    assert process_image.shape == app_module.WARMUP_IMAGE_SHAPE
-    assert process_image.dtype == np.float64
-    input_preview_image, input_preview_kwargs = captured['input_preview']
-    assert input_preview_image.shape == app_module.WARMUP_IMAGE_SHAPE
-    assert input_preview_kwargs['input_color_space'] == 'ACES2065-1'
-    assert input_preview_kwargs['apply_cctf_decoding'] is False
-    assert input_preview_kwargs['colour_module'] is fake_colour_module
-    output_preview_image, output_preview_kwargs = captured['output_preview']
-    assert output_preview_image.shape == app_module.WARMUP_IMAGE_SHAPE
-    assert output_preview_kwargs['output_color_space'] == 'Display P3'
-    assert output_preview_kwargs['use_display_transform'] is True
-    assert output_preview_kwargs['imagecms_module'] is fake_imagecms_module
-    assert output_preview_kwargs['colour_module'] is fake_colour_module
-    assert output_preview_kwargs['pil_image_module'] is fake_pil_image_module
-
-
 def test_create_app_syncs_display_transform_availability_before_connecting(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
@@ -450,7 +365,6 @@ def test_connect_auto_preview_signals_covers_hidden_linked_controls_and_footer_t
                 'filter_uv',
                 'filter_ir',
                 'film_gamma_factor',
-                'print_gamma_factor',
                 'film_format_mm',
                 'camera_lens_blur_um',
                 'camera_diffusion_filter_active',

@@ -20,6 +20,7 @@ Qt = QtCore.Qt
 Signal = QtCore.Signal
 
 from spektrafilm_gui.state import (
+    PrintChemistryState,
     CouplersState,
     DisplayState,
     GlareState,
@@ -437,6 +438,14 @@ class CouplersSection(SimpleDataclassSection):
     TITLE = 'Couplers'
 
 
+class ChemistrySection(SimpleDataclassSection):
+    STATE_CLS = PrintChemistryState
+    SECTION_NAME = 'chemistry'
+    TITLE = 'Chemistry'
+    COLLAPSED_BY_DEFAULT = True
+    ENUM_FIELDS_KEY = 'chemistry'
+
+
 class GlareSection(SimpleDataclassSection):
     STATE_CLS = GlareState
     SECTION_NAME = 'glare'
@@ -453,7 +462,6 @@ class SpecialSection(DataclassSection):
             collapsed_by_default=True,
             hidden_fields={
                 'film_gamma_factor',
-                'print_gamma_factor',
             },
         )
 
@@ -488,7 +496,6 @@ class TuneSection(QWidget):
                 'Tune',
                 [
                     _spec_row('special', 'film_gamma_factor', special_section.film_gamma_factor),
-                    _spec_row('special', 'print_gamma_factor', special_section.print_gamma_factor),
                 ],
                 expanded=True,
             ),
@@ -641,6 +648,8 @@ class SimulationSection(DataclassSection):
                 'output_color_space',
                 'saving_color_space',
                 'saving_cctf_encoding',
+                'output_gamut_compress_algorithm',
+                'output_gamut_compress_knee',
             },
         )
 
@@ -769,6 +778,8 @@ class OutputSection(QWidget):
                     _spec_row('simulation', 'output_color_space', simulation_section.output_color_space),
                     _spec_row('simulation', 'saving_color_space', simulation_section.saving_color_space),
                     _spec_row('simulation', 'saving_cctf_encoding', simulation_section.saving_cctf_encoding),
+                    _spec_row('simulation', 'output_gamut_compress_algorithm', simulation_section.output_gamut_compress_algorithm),
+                    _spec_row('simulation', 'output_gamut_compress_knee', simulation_section.output_gamut_compress_knee),
                 ],
                 expanded=False,
             ),

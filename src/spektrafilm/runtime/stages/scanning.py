@@ -6,11 +6,11 @@ from opt_einsum import contract
 
 from spektrafilm.config import STANDARD_OBSERVER_CMFS
 from spektrafilm.model.diffusion import apply_gaussian_blur, apply_unsharp_mask
-from spektrafilm.model.emulsion import compute_density_spectral
+from spektrafilm.model.develop import compute_density_spectral
 from spektrafilm.model.glare import add_glare
 from spektrafilm.model.illuminants import standard_illuminant
-from spektrafilm.utils.timings import timeit
 from spektrafilm.utils.conversions import density_to_light
+from spektrafilm.utils.gamut_compression import compress_rgb
 
 
 class ScanningStage:
@@ -43,11 +43,10 @@ class ScanningStage:
         
     # public methods
 
-    @timeit("scan")
     def scan(self, density_channels: np.ndarray) -> np.ndarray:
         rgb = self._density_to_rgb(density_channels, use_lut=self._settings.use_scanner_lut)
         rgb = self._apply_blur_and_unsharp(rgb)
-        return self._apply_cctf_encoding_and_clip(rgb)
+        return self._apply_cctf_encoding(rgb)
 
     # private methods
 
@@ -77,12 +76,26 @@ class ScanningStage:
         illuminant_xyz = contract("k,kl->l", scan_illuminant, STANDARD_OBSERVER_CMFS[:]) / normalization
         illuminant_xy = colour.XYZ_to_xy(illuminant_xyz)
         xyz = add_glare(xyz, illuminant_xyz, glare)
-        return colour.XYZ_to_RGB(
+        rgb = colour.XYZ_to_RGB(
             xyz,
             colourspace=self._io.output_color_space,
             apply_cctf_encoding=False,
             illuminant=illuminant_xy,
         )
+        # Output gamut compression. Compresses chromaticities the
+        # simulation reached that fall outside the output primaries
+        # cube; for perceptual algorithms (oklch / oklrab / jzazbz /
+        # cam16ucs) the spec's lightness_knee also pulls
+        # super-bright and below-black pixels back into the cube via
+        # a two-sided Reinhard on the perceptual lightness axis. With
+        # both knees in place the output is in [0, 1] without a
+        # downstream clip; see n100 / n110 for the design and b40 for
+        # the smoothness analysis.
+        rgb = compress_rgb(
+            rgb, self._io.output_gamut_compress,
+            output_color_space=self._io.output_color_space,
+        )
+        return rgb
 
     def _return_callable_cmy_to_log_xyz(self):
         if self._io.scan_film:
@@ -114,7 +127,7 @@ class ScanningStage:
             rgb = apply_unsharp_mask(rgb, sigma=sigma, amount=amount)
         return rgb
 
-    def _apply_cctf_encoding_and_clip(self, rgb: np.ndarray) -> np.ndarray:
+    def _apply_cctf_encoding(self, rgb: np.ndarray) -> np.ndarray:
         if self._io.output_cctf_encoding:
             rgb = colour.RGB_to_RGB(
                 rgb,
@@ -123,7 +136,7 @@ class ScanningStage:
                 apply_cctf_decoding=False,
                 apply_cctf_encoding=True,
             )
-        return np.clip(rgb, a_min=0, a_max=1)
+        return rgb
 
 
 

@@ -11,8 +11,8 @@ pytestmark = pytest.mark.unit
 def test_filming_tc_lut_recomputes_when_spectral_gaussian_blur_changes(monkeypatch) -> None:
     calls: list[float] = []
 
-    def fake_compute_hanatos2025_tc_lut(sensitivity, adaptation):
-        del sensitivity
+    def fake_compute_hanatos2025_tc_lut(sensitivity, adaptation, gamut_compress=None):
+        del sensitivity, gamut_compress
         calls.append(float(adaptation.spectral_gaussian_blur))
         return np.full((2, 2, 3), adaptation.spectral_gaussian_blur + 1.0, dtype=float)
 

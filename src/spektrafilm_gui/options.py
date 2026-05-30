@@ -50,3 +50,20 @@ class DiffusionFilterFamilies(Enum):
     black_pro_mist = "black_pro_mist"
     pro_mist = "pro_mist"
     cinebloom = "cinebloom"
+
+
+class InputGamutCompressAlgorithms(Enum):
+    off = "off"
+    xy = "xy"
+    oklch = "oklch"
+
+
+class OutputGamutCompressAlgorithms(Enum):
+    off = "off"
+    oklch = "oklch"
+    aces_rgc = "aces_rgc"
+    oklrab = "oklrab"
+    jzazbz = "jzazbz"
+    cam16ucs = "cam16ucs"
+
+

@@ -132,8 +132,19 @@ def apply_density_correction_dir_couplers(
         positive=positive,
     )
     density_max = np.nanmax(density_curves, axis=0)
-    diffusion_size_pixel = dir_couplers.diffusion_size_um / pixel_size_um
-    diffusion_tail_size_pixel = dir_couplers.diffusion_tail_um / pixel_size_um
+    # Spatial-off short-circuit: when diffusion is disabled (typical under
+    # debug.lut_mode), the inner ``compute_exposure_correction_dir_couplers``
+    # gates the spatial filtering on ``diffusion_size_pixel > 0`` anyway,
+    # but the unconditional division below crashes when pixel_size_um is
+    # None (which happens for LUT bakes that inject past preprocess). Gate
+    # the conversion to pixel space on the source value being > 0 so the
+    # non-spatial DIR-coupler chemistry can still run.
+    if dir_couplers.diffusion_size_um > 0:
+        diffusion_size_pixel = dir_couplers.diffusion_size_um / pixel_size_um
+        diffusion_tail_size_pixel = dir_couplers.diffusion_tail_um / pixel_size_um
+    else:
+        diffusion_size_pixel = 0
+        diffusion_tail_size_pixel = 0
     diffusion_tail_weight = dir_couplers.diffusion_tail_weight
     log_raw_0 = compute_exposure_correction_dir_couplers(
         log_raw,

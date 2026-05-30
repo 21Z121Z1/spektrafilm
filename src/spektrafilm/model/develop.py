@@ -6,8 +6,9 @@ from opt_einsum import contract
 from spektrafilm.model.couplers import apply_density_correction_dir_couplers
 from spektrafilm.model.density_curves import interpolate_exposure_to_density
 from spektrafilm.model.grain import apply_grain
+from spektrafilm.profiles.io import DensityCurvesModel
 from spektrafilm.runtime.params_schema import DirCouplersParams, GrainParams
-
+from spektrafilm.utils.morph_curves import apply_print_curves_morph, PrintCurvesMorphParams
 
 FloatArray: TypeAlias = NDArray[np.float64]
 ProfileType: TypeAlias = Literal['negative', 'positive']
@@ -25,6 +26,9 @@ def compute_density_spectral(
         density_spectral += np.asarray(base_density)
     return density_spectral
 
+
+# Keep black/white reference correction anchored to the stock density curves.
+# Creative print-curve morphing belongs in develop_print_morph().
 def develop_simple(
     log_raw,
     log_exposure,
@@ -76,6 +80,28 @@ def develop(
         bypass_grain=bypass_grain,
         use_fast_stats=use_fast_stats,
     )
+
+def develop_print_morph(
+    log_raw: FloatArray,
+    log_exposure: FloatArray,
+    density_curves_model: DensityCurvesModel,
+    density_curves_morph: PrintCurvesMorphParams,
+    profile_type: ProfileType = 'negative',
+):
+    density_curves_morphed = apply_print_curves_morph(
+        log_exposure,
+        density_curves_model,
+        density_curves_morph,
+        profile_type=profile_type,
+    )
+    density_cmy = interpolate_exposure_to_density(
+        log_raw,
+        density_curves_morphed,
+        log_exposure,
+        gamma_factor=1.0,
+    )
+    return density_cmy
+
 
 # Some future work notes:
 # Add print dye shift in nanometers for dye absorption peaks.

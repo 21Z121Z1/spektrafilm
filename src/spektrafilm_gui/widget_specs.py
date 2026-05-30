@@ -6,7 +6,9 @@ from enum import Enum
 from spektrafilm_gui.options import (
     AutoExposureMethods,
     DiffusionFilterFamilies,
+    InputGamutCompressAlgorithms,
     NapariInterpolationModes,
+    OutputGamutCompressAlgorithms,
     RGBColorSpaces,
     RGBtoRAWMethod,
     RawWhiteBalance,
@@ -36,6 +38,7 @@ GUI_SECTION_ENUMS: dict[str, dict[str, type[Enum]]] = {
     "input_image": {
         "input_color_space": RGBColorSpaces,
         "spectral_upsampling_method": RGBtoRAWMethod,
+        "input_gamut_compress_algorithm": InputGamutCompressAlgorithms,
     },
     "load_raw": {
         "white_balance": RawWhiteBalance,
@@ -43,6 +46,7 @@ GUI_SECTION_ENUMS: dict[str, dict[str, type[Enum]]] = {
     "display": {
         "output_interpolation": NapariInterpolationModes,
     },
+    "chemistry": {},
     "simulation": {
         "film_stock": FilmStocks,
         "auto_exposure_method": AutoExposureMethods,
@@ -52,6 +56,7 @@ GUI_SECTION_ENUMS: dict[str, dict[str, type[Enum]]] = {
         "output_color_space": RGBColorSpaces,
         "saving_color_space": RGBColorSpaces,
         "diffusion_filter_family": DiffusionFilterFamilies,
+        "output_gamut_compress_algorithm": OutputGamutCompressAlgorithms,
     },
 }
 
@@ -288,6 +293,17 @@ GUI_WIDGET_SPECS = {
             label="Saving CCTF encoding",
             tooltip="Add or not the CCTF to the saved image file",
         ),
+        "output_gamut_compress_algorithm": WidgetSpec(
+            label="Gamut compress algorithm",
+            tooltip="off: disable output gamut compression. oklch (default): perceptual chroma reduction in OkLab, preserves hue + lightness. aces_rgc: per-channel ACES RGC v1.3, matches Resolve/Nuke/OCIO. oklrab/jzazbz/cam16ucs: alternative perceptual spaces.",
+        ),
+        "output_gamut_compress_knee": WidgetSpec(
+            label="Gamut compress knee",
+            tooltip="Reinhard knee (threshold, limit, power). Default (0.95, 1.0, 2.0) is gentle -- only the last 5% to the cube edge is rolled off, leaving most legitimate film chroma untouched.",
+            min_value=0.0,
+            step=0.05,
+            decimals=3,
+        ),
         "auto_preview": WidgetSpec(label="Auto preview", tooltip="trigger the preview after every change of gui parameters, use mouse scrollwheel on parameters field, read preview tooltip for details"),
         "scan_film": WidgetSpec(label="Scan film", tooltip="Show a scan of the negative instead of the print"),
     },
@@ -319,6 +335,58 @@ GUI_WIDGET_SPECS = {
             step=128,
         ),
     },
+    "chemistry": {
+        "active": WidgetSpec(tooltip="Enable print density-curve morphing."),
+        "gamma_factor": WidgetSpec(
+            label="Gamma factor",
+            tooltip="Global coupled gamma multiplier for the print density curves.",
+            min_value=0.5,
+            max_value=2.0,
+            step=0.05,
+        ),
+        "gamma_factor_fast": WidgetSpec(
+            label="Gamma factor fast",
+            tooltip="Gamma factor applied to the fast sub-layer.",
+            min_value=0.5,
+            max_value=2.0,
+            step=0.05,
+        ),
+        "gamma_factor_slow": WidgetSpec(
+            label="Gamma factor slow",
+            tooltip="Gamma factor applied to the mid and slow sub-layers.",
+            min_value=0.5,
+            max_value=2.0,
+            step=0.05,
+        ),
+        "gamma_factor_red": WidgetSpec(
+            label="Gamma factor red",
+            tooltip="Per-channel gamma factor applied to the red channel.",
+            min_value=0.5,
+            max_value=2.0,
+            step=0.02,
+        ),
+        "gamma_factor_green": WidgetSpec(
+            label="Gamma factor green",
+            tooltip="Per-channel gamma factor applied to the green channel.",
+            min_value=0.5,
+            max_value=2.0,
+            step=0.02,
+        ),
+        "gamma_factor_blue": WidgetSpec(
+            label="Gamma factor blue",
+            tooltip="Per-channel gamma factor applied to the blue channel.",
+            min_value=0.5,
+            max_value=2.0,
+            step=0.02,
+        ),
+        "developer_exhaustion": WidgetSpec(
+            label="Developer exhaustion",
+            tooltip="Blend all three print sub-layers toward the matched Gumbel shoulder while preserving midgray via a common horizontal offset.",
+            min_value=0.0,
+            max_value=1.0,
+            step=0.02,
+        ),
+    },
     "special": {
         "film_gamma_factor": WidgetSpec(
             label="Film gamma factor",
@@ -327,12 +395,6 @@ GUI_WIDGET_SPECS = {
             min_value=0,
         ),
         "film_channel_swap": WidgetSpec(label="Film channel swap"),
-        "print_gamma_factor": WidgetSpec(
-            label="Print gamma factor",
-            tooltip="Gamma factor of the print paper, < 1 reduce contrast, > 1 increase contrast",
-            step=0.05,
-            min_value=0,
-        ),
         "print_channel_swap": WidgetSpec(label="Print channel swap",
         min_value=0,
         max_value=2,
@@ -584,6 +646,17 @@ GUI_WIDGET_SPECS = {
             tooltip="Filter IR light, (amplitude, wavelength cutoff in nm, sigma in nm). Changing this enlarger filters neutral will be affected.",
             min_value=0,
             step=1,
+        ),
+        "input_gamut_compress_algorithm": WidgetSpec(
+            label="Gamut compress algorithm",
+            tooltip="off: disable input gamut compression. xy: radial compression in CIE 1931 chromaticity (ACES RGC family, hue-preserving). oklch: perceptual chroma reduction at constant Oklch (L, h).",
+        ),
+        "input_gamut_compress_knee": WidgetSpec(
+            label="Gamut compress knee",
+            tooltip="Reinhard knee (threshold, limit, power). Defaults (0.815, 1.0, 1.2) match the ACES RGC v1.3 cyan parameters with limit reduced to 1.0 so the knee asymptotes at the spectral locus boundary.",
+            min_value=0.0,
+            step=0.05,
+            decimals=3,
         ),
     },
     "load_raw": {

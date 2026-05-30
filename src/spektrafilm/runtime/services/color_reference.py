@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import numpy as np
-from typing import Callable
+from typing import Any, Callable
 from colour import RGB_to_RGB
 
-from spektrafilm.model.emulsion import develop_simple
+from spektrafilm.model.develop import develop_simple
 
 class ColorReferenceService:
     """Manages the color reference for black and white corrections."""
@@ -32,7 +32,7 @@ class ColorReferenceService:
         self._black_white_exposure_correction = None # exposure correction factor to apply to the print exposure based on the black and white reference densities
         
         # communication with the scanning stage
-        self.cmy_to_log_xyz = None # callable to convert cmy densities to log xyz, to be defined in the scanning stage during pipeline init!
+        self.cmy_to_log_xyz: Any | None = None # callable to convert cmy densities to log xyz, to be defined in the scanning stage during pipeline init!
         self.log_raw_print_black = None
         self.log_raw_print_white = None
 
@@ -44,11 +44,14 @@ class ColorReferenceService:
         elif self._scan_film and self._film.info.type == 'negative':
             return
         else:
+            if self.cmy_to_log_xyz is None:
+                raise RuntimeError("cmy_to_log_xyz must be configured before black/white correction is used.")
+            cmy_to_log_xyz: Callable[[np.ndarray], np.ndarray] = self.cmy_to_log_xyz
             if self._scan_film and self._film.info.type == 'positive' and not in_print:
                 cmy_black = np.nanmax(self._film.data.density_curves, axis=0)[None, None, :]
                 cmy_white = np.zeros((1, 1, 3))
-                log_xyz_black = self.cmy_to_log_xyz(cmy_black)
-                log_xyz_white = self.cmy_to_log_xyz(cmy_white)
+                log_xyz_black = cmy_to_log_xyz.__call__(cmy_black)
+                log_xyz_white = cmy_to_log_xyz.__call__(cmy_white)
                 self._y_black = (10 ** log_xyz_black)[:, :, 1]
                 self._y_white = (10 ** log_xyz_white)[:, :, 1]
             elif not self._scan_film and self._print.info.type == 'negative' and in_print:
@@ -56,16 +59,16 @@ class ColorReferenceService:
                     self.log_raw_print_black,
                     self._print.data.log_exposure,
                     self._print.data.density_curves,
-                    gamma_factor=self._print_render.density_curve_gamma,
+                    gamma_factor=1.0,
                 )
                 cmy_white = develop_simple(
                     self.log_raw_print_white,
                     self._print.data.log_exposure,
                     self._print.data.density_curves,
-                    gamma_factor=self._print_render.density_curve_gamma,
+                    gamma_factor=1.0,
                 )
-                log_xyz_black = self.cmy_to_log_xyz(cmy_black)
-                log_xyz_white = self.cmy_to_log_xyz(cmy_white)
+                log_xyz_black = cmy_to_log_xyz.__call__(cmy_black)
+                log_xyz_white = cmy_to_log_xyz.__call__(cmy_white)
                 self._y_black = (10 ** log_xyz_black)[:, :, 1]
                 self._y_white = (10 ** log_xyz_white)[:, :, 1]
             return
@@ -130,6 +133,9 @@ class ColorReferenceService:
     def _correction_fucntion(self):
         white_level = self._white_level
         black_level = self._black_level
+        m = 1.0
+        q = 0.0
+        correction_func = lambda y: y
         if self._black_correction and not self._white_correction:
             white_level = self._y_white
         if self._white_correction and not self._black_correction:
@@ -137,8 +143,9 @@ class ColorReferenceService:
         if self._black_correction or self._white_correction:                           
             m = (white_level - black_level) / (self._y_white - self._y_black + 1e-10)
             q = black_level - m * self._y_black
-            def correction_func(y):
+            def clipped_linear_correction(y):
                 return np.clip(m * y + q, 0, 1)
+            correction_func = clipped_linear_correction
         midgray_black_white_corrected = (0.184 - q)/m
         return correction_func, midgray_black_white_corrected
 

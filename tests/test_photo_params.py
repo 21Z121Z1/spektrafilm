@@ -65,7 +65,14 @@ class TestInitParamsDefaults:
         assert params.film_render.dir_couplers.inhibition_interlayer == 1.0
         assert params.film_render.dir_couplers.gamma_samelayer_rgb == (0.341, 0.324, 0.273)
 
-        assert params.print_render.density_curve_gamma == 1.0
+        assert params.print_render.density_curves_morph.active is False
+        assert params.print_render.density_curves_morph.gamma_factor == 1.0
+        assert params.print_render.density_curves_morph.gamma_factor_fast == 1.0
+        assert params.print_render.density_curves_morph.gamma_factor_slow == 1.0
+        assert params.print_render.density_curves_morph.gamma_factor_red == 1.0
+        assert params.print_render.density_curves_morph.gamma_factor_green == 1.0
+        assert params.print_render.density_curves_morph.gamma_factor_blue == 1.0
+        assert params.print_render.density_curves_morph.developer_exhaustion == 0.0
         assert params.print_render.glare.active is True
 
         assert params.io.input_color_space == 'ProPhoto RGB'
@@ -78,10 +85,10 @@ class TestInitParamsDefaults:
 
         assert params.debug.deactivate_spatial_effects is False
         assert params.debug.deactivate_stochastic_effects is False
-        assert params.debug.output_film_log_raw is False
-        assert params.debug.output_film_density_cmy is False
-        assert params.debug.output_print_density_cmy is False
+        assert params.debug.lut_mode is False
         assert params.debug.print_timings is False
+        assert params.taps.inject is None
+        assert params.taps.collect is None
 
         assert params.settings.rgb_to_raw_method == 'hanatos2025'
         assert params.settings.use_enlarger_lut is False

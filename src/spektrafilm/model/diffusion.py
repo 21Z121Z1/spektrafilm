@@ -88,14 +88,17 @@ def apply_gaussian_blur(data, sigma):
         return data
     
 def apply_gaussian_blur_um(data, sigma_um, pixel_size_um):
+    # Spatial-off short-circuit: when sigma_um is 0 (e.g. under
+    # debug.lut_mode, which disables all spatial effects), pixel_size_um
+    # is irrelevant. Early-return so callers that haven't run preprocess
+    # — typical for LUT bakes that inject mid-pipeline — don't crash on
+    # division by None.
+    if sigma_um <= 0:
+        return data
     sigma = sigma_um / pixel_size_um
     if sigma > 0:
-        # return scipy.ndimage.gaussian_filter(data, (sigma, sigma, 0))
-        # data = np.double(data)
-        # data = np.ascontiguousarray(data)
         return fast_gaussian_filter(data, sigma)
-    else:
-        return data
+    return data
 
 def apply_diffusion_filter_mm(data, diffusion_filter_params, pixel_size_um):
     diffusion_fraction, sigma_mm, iterations, growth, decay = diffusion_filter_params

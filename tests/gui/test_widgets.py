@@ -315,6 +315,7 @@ def test_numeric_widget_specs_define_minimum_and_step() -> None:
         'display': state_module.DisplayState,
         'special': state_module.SpecialState,
         'glare': state_module.GlareState,
+        'chemistry': state_module.PrintChemistryState,
         'halation': state_module.HalationState,
         'couplers': state_module.CouplersState,
         'grain': state_module.GrainState,

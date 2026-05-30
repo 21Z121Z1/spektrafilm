@@ -7,9 +7,14 @@ import numpy as np
 import spektrafilm.runtime.stages.filming as filming_module
 
 
-def test_rgb_to_film_raw_applies_hanatos_bandpass_to_sensitivity(monkeypatch) -> None:
+def test_rgb_to_film_raw_passes_linear_sensitivity_to_hanatos2025(monkeypatch) -> None:
+    """`_rgb_to_film_raw` should pass `10**log_sensitivity` (linear sensitivity)
+    to `rgb_to_raw_hanatos2025`. With no UV/IR filter active, no bandpass
+    correction is applied. Hanatos2025 adaptation is handled separately via
+    the LUT service's `tc_lut`, not by mutating sensitivity in this method.
+    """
     captured: dict[str, np.ndarray] = {}
-    bandpass = np.array([[2.0, 3.0, 4.0], [5.0, 6.0, 7.0]], dtype=float)
+    log_sensitivity = np.array([[-1.0, -2.0, -3.0], [-0.5, -1.5, -2.5]], dtype=float)
 
     def fake_rgb_to_raw_hanatos2025(
         rgb,
@@ -29,17 +34,14 @@ def test_rgb_to_film_raw_applies_hanatos_bandpass_to_sensitivity(monkeypatch) ->
     stage = object.__new__(filming_module.FilmingStage)
     setattr(stage, '_film', SimpleNamespace(
         info=SimpleNamespace(reference_illuminant='D55'),
-        data=SimpleNamespace(
-            log_sensitivity=np.zeros((2, 3), dtype=float),
-            bandpass_hanatos2025=bandpass,
-        ),
+        data=SimpleNamespace(log_sensitivity=log_sensitivity),
     ))
     setattr(stage, '_camera', SimpleNamespace(filter_uv=(0.0, 0.0, 0.0), filter_ir=(0.0, 0.0, 0.0)))
-    setattr(stage, '_settings', SimpleNamespace(rgb_to_raw_method='hanatos2025', bandpass_hanatos2025=True))
+    setattr(stage, '_settings', SimpleNamespace(rgb_to_raw_method='hanatos2025'))
     setattr(stage, '_lut_service', SimpleNamespace(get_filming_tc_lut=lambda sensitivity: None))
 
     rgb = np.ones((1, 1, 3), dtype=float)
 
     getattr(stage, '_rgb_to_film_raw')(rgb)
 
-    np.testing.assert_allclose(captured['sensitivity'], bandpass)
+    np.testing.assert_allclose(captured['sensitivity'], 10.0 ** log_sensitivity)
