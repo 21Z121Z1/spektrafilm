@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "spektrafilm"
-version = "0.3.2"
+version = "0.3.3"
 description = "Spectral simulation of analog film photography"
 readme = "README.md"
-requires-python = "==3.13"
+requires-python = "~=3.13"
 license = { text = "GPLv3" }
 authors = [
     { name = "Andrea Volpato", email = "volpedellenevi@gmail.com" },
@@ -29,41 +29,26 @@ dependencies = [
     "rawpy~=0.26.1",
     "exiv2~=0.18.1",
     "lensfunpy~=1.18.0",
-    # Currently unused in src/ but retained: lmfit is used by the
-    # sibling spektrafilm-profile-creator workflow; PyYAML is on the
-    # short-list for future config-file parsing. Audit and drop if
-    # still unused in a later cleanup.
-    "lmfit~=1.3.2",
-    "PyYAML~=6.0",
-]
-
-[project.optional-dependencies]
-# spektrafilm_gui — interactive Qt + napari shell. None of these are
-# imported by the runtime; only `spektrafilm_gui/` (and indirectly the
-# `spektrafilm[gui]` script entry point) needs them.
-gui = [
+    # GUI app dependencies — installed by default because the package
+    # ships the `spektrafilm` entry point, but not imported by the core
+    # physical runtime under `spektrafilm/`.
     "qtpy~=2.4",
     "pyside6~=6.9",
     "napari~=0.6.6",
     "Pillow~=12.1",
     "pyconify~=0.2.1",
-]
-# spektrafilm_lut_creator — LUT bake + QA + OCIO emission. Most of the
-# package piggybacks on core deps (numpy, colour-science, matplotlib);
-# `markdown` is the one new dep, used only for the QA HTML report.
-lut_creator = [
+    # LUT creator dependencies — also installed by default because the
+    # package ships the `spektrafilm-lut` entry point, but they are not
+    # required by the core runtime.
     "markdown~=3.7",
-    "Pillow~=12.1",   # Hald-CLUT PNG writer
 ]
-# Test/dev tooling.
+
+[project.optional-dependencies]
+# Test/dev tooling on top of the default install.
 dev = [
     "pytest",
     "opencolorio~=2.5",   # PyOpenColorIO; validates emitted config.ocio files
 ]
-# Convenience alias — installs the full stack (gui + lut_creator + dev).
-# Use this for development environments: `pip install -e ".[all]"`.
-# Self-referential extras are supported by pip >= 21.2 and uv.
-all = ["spektrafilm[gui,lut_creator,dev]"]
 
 [project.scripts]
 spektrafilm = "spektrafilm_gui.app:main"

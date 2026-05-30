@@ -28,11 +28,11 @@ from spektrafilm.utils.gamut_compression import (
 
 
 class TestInputGamutCompressSpec:
-    def test_default_is_aces_cyan_with_limit_one(self):
+    def test_default_is_full_range_soft_knee(self):
         s = InputGamutCompressSpec()
         assert s.active is True
         assert s.algorithm == "xy"
-        assert s.knee == (0.815, 1.0, 1.2)
+        assert s.knee == (0.0, 1.0, 6.0)
 
     def test_inactive_constructs(self):
         s = InputGamutCompressSpec(active=False)
@@ -216,18 +216,14 @@ class TestRemapTcLutForCompression:
 
 
 class TestOutputGamutCompressSpec:
-    def test_default_is_oklch_with_gentle_knee(self):
-        """Default is the perceptual-chroma OkLch algorithm with a
-        gentle knee that only kicks in at 95% of the way to the cube
-        edge — the output boundary is much closer to legitimate film
-        chroma than the input boundary (spectral locus) was, so the
-        output default is deliberately softer than the input default
-        ``(0.815, 1.0, 1.2)``. aces_rgc / jzazbz remain available as
-        opt-in."""
+    def test_default_is_oklch_with_full_range_soft_knee(self):
+        """Default is the perceptual-chroma OkLch algorithm with the
+        current full-range soft knee. aces_rgc / jzazbz remain
+        available as opt-in."""
         s = OutputGamutCompressSpec()
         assert s.active is True
         assert s.algorithm == "oklch"
-        assert s.knee == (0.95, 1.0, 2.0)
+        assert s.knee == (0.0, 1.0, 6.0)
 
     def test_aces_rgc_constructs(self):
         s = OutputGamutCompressSpec(algorithm="aces_rgc")

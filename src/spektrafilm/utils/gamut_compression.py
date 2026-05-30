@@ -16,12 +16,11 @@ This module provides:
   ``compute_hanatos2025_tc_lut``-produced LUT via remap-resample, so the
   runtime lookup path does not need to know about the compression.
 
-The default settings (``algorithm="xy"`` with
-``knee=(0.815, 1.0, 1.2)``) implement the ACES Reference Gamut
-Compression v1.3 cyan-channel threshold and power, with the asymptote
-limit reduced from 1.147 to 1.0 so the knee converges exactly at the
-spectral locus boundary rather than past it. See the spektrafilm-research
-note ``n100_soft_input_clipping`` §5 for the full rationale.
+The default settings use a full-range Reinhard knee
+(``knee=(0.0, 1.0, 6.0)``), which applies a gentle, always-on roll-off
+toward the boundary instead of leaving a hard identity region before an
+abrupt shoulder. See the spektrafilm-research note
+``n100_soft_input_clipping`` §5 for the rationale and comparisons.
 """
 from __future__ import annotations
 
@@ -62,14 +61,14 @@ class InputGamutCompressSpec:
     knee :
         ``(threshold, limit, power)`` of the Reinhard knee:
         ``d' = t + s · n / (1 + n^p)^(1/p)`` where ``n = (d - t)/s``
-        and ``s = limit - t``. Default ``(0.815, 1.0, 1.2)`` matches the
-        ACES RGC v1.3 cyan threshold and power with the limit reduced
-        to 1.0 (see module docstring and n100 §5.2).
+        and ``s = limit - t``. Default ``(0.0, 1.0, 6.0)`` applies a
+        soft full-range roll-off that keeps the asymptote on the locus
+        boundary while avoiding a visible knee onset.
     """
 
     active: bool = True
     algorithm: Literal["xy", "oklch"] = "xy"
-    knee: tuple[float, float, float] = (0.0, 1.0, 6.0) #(0.815, 1.0, 1.2)
+    knee: tuple[float, float, float] = (0.0, 1.0, 6.0)
 
     def __post_init__(self) -> None:
         if self.algorithm not in ("xy", "oklch"):
@@ -162,25 +161,19 @@ class OutputGamutCompressSpec:
         afford the cost.
     knee :
         ``(threshold, limit, power)`` of the Reinhard knee. Default
-        ``(0.95, 1.0, 2.0)`` is gentle by design: the knee only starts
-        at 95% of the way to the boundary and softens through it with
-        ``p=2``, so most legitimate in-gamut chroma the film produces
-        is untouched and only the last 5% rolls off. This differs from
-        the input-side default ``(0.815, 1.0, 1.2)`` because the input
-        boundary is the visible spectral locus (which only non-physical
-        camera overshoots reach), whereas the output boundary is the
-        destination RGB cube — many real, in-gamut film colors live
-        right up against it. Limit stays at 1.0 so the asymptote sits
-        on the cube edge and the LUT cube remains in [0, 1] without
-        needing a hard clip. The knee operates on the unitless
-        normalized chroma ``C / C_max`` and is reused unchanged across
-        ``oklch`` and ``jzazbz``.
+        ``(0.0, 1.0, 6.0)`` applies a soft full-range roll-off so
+        chroma starts compressing smoothly from the center instead of
+        waiting for a late knee near the gamut boundary. Limit stays at
+        1.0 so the asymptote sits on the cube edge and the LUT cube
+        remains in [0, 1] without needing a hard clip. The knee
+        operates on the unitless normalized chroma ``C / C_max`` and is
+        reused unchanged across ``oklch`` and ``jzazbz``.
     """
 
     algorithm: Literal[
         "off", "aces_rgc", "oklch", "oklrab", "jzazbz", "cam16ucs",
     ] = "oklch"
-    knee: tuple[float, float, float] = (0.0, 1.0, 6.0) #(0.95, 1.0, 2.0)
+    knee: tuple[float, float, float] = (0.0, 1.0, 6.0)
     # Two-sided Reinhard knee on the perceptual lightness coordinate
     # (L for oklch/oklrab, Jz for jzazbz, Jp for cam16ucs), pulling
     # values smoothly into [0, white]. The chroma knee above only
@@ -189,12 +182,12 @@ class OutputGamutCompressSpec:
     # left out-of-cube because C_max collapses to zero there. This
     # residual-amplitude knee closes that loop. Parameters are in
     # *normalized* units where 1.0 = the output color space's
-    # perceptual white; with the default (0.95, 1.0, 2.0) the identity
-    # band is [0.05·white, 0.95·white] and the asymptote sits exactly
-    # at 0 and white. Set to None to disable; with no downstream clip
-    # in the runtime, disabling this means lightness OOG escapes the
-    # cube. Not applied to algorithm="aces_rgc" (no perceptual
-    # lightness axis).
+    # perceptual white; with the default (0.7, 1.0, 2.2) the identity
+    # band is [0.3·white, 0.7·white] and the asymptote sits exactly at
+    # 0 and white. Set to None to disable; with no downstream clip in
+    # the runtime, disabling this means lightness OOG escapes the cube.
+    # Not applied to algorithm="aces_rgc" (no perceptual lightness
+    # axis).
     lightness_knee: tuple[float, float, float] | None = (0.7, 1.0, 2.2)
 
     def __post_init__(self) -> None:
@@ -702,8 +695,9 @@ def _apply_lightness_knee(
     ``(threshold, limit, power)`` are in *normalized* units where
     ``1.0`` corresponds to ``L_white`` — i.e. the perceptual lightness
     of the output color space's whitepoint. With the default
-    ``(0.95, 1.0, 2.0)`` the identity band is the middle 90% of the
-    lightness range; only the last 5% near black and white roll off.
+    ``(0.7, 1.0, 2.2)`` the identity band is the middle 40% of the
+    lightness range; the shadows and highlights roll off smoothly near
+    black and white.
     """
     threshold, limit, power = knee
     L_norm = L / L_white

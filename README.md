@@ -229,27 +229,28 @@ commit.
 ### Using `uv`
 
 You can easily run the latest version of spektrafilm directly from the Git
-repository using [uv](https://docs.astral.sh/uv/). The `[gui]` extra pulls in
-the Qt and napari dependencies the desktop app needs:
+repository using [uv](https://docs.astral.sh/uv/). The default install now
+includes the desktop GUI and LUT-creator dependencies; only development tools
+remain optional:
 
 ```bash
-uvx --python 3.13 --with "spektrafilm[gui] @ git+https://github.com/andreavolpato/spektrafilm.git" spektrafilm
+uvx --python 3.13 --from git+https://github.com/andreavolpato/spektrafilm.git spektrafilm
 ```
 
 Or from a local working copy:
 ```bash
-uvx --python 3.13 --with "/path/to/local/spektrafilm[gui]" spektrafilm
+uvx --python 3.13 --from /path/to/local/working_copy spektrafilm
 ```
 
 Alternatively, you can install spektrafilm permanently which will provide you
 the `spektrafilm` command:
 
 ```bash
-uv tool install --python 3.13 "spektrafilm[gui] @ git+https://github.com/andreavolpato/spektrafilm.git"
+uv tool install --python 3.13 git+https://github.com/andreavolpato/spektrafilm.git
 ```
 
-For LUT export or full development, swap `[gui]` for `[all]` (gui + lut_creator
-+ dev tooling).
+For full development, install the project with `[dev]` to add the test tooling
+on top of the default install.
 
 #### Installing uv
 
@@ -265,15 +266,14 @@ Instructions for macOS and Linux are
 
 ### Using `pip`
 
-You can also use `pip` normally. Dependencies are split into optional groups so
-you only install what you need — see [Dependency groups](#dependency-groups)
-below.
+You can also use `pip` normally. The default install already includes the GUI
+and LUT-creator dependencies; `dev` is the only remaining optional extra.
 
 ```bash
-# install (with the GUI, since you probably want the desktop app):
+# install the default package (desktop app + LUT creator included):
 git clone https://github.com/andreavolpato/spektrafilm.git
 cd spektrafilm
-pip install -e ".[gui]"
+pip install -e .
 
 # run
 spektrafilm
@@ -289,11 +289,11 @@ conda create -n spektrafilm python=3.13
 conda activate spektrafilm
 ```
 
-Install the package `spektrafilm` (with GUI deps) by going to the repository
+Install the package `spektrafilm` by going to the repository
 folder and running:
 
 ```bash
-pip install -e ".[gui]"
+pip install -e .
 ```
 Launch the GUI by activating the environment and:
 
@@ -305,30 +305,26 @@ To remove the environment:
 conda env remove -n spektrafilm
 ```
 
-### Dependency groups
+### Install options
 
 | Install command | What you get |
 |---|---|
-| `pip install -e .` | Just the runtime pipeline (core deps only — no GUI, no LUT export). Useful for library / scripting use. |
-| `pip install -e ".[gui]"` | Core + Qt/napari GUI. The `spektrafilm` command works. |
-| `pip install -e ".[lut_creator]"` | Core + LUT bake QA HTML report. The bare LUT bake works without this; only the `report.html` rendering needs it. |
-| `pip install -e ".[dev]"` | Core + test tooling (`pytest`, OCIO config validation). |
-| `pip install -e ".[all]"` | Everything (gui + lut_creator + dev). The canonical command for a development environment. |
+| `pip install -e .` | Default install: core runtime + GUI + LUT creator. Provides both the `spektrafilm` and `spektrafilm-lut` commands. |
+| `pip install -e ".[dev]"` | Default install + test tooling (`pytest`, OCIO config validation). |
 
-The same `[extras]` syntax works with `uv pip install` (faster) and with `uv
-tool install` / `uvx --with`.
+The same `[extras]` syntax works with `uv pip install` and `uv tool install`.
+For one-off runs with `uvx`, use `--from` as shown above.
 
 > [!NOTE]
 > On Windows PowerShell and on macOS zsh, quote the brackets to prevent
-> shell glob expansion: `pip install -e ".[gui]"`.
+> shell glob expansion: `pip install -e ".[dev]"`.
 
 ## Testing
 
-Install the full stack (the test suite touches the runtime, GUI, and LUT creator
-packages), then run the test suite:
+Install the default package plus the dev tooling, then run the test suite:
 
 ```bash
-pip install -e ".[all]"
+pip install -e ".[dev]"
 python -m pytest tests -v
 ```
 

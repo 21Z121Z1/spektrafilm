@@ -155,7 +155,7 @@ class TestBuildEndToEndAgreesWithPipeline:
     interpolation as a confound.
     """
 
-    def test_corner_samples_match_live_pipeline(self, built):
+    def test_corner_samples_match_live_pipeline(self, builder, built):
         from spektrafilm.runtime.params_builder import digest_params, init_params
         from spektrafilm.runtime.pipeline import SimulationPipeline
         from spektrafilm_lut_creator.color_spaces import get as get_cs
@@ -167,6 +167,8 @@ class TestBuildEndToEndAgreesWithPipeline:
         params.debug.lut_mode = True
         params.io.input_color_space = in_entry.primaries
         params.io.output_color_space = out_entry.primaries
+        params.io.input_gamut_compress = builder.spec.input_gamut_compress
+        params.io.output_gamut_compress = builder.spec.output_gamut_compress
         params.io.input_cctf_decoding = False
         params.io.output_cctf_encoding = False
         params = digest_params(params)
@@ -1078,8 +1080,7 @@ class TestFourLutBundle:
         for c, d in enumerate(wires.cmy_film.d_min):
             scalars.append((f"cmy_film.d_min[{c}]", d))
         for name, v in scalars:
-            scaled = v * 1e4
-            assert scaled == round(scaled), (
+            assert v == round(v, 4), (
                 f"{name}={v!r} is not on the 1e-4 grid"
             )
 
