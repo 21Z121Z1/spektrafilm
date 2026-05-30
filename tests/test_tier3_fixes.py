@@ -23,23 +23,24 @@ def _make_gain_map_metadata() -> GainMapMetadata:
     return GainMapMetadata(channels=[ch, ch, ch])
 
 
-class TestHeifSaveFallsBackToJpeg:
-    """save_gain_map_heif must fall back to JPEG MPF when pillow-heif is absent."""
+class TestHeifSaveRequiresPillowHeif:
+    """save_gain_map_heif must fail loudly when pillow-heif is absent."""
 
-    def test_falls_back_to_jpeg(self, tmp_path):
+    def test_missing_pillow_heif_raises_import_error(self, tmp_path):
         from spektrafilm.utils import gain_map_io
 
         base = np.zeros((4, 4, 3), dtype=np.float32)
         gm = np.zeros((4, 4, 3), dtype=np.float32)
         meta = _make_gain_map_metadata()
 
-        # Simulate pillow-heif being unavailable — code falls back to JPEG MPF
         with patch.dict(sys.modules, {"pillow_heif": None}):
-            gain_map_io.save_gain_map_heif(tmp_path / "out.heif", base, gm, meta)
+            with pytest.raises(ImportError, match="pillow-heif"):
+                gain_map_io.save_gain_map_heif(tmp_path / "out.heif", base, gm, meta)
 
-        assert (tmp_path / "out.jpg").exists(), "JPEG fallback must be created"
+        assert not (tmp_path / "out.jpg").exists(), "HEIF save must not write an unrequested JPEG fallback"
+        assert not (tmp_path / "out.heif").exists()
 
-    def test_jpg_fallback_contains_valid_data(self, tmp_path):
+    def test_missing_pillow_heif_does_not_write_partial_output(self, tmp_path):
         from spektrafilm.utils import gain_map_io
 
         base = np.ones((4, 4, 3), dtype=np.float32) * 0.5
@@ -47,12 +48,10 @@ class TestHeifSaveFallsBackToJpeg:
         meta = _make_gain_map_metadata()
 
         with patch.dict(sys.modules, {"pillow_heif": None}):
-            gain_map_io.save_gain_map_heif(tmp_path / "out.heif", base, gm, meta)
+            with pytest.raises(ImportError, match="pillow-heif"):
+                gain_map_io.save_gain_map_heif(tmp_path / "out.heif", base, gm, meta)
 
-        jpg_path = tmp_path / "out.jpg"
-        assert jpg_path.exists()
-        data = jpg_path.read_bytes()
-        assert data[:2] == b"\xff\xd8", "Fallback must be a valid JPEG"
+        assert list(tmp_path.iterdir()) == []
 
 
 # ---------------------------------------------------------------------------
@@ -81,12 +80,13 @@ class TestPilSaveIccFallback:
 
 
 class TestDciP3IccEntry:
-    """_ICC_FILENAMES must contain DCI-P3 encoded entry."""
+    """_ICC_FILENAMES must contain DCI-P3 encoded and linear entries."""
 
     def test_dci_p3_encoded_entry(self):
         from spektrafilm.utils.io import _ICC_FILENAMES
 
         assert ("DCI-P3", True) in _ICC_FILENAMES
+        assert ("DCI-P3", False) in _ICC_FILENAMES
 
     def test_dci_p3_encoded_resolves(self):
         """resolve_icc_profile_bytes should return something for DCI-P3 encoded."""
@@ -94,6 +94,14 @@ class TestDciP3IccEntry:
 
         result = resolve_icc_profile_bytes("DCI-P3", cctf_encoding=True)
         assert result is not None, "DCI-P3 encoded should resolve to an ICC profile"
+        assert len(result) > 0
+
+    def test_dci_p3_linear_resolves(self):
+        """resolve_icc_profile_bytes should return a linear ICC for DCI-P3 linear."""
+        from spektrafilm.utils.io import resolve_icc_profile_bytes
+
+        result = resolve_icc_profile_bytes("DCI-P3", cctf_encoding=False)
+        assert result is not None, "DCI-P3 linear should resolve to an ICC profile"
         assert len(result) > 0
 
 
@@ -115,6 +123,19 @@ class TestExrFloat16OverflowWarning:
         encoding = ColorEncoding(color_space="ACEScg", transfer="linear", role="scene")
 
         out_path = str(tmp_path / "overflow.exr")
+        with pytest.warns(UserWarning, match="float16"):
+            save_image_oiio(
+                out_path, img, encoding=encoding, bit_depth=16, color_space="ACEScg",
+            )
+
+    def test_warning_emitted_on_negative_overflow(self, tmp_path):
+        from spektrafilm.utils.io import save_image_oiio
+        from spektrafilm.color_management import ColorEncoding
+
+        img = np.full((4, 4, 3), -70000.0, dtype=np.float32)
+        encoding = ColorEncoding(color_space="ACEScg", transfer="linear", role="scene")
+
+        out_path = str(tmp_path / "negative_overflow.exr")
         with pytest.warns(UserWarning, match="float16"):
             save_image_oiio(
                 out_path, img, encoding=encoding, bit_depth=16, color_space="ACEScg",

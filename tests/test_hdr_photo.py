@@ -1454,6 +1454,7 @@ def test_gain_map_max_matches_actual_h_over_s() -> None:
         ({"hdr_highlight_saturation_boost": -1.0}, "hdr_highlight_saturation_boost"),
         ({"hdr_highlight_chroma_limit": -1.0}, "hdr_highlight_chroma_limit"),
         ({"hdr_highlight_path_to_white": -1.0}, "hdr_highlight_path_to_white"),
+        ({"hdr_highlight_path_to_white": 1.5}, "hdr_highlight_path_to_white"),
         ({"profile_curve_mode": "invalid"}, "profile_curve_mode"),
         ({"profile_hdr_peak_ev": 0.0}, "profile_hdr_peak_ev"),
         ({"profile_hdr_strength": -0.1}, "profile_hdr_strength"),
@@ -1541,6 +1542,17 @@ def test_encode_gain_map_log2_highlights() -> None:
     gm = hdr_photo.encode_gain_map_log2(sdr, hdr, headroom=4.0)
     assert float(np.min(gm)) > 0.0
     assert float(np.max(gm)) <= 1.0 + 1e-5
+
+
+def test_encode_gain_map_log2_does_not_saturate_near_black_shadow_lift() -> None:
+    """Near-black HDR lifts must not look like full-headroom specular gain."""
+    sdr = np.zeros((1, 1, 3), dtype=np.float32)
+    hdr = np.full((1, 1, 3), 1.0e-4, dtype=np.float32)
+
+    gm = hdr_photo.encode_gain_map_log2(sdr, hdr, headroom=4.0)
+
+    assert np.all(np.isfinite(gm))
+    assert float(gm[0, 0]) < 0.1
 
 
 def test_build_gain_map_xmp_packet_contains_required_fields() -> None:
@@ -1789,6 +1801,31 @@ def test_gamut_map_oklch_display_p3_to_srgb_gamut() -> None:
     # Green should still be dominant.
     assert float(result[0, 0, 1]) > float(result[0, 0, 0])
     assert float(result[0, 0, 1]) > float(result[0, 0, 2])
+
+
+def test_gamut_map_oklch_display_p3_green_is_inside_srgb_after_mapping() -> None:
+    """Mapped Display P3 output must be valid in the sRGB gamut, not only clipped in P3."""
+    p3_green = np.array([[[0.0, 1.0, 0.0]]], dtype=np.float32)
+    original_srgb = np.einsum(
+        "...i,ji->...j",
+        p3_green,
+        hdr_photo._working_to_srgb_matrix("Display P3"),
+    )
+
+    result = hdr_photo.gamut_map_oklch(p3_green, working_color_space="Display P3")
+    result_srgb = np.einsum(
+        "...i,ji->...j",
+        result,
+        hdr_photo._working_to_srgb_matrix("Display P3"),
+    )
+
+    assert float(np.min(original_srgb)) < -1.0e-3 or float(np.max(original_srgb)) > 1.0 + 1.0e-3
+    assert np.all(result_srgb >= -1.0e-5)
+    assert np.all(result_srgb <= 1.0 + 1.0e-5)
+
+    _, original_chroma, _ = hdr_photo._linear_srgb_to_oklch(np.clip(original_srgb, 0.0, None))
+    _, result_chroma, _ = hdr_photo._linear_srgb_to_oklch(np.clip(result_srgb, 0.0, None))
+    assert float(result_chroma[0, 0]) < float(original_chroma[0, 0])
 
 
 def test_luma_preserving_mode_is_default_and_unchanged() -> None:

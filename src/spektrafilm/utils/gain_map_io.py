@@ -97,7 +97,8 @@ def save_gain_map_heif(
 ) -> None:
     """Save SDR base + gain map as a HEIF file with ISO 21496-1 tmap.
 
-    Requires pillow-heif. Falls back to JPEG MPF if unavailable.
+    Requires pillow-heif. Use :func:`save_gain_map_jpeg` explicitly when a
+    JPEG/MPF fallback is desired.
 
     Parameters
     ----------
@@ -114,11 +115,8 @@ def save_gain_map_heif(
     """
     try:
         from pillow_heif import from_pillow
-    except ImportError:
-        _log.warning("pillow-heif not available; falling back to JPEG MPF output.")
-        jpeg_path = Path(output_path).with_suffix(".jpg")
-        save_gain_map_jpeg(jpeg_path, base_image, gain_map, metadata)
-        return
+    except ImportError as exc:
+        raise ImportError("pillow-heif is required for HEIF gain map output.") from exc
 
     output_path = Path(output_path)
     base_img = _to_pil_image(base_image)

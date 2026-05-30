@@ -5,6 +5,17 @@
 
 ---
 
+## 2026-05-28 Implementation Amendment
+
+The architecture recommendation remains valid and is now partially implemented
+under `android/`: Compose UI, immutable UI state, `SpektrafilmViewModel`,
+`StateFlow`, debounced/cancellable preview processing, export state, undo/redo,
+and a direct `ByteBuffer` processor boundary.
+
+The current native path is diagnostic only. It validates JNI/direct-buffer
+plumbing and does not perform real Spektrafilm film/print/scan rendering. See
+`docs/dev/android-port-status-20260528.md` for exact validation and gaps.
+
 ## 1. Photo Editing App Architectures on Android
 
 ### 1.1 How Commercial Apps Structure Their Pipelines

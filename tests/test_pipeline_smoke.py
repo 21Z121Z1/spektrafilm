@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import colour
 
 from .conftest import make_fast_test_params
 
@@ -82,6 +83,24 @@ def test_uniform_gray_output_is_stable_and_artifact_free(default_params) -> None
     for row in range(1, 6):
         for col in range(1, 6):
             np.testing.assert_allclose(result_1[row, col, :], center_pixel, atol=1e-6)
+
+
+def test_cctf_encoded_midgray_matches_linear_midgray() -> None:
+    linear_params = make_fast_test_params()
+    linear_params.io.input_color_space = 'sRGB'
+    linear_params.io.input_cctf_decoding = False
+
+    cctf_params = make_fast_test_params()
+    cctf_params.io.input_color_space = 'sRGB'
+    cctf_params.io.input_cctf_decoding = True
+
+    linear_gray = _tile_rgb((0.184, 0.184, 0.184), 4)
+    encoded_gray = colour.RGB_COLOURSPACES['sRGB'].cctf_encoding(linear_gray)
+
+    linear_result = simulate(linear_gray, linear_params)
+    cctf_result = simulate(encoded_gray, cctf_params)
+
+    np.testing.assert_allclose(cctf_result, linear_result, rtol=1e-5, atol=1e-5)
 
 
 def test_exposure_controls_behave_consistently(default_params) -> None:
@@ -178,7 +197,7 @@ def test_lut_path_stays_close_to_direct_path(default_params) -> None:
     result_lut = simulate(gray, default_params)
 
     _assert_valid_output(result_lut, shape=(4, 4, 3))
-    np.testing.assert_allclose(result_lut, result_direct, atol=0.02)
+    np.testing.assert_allclose(result_lut, result_direct, atol=0.005)
 
 
 def test_auto_exposure_normalizes_bright_inputs(default_params) -> None:
@@ -186,7 +205,7 @@ def test_auto_exposure_normalizes_bright_inputs(default_params) -> None:
     default_params.camera.auto_exposure = True
     default_params.enlarger.print_exposure_compensation = False
 
-    for method in ('center_weighted', 'median'):
+    for method in ('scene_linear', 'center_weighted', 'median'):
         default_params.camera.auto_exposure_method = method
         result = simulate(bright_patch, default_params)
         _assert_valid_output(result, shape=(8, 8, 3))
@@ -196,8 +215,40 @@ def test_auto_exposure_normalizes_bright_inputs(default_params) -> None:
     manual_result = simulate(bright_patch, default_params)
 
     default_params.camera.auto_exposure = True
-    default_params.camera.auto_exposure_method = 'center_weighted'
+    default_params.camera.auto_exposure_method = 'scene_linear'
     auto_result = simulate(bright_patch, default_params)
 
     assert np.mean(auto_result) < np.mean(manual_result)
     assert 0.45 < np.mean(auto_result) < 0.51
+
+
+def test_midgray_input_produces_expected_output_values(default_params) -> None:
+    """Known mid-gray input should produce deterministic output values."""
+    mid_gray = _tile_rgb((0.184, 0.184, 0.184), 4)
+    result = simulate(mid_gray, default_params)
+    _assert_valid_output(result, shape=(4, 4, 3))
+    center = result[1, 1, :]
+    expected_center = np.array([0.4711485, 0.47128558, 0.47134435], dtype=np.float32)
+    np.testing.assert_allclose(center, expected_center, rtol=0.0, atol=5e-4)
+    # Uniform input should produce uniform output (no spatial artifacts)
+    for row in range(4):
+        for col in range(4):
+            np.testing.assert_allclose(result[row, col, :], center, atol=0.005)
+
+
+def test_scene_linear_auto_exposure_keeps_middle_gray_stable_with_hdr_highlights(default_params) -> None:
+    gray = _tile_rgb((0.184, 0.184, 0.184), 16)
+    scene = _tile_rgb((0.184, 0.184, 0.184), 16)
+    scene[:, 12:16, :] = 16.0
+
+    default_params.io.input_color_space = 'ACEScg'
+    default_params.io.input_cctf_decoding = True
+    default_params.enlarger.print_exposure_compensation = False
+    default_params.camera.auto_exposure = False
+    gray_result = simulate(gray, default_params)
+
+    default_params.camera.auto_exposure = True
+    default_params.camera.auto_exposure_method = 'scene_linear'
+    scene_result = simulate(scene, default_params)
+
+    np.testing.assert_allclose(scene_result[8, 8, :], gray_result[8, 8, :], atol=0.05)

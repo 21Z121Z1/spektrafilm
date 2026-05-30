@@ -1,15 +1,30 @@
 # Halide Android Port Plan
 
 **Date:** 2026-05-28
-**Status:** Foundation laid. No JNI, APK, or device-side Android has been shipped.
+**Status:** Android app/JNI foundation exists. No full renderer, APK artifact,
+or device-side Halide execution has been shipped.
 
 ---
+
+## 2026-05-28 Implementation Amendment
+
+The previous "JNI not started" and "Kotlin UI not started" sections are stale.
+This repository now has an `android/` app foundation with Compose UI,
+ViewModel/StateFlow state, processor contracts, and JNI/C++ diagnostic bridge
+source. The JNI bridge is intentionally minimal and placeholder-free: it checks
+direct-buffer address/capacity handling and exposes self-test/version methods,
+but it does not link Halide kernels or implement Spektrafilm rendering.
+
+Android NDK cross-compilation remains unproven locally because the SDK has no
+complete NDK with `build/cmake/android.toolchain.cmake`. `assembleDebug` fails
+with an explicit NDK preflight until `ndk;28.2.13676358` is installed. See
+`docs/dev/android-port-status-20260528.md`.
 
 ## 1. Current Status
 
 ### 1.1 Python JIT backend — COMPLETE
 
-- 53/53 tests pass on host (`halide==21.0.0`, Python 3.13, x86-64 Linux)
+- 67/67 Halide-focused tests pass on the local host (`halide>=21,<22`, Python 3.13)
 - 12 verified JIT kernels in `src/spektrafilm/gpu/halide_backend.py`
 - All kernels validated against NumPy reference implementations with `atol=1e-5..1e-6`
 - See `docs/dev/halide-backend-implementation.md` for the full kernel catalog
@@ -30,6 +45,12 @@ Four generator source files exist in `src/spektrafilm/generators/`:
 CMake configuration (`CMakeLists.txt`) defines all 10 `add_halide_library()` targets
 and an aggregate `spektrafilm_halide_all` interface library. The build defaults to
 `host` target; override with `-DTARGET=arm-64-android` for Android cross-compilation.
+The local verification builds the complete host AOT target set and includes a
+source-level guard that `density_to_light` indexes density by wavelength rather
+than accidentally reusing wavelength 0.
+
+This does **not** prove Android NDK cross-compilation or Android device runtime.
+Those remain separate future gates.
 
 ### 1.3 Android JNI — NOT STARTED
 
@@ -43,9 +64,11 @@ No Kotlin/Compose code exists.
 
 ## 2. AOT Contract Layer
 
-The C++ generators implement the same mathematical formulas as the Python JIT
-backend. They use Halide's C++ Generator API (`Halide::Generator<>` base class)
-and are compiled via `add_halide_library()` in CMake.
+The C++ generators mirror the Python JIT formulas at source level. They use
+Halide's C++ Generator API (`Halide::Generator<>` base class) and are compiled
+via `add_halide_library()` in CMake. Current verification proves host configure,
+generator compilation, and host AOT artifact generation; it does not yet execute
+the generated C ABI against NumPy parity fixtures.
 
 ### 2.1 Generator API pattern
 
@@ -54,9 +77,9 @@ Each generator follows the same structure:
 ```cpp
 class MyKernelGenerator : public Generator<MyKernelGenerator> {
 public:
-    ImageParam input{Float(32), 3, "input"};
+    Input<Buffer<float, 3>> input{"input"};
     Input<float> param{"param"};
-    Func output{"output"};
+    Output<Buffer<float, 3>> output{"output"};
 
     void generate() {
         Var x("x"), y("y"), c("c");
@@ -78,11 +101,12 @@ The `add_halide_library()` CMake function:
 2. Runs the generator to produce `.a` (static library) + `.h` (header) for the target
 3. Registers the target for linking via `target_link_libraries()`
 
-### 2.2 Formula parity with Python JIT
+### 2.2 Source-level formula map
 
-All generators implement identical formulas to their Python counterparts:
+The generated source is intended to match these Python JIT formulas. Runtime
+parity through the generated C ABI is a future test gate.
 
-**density_to_light:** `output(c, y, w) = fast_exp(-density(c, y, 0) * ln(10)) * illuminant(w, c)`
+**density_to_light:** `output(c, y, w) = fast_exp(-density(c, y, w) * ln(10)) * illuminant(w, c)`
 
 **light_to_raw:** `output(c, y, s) = sum_k light(c, y, k) * sensitivity(k, s)` (RDom over 81)
 
@@ -128,10 +152,11 @@ target_link_libraries(spektrafilm_halide_all INTERFACE
 ### 2.4 Build command (host verification)
 
 ```bash
-cd src/spektrafilm/generators
-mkdir build && cd build
-cmake .. -DHalide_DIR=/path/to/halide/lib/cmake/Halide
-cmake --build .
+cmake -S src/spektrafilm/generators \
+      -B /tmp/spektrafilm-halide-generators-check \
+      -DHalide_DIR=/path/to/halide/lib/cmake/Halide \
+      -DTARGET=host
+cmake --build /tmp/spektrafilm-halide-generators-check
 ```
 
 For Android cross-compilation:
@@ -196,7 +221,7 @@ The following operations are **not** represented as AOT generators:
 **No JNI, APK, or device-side Android code has been shipped.**
 
 What exists:
-- Python JIT backend: fully verified, 53/53 tests pass on host
+- Python JIT/backend foundation: fully verified by 71/71 Halide-focused tests on the local host
 - C++ AOT generator sources: 10 generators across 4 files, CMake build system configured
 - CMake can produce host `.a`/`.h` files (Android cross-compilation not yet validated)
 

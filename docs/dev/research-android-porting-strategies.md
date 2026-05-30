@@ -10,6 +10,22 @@
 
 ---
 
+## 2026-05-28 Implementation Amendment
+
+This document is now partially stale for the current repository dependency set.
+The implementation pass verified official Chaquopy 17.0 support for Python
+3.10-3.14 and AGP 7.3-9.2, but the checked Chaquopy Python 3.13 package index
+does not satisfy Spektrafilm's declared dependencies: NumPy is available as
+`1.26.2`, not `numpy~=2.4`, and SciPy does not provide a Python 3.13 wheel in
+the checked index. The Android foundation therefore does not use Chaquopy.
+
+Implemented foundation now lives under `android/`: AGP 9.2, Kotlin/Compose,
+ViewModel/StateFlow, parameter serialization, processor contracts, and JNI
+diagnostic bridge source. See `docs/dev/android-port-status-20260528.md`.
+Treat later Chaquopy snippets and package-support tables in this document as
+historical research unless they are reconfirmed against the current package
+index.
+
 ## Table of Contents
 
 1. [Python → Android: Runtime Strategies](#1-python--android-runtime-strategies)

@@ -198,3 +198,8 @@ archive/
 artifacts/
 
 CITATION.cff
+
+# Android local machine state
+android/local.properties
+android/.gradle/
+android/.kotlin/

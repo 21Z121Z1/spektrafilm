@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import struct
+import sys
 
 import numpy as np
 import pytest
@@ -615,17 +616,9 @@ class TestGainMapIO:
 
 
 class TestGainMapIOHeif:
-    def test_save_heif_fallback_to_jpeg(self, tmp_path) -> None:
-        """When pillow-heif is unavailable, HEIF save falls back to JPEG."""
-        import importlib
+    def test_save_heif_requires_pillow_heif(self, tmp_path, monkeypatch) -> None:
+        """When pillow-heif is unavailable, HEIF save must fail without changing formats."""
         from spektrafilm.utils import gain_map_io
-
-        # Check if pillow-heif is available
-        try:
-            import pillow_heif
-            pytest.skip("pillow-heif is available; fallback test not applicable")
-        except ImportError:
-            pass
 
         sdr = _random_image((16, 16, 3), 0.1, 1.0)
         gain = _random_image((16, 16, 3), 0.0, 1.0)
@@ -636,8 +629,10 @@ class TestGainMapIOHeif:
         )
 
         out_path = tmp_path / "fallback_test.heic"
-        gain_map_io.save_gain_map_heif(out_path, sdr, gain, meta)
+        monkeypatch.setitem(sys.modules, "pillow_heif", None)
 
-        # Should have created a .jpg fallback
-        jpeg_path = tmp_path / "fallback_test.jpg"
-        assert jpeg_path.exists()
+        with pytest.raises(ImportError, match="pillow-heif"):
+            gain_map_io.save_gain_map_heif(out_path, sdr, gain, meta)
+
+        assert not out_path.exists()
+        assert not (tmp_path / "fallback_test.jpg").exists()

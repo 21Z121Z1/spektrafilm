@@ -1,7 +1,7 @@
 # Halide Backend Implementation — Verified State
 
 **Date:** 2026-05-28
-**Status:** 53/53 tests passing on host (Python JIT)
+**Status:** 67/67 Halide-focused tests passing on host (Python JIT + CMake/AOT foundation)
 
 ---
 
@@ -62,8 +62,10 @@ patterns:
 
 ## 2. Verified Kernels
 
-All 53 tests pass. Each kernel is tested for numerical parity against a NumPy
-reference implementation with `np.allclose(atol=1e-5..1e-6)`.
+The Halide-focused suite passes 67 tests. Python JIT kernels are tested for
+numerical parity against NumPy references with `np.allclose(atol=1e-5..1e-6)`;
+the C++ generator tests configure CMake, build the host AOT targets, and guard
+the `density_to_light` wavelength-index contract.
 
 ### 2.1 RGB 3x3 matrix multiply
 
@@ -191,8 +193,9 @@ with clamped boundary. LUT is transposed from `[size, size, C]` to
 ### 2.13 Additional tests
 
 - **Grain buffer:** `generate_grain_buffer()` — NumPy-only, not a Halide kernel. 3 tests.
-- **Backend infrastructure:** backend selection, precision rejection, cleanup, probe — 6 tests in `test_halide_backend.py`.
+- **Backend infrastructure:** backend selection, precision rejection, cleanup, probe — `test_halide_backend.py`.
 - **Pipeline caching:** spectral pipeline reuse and cleanup — 2 tests in `test_halide_spectral.py`.
+- **C++ AOT generator foundation:** CMake configure, full host AOT target build, and `density_to_light` source contract — 3 tests in `test_halide_generators.py`.
 
 ---
 
@@ -296,3 +299,22 @@ All buffers are `hl.Float(32)`. This matches the project's GPU precision policy.
 
 Pipelines use hand-written schedules (`vectorize`, `parallel`, `unroll`).
 Halide's autoscheduler could optimize further but is not yet integrated.
+
+---
+
+## 6. Verification Commands
+
+Use these local checks before treating the Halide/Android foundation as current:
+
+```bash
+.venv/bin/python -m pytest tests/test_halide_backend.py tests/test_halide_color.py tests/test_halide_lut.py tests/test_halide_spectral.py tests/test_halide_filters.py tests/test_halide_android.py tests/test_halide_generators.py -q
+.venv/bin/python -m pytest tests/test_gpu_backend.py tests/test_gpu_lut.py tests/test_gpu_color_chain.py -q
+```
+
+The generator test configures the CMake project with the installed Halide CMake
+package, builds the four generator executables on host, checks the
+`density_to_light` wavelength-index contract, and builds the host AOT targets.
+
+This still does not prove Android device execution. JNI, APK packaging,
+`arm-64-android` cross-compilation under the Android NDK, and device parity
+tests remain future work.

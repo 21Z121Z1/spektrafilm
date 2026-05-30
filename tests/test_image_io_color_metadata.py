@@ -331,8 +331,8 @@ def test_acescg_tiff_icc_roundtrips_as_linear_encoding(tmp_path) -> None:
     assert encoding.transfer == "linear"
 
 
-def test_resolve_icc_profile_bytes_returns_none_for_linear_without_bundled_profile() -> None:
-    """Linear requests for color spaces without bundled gamma=1.0 profiles must return None."""
+def test_resolve_icc_profile_bytes_returns_linear_profiles_for_scene_outputs() -> None:
+    """Linear scene-output color spaces with bundled profiles must resolve to ICC bytes."""
     # ACES spaces have explicit linear profiles in _ICC_FILENAMES.
     assert resolve_icc_profile_bytes("ACEScg", cctf_encoding=False) is not None
     assert resolve_icc_profile_bytes("ACES2065-1", cctf_encoding=False) is not None
@@ -340,9 +340,7 @@ def test_resolve_icc_profile_bytes_returns_none_for_linear_without_bundled_profi
     assert resolve_icc_profile_bytes("sRGB", cctf_encoding=False) is not None
     # Display P3 has a bundled linear profile (DisplayP3-linear.icc).
     assert resolve_icc_profile_bytes("Display P3", cctf_encoding=False) is not None
-    # DCI-P3 has no bundled linear profile — must return None
-    # rather than falling back to an encoded (non-linear) profile.
-    assert resolve_icc_profile_bytes("DCI-P3", cctf_encoding=False) is None
+    assert resolve_icc_profile_bytes("DCI-P3", cctf_encoding=False) is not None
     # Encoded requests still resolve correctly.
     assert resolve_icc_profile_bytes("Display P3", cctf_encoding=True) is not None
     assert resolve_icc_profile_bytes("DCI-P3", cctf_encoding=True) is not None
@@ -383,6 +381,27 @@ def test_display_p3_linear_icc_profile_has_linear_trc() -> None:
     trc_count = struct.unpack(">H", profile_bytes[trc_offset + 8 : trc_offset + 10])[0]
     assert trc_type == b"curv", f"Expected curv tag, got {trc_type!r}"
     assert trc_count == 0, f"Expected linear TRC (count=0), got count={trc_count}"
+
+
+def test_dci_p3_linear_icc_profile_has_linear_trc() -> None:
+    """Verify the bundled DCI-P3 linear profile does not reuse the encoded TRC."""
+    import struct
+
+    profile_bytes = resolve_icc_profile_bytes("DCI-P3", cctf_encoding=False)
+    assert profile_bytes is not None
+
+    num_tags = struct.unpack(">I", profile_bytes[128:132])[0]
+    offsets = {}
+    for i in range(num_tags):
+        entry = profile_bytes[132 + i * 12 : 132 + (i + 1) * 12]
+        sig = entry[0:4]
+        if sig in {b"rTRC", b"gTRC", b"bTRC"}:
+            offsets[sig] = struct.unpack(">I", entry[4:8])[0]
+
+    assert set(offsets) == {b"rTRC", b"gTRC", b"bTRC"}
+    for offset in offsets.values():
+        assert profile_bytes[offset : offset + 4] == b"curv"
+        assert struct.unpack(">I", profile_bytes[offset + 8 : offset + 12])[0] == 0
 
 
 def test_linear_png_without_linear_icc_is_rejected(tmp_path) -> None:

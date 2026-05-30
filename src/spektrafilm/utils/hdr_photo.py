@@ -45,6 +45,7 @@ HDR_REFERENCE_WHITE_LUMINANCE_NITS: Final = 203.0
 _ROLLOFF_MODES: Final = {"logistic", "logarithmic"}
 _HDR_MAPPING_MODES: Final = {"generic", "profile_aware"}
 _EPS32: Final = np.float32(1e-8)
+_GAIN_MAP_SDR_LUMA_FLOOR: Final = np.float32(1e-3)
 _log = logging.getLogger(__name__)
 
 
@@ -184,8 +185,8 @@ class HDRPhotoMapping:
             raise ValueError("hdr_highlight_saturation_boost must be a finite non-negative value.")
         if not math.isfinite(self.hdr_highlight_chroma_limit) or self.hdr_highlight_chroma_limit < 0.0:
             raise ValueError("hdr_highlight_chroma_limit must be a finite non-negative value.")
-        if not math.isfinite(self.hdr_highlight_path_to_white) or self.hdr_highlight_path_to_white < 0.0:
-            raise ValueError("hdr_highlight_path_to_white must be a finite non-negative value.")
+        if not math.isfinite(self.hdr_highlight_path_to_white) or not (0.0 <= self.hdr_highlight_path_to_white <= 1.0):
+            raise ValueError("hdr_highlight_path_to_white must be a finite value in [0, 1].")
         if self.profile_curve_mode not in ("profile_preserving", "legacy_graft"):
             raise ValueError("profile_curve_mode must be 'profile_preserving' or 'legacy_graft'.")
         if not math.isfinite(self.profile_hdr_peak_ev) or self.profile_hdr_peak_ev <= 0.0:
@@ -1126,33 +1127,34 @@ def gamut_map_oklch(
         Gamut-mapped image in the same colour space, float32.
     """
     rgb = np.clip(np.asarray(rgb_linear, dtype=np.float32), 0.0, None)
-    in_range = np.max(rgb, axis=-1) <= peak_headroom
-    if np.all(in_range):
-        return rgb
 
     # Convert working space → linear sRGB for Oklab.
     if working_color_space == "sRGB":
-        srgb = rgb
+        srgb_raw = rgb
     else:
         M = _working_to_srgb_matrix(working_color_space)
-        srgb = np.clip(np.einsum('...i,ji->...j', rgb, M), 0.0, None)
+        srgb_raw = np.einsum('...i,ji->...j', rgb, M)
+
+    needs_work = np.any(np.abs(srgb_raw - np.clip(srgb_raw, 0.0, peak_headroom)) > 1e-6, axis=-1)
+    if not np.any(needs_work):
+        return rgb
+
+    srgb = np.clip(srgb_raw, 0.0, None)
 
     # Linear sRGB → Oklch (Oklab expects linear-light input).
     L, C, h = _linear_srgb_to_oklch(srgb)
 
     # Per-pixel maximum chroma that stays within [0, peak_headroom].
-    needs_work = np.any(np.abs(srgb - np.clip(srgb, 0.0, peak_headroom)) > 1e-6, axis=-1)
-    if not np.any(needs_work):
-        return rgb
-
-    C_max = np.where(needs_work, C, 0.0)
+    C_low = np.zeros_like(C)
+    C_high = C.copy()
     for _ in range(max_iterations):
-        C_mid = (C_max + C) * 0.5
+        C_mid = (C_low + C_high) * 0.5
         trial = _oklch_to_linear_srgb(L, C_mid, h)
         ok = np.all((trial >= -1e-6) & (trial <= peak_headroom + 1e-6), axis=-1)
-        C_max = np.where(ok, np.maximum(C_max, C_mid), C_max)
+        C_low = np.where(ok, C_mid, C_low)
+        C_high = np.where(ok, C_high, C_mid)
 
-    C_compressed = np.where(needs_work, np.minimum(C, C_max * 0.9999), C)
+    C_compressed = np.where(needs_work, C_low * 0.999, C)
     result_srgb = _oklch_to_linear_srgb(L, C_compressed, h)
 
     # Convert back to working space.
@@ -1272,7 +1274,7 @@ def encode_gain_map_log2(
     sdr = np.maximum(np.asarray(sdr_rgb, dtype=np.float32), _EPS32)
     hdr = np.maximum(np.asarray(hdr_rgb, dtype=np.float32), _EPS32)
 
-    sdr_luma = luminance_y(sdr)
+    sdr_luma = np.maximum(luminance_y(sdr), _GAIN_MAP_SDR_LUMA_FLOOR)
     hdr_luma = luminance_y(hdr)
 
     if headroom is None:

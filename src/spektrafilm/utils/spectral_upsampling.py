@@ -99,7 +99,7 @@ def compute_lut_spectra(lut_size=128, smooth_steps=1, lut_coeffs_filename='hanat
     lut_coeffs = _load_coeffs_lut(lut_coeffs_filename)
     coeffs = _fetch_coeffs(tc, lut_coeffs)
     lut_spectra = _compute_spectra_from_coeffs(coeffs, smooth_steps=smooth_steps)
-    lut_spectra = np.array(lut_spectra, dtype=np.half)
+    lut_spectra = np.array(lut_spectra, dtype=np.float32)
     return lut_spectra
 
 def _load_hanatos2025_spectra_lut(filename='irradiance_xy_tc.npy'):

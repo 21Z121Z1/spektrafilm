@@ -8,6 +8,19 @@ from spektrafilm.runtime.params_builder import digest_params, init_params
 pytestmark = mark.unit
 
 
+def test_readme_public_api_imports_init_params_and_simulate():
+    from spektrafilm import init_params as public_init_params, simulate
+
+    params = public_init_params(
+        film_profile="kodak_portra_400",
+        print_profile="kodak_portra_endura",
+    )
+
+    assert callable(simulate)
+    assert params.film.info.stock == "kodak_portra_400"
+    assert params.print.info.stock == "kodak_portra_endura"
+
+
 class TestInitParamsDefaults:
     def test_init_params_defaults_contract(self):
         params = init_params()

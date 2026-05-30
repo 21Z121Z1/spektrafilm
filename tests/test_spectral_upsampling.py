@@ -8,6 +8,24 @@ from spektrafilm.utils import spectral_upsampling as spectral_upsampling_module
 pytestmark = pytest.mark.unit
 
 
+def test_compute_lut_spectra_preserves_float32_precision(monkeypatch):
+    coeffs = np.ones((2, 2, 3), dtype=np.float32)
+    spectra = np.linspace(0.0, 1.0, 2 * 2 * 4, dtype=np.float32).reshape(2, 2, 4)
+
+    monkeypatch.setattr(spectral_upsampling_module, "_load_coeffs_lut", lambda _filename: coeffs)
+    monkeypatch.setattr(spectral_upsampling_module, "_fetch_coeffs", lambda _tc, _lut: coeffs)
+    monkeypatch.setattr(
+        spectral_upsampling_module,
+        "_compute_spectra_from_coeffs",
+        lambda _coeffs, smooth_steps=1: spectra,
+    )
+
+    lut_spectra = spectral_upsampling_module.compute_lut_spectra(lut_size=2)
+
+    assert lut_spectra.dtype == np.float32
+    np.testing.assert_allclose(lut_spectra, spectra)
+
+
 def test_rgb_to_raw_hanatos2025_computes_tc_lut_when_missing(monkeypatch):
     sensitivity = np.array(
         [

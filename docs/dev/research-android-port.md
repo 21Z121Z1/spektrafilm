@@ -6,6 +6,22 @@
 
 ---
 
+## 2026-05-28 Implementation Amendment
+
+The dependency table below is stale for the current repository. The
+implementation pass checked Chaquopy 17.0 and the Python 3.13 package index:
+the index does not provide Spektrafilm's declared `numpy~=2.4` and does not
+provide a Python 3.13 SciPy wheel for the required `scipy~=1.17`. Treat the
+Chaquopy "easy" labels for NumPy/SciPy/native scientific packages as invalid
+until proven with actual wheels or project-owned native builds.
+
+The implemented Android foundation is native Kotlin/Compose plus JNI diagnostic
+source under `android/`. See `docs/dev/android-port-status-20260528.md`.
+Later Chaquopy architecture, dependency, Gradle, and bridge sections in this
+document are retained as historical research notes; they are superseded for the
+current implementation unless new package evidence or project-owned Android
+wheels make the Python dependency graph viable.
+
 ## Table of Contents
 
 1. [Codebase Portability Assessment](#1-codebase-portability-assessment)

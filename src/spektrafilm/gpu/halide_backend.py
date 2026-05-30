@@ -550,7 +550,7 @@ class HalideBackend:
 
         Input: linear [C, H, W] float32.
         Output: encoded [C, H, W] float32.
-        if x <= threshold: a*x + b  else  pow(c_coeff*x + d_coeff, gamma)
+        if x <= threshold: a*x + b  else  c_coeff * pow(x, 1/gamma) - d_coeff
         """
         linear_np = np.ascontiguousarray(np.asarray(linear, dtype=np.float32))
         if linear_np.ndim != 3:
@@ -609,7 +609,7 @@ class HalideBackend:
 
         Input: encoded [C, H, W] float32.
         Output: linear [C, H, W] float32.
-        if x <= threshold: (x - b)/a  else  (pow(x, 1/gamma) - d_coeff)/c_coeff
+        if x <= a*threshold+b: (x - b)/a  else  pow((x + d_coeff)/c_coeff, gamma)
         """
         encoded_np = np.ascontiguousarray(np.asarray(encoded, dtype=np.float32))
         if encoded_np.ndim != 3:
