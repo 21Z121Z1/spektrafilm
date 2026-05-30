@@ -1,4 +1,4 @@
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 from importlib import import_module
 from typing import Any, Callable, cast
 
@@ -49,8 +49,8 @@ def _warmup_launch_input_path(gui_state: object | None = None) -> None:
     try:
         controller_runtime.prepare_input_color_preview_image(
             warmup_image,
-            input_color_space=state.input_image.input_color_space,
-            apply_cctf_decoding=state.input_image.apply_cctf_decoding,
+            input_color_space=state.input_image.io.input_color_space,
+            apply_cctf_decoding=state.input_image.io.input_cctf_decoding,
             colour_module=colour_module,
         )
     except (AttributeError, LookupError, RuntimeError, TypeError, ValueError):
@@ -74,8 +74,8 @@ def _warmup_full_gui() -> None:
     warmup_image = np.full(WARMUP_IMAGE_SHAPE, 0.18, dtype=np.float64)
     controller_runtime.prepare_input_color_preview_image(
         warmup_image,
-        input_color_space=gui_state.input_image.input_color_space,
-        apply_cctf_decoding=gui_state.input_image.apply_cctf_decoding,
+        input_color_space=gui_state.input_image.io.input_color_space,
+        apply_cctf_decoding=gui_state.input_image.io.input_cctf_decoding,
         colour_module=colour_module,
     )
 
@@ -86,7 +86,7 @@ def _warmup_full_gui() -> None:
     # Force the display path once as part of startup so the first preview avoids lazy import/setup cost.
     controller_runtime.prepare_output_display_image(
         scan,
-        output_color_space=gui_state.simulation.output_color_space,
+        output_color_space=gui_state.simulation.io.output_color_space,
         use_display_transform=True,
         imagecms_module=imagecms_module,
         colour_module=colour_module,
@@ -208,17 +208,14 @@ def _connect_auto_preview_signal(widget: Any, callback: Callable[..., None]) -> 
 def connect_auto_preview_signals(controller: GuiController, widgets: WidgetBundle) -> None:
     for section_name in GUI_STATE_SECTION_NAMES:
         section = getattr(widgets, section_name, None)
-        if section is None:
+        if section is None or not getattr(section, '_is_params_group', False):
             continue
 
-        state_cls = getattr(section, '_state_cls', None)
-        if state_cls is None:
-            continue
-
-        for field_info in fields(state_cls):
-            if section_name == 'display' and field_info.name in {'preview_max_size', 'output_interpolation'}:
+        skip_leaves = set(getattr(section, '_skip_auto_preview_leaves', ()))
+        for leaf, editor in getattr(section, '_editors', {}).items():
+            if leaf in skip_leaves:
                 continue
-            _connect_auto_preview_signal(getattr(section, field_info.name), controller.request_auto_preview)
+            _connect_auto_preview_signal(editor, controller.request_auto_preview)
 
     widgets.simulation.bottom_auto_preview.toggled.connect(controller.request_auto_preview)
     widgets.simulation.bottom_scan_film.toggled.connect(controller.request_auto_preview)

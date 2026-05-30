@@ -78,13 +78,13 @@ def make_test_gui_state() -> GuiState:
 
 def make_test_controller_gui_state() -> GuiState:
     state = make_test_gui_state()
-    state.simulation.output_color_space = 'ACES2065-1'
-    state.simulation.saving_color_space = 'Display P3'
-    state.simulation.saving_cctf_encoding = False
-    state.display.use_display_transform = False
-    state.display.gray_18_canvas = False
-    state.display.white_padding = 0.0
-    state.display.preview_max_size = 768
+    state.simulation.io.output_color_space = 'ACES2065-1'
+    state.simulation.workflow.saving_color_space = 'Display P3'
+    state.simulation.workflow.saving_cctf_encoding = False
+    state.gui_only.display.use_display_transform = False
+    state.gui_only.display.gray_18_canvas = False
+    state.gui_only.display.white_padding = 0.0
+    state.gui_only.display.settings.preview_max_size = 768
     return state
 
 

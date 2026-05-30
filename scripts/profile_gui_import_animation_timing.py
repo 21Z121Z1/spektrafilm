@@ -86,7 +86,7 @@ def benchmark_warm_import_path(
 ) -> dict[str, float | tuple[int, ...] | int]:
     state = load_default_gui_state()
     image = load_image_oiio(str(image_path))[..., :3]
-    preview_source = resize_for_preview(image, state.display.preview_max_size)
+    preview_source = resize_for_preview(image, state.gui_only.display.preview_max_size)
     simulator, scan, output_display = _warm_preview_runtime(
         preview_source,
         state,
@@ -102,7 +102,7 @@ def benchmark_warm_import_path(
         timings["load_image_oiio_ms"].append((time.perf_counter() - start) * 1000.0)
 
         start = time.perf_counter()
-        preview_source = resize_for_preview(image, state.display.preview_max_size)
+        preview_source = resize_for_preview(image, state.gui_only.display.preview_max_size)
         timings["resize_for_preview_ms"].append((time.perf_counter() - start) * 1000.0)
 
         start = time.perf_counter()
@@ -200,7 +200,7 @@ def benchmark_napari_layer_service(
                 service.remove_layer(layer_name)
 
             start = time.perf_counter()
-            service.set_or_add_input_preview_layer(preview_display, white_padding=state.display.white_padding)
+            service.set_or_add_input_preview_layer(preview_display, white_padding=state.gui_only.display.white_padding)
             timings["first_input_stack_ms"].append((time.perf_counter() - start) * 1000.0)
 
             service.set_or_add_output_layer(
@@ -212,7 +212,7 @@ def benchmark_napari_layer_service(
             )
 
             start = time.perf_counter()
-            service.set_or_add_input_preview_layer(preview_display, white_padding=state.display.white_padding)
+            service.set_or_add_input_preview_layer(preview_display, white_padding=state.gui_only.display.white_padding)
             timings["repeat_input_stack_ms"].append((time.perf_counter() - start) * 1000.0)
 
             start = time.perf_counter()
@@ -334,7 +334,7 @@ def main() -> None:
 
     image = load_image_oiio(str(args.image))[..., :3]
     state = load_default_gui_state()
-    preview_source = resize_for_preview(image, state.display.preview_max_size)
+    preview_source = resize_for_preview(image, state.gui_only.display.preview_max_size)
     preview_display = controller_runtime.prepare_input_color_preview_image(
         preview_source,
         input_color_space=state.input_image.input_color_space,

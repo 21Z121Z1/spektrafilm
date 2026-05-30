@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import fields
 from types import SimpleNamespace
 
 import numpy as np
 from qtpy import QtGui
 
 from spektrafilm_gui import app as app_module
+from spektrafilm_gui import param_manifest as param_manifest_module
+from spektrafilm_gui import state as state_module
 
 from .helpers import StubToggle, make_test_gui_state
 
@@ -27,6 +28,14 @@ def _make_auto_preview_editor(value):
     if isinstance(value, tuple):
         return SimpleNamespace(_editors=[SimpleNamespace(valueChanged=FakeSignal()) for _ in value])
     return SimpleNamespace(valueChanged=FakeSignal())
+
+
+def _section_state(state, section_name: str):
+    if section_name == 'display':
+        return state.gui_only.display
+    if section_name == 'load_raw':
+        return state.gui_only.load_raw
+    return getattr(state, section_name)
 
 
 def test_create_viewer_uses_system_dark_theme(monkeypatch) -> None:
@@ -154,7 +163,7 @@ def test_warmup_task_swallows_background_failures() -> None:
 def test_warmup_launch_input_path_primes_first_image_load(monkeypatch) -> None:
     captured: dict[str, object] = {}
     fake_state = SimpleNamespace(
-        input_image=SimpleNamespace(input_color_space='ACES2065-1', apply_cctf_decoding=False),
+        input_image=SimpleNamespace(io=SimpleNamespace(input_color_space='ACES2065-1', input_cctf_decoding=False)),
     )
     fake_colour_module = object()
     fake_io_module = object()
@@ -188,7 +197,7 @@ def test_warmup_launch_input_path_primes_first_image_load(monkeypatch) -> None:
 def test_warmup_launch_input_path_swallows_launch_failures(monkeypatch) -> None:
     monkeypatch.setattr(app_module, 'import_module', lambda name: (_ for _ in ()).throw(RuntimeError(name)))
 
-    app_module._warmup_launch_input_path(SimpleNamespace(input_image=SimpleNamespace(input_color_space='sRGB', apply_cctf_decoding=False)))
+    app_module._warmup_launch_input_path(SimpleNamespace(input_image=SimpleNamespace(io=SimpleNamespace(input_color_space='sRGB', input_cctf_decoding=False))))
 
 
 def test_create_app_syncs_display_transform_availability_before_connecting(monkeypatch) -> None:
@@ -353,65 +362,52 @@ def test_connect_auto_preview_signals_covers_hidden_linked_controls_and_footer_t
     widgets = SimpleNamespace()
 
     for section_name in app_module.GUI_STATE_SECTION_NAMES:
-        state_section = getattr(gui_state, section_name)
-        section = SimpleNamespace(
-            _state_cls=type(state_section),
-            _hidden_fields={
-                'upscale_factor',
-                'crop',
-                'crop_center',
-                'crop_size',
-                'spectral_upsampling_method',
-                'filter_uv',
-                'filter_ir',
-                'film_gamma_factor',
-                'film_format_mm',
-                'camera_lens_blur_um',
-                'camera_diffusion_filter_active',
-                'camera_diffusion_filter_family',
-                'camera_diffusion_filter_strength',
-                'camera_diffusion_filter_spatial_scale',
-                'camera_diffusion_filter_halo_warmth',
-                'camera_diffusion_filter_core_intensity',
-                'camera_diffusion_filter_core_size',
-                'camera_diffusion_filter_halo_intensity',
-                'camera_diffusion_filter_halo_size',
-                'camera_diffusion_filter_bloom_intensity',
-                'camera_diffusion_filter_bloom_size',
-                'exposure_compensation_ev',
-                'auto_exposure',
-                'auto_exposure_method',
-                'print_exposure',
-                'print_exposure_compensation',
-                'print_y_filter_shift',
-                'print_m_filter_shift',
-                'diffusion_filter_active',
-                'diffusion_filter_family',
-                'diffusion_filter_strength',
-                'diffusion_filter_spatial_scale',
-                'diffusion_filter_halo_warmth',
-                'diffusion_filter_core_intensity',
-                'diffusion_filter_core_size',
-                'diffusion_filter_halo_intensity',
-                'diffusion_filter_halo_size',
-                'diffusion_filter_bloom_intensity',
-                'diffusion_filter_bloom_size',
-                'print_illuminant',
-                'scan_lens_blur',
-                'scan_white_correction',
-                'scan_white_level',
-                'scan_black_correction',
-                'scan_black_level',
-                'scan_unsharp_mask',
-                'auto_preview',
-                'scan_film',
-                'output_color_space',
-                'saving_color_space',
-                'saving_cctf_encoding',
-            },
-        )
-        for field_info in fields(type(state_section)):
-            setattr(section, field_info.name, _make_auto_preview_editor(getattr(state_section, field_info.name)))
+        if section_name == 'load_raw':
+            setattr(widgets, section_name, None)
+            continue
+        state_section = _section_state(gui_state, section_name)
+        section = SimpleNamespace(_is_params_group=True)
+        if section_name == 'input_image':
+            # input_image is now a path-bound section (_is_params_group): editors
+            # keyed by leaf, bound to dotted paths on InputImageState (io.* / settings.*).
+            ii_editors: dict = {}
+            for spec in param_manifest_module.INPUT_IMAGE_FIELDS:
+                editor = _make_auto_preview_editor(state_module._read_attr_path(state_section, spec.path))
+                ii_editors[spec.leaf] = editor
+                setattr(section, spec.leaf, editor)
+            section._editors = ii_editors
+            setattr(widgets, section_name, section)
+            continue
+        elif section_name == 'display':
+            section._skip_auto_preview_leaves = {'preview_max_size', 'output_interpolation'}
+            display_editors: dict = {}
+            for spec in param_manifest_module.DISPLAY_PANEL_FIELDS:
+                editor = _make_auto_preview_editor(state_module._read_attr_path(state_section, spec.path))
+                display_editors[spec.leaf] = editor
+                setattr(section, spec.leaf, editor)
+            section._editors = display_editors
+        elif section_name == 'special':
+            special_editors: dict = {}
+            for spec in param_manifest_module.SPECIAL_FIELDS:
+                editor = _make_auto_preview_editor(state_module._read_attr_path(state_section, spec.path))
+                special_editors[spec.leaf] = editor
+                setattr(section, spec.leaf, editor)
+            section._editors = special_editors
+        elif section_name == 'simulation':
+            section._skip_auto_preview_leaves = {'auto_preview', 'scan_film'}
+            simulation_editors: dict = {}
+            for spec in param_manifest_module.SIMULATION_FIELDS:
+                editor = _make_auto_preview_editor(state_module._read_attr_path(state_section, spec.path))
+                simulation_editors[spec.leaf] = editor
+                setattr(section, spec.leaf, editor)
+            section._editors = simulation_editors
+        else:
+            group_editors: dict = {}
+            for field_name, value in vars(state_section).items():
+                editor = _make_auto_preview_editor(value)
+                group_editors[field_name] = editor
+                setattr(section, field_name, editor)
+            section._editors = group_editors
         setattr(widgets, section_name, section)
 
     widgets.simulation.bottom_auto_preview = SimpleNamespace(toggled=FakeSignal())
@@ -424,19 +420,52 @@ def test_connect_auto_preview_signals_covers_hidden_linked_controls_and_footer_t
     assert widgets.input_image.crop_size._editors[0].valueChanged.connected == [controller.request_auto_preview]
     assert widgets.special.film_gamma_factor.valueChanged.connected == [controller.request_auto_preview]
     assert widgets.simulation.print_y_filter_shift.valueChanged.connected == [controller.request_auto_preview]
-    assert widgets.simulation.camera_diffusion_filter_strength.valueChanged.connected == [controller.request_auto_preview]
-    assert widgets.simulation.diffusion_filter_strength.valueChanged.connected == [controller.request_auto_preview]
-    assert widgets.simulation.exposure_compensation_ev.valueChanged.connected == [controller.request_auto_preview]
-    assert widgets.simulation.scan_lens_blur.valueChanged.connected == [controller.request_auto_preview]
-    assert widgets.simulation.scan_white_correction.toggled.connected == [controller.request_auto_preview]
-    assert widgets.simulation.scan_white_level.valueChanged.connected == [controller.request_auto_preview]
-    assert widgets.simulation.scan_unsharp_mask._editors[0].valueChanged.connected == [controller.request_auto_preview]
+    assert widgets.camera.film_format_mm.valueChanged.connected == [controller.request_auto_preview]
+    assert widgets.enlarger_diffusion.strength.valueChanged.connected == [controller.request_auto_preview]
+    assert widgets.camera.exposure_compensation_ev.valueChanged.connected == [controller.request_auto_preview]
+    assert widgets.scanner.lens_blur.valueChanged.connected == [controller.request_auto_preview]
+    assert widgets.scanner.white_correction.toggled.connected == [controller.request_auto_preview]
+    assert widgets.scanner.white_level.valueChanged.connected == [controller.request_auto_preview]
+    assert widgets.scanner.unsharp_mask._editors[0].valueChanged.connected == [controller.request_auto_preview]
     assert widgets.display.output_interpolation.currentTextChanged.connected == []
     assert widgets.display.preview_max_size.valueChanged.connected == []
     assert widgets.simulation.output_color_space.currentTextChanged.connected == [controller.request_auto_preview]
     assert widgets.simulation.bottom_auto_preview.toggled.connected == [controller.request_auto_preview]
     assert widgets.simulation.bottom_scan_film.toggled.connected == [controller.request_auto_preview]
     assert widgets.simulation.bottom_scan_for_print.toggled.connected == [controller.request_auto_preview]
+
+
+def test_connect_auto_preview_signals_wires_params_group_section_editors() -> None:
+    # Path-bound group sections (ParamsGroupSection) expose their editors via
+    # the _editors mapping; the wiring must reach them through the
+    # _is_params_group branch (regression guard).
+    controller = SimpleNamespace(request_auto_preview=lambda *args: None)
+    scanner_editors = {
+        'lens_blur': _make_auto_preview_editor(0.0),
+        'white_correction': _make_auto_preview_editor(True),
+        'unsharp_mask': _make_auto_preview_editor((0.7, 0.7)),
+    }
+    scanner_section = SimpleNamespace(_is_params_group=True, _editors=scanner_editors)
+    camera_editors = {'film_format_mm': _make_auto_preview_editor(35.0)}
+    camera_section = SimpleNamespace(_is_params_group=True, _editors=camera_editors)
+    widgets = SimpleNamespace()
+    for section_name in app_module.GUI_STATE_SECTION_NAMES:
+        setattr(widgets, section_name, None)
+    widgets.scanner = scanner_section
+    widgets.camera = camera_section
+    widgets.simulation = SimpleNamespace(
+        bottom_auto_preview=SimpleNamespace(toggled=FakeSignal()),
+        bottom_scan_film=SimpleNamespace(toggled=FakeSignal()),
+        bottom_scan_for_print=SimpleNamespace(toggled=FakeSignal()),
+        _is_params_group=False,
+    )
+
+    app_module.connect_auto_preview_signals(controller, widgets)
+
+    assert scanner_editors['lens_blur'].valueChanged.connected == [controller.request_auto_preview]
+    assert scanner_editors['white_correction'].toggled.connected == [controller.request_auto_preview]
+    assert scanner_editors['unsharp_mask']._editors[0].valueChanged.connected == [controller.request_auto_preview]
+    assert camera_editors['film_format_mm'].valueChanged.connected == [controller.request_auto_preview]
 
 
 def test_initialize_controller_syncs_connects_and_refreshes() -> None:

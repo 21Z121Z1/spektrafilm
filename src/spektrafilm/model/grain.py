@@ -65,8 +65,8 @@ def add_micro_structure(density_cmy_out, micro_structure, pixel_size_um):
 
 def apply_grain_to_density(density_cmy,
                            pixel_size_um=10,
-                           agx_particle_area_um2=0.2,
-                           agx_particle_scale=[1,0.8,3],
+                           particle_area_um2=0.2,
+                           particle_scale=[1,0.8,3],
                            density_min=[0.03,0.06,0.04],
                            density_max_curves=[2.2,2.2,2.2],
                            grain_uniformity=[0.98,0.98,0.98],
@@ -77,8 +77,8 @@ def apply_grain_to_density(density_cmy,
     density_min = np.array(density_min)
     density_max = density_max_curves + density_min
     pixel_area_um2 = pixel_size_um**2
-    agx_particle_area_um2 = agx_particle_area_um2*np.array(agx_particle_scale)
-    n_particles_per_pixel = pixel_area_um2/agx_particle_area_um2
+    particle_area_um2 = particle_area_um2*np.array(particle_scale)
+    n_particles_per_pixel = pixel_area_um2/particle_area_um2
     sigma_blur_pixel = grain_blur
     
     if fixed_seed is not None:
@@ -112,9 +112,9 @@ def apply_grain_to_density(density_cmy,
 def apply_grain_to_density_layers(density_cmy_layers, # x,y,sublayers,rgb
                                   density_max_layers, # 3x3 [sublayers,rgb]
                                   pixel_size_um=10,
-                                  agx_particle_area_um2=0.2,
-                                  agx_particle_scale=[1,0.8,3], # rgb
-                                  agx_particle_scale_layers=[3,1,0.3], # sublayers
+                                  particle_area_um2=0.2,
+                                  particle_scale=[1,0.8,3], # rgb
+                                  particle_scale_layers=[3,1,0.3], # sublayers
                                   density_min=[0.03,0.06,0.04],
                                   grain_uniformity=[0.98,0.98,0.98],
                                   grain_blur=1.0,
@@ -129,10 +129,10 @@ def apply_grain_to_density_layers(density_cmy_layers, # x,y,sublayers,rgb
     density_max_layers = density_max_layers + density_min_layers
     
     pixel_area_um2 = pixel_size_um**2
-    agx_particle_area_um2_layers = (agx_particle_area_um2 * 
-                                    np.array(agx_particle_scale)[None,:] * 
-                                    np.array(agx_particle_scale_layers)[:,None]) # layers, rgb
-    n_particles_per_pixel = pixel_area_um2*density_max_fractions/agx_particle_area_um2_layers
+    particle_area_um2_layers = (particle_area_um2 * 
+                                    np.array(particle_scale)[None,:] * 
+                                    np.array(particle_scale_layers)[:,None]) # layers, rgb
+    n_particles_per_pixel = pixel_area_um2*density_max_fractions/particle_area_um2_layers
 
     
     if fixed_seed is not None:
@@ -181,8 +181,8 @@ def apply_grain(
         return apply_grain_to_density(
             density_cmy,
             pixel_size_um=pixel_size_um,
-            agx_particle_area_um2=grain.agx_particle_area_um2,
-            agx_particle_scale=grain.agx_particle_scale,
+            particle_area_um2=grain.particle_area_um2,
+            particle_scale=grain.particle_scale,
             density_min=grain.density_min,
             density_max_curves=density_max,
             grain_uniformity=grain.uniformity,
@@ -201,9 +201,9 @@ def apply_grain(
         density_cmy_layers,
         density_max_layers=density_max_layers,
         pixel_size_um=pixel_size_um,
-        agx_particle_area_um2=grain.agx_particle_area_um2,
-        agx_particle_scale=grain.agx_particle_scale,
-        agx_particle_scale_layers=grain.agx_particle_scale_layers,
+        particle_area_um2=grain.particle_area_um2,
+        particle_scale=grain.particle_scale,
+        particle_scale_layers=grain.particle_scale_layers,
         density_min=grain.density_min,
         grain_uniformity=grain.uniformity,
         grain_blur=grain.blur,

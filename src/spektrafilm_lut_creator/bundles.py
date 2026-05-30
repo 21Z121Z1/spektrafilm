@@ -98,10 +98,11 @@ class BundleSpec:
       drifts upward ~1.5 stops in the film's frame as a side effect
       of the linear gain — image comes out slightly brighter than
       its source preview.
-    - **Camera log** (V-Log / S-Log3 / ACEScct / LogC / …): resolves
-      to the curve's native headroom (≈7–8 stops). Gain works out to
-      1.0 — identity, no rescaling. The film sees the source's
-      native dynamic range exactly.
+        - **Camera log** (V-Log / S-Log3 / ACEScct / LogC / …): resolves
+            to a curated per-space default when one is registered, otherwise
+            to the curve's native headroom. Panasonic V-Log uses +6.0 to match
+            Panasonic exposure guidance; many other log curves still resolve to
+            their native ≈7–8 stop headroom and therefore keep gain at 1.0.
     - **Scene-referred linear** (ACEScg, ACES2065-1, Rec.2020 Linear,
       sRGB Linear, P3-D65 Linear, … — registry entries marked
       ``scene_referred_input=True``): resolves to

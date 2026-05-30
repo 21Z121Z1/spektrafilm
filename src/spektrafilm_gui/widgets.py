@@ -1,45 +1,43 @@
 from dataclasses import dataclass
 
-from spektrafilm_gui.widget_editors import BoolEditor, EnumEditor, FloatEditor, FloatTupleEditor, IntEditor, IntTupleEditor
+from spektrafilm_gui.param_manifest import (
+    CAMERA_DIFFUSION_MANIFEST,
+    CAMERA_MANIFEST,
+    CHEMISTRY_MANIFEST,
+    DIR_COUPLERS_MANIFEST,
+    ENLARGER_DIFFUSION_MANIFEST,
+    GLARE_MANIFEST,
+    GRAIN_MANIFEST,
+    HALATION_MANIFEST,
+    INPUT_GAMUT_COMPRESS_MANIFEST,
+    OUTPUT_GAMUT_COMPRESS_MANIFEST,
+    PREFLASHING_MANIFEST,
+    SCANNER_MANIFEST,
+)
 from spektrafilm_gui.widget_primitives import CollapsibleSection, platform_default_font
 from spektrafilm_gui.widget_sections import (
-    CameraSection,
-    CameraDiffusionSection,
-    CouplersSection,
-    ChemistrySection,
-    DataclassSection,
+    ParamsGroupSection,
     DisplaySection,
-    DiffusionSection,
     EnlargerSection,
     ExposureControlSection,
     FilePickerSection,
-    GlareSection,
-    GrainSection,
     GuiConfigSection,
-    HalationSection,
     InputImageSection,
     LoadRawSection,
     OutputSection,
-    PreflashingSection,
     PreviewCropSection,
-    ScannerSection,
-    SimpleDataclassSection,
     SimulationSection,
     SpecialSection,
     SpectralUpsamplingSection,
     TuneSection,
-    _build_auxiliary_label,
-    _build_button,
-    _build_button_row,
-    _build_collapsible_form_section,
-    _build_linked_form_section,
-    _build_vertical_container,
-    _build_widget_label,
-    _enum_values,
-    _format_label,
-    _new_form_layout,
-    _set_single_collapsible_layout,
-    _spec_row,
+)
+
+
+__all__ = (
+    'CollapsibleSection',
+    'WidgetBundle',
+    'create_widget_bundle',
+    'platform_default_font',
 )
 
 
@@ -50,21 +48,23 @@ class WidgetBundle:
     display: DisplaySection
     input_image: InputImageSection
     load_raw: LoadRawSection
-    grain: GrainSection
-    preflashing: PreflashingSection
-    diffusion: DiffusionSection
-    camera_diffusion: CameraDiffusionSection
-    halation: HalationSection
-    couplers: CouplersSection
-    chemistry: ChemistrySection
-    glare: GlareSection
+    grain: ParamsGroupSection
+    preflashing: ParamsGroupSection
+    enlarger_diffusion: ParamsGroupSection
+    camera_diffusion: ParamsGroupSection
+    halation: ParamsGroupSection
+    couplers: ParamsGroupSection
+    chemistry: ParamsGroupSection
+    glare: ParamsGroupSection
+    input_gamut_compress: ParamsGroupSection
+    output_gamut_compress: ParamsGroupSection
     special: SpecialSection
     simulation: SimulationSection
     preview_crop: PreviewCropSection
-    camera: CameraSection
+    camera: ParamsGroupSection
     exposure_control: ExposureControlSection
     enlarger: EnlargerSection
-    scanner: ScannerSection
+    scanner: ParamsGroupSection
     spectral_upsampling: SpectralUpsamplingSection
     tune: TuneSection
     output: OutputSection
@@ -75,9 +75,10 @@ def create_widget_bundle() -> WidgetBundle:
     input_image = InputImageSection(filepicker)
     simulation = SimulationSection()
     special = SpecialSection(simulation)
-    glare = GlareSection()
-    scanner = ScannerSection(simulation)
-    simulation.bind_scan_for_print_glare_section(glare)
+    glare = ParamsGroupSection(GLARE_MANIFEST)
+    scanner = ParamsGroupSection(SCANNER_MANIFEST)
+    camera = ParamsGroupSection(CAMERA_MANIFEST)
+    simulation.bind_scan_for_print_sections(glare=glare, scanner=scanner)
 
     return WidgetBundle(
         filepicker=filepicker,
@@ -85,19 +86,21 @@ def create_widget_bundle() -> WidgetBundle:
         display=DisplaySection(),
         input_image=input_image,
         load_raw=LoadRawSection(),
-        grain=GrainSection(),
-        preflashing=PreflashingSection(),
-        diffusion=DiffusionSection(simulation),
-        camera_diffusion=CameraDiffusionSection(simulation),
-        halation=HalationSection(),
-        couplers=CouplersSection(),
-        chemistry=ChemistrySection(),
+        grain=ParamsGroupSection(GRAIN_MANIFEST),
+        preflashing=ParamsGroupSection(PREFLASHING_MANIFEST),
+        enlarger_diffusion=ParamsGroupSection(ENLARGER_DIFFUSION_MANIFEST),
+        camera_diffusion=ParamsGroupSection(CAMERA_DIFFUSION_MANIFEST),
+        halation=ParamsGroupSection(HALATION_MANIFEST),
+        couplers=ParamsGroupSection(DIR_COUPLERS_MANIFEST),
+        chemistry=ParamsGroupSection(CHEMISTRY_MANIFEST),
         glare=glare,
+        input_gamut_compress=ParamsGroupSection(INPUT_GAMUT_COMPRESS_MANIFEST),
+        output_gamut_compress=ParamsGroupSection(OUTPUT_GAMUT_COMPRESS_MANIFEST),
         special=special,
         simulation=simulation,
         preview_crop=PreviewCropSection(input_image),
-        camera=CameraSection(simulation),
-        exposure_control=ExposureControlSection(simulation),
+        camera=camera,
+        exposure_control=ExposureControlSection(simulation, camera),
         enlarger=EnlargerSection(simulation),
         scanner=scanner,
         spectral_upsampling=SpectralUpsamplingSection(input_image),

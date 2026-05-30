@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import fields
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, get_args, get_origin, get_type_hints
 
@@ -19,28 +19,102 @@ QWidget = QtWidgets.QWidget
 Qt = QtCore.Qt
 Signal = QtCore.Signal
 
+from spektrafilm_gui.param_manifest import (
+    CAMERA_EXPOSURE_BORROWED_FIELDS,
+    CROP_PANEL_FIELDS,
+    DISPLAY_PANEL_FIELDS,
+    GroupManifest,
+    INPUT_IMAGE_FIELDS,
+    INPUT_PANEL_FIELDS,
+    ParamSpec,
+    SIMULATION_ENLARGER_PANEL_FIELDS,
+    SIMULATION_EXPOSURE_PANEL_FIELDS,
+    SIMULATION_FIELDS,
+    SIMULATION_OUTPUT_PANEL_FIELDS,
+    SIMULATION_PROFILE_PANEL_FIELDS,
+    SIMULATION_SPECIAL_BORROWED_FIELDS,
+    SPECTRAL_PANEL_FIELDS,
+    SPECIAL_FIELDS,
+    TUNE_PANEL_FIELDS,
+)
 from spektrafilm_gui.state import (
-    PrintChemistryState,
-    CouplersState,
     DisplayState,
-    GlareState,
-    GrainState,
-    HalationState,
     InputImageState,
     LoadRawState,
-    PreflashingState,
+    PROJECT_DEFAULT_GUI_STATE,
+    SelectionState,
     SimulationState,
     SpecialState,
+    clone_state_section,
 )
 from spektrafilm_gui.persistence import load_dialog_dir, save_dialog_dir
 from spektrafilm_gui.theme_palette import SIZE_FOOTER_ITEM_SPACING
+from spektrafilm_gui.options import RawWhiteBalance
 from spektrafilm_gui.widget_editors import BoolEditor, EnumEditor, FloatEditor, FloatTupleEditor, IntEditor, IntTupleEditor, ProfileEnumEditor
 from spektrafilm_gui.widget_primitives import CollapsibleSection, normalize_ui_text as _normalize_ui_text
-from spektrafilm_gui.widget_specs import GUI_SECTION_ENUMS, get_auxiliary_spec, get_button_spec, get_widget_spec
+
+
+LOAD_RAW_FIELDS = (
+    ParamSpec(
+        'white_balance',
+        label='White balance',
+        tooltip='Select white balance settings, if custom you can tune temperature and tint',
+        enum=RawWhiteBalance,
+    ),
+    ParamSpec(
+        'temperature',
+        label='Temperature',
+        tooltip='Temperature in Kelvin for the custom whitebalance, not used for the other white balance settings',
+        min=1000,
+        step=100,
+    ),
+    ParamSpec(
+        'tint',
+        label='Tint',
+        tooltip='Tint value for the custom white balance, not used for the other white balance settings',
+        min=0,
+        step=0.01,
+    ),
+    ParamSpec('lens_correction', label='Lens correction', tooltip='Apply lens corrections'),
+)
+
+_LOAD_RAW_FIELD_SPECS = {spec.leaf: spec for spec in LOAD_RAW_FIELDS}
+_SECTION_FIELD_SPECS = {
+    'load_raw': _LOAD_RAW_FIELD_SPECS,
+    'simulation': {spec.leaf: spec for spec in SIMULATION_FIELDS},
+}
+_AUXILIARY_FIELD_SPECS = {
+    'scan_for_print': ParamSpec(
+        'scan_for_print',
+        label='Scan for print',
+        tooltip='Scan the image for print, ie white and black correction of the scanner are active, and glare is deactivated.',
+    ),
+}
+_SIMULATION_ACTION_BUTTON_SPECS = {
+    'preview': {
+        'text': 'PREVIEW',
+        'tooltip': 'run the simulation on a small preview and deactivates grain, halation, blurs, unsharp mask (diffusion filters are active)',
+        'preserve_case': True,
+    },
+    'scan': {
+        'text': 'SCAN',
+        'tooltip': 'Run the full simulation on the full-resolution input',
+        'preserve_case': True,
+    },
+    'save': {
+        'text': 'SAVE',
+        'tooltip': 'Save the current output layer to an image file',
+        'preserve_case': True,
+    },
+}
 
 
 def _enum_values(enum_cls):
     return [member.value for member in enum_cls]
+
+
+def _field_spec(section_name: str, field_name: str) -> ParamSpec | None:
+    return _SECTION_FIELD_SPECS.get(section_name, {}).get(field_name)
 
 
 def _build_collapsible_form_section(
@@ -104,29 +178,21 @@ def _build_button(
 
 
 def _build_widget_label(section_name: str, field_name: str) -> QLabel:
-    spec = get_widget_spec(section_name, field_name)
-    label_text = spec.label or _format_label(field_name)
+    spec = _field_spec(section_name, field_name)
+    label_text = (spec.label if spec is not None else None) or _format_label(field_name)
     label = QLabel(_normalize_ui_text(label_text))
-    if spec.tooltip:
+    if spec is not None and spec.tooltip:
         label.setToolTip(spec.tooltip)
     return label
 
 
 def _build_auxiliary_label(name: str) -> QLabel:
-    spec = get_auxiliary_spec(name)
-    label_text = spec.label or name.replace("_", " ")
+    spec = _AUXILIARY_FIELD_SPECS.get(name)
+    label_text = (spec.label if spec is not None else None) or name.replace("_", " ")
     label = QLabel(_normalize_ui_text(label_text))
-    if spec.tooltip:
+    if spec is not None and spec.tooltip:
         label.setToolTip(spec.tooltip)
     return label
-
-
-def _spec_row(section_name: str, field_name: str, widget: QWidget) -> tuple[QLabel, QWidget]:
-    return _build_widget_label(section_name, field_name), widget
-
-
-def _compound_spec_row(section_name: str, label_field_name: str, *widgets: QWidget) -> tuple[QLabel, QWidget]:
-    return _build_widget_label(section_name, label_field_name), _build_inline_container(*widgets, stretch_last=True)
 
 
 def _build_button_row(*widgets: QWidget, stretch: int | None = None, spacing: int = 6) -> QHBoxLayout:
@@ -139,31 +205,6 @@ def _build_button_row(*widgets: QWidget, stretch: int | None = None, spacing: in
         else:
             row.addWidget(widget, stretch)
     return row
-
-
-def _build_inline_container(
-    *widgets: QWidget,
-    spacing: int = 6,
-    add_stretch: bool = False,
-    stretch_last: bool = False,
-) -> QWidget:
-    container = QWidget()
-    container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-    layout = QHBoxLayout(container)
-    layout.setContentsMargins(0, 0, 0, 0)
-    layout.setSpacing(spacing)
-    last_widget_index = len(widgets) - 1
-    for index, widget in enumerate(widgets):
-        if stretch_last and index == last_widget_index:
-            size_policy = widget.sizePolicy()
-            size_policy.setHorizontalPolicy(QSizePolicy.Expanding)
-            widget.setSizePolicy(size_policy)
-            layout.addWidget(widget, 1)
-        else:
-            layout.addWidget(widget)
-    if add_stretch and not stretch_last:
-        layout.addStretch(1)
-    return container
 
 
 def _build_vertical_container(*items: QHBoxLayout | QFormLayout | QWidget, spacing: int = 6) -> QWidget:
@@ -192,181 +233,156 @@ def _format_label(field_name: str) -> str:
     return _normalize_ui_text(field_name.replace("_", " "))
 
 
-class DataclassSection(QWidget):
-    def __init__(
-        self,
-        *,
-        state_cls: type[Any],
-        section_name: str,
-        title: str,
-        enum_fields: dict[str, type[Any]] | None = None,
-        hidden_fields: set[str] | None = None,
-        collapsed_by_default: bool = False,
-    ):
-        super().__init__()
-        self._state_cls = state_cls
-        self._section_name = section_name
-        self._title = title
-        self._enum_fields = enum_fields or {}
-        self._hidden_fields = hidden_fields or set()
-        self._collapsed_by_default = collapsed_by_default
-        self._type_hints = get_type_hints(state_cls)
-        self._init_extra_widgets()
-        self._build_ui()
-        self._apply_specs()
-
-    def _init_extra_widgets(self) -> None:
+def _apply_numeric_attr(widget: QWidget, method_name: str, value: float | int) -> None:
+    method = getattr(widget, method_name, None)
+    if callable(method):
+        method(value)
         return
-
-    def _build_ui(self) -> None:
-        form = _new_form_layout()
-        self._add_extra_rows_before(form)
-        for field_info in fields(self._state_cls):
-            field_name = field_info.name
-            annotation = self._type_hints[field_name]
-            widget = self._build_editor(field_name, annotation)
-            setattr(self, field_name, widget)
-            if field_name not in self._hidden_fields:
-                form.addRow(_build_widget_label(self._section_name, field_name), self._row_widget(field_name, widget))
-        self._add_extra_rows_after(form)
-
-        content = QWidget()
-        content.setLayout(form)
-
-        root = QVBoxLayout()
-        root.setContentsMargins(0, 0, 0, 0)
-        root.addWidget(CollapsibleSection(self._title, content, expanded=not self._collapsed_by_default))
-        self.setLayout(root)
-
-    def _add_extra_rows_before(self, form: QFormLayout) -> None:
-        del form
-        return
-
-    def _add_extra_rows_after(self, form: QFormLayout) -> None:
-        del form
-        return
-
-    def _row_widget(self, field_name: str, widget: QWidget) -> QWidget:
-        del field_name
-        return widget
-
-    def _build_editor(self, field_name: str, annotation: Any) -> QWidget:
-        spec = get_widget_spec(self._section_name, field_name)
-        enum_cls = self._enum_fields.get(field_name)
-        if enum_cls is not None:
-            if self._section_name == 'simulation' and field_name in {'film_stock', 'print_paper'}:
-                return ProfileEnumEditor(_enum_values(enum_cls))
-            return EnumEditor(_enum_values(enum_cls))
-        if annotation is bool:
-            return BoolEditor()
-        if annotation is int:
-            return IntEditor()
-        if annotation is float:
-            return FloatEditor(decimals=2 if spec.decimals is None else spec.decimals)
-        if get_origin(annotation) is tuple:
-            element_types = get_args(annotation)
-            if element_types and all(element_type is int for element_type in element_types):
-                return IntTupleEditor(len(element_types))
-            return FloatTupleEditor(len(element_types), decimals=2 if spec.decimals is None else spec.decimals)
-        raise TypeError(f"Unsupported field type for {self._state_cls.__name__}.{field_name}: {annotation!r}")
-
-    def _apply_specs(self) -> None:
-        for field_info in fields(self._state_cls):
-            field_name = field_info.name
-            spec = get_widget_spec(self._section_name, field_name)
-            widget = getattr(self, field_name)
-            if spec.tooltip:
-                widget.setToolTip(spec.tooltip)
-            if spec.min_value is not None:
-                self._apply_numeric_attr(widget, 'setMinimum', spec.min_value)
-            if spec.max_value is not None:
-                self._apply_numeric_attr(widget, 'setMaximum', spec.max_value)
-            if spec.step is not None:
-                self._apply_numeric_attr(widget, 'setSingleStep', spec.step)
-
-    @staticmethod
-    def _apply_numeric_attr(widget: QWidget, method_name: str, value: float | int) -> None:
-        method = getattr(widget, method_name, None)
-        if callable(method):
-            method(value)
-            return
-        editors = getattr(widget, '_editors', None)
-        if editors is not None:
-            for editor in editors:
-                getattr(editor, method_name)(value)
-
-    def set_state(self, state: Any) -> None:
-        for field_info in fields(self._state_cls):
-            field_name = field_info.name
-            getattr(self, field_name).value = getattr(state, field_name)
-
-    def get_state(self) -> Any:
-        values = {field_info.name: getattr(self, field_info.name).value for field_info in fields(self._state_cls)}
-        return self._state_cls(**values)
+    editors = getattr(widget, '_editors', None)
+    if editors is not None:
+        for editor in editors:
+            getattr(editor, method_name)(value)
 
 
-class SimpleDataclassSection(DataclassSection):
-    STATE_CLS: type[Any]
-    SECTION_NAME: str
-    TITLE: str
-    COLLAPSED_BY_DEFAULT = True
-    ENUM_FIELDS_KEY: str | None = None
-    HIDDEN_FIELDS: set[str] = set()
+def _editor_from_param_spec(annotation: Any, spec: ParamSpec, *, label: str) -> QWidget:
+    """Build an editor for a ParamSpec given the field's runtime annotation.
 
-    def __init__(self):
-        super().__init__(
-            state_cls=self.STATE_CLS,
-            section_name=self.SECTION_NAME,
-            title=self.TITLE,
-            enum_fields=GUI_SECTION_ENUMS[self.ENUM_FIELDS_KEY] if self.ENUM_FIELDS_KEY is not None else None,
-            hidden_fields=self.HIDDEN_FIELDS,
-            collapsed_by_default=self.COLLAPSED_BY_DEFAULT,
-        )
+    Shared by the group-bound (ParamsGroupSection) and path-bound (input_image)
+    sections so the type -> editor mapping lives in one place.
+    """
+    decimals = 2 if spec.decimals is None else spec.decimals
+    if spec.enum is not None:
+        if spec.leaf in {'film_stock', 'print_paper'}:
+            editor = ProfileEnumEditor([member.value for member in spec.enum])
+        else:
+            editor = EnumEditor([member.value for member in spec.enum])
+    elif annotation is bool:
+        editor = BoolEditor()
+    elif annotation is int:
+        editor = IntEditor()
+    elif annotation is float:
+        editor = FloatEditor(decimals=decimals)
+    elif get_origin(annotation) is tuple:
+        element_types = get_args(annotation)
+        if element_types and all(element_type is int for element_type in element_types):
+            editor = IntTupleEditor(len(element_types))
+        else:
+            editor = FloatTupleEditor(len(element_types), decimals=decimals)
+    else:
+        raise TypeError(f"Unsupported field type for {label}: {annotation!r}")
+    if spec.min is not None:
+        _apply_numeric_attr(editor, 'setMinimum', spec.min)
+    if spec.max is not None:
+        _apply_numeric_attr(editor, 'setMaximum', spec.max)
+    if spec.step is not None:
+        _apply_numeric_attr(editor, 'setSingleStep', spec.step)
+    return editor
 
 
-class InputImageSection(SimpleDataclassSection):
-    STATE_CLS = InputImageState
-    SECTION_NAME = 'input_image'
-    TITLE = 'Input'
-    ENUM_FIELDS_KEY = 'input_image'
-    HIDDEN_FIELDS = {
-        'upscale_factor',
-        'crop',
-        'crop_center',
-        'crop_size',
-        'spectral_upsampling_method',
-        'apply_hanatos2025_adaptation_window',
-        'apply_hanatos2025_adaptation_surface',
-        'spectral_gaussian_blur',
-        'filter_uv',
-        'filter_ir',
-    }
+def _path_annotation(root_cls: type, path: str) -> Any:
+    """Resolve the type annotation of a dotted path on a dataclass tree."""
+    cls = root_cls
+    annotation: Any = root_cls
+    for part in path.split('.'):
+        annotation = get_type_hints(cls)[part]
+        cls = annotation
+    return annotation
+
+
+def _read_path(root: Any, path: str) -> Any:
+    obj = root
+    for part in path.split('.'):
+        obj = getattr(obj, part)
+    return obj
+
+
+def _write_path(root: Any, path: str, value: Any) -> None:
+    parts = path.split('.')
+    obj = root
+    for part in parts[:-1]:
+        obj = getattr(obj, part)
+    setattr(obj, parts[-1], value)
+
+
+def _build_path_panel(
+    title: str,
+    specs: tuple[ParamSpec, ...],
+    editors: dict[str, QWidget],
+    *,
+    expanded: bool,
+) -> QVBoxLayout:
+    """Lay out a collapsible panel from shared, path-bound editors (by leaf)."""
+    form = _new_form_layout()
+    for spec in specs:
+        editor = editors[spec.leaf]
+        label = QLabel(_normalize_ui_text(spec.label or _format_label(spec.leaf)))
+        if spec.tooltip:
+            label.setToolTip(spec.tooltip)
+            editor.setToolTip(spec.tooltip)
+        form.addRow(label, editor)
+    return _build_collapsible_form_section(title, form, expanded=expanded)
+
+
+class InputImageSection(QWidget):
+    """Owner of the input_image cluster (io.* + settings.*), rendered across
+    three panels on two tabs (Input here; Crop and Spectral embed this section's
+    editors). Path-bound: each editor binds to a dotted path on InputImageState.
+    Marked _is_params_group so auto-preview wiring and profile-sync drive it via
+    _editors / set_state, exactly like ParamsGroupSection.
+    """
+
+    _is_params_group = True
 
     def __init__(self, filepicker_section: 'FilePickerSection'):
-        self._filepicker_section = filepicker_section
         super().__init__()
+        self._filepicker_section = filepicker_section
+        self._source: InputImageState | None = None
+        self._specs = {spec.leaf: spec for spec in INPUT_IMAGE_FIELDS}
+        self._editors: dict[str, QWidget] = {}
+        for spec in INPUT_IMAGE_FIELDS:
+            editor = _editor_from_param_spec(
+                _path_annotation(InputImageState, spec.path), spec, label=spec.path,
+            )
+            self._editors[spec.leaf] = editor
+            setattr(self, spec.leaf, editor)
+        self.setLayout(_build_path_panel('Input', INPUT_PANEL_FIELDS, self._editors, expanded=False))
+
+    def set_state(self, state: InputImageState) -> None:
+        self._source = state
+        for spec in self._specs.values():
+            self._editors[spec.leaf].value = _read_path(state, spec.path)
+
+    def get_state(self) -> InputImageState:
+        state = clone_state_section(self._source) if self._source is not None else InputImageState()
+        for spec in self._specs.values():
+            _write_path(state, spec.path, self._editors[spec.leaf].value)
+        return state
 
 
-class LoadRawSection(DataclassSection):
+class LoadRawSection(QWidget):
     load_requested = Signal(str)
+    SECTION_NAME = 'load_raw'
+    TITLE = 'Import Raw'
+    _TYPE_HINTS = get_type_hints(LoadRawState)
+    _STATE_FIELD_NAMES = tuple(_TYPE_HINTS)
 
     def __init__(self):
-        super().__init__(
-            state_cls=LoadRawState,
-            section_name='load_raw',
-            title='Import Raw',
-            enum_fields=GUI_SECTION_ENUMS['load_raw'],
-            collapsed_by_default=True,
-        )
-
-    def _init_extra_widgets(self) -> None:
+        super().__init__()
+        self._source: LoadRawState | None = None
         self.file_path = QLineEdit()
         self.file_path.setReadOnly(True)
         self.file_path.setPlaceholderText(_normalize_ui_text('No raw selected'))
         self.reprocess_button = _build_button('reprocess raw', self._reprocess_raw, role='compactAction')
         self.reprocess_button.setEnabled(False)
+        self._build_ui()
 
-    def _add_extra_rows_before(self, form: QFormLayout) -> None:
+    def _build_ui(self) -> None:
+        for field_name in self._STATE_FIELD_NAMES:
+            spec = _LOAD_RAW_FIELD_SPECS[field_name]
+            editor = _editor_from_param_spec(self._TYPE_HINTS[field_name], spec, label=f'{self.SECTION_NAME}.{field_name}')
+            setattr(self, field_name, editor)
+
+        form = _new_form_layout()
         browse_button = _build_button(
             'Select file',
             self._choose_file,
@@ -374,9 +390,11 @@ class LoadRawSection(DataclassSection):
             role='compactAction',
         )
         form.addRow(_build_vertical_container(_build_button_row(self.file_path, browse_button, spacing=4), spacing=0))
-
-    def _add_extra_rows_after(self, form: QFormLayout) -> None:
+        for field_name in self._STATE_FIELD_NAMES:
+            form.addRow(_build_widget_label(self.SECTION_NAME, field_name), getattr(self, field_name))
         form.addRow(self.reprocess_button)
+
+        self.setLayout(_build_collapsible_form_section(self.TITLE, form, expanded=False))
 
     def _choose_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, _normalize_ui_text('Select input raw'), load_dialog_dir('raw_input'))
@@ -392,6 +410,17 @@ class LoadRawSection(DataclassSection):
             return
         self.load_requested.emit(path)
 
+    def set_state(self, state: LoadRawState) -> None:
+        self._source = state
+        for field_name in self._STATE_FIELD_NAMES:
+            getattr(self, field_name).value = getattr(state, field_name)
+
+    def get_state(self) -> LoadRawState:
+        state = clone_state_section(self._source) if self._source is not None else clone_state_section(PROJECT_DEFAULT_GUI_STATE.gui_only.load_raw)
+        for field_name in self._STATE_FIELD_NAMES:
+            setattr(state, field_name, getattr(self, field_name).value)
+        return state
+
     def set_path(self, path: str) -> None:
         self.file_path.setText(path)
         self.reprocess_button.setEnabled(bool(path.strip()))
@@ -401,90 +430,126 @@ class PreviewCropSection(QWidget):
     def __init__(self, input_image_section: InputImageSection):
         super().__init__()
         self.setLayout(
-            _build_linked_form_section(
-                'Crop and upscale',
-                [
-                    _spec_row('input_image', 'upscale_factor', input_image_section.upscale_factor),
-                    _spec_row('input_image', 'crop', input_image_section.crop),
-                    _spec_row('input_image', 'crop_center', input_image_section.crop_center),
-                    _spec_row('input_image', 'crop_size', input_image_section.crop_size),
-                ],
-                expanded=False,
-            ),
+            _build_path_panel('Crop and upscale', CROP_PANEL_FIELDS, input_image_section._editors, expanded=False),
         )
 
 
-class GrainSection(SimpleDataclassSection):
-    STATE_CLS = GrainState
-    SECTION_NAME = 'grain'
-    TITLE = 'Grain'
+class ParamsGroupSection(QWidget):
+    """A GUI panel bound directly to a runtime parameter group.
+
+    Driven by a :class:`GroupManifest` keyed on ``RuntimePhotoParams``
+    paths. Builds one editor per declared field (type inferred from the
+    group dataclass), reads and writes the runtime group object directly
+    via ``get_state`` / ``set_state``, and passes through any group
+    fields the manifest does not declare. This replaces the per-panel
+    mirror dataclass + dedicated presentation table + mapper block trio
+    with a single declaration.
+    """
+
+    # Marks this as a path-bound group section so profile-sync drives it
+    # through set_state (applying unit transforms) rather than assigning
+    # raw runtime values field-by-field.
+    _is_params_group = True
+
+    def __init__(self, manifest: GroupManifest):
+        super().__init__()
+        self._manifest = manifest
+        self._group_cls = manifest.group_cls
+        self._type_hints = get_type_hints(manifest.group_cls)
+        self._source: Any = None
+        self._editors: dict[str, QWidget] = {}
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        form = _new_form_layout()
+        for spec in self._manifest.fields:
+            editor = self._build_editor(spec)
+            self._editors[spec.leaf] = editor
+            setattr(self, spec.leaf, editor)
+        # Build editors for every field (so the whole group stays editable,
+        # persisted, and auto-preview wired) but only lay out panel_fields;
+        # any remaining fields are displayed by a section that borrows them.
+        for spec in self._manifest.panel_fields or self._manifest.fields:
+            editor = self._editors[spec.leaf]
+            label = QLabel(_normalize_ui_text(spec.label or _format_label(spec.leaf)))
+            if spec.tooltip:
+                label.setToolTip(spec.tooltip)
+                editor.setToolTip(spec.tooltip)
+            form.addRow(label, editor)
+
+        content = QWidget()
+        content.setLayout(form)
+
+        root = QVBoxLayout()
+        root.setContentsMargins(0, 0, 0, 0)
+        root.addWidget(
+            CollapsibleSection(self._manifest.title, content, expanded=not self._manifest.collapsed_by_default),
+        )
+        self.setLayout(root)
+
+    def _build_editor(self, spec: ParamSpec) -> QWidget:
+        annotation = self._type_hints[spec.leaf]
+        return _editor_from_param_spec(annotation, spec, label=f"{self._group_cls.__name__}.{spec.leaf}")
+
+    def set_state(self, group: Any) -> None:
+        self._source = group
+        for leaf, editor in self._editors.items():
+            editor.value = getattr(group, leaf)
+
+    def get_state(self) -> Any:
+        base = self._source if self._source is not None else self._group_cls()
+        overrides = {leaf: editor.value for leaf, editor in self._editors.items()}
+        return replace(base, **overrides)
 
 
-class PreflashingSection(SimpleDataclassSection):
-    STATE_CLS = PreflashingState
-    SECTION_NAME = 'preflashing'
-    TITLE = 'Preflash'
+class SpecialSection(QWidget):
+    _is_params_group = True
 
-
-class HalationSection(SimpleDataclassSection):
-    STATE_CLS = HalationState
-    SECTION_NAME = 'halation'
-    TITLE = 'Halation'
-
-
-class CouplersSection(SimpleDataclassSection):
-    STATE_CLS = CouplersState
-    SECTION_NAME = 'couplers'
-    TITLE = 'Couplers'
-
-
-class ChemistrySection(SimpleDataclassSection):
-    STATE_CLS = PrintChemistryState
-    SECTION_NAME = 'chemistry'
-    TITLE = 'Chemistry'
-    COLLAPSED_BY_DEFAULT = True
-    ENUM_FIELDS_KEY = 'chemistry'
-
-
-class GlareSection(SimpleDataclassSection):
-    STATE_CLS = GlareState
-    SECTION_NAME = 'glare'
-    TITLE = 'Glare'
-
-
-class SpecialSection(DataclassSection):
     def __init__(self, simulation_section: 'SimulationSection'):
+        super().__init__()
         self._simulation_section = simulation_section
-        super().__init__(
-            state_cls=SpecialState,
-            section_name='special',
-            title='Experimental',
-            collapsed_by_default=True,
-            hidden_fields={
-                'film_gamma_factor',
-            },
-        )
+        self._source: SpecialState | None = None
+        self._specs = {spec.leaf: spec for spec in SPECIAL_FIELDS}
+        self._editors: dict[str, QWidget] = {}
+        form = _new_form_layout()
+        borrowed = SIMULATION_SPECIAL_BORROWED_FIELDS[0]
+        borrowed_label = QLabel(_normalize_ui_text(borrowed.label or _format_label(borrowed.leaf)))
+        if borrowed.tooltip:
+            borrowed_label.setToolTip(borrowed.tooltip)
+        form.addRow(borrowed_label, simulation_section.print_illuminant)
+        for spec in SPECIAL_FIELDS:
+            editor = _editor_from_param_spec(_path_annotation(SpecialState, spec.path), spec, label=spec.path)
+            self._editors[spec.leaf] = editor
+            setattr(self, spec.leaf, editor)
+            if spec.leaf == 'film_gamma_factor':
+                continue
+            label = QLabel(_normalize_ui_text(spec.label or _format_label(spec.leaf)))
+            if spec.tooltip:
+                label.setToolTip(spec.tooltip)
+                editor.setToolTip(spec.tooltip)
+            form.addRow(label, editor)
+        self.setLayout(_build_collapsible_form_section('Experimental', form, expanded=False))
 
-    def _add_extra_rows_before(self, form: QFormLayout) -> None:
-        form.addRow(_build_widget_label('simulation', 'print_illuminant'), self._simulation_section.print_illuminant)
+    def set_state(self, state: SpecialState) -> None:
+        self._source = state
+        for spec in self._specs.values():
+            self._editors[spec.leaf].value = _read_path(state, spec.path)
+
+    def get_state(self) -> SpecialState:
+        state = clone_state_section(self._source) if self._source is not None else SpecialState(
+            film_channel_swap=(0, 1, 2),
+            print_channel_swap=(0, 1, 2),
+        )
+        for spec in self._specs.values():
+            _write_path(state, spec.path, self._editors[spec.leaf].value)
+        return state
 
 
 class SpectralUpsamplingSection(QWidget):
     def __init__(self, input_image_section: InputImageSection):
         super().__init__()
         self.setLayout(
-            _build_linked_form_section(
-                'Spectral upsampling',
-                [
-                    _spec_row('input_image', 'spectral_upsampling_method', input_image_section.spectral_upsampling_method),
-                    _spec_row('input_image', 'apply_hanatos2025_adaptation_window', input_image_section.apply_hanatos2025_adaptation_window),
-                    _spec_row('input_image', 'apply_hanatos2025_adaptation_surface', input_image_section.apply_hanatos2025_adaptation_surface),
-                    _spec_row('input_image', 'spectral_gaussian_blur', input_image_section.spectral_gaussian_blur),
-                    _spec_row('input_image', 'filter_uv', input_image_section.filter_uv),
-                    _spec_row('input_image', 'filter_ir', input_image_section.filter_ir),
-                ],
-                expanded=False,
-            ),
+            _build_path_panel('Spectral upsampling', SPECTRAL_PANEL_FIELDS, input_image_section._editors, expanded=False),
         )
 
 
@@ -492,13 +557,7 @@ class TuneSection(QWidget):
     def __init__(self, special_section: SpecialSection):
         super().__init__()
         self.setLayout(
-            _build_linked_form_section(
-                'Tune',
-                [
-                    _spec_row('special', 'film_gamma_factor', special_section.film_gamma_factor),
-                ],
-                expanded=True,
-            ),
+            _build_path_panel('Tune', TUNE_PANEL_FIELDS, special_section._editors, expanded=True),
         )
 
 
@@ -516,7 +575,7 @@ class FilePickerSection(QWidget):
 
         browse_button = _build_button('Select file', self._choose_file, role='compactAction')
         content = _build_vertical_container(_build_button_row(self.file_path, browse_button, spacing=4), spacing=6)
-        _set_single_collapsible_layout(self, 'Import RGB', content)
+        _set_single_collapsible_layout(self, 'Import RGB', content, expanded=False)
 
     def _choose_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, _normalize_ui_text('Select input image'), load_dialog_dir('rgb_input'))
@@ -562,17 +621,16 @@ class GuiConfigSection(QWidget):
         _set_single_collapsible_layout(self, 'GUI parameters', content, expanded=True)
 
 
-class DisplaySection(SimpleDataclassSection):
-    STATE_CLS = DisplayState
-    SECTION_NAME = 'display'
-    TITLE = 'Display'
-    COLLAPSED_BY_DEFAULT = False
-    ENUM_FIELDS_KEY = 'display'
-    HIDDEN_FIELDS = {'preview_max_size'}
-
+class DisplaySection(QWidget):
+    _is_params_group = True
+    _skip_auto_preview_leaves = {'preview_max_size', 'output_interpolation'}
     update_preview_requested = Signal()
 
-    def _init_extra_widgets(self) -> None:
+    def __init__(self):
+        super().__init__()
+        self._source: DisplayState | None = None
+        self._specs = {spec.leaf: spec for spec in DISPLAY_PANEL_FIELDS}
+        self._editors: dict[str, QWidget] = {}
         self.update_preview_button = _build_button(
             'update',
             self.update_preview_requested.emit,
@@ -580,111 +638,89 @@ class DisplaySection(SimpleDataclassSection):
             role='compactAction',
         )
         self.update_preview_button.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        form = _new_form_layout()
+        for spec in DISPLAY_PANEL_FIELDS:
+            editor = _editor_from_param_spec(_path_annotation(DisplayState, spec.path), spec, label=spec.path)
+            self._editors[spec.leaf] = editor
+            setattr(self, spec.leaf, editor)
+            label = QLabel(_normalize_ui_text(spec.label or _format_label(spec.leaf)))
+            if spec.tooltip:
+                label.setToolTip(spec.tooltip)
+                editor.setToolTip(spec.tooltip)
+            widget: QWidget = editor
+            if spec.leaf == 'preview_max_size':
+                widget = _build_vertical_container(_build_button_row(editor, self.update_preview_button, spacing=4), spacing=0)
+            form.addRow(label, widget)
+        self.setLayout(_build_collapsible_form_section('Display', form, expanded=True))
 
-    def _add_extra_rows_after(self, form: QFormLayout) -> None:
-        form.addRow(
-            _build_widget_label('display', 'preview_max_size'),
-            _build_vertical_container(
-                _build_button_row(self.preview_max_size, self.update_preview_button, spacing=4),
-                spacing=0,
-            ),
+    def set_state(self, state: DisplayState) -> None:
+        self._source = state
+        for spec in self._specs.values():
+            self._editors[spec.leaf].value = _read_path(state, spec.path)
+
+    def get_state(self) -> DisplayState:
+        state = clone_state_section(self._source) if self._source is not None else DisplayState(
+            use_display_transform=True,
+            gray_18_canvas=True,
+            white_padding=0.03,
+            output_interpolation='spline36',
         )
+        for spec in self._specs.values():
+            _write_path(state, spec.path, self._editors[spec.leaf].value)
+        return state
 
 
-class SimulationSection(DataclassSection):
+class SimulationSection(QWidget):
+    _is_params_group = True
+    _skip_auto_preview_leaves = {'auto_preview', 'scan_film'}
     preview_requested = Signal()
     scan_requested = Signal()
     save_requested = Signal()
-    _glare_section: 'GlareSection | None'
+    _glare_section: 'ParamsGroupSection | None'
+    _scanner_section: 'ParamsGroupSection | None'
     _scan_for_print_restore_state: dict[str, object] | None
 
     def __init__(self):
-        super().__init__(
-            state_cls=SimulationState,
-            section_name='simulation',
-            title='Profiles',
-            enum_fields=GUI_SECTION_ENUMS['simulation'],
-            hidden_fields={
-                'film_format_mm',
-                'camera_lens_blur_um',
-                'camera_diffusion_filter_active',
-                'camera_diffusion_filter_family',
-                'camera_diffusion_filter_strength',
-                'camera_diffusion_filter_spatial_scale',
-                'camera_diffusion_filter_halo_warmth',
-                'camera_diffusion_filter_core_intensity',
-                'camera_diffusion_filter_core_size',
-                'camera_diffusion_filter_halo_intensity',
-                'camera_diffusion_filter_halo_size',
-                'camera_diffusion_filter_bloom_intensity',
-                'camera_diffusion_filter_bloom_size',
-                'exposure_compensation_ev',
-                'auto_exposure',
-                'auto_exposure_method',
-                'print_exposure',
-                'print_exposure_compensation',
-                'print_y_filter_shift',
-                'print_m_filter_shift',
-                'diffusion_filter_active',
-                'diffusion_filter_family',
-                'diffusion_filter_strength',
-                'diffusion_filter_spatial_scale',
-                'diffusion_filter_halo_warmth',
-                'diffusion_filter_core_intensity',
-                'diffusion_filter_core_size',
-                'diffusion_filter_halo_intensity',
-                'diffusion_filter_halo_size',
-                'diffusion_filter_bloom_intensity',
-                'diffusion_filter_bloom_size',
-                'print_illuminant',
-                'scan_lens_blur',
-                'scan_white_correction',
-                'scan_white_level',
-                'scan_black_correction',
-                'scan_black_level',
-                'scan_unsharp_mask',
-                'auto_preview',
-                'scan_film',
-                'output_color_space',
-                'saving_color_space',
-                'saving_cctf_encoding',
-                'output_gamut_compress_algorithm',
-                'output_gamut_compress_knee',
-            },
-        )
-
-    def _init_extra_widgets(self) -> None:
+        super().__init__()
+        self._source: SimulationState | None = None
+        self._specs = {spec.leaf: spec for spec in SIMULATION_FIELDS}
+        self._editors: dict[str, QWidget] = {}
         self._glare_section = None
+        self._scanner_section = None
         self._scan_for_print_restore_state = None
-        self.bottom_auto_preview = BoolEditor()
-        self.bottom_scan_film = BoolEditor()
+        for spec in SIMULATION_FIELDS:
+            editor = _editor_from_param_spec(_path_annotation(SimulationState, spec.path), spec, label=spec.path)
+            self._editors[spec.leaf] = editor
+            setattr(self, spec.leaf, editor)
+        self.bottom_auto_preview = self.auto_preview
+        self.bottom_scan_film = self.scan_film
         self.bottom_scan_for_print = BoolEditor()
-        scan_for_print_spec = get_auxiliary_spec('scan_for_print')
+        scan_for_print_spec = _AUXILIARY_FIELD_SPECS['scan_for_print']
         if scan_for_print_spec.tooltip:
             self.bottom_scan_for_print.setToolTip(scan_for_print_spec.tooltip)
         self.bottom_scan_for_print.toggled.connect(self._apply_scan_for_print_mode)
-        preview_button_spec = get_button_spec('preview')
+        preview_button_spec = _SIMULATION_ACTION_BUTTON_SPECS['preview']
         self.preview_button = _build_button(
-            preview_button_spec.text,
+            preview_button_spec['text'],
             self.preview_requested.emit,
-            tooltip=preview_button_spec.tooltip,
-            preserve_case=preview_button_spec.preserve_case,
+            tooltip=preview_button_spec['tooltip'],
+            preserve_case=preview_button_spec['preserve_case'],
             role='accentAction',
         )
-        scan_button_spec = get_button_spec('scan')
+        scan_button_spec = _SIMULATION_ACTION_BUTTON_SPECS['scan']
         self.scan_button = _build_button(
-            scan_button_spec.text,
+            scan_button_spec['text'],
             self.scan_requested.emit,
-            tooltip=scan_button_spec.tooltip,
-            preserve_case=scan_button_spec.preserve_case,
+            tooltip=scan_button_spec['tooltip'],
+            preserve_case=scan_button_spec['preserve_case'],
             role='accentAction',
         )
-        save_button_spec = get_button_spec('save')
+        save_button_spec = _SIMULATION_ACTION_BUTTON_SPECS['save']
         self.save_button = _build_button(
-            save_button_spec.text,
+            save_button_spec['text'],
             self.save_requested.emit,
-            tooltip=save_button_spec.tooltip,
-            preserve_case=save_button_spec.preserve_case,
+            tooltip=save_button_spec['tooltip'],
+            preserve_case=save_button_spec['preserve_case'],
             role='accentAction',
         )
 
@@ -718,6 +754,20 @@ class SimulationSection(DataclassSection):
         bottom_bar_layout.setSpacing(SIZE_FOOTER_ITEM_SPACING)
         bottom_bar_layout.addLayout(scan_film_row)
         bottom_bar_layout.addWidget(action_buttons)
+        self.setLayout(_build_path_panel('Profiles', SIMULATION_PROFILE_PANEL_FIELDS, self._editors, expanded=True))
+
+    def set_state(self, state: SimulationState) -> None:
+        self._source = state
+        for spec in self._specs.values():
+            self._editors[spec.leaf].value = _read_path(state, spec.path)
+
+    def get_state(self) -> SimulationState:
+        state = clone_state_section(self._source) if self._source is not None else SimulationState(
+            selection=SelectionState(film_stock='', print_paper=''),
+        )
+        for spec in self._specs.values():
+            _write_path(state, spec.path, self._editors[spec.leaf].value)
+        return state
 
     def action_bar(self) -> QWidget:
         return self.bottom_bar
@@ -734,8 +784,14 @@ class SimulationSection(DataclassSection):
     def scan_film_value(self) -> bool:
         return self.bottom_scan_film.isChecked()
 
-    def bind_scan_for_print_glare_section(self, glare_section: 'GlareSection') -> None:
-        self._glare_section = glare_section
+    def bind_scan_for_print_sections(
+        self,
+        *,
+        glare: 'ParamsGroupSection',
+        scanner: 'ParamsGroupSection',
+    ) -> None:
+        self._glare_section = glare
+        self._scanner_section = scanner
 
     def reset_scan_for_print_value(self) -> None:
         was_blocked = self.bottom_scan_for_print.blockSignals(True)
@@ -744,15 +800,18 @@ class SimulationSection(DataclassSection):
         self._scan_for_print_restore_state = None
 
     def _apply_scan_for_print_mode(self, active: bool) -> None:
+        scanner = self._scanner_section
+        if scanner is None:
+            return
         if active:
             if self._scan_for_print_restore_state is None:
                 self._scan_for_print_restore_state = {
-                    'scan_white_correction': self.scan_white_correction.value,
-                    'scan_black_correction': self.scan_black_correction.value,
+                    'white_correction': scanner.white_correction.value,
+                    'black_correction': scanner.black_correction.value,
                     'glare_active': None if self._glare_section is None else self._glare_section.active.value,
                 }
-            self.scan_white_correction.value = True
-            self.scan_black_correction.value = True
+            scanner.white_correction.value = True
+            scanner.black_correction.value = True
             if self._glare_section is not None:
                 self._glare_section.active.value = False
             return
@@ -760,8 +819,8 @@ class SimulationSection(DataclassSection):
         restore_state = self._scan_for_print_restore_state
         if restore_state is None:
             return
-        self.scan_white_correction.value = restore_state['scan_white_correction']
-        self.scan_black_correction.value = restore_state['scan_black_correction']
+        scanner.white_correction.value = restore_state['white_correction']
+        scanner.black_correction.value = restore_state['black_correction']
         glare_active = restore_state['glare_active']
         if self._glare_section is not None and glare_active is not None:
             self._glare_section.active.value = glare_active
@@ -772,139 +831,25 @@ class OutputSection(QWidget):
     def __init__(self, simulation_section: SimulationSection):
         super().__init__()
         self.setLayout(
-            _build_linked_form_section(
-                'Output',
-                [
-                    _spec_row('simulation', 'output_color_space', simulation_section.output_color_space),
-                    _spec_row('simulation', 'saving_color_space', simulation_section.saving_color_space),
-                    _spec_row('simulation', 'saving_cctf_encoding', simulation_section.saving_cctf_encoding),
-                    _spec_row('simulation', 'output_gamut_compress_algorithm', simulation_section.output_gamut_compress_algorithm),
-                    _spec_row('simulation', 'output_gamut_compress_knee', simulation_section.output_gamut_compress_knee),
-                ],
-                expanded=False,
-            ),
+            _build_path_panel('Output', SIMULATION_OUTPUT_PANEL_FIELDS, simulation_section._editors, expanded=False),
         )
 
 
 class ExposureControlSection(QWidget):
-    def __init__(self, simulation_section: SimulationSection):
+    def __init__(self, simulation_section: SimulationSection, camera_section: 'ParamsGroupSection'):
         super().__init__()
-        form = _new_form_layout()
-        self._add_spec_row(form, 'simulation', 'auto_exposure', simulation_section.auto_exposure)
-        self._add_spec_row(form, 'simulation', 'exposure_compensation_ev', simulation_section.exposure_compensation_ev)
-        self._add_spec_row(form, 'simulation', 'print_exposure_compensation', simulation_section.print_exposure_compensation)
-        self._add_spec_row(form, 'simulation', 'print_exposure', simulation_section.print_exposure)
-
-        self.setLayout(_build_collapsible_form_section('Exposure control', form, expanded=True))
-
-    def _add_spec_row(self, form: QFormLayout, section_name: str, field_name: str, widget: QWidget) -> None:
-        spec = get_widget_spec(section_name, field_name)
-        if spec.tooltip:
-            widget.setToolTip(spec.tooltip)
-        form.addRow(_build_widget_label(section_name, field_name), widget)
+        # auto_exposure / exposure_compensation_ev are CameraParams fields
+        # owned by camera_section; the print-exposure fields are owned by
+        # simulation_section. Render the camera pair on top, then the print
+        # controls, from a merged editor lookup (leaves do not collide).
+        editors = {**camera_section._editors, **simulation_section._editors}
+        fields = CAMERA_EXPOSURE_BORROWED_FIELDS + SIMULATION_EXPOSURE_PANEL_FIELDS
+        self.setLayout(_build_path_panel('Exposure control', fields, editors, expanded=True))
 
 
 class EnlargerSection(QWidget):
     def __init__(self, simulation_section: SimulationSection):
         super().__init__()
         self.setLayout(
-            _build_linked_form_section(
-                'Enlarger',
-                [
-                    _spec_row('simulation', 'print_y_filter_shift', simulation_section.print_y_filter_shift),
-                    _spec_row('simulation', 'print_m_filter_shift', simulation_section.print_m_filter_shift),
-                ],
-                expanded=True,
-            ),
-        )
-
-
-class DiffusionSection(QWidget):
-    def __init__(self, simulation_section: SimulationSection):
-        super().__init__()
-        self.setLayout(
-            _build_linked_form_section(
-                'Diffusion',
-                [
-                    _spec_row('simulation', 'diffusion_filter_active', simulation_section.diffusion_filter_active),
-                    _spec_row('simulation', 'diffusion_filter_family', simulation_section.diffusion_filter_family),
-                    _spec_row('simulation', 'diffusion_filter_strength', simulation_section.diffusion_filter_strength),
-                    _spec_row('simulation', 'diffusion_filter_spatial_scale', simulation_section.diffusion_filter_spatial_scale),
-                    _spec_row('simulation', 'diffusion_filter_halo_warmth', simulation_section.diffusion_filter_halo_warmth),
-                    _spec_row('simulation', 'diffusion_filter_core_intensity', simulation_section.diffusion_filter_core_intensity),
-                    _spec_row('simulation', 'diffusion_filter_core_size', simulation_section.diffusion_filter_core_size),
-                    _spec_row('simulation', 'diffusion_filter_halo_intensity', simulation_section.diffusion_filter_halo_intensity),
-                    _spec_row('simulation', 'diffusion_filter_halo_size', simulation_section.diffusion_filter_halo_size),
-                    _spec_row('simulation', 'diffusion_filter_bloom_intensity', simulation_section.diffusion_filter_bloom_intensity),
-                    _spec_row('simulation', 'diffusion_filter_bloom_size', simulation_section.diffusion_filter_bloom_size),
-                ],
-                expanded=False,
-            ),
-        )
-
-
-class CameraDiffusionSection(QWidget):
-    def __init__(self, simulation_section: SimulationSection):
-        super().__init__()
-        self.setLayout(
-            _build_linked_form_section(
-                'Diffusion',
-                [
-                    _spec_row('simulation', 'camera_diffusion_filter_active', simulation_section.camera_diffusion_filter_active),
-                    _spec_row('simulation', 'camera_diffusion_filter_family', simulation_section.camera_diffusion_filter_family),
-                    _spec_row('simulation', 'camera_diffusion_filter_strength', simulation_section.camera_diffusion_filter_strength),
-                    _spec_row('simulation', 'camera_diffusion_filter_spatial_scale', simulation_section.camera_diffusion_filter_spatial_scale),
-                    _spec_row('simulation', 'camera_diffusion_filter_halo_warmth', simulation_section.camera_diffusion_filter_halo_warmth),
-                    _spec_row('simulation', 'camera_diffusion_filter_core_intensity', simulation_section.camera_diffusion_filter_core_intensity),
-                    _spec_row('simulation', 'camera_diffusion_filter_core_size', simulation_section.camera_diffusion_filter_core_size),
-                    _spec_row('simulation', 'camera_diffusion_filter_halo_intensity', simulation_section.camera_diffusion_filter_halo_intensity),
-                    _spec_row('simulation', 'camera_diffusion_filter_halo_size', simulation_section.camera_diffusion_filter_halo_size),
-                    _spec_row('simulation', 'camera_diffusion_filter_bloom_intensity', simulation_section.camera_diffusion_filter_bloom_intensity),
-                    _spec_row('simulation', 'camera_diffusion_filter_bloom_size', simulation_section.camera_diffusion_filter_bloom_size),
-                ],
-                expanded=False,
-            ),
-        )
-
-
-class ScannerSection(QWidget):
-    def __init__(self, simulation_section: SimulationSection):
-        super().__init__()
-        self.setLayout(
-            _build_linked_form_section(
-                'Scanner',
-                [
-                    _spec_row('simulation', 'scan_lens_blur', simulation_section.scan_lens_blur),
-                    _compound_spec_row(
-                        'simulation',
-                        'scan_white_correction',
-                        simulation_section.scan_white_correction,
-                        simulation_section.scan_white_level,
-                    ),
-                    _compound_spec_row(
-                        'simulation',
-                        'scan_black_correction',
-                        simulation_section.scan_black_correction,
-                        simulation_section.scan_black_level,
-                    ),
-                    _spec_row('simulation', 'scan_unsharp_mask', simulation_section.scan_unsharp_mask),
-                ],
-                expanded=False,
-            ),
-        )
-
-
-class CameraSection(QWidget):
-    def __init__(self, simulation_section: SimulationSection):
-        super().__init__()
-        self.setLayout(
-            _build_linked_form_section(
-                'Camera',
-                [
-                    _spec_row('simulation', 'film_format_mm', simulation_section.film_format_mm),
-                    _spec_row('simulation', 'auto_exposure_method', simulation_section.auto_exposure_method),
-                    _spec_row('simulation', 'camera_lens_blur_um', simulation_section.camera_lens_blur_um),
-                ],
-                expanded=False,
-            ),
+            _build_path_panel('Enlarger', SIMULATION_ENLARGER_PANEL_FIELDS, simulation_section._editors, expanded=True),
         )

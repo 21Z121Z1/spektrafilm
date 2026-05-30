@@ -95,8 +95,8 @@ def _run_save_output_case(
     controller = GuiController(viewer=object(), widgets=object())
     captured: dict[str, object] = {}
     gui_state = make_test_controller_gui_state()
-    gui_state.simulation.saving_color_space = saving_color_space
-    gui_state.simulation.saving_cctf_encoding = saving_cctf_encoding
+    gui_state.simulation.workflow.saving_color_space = saving_color_space
+    gui_state.simulation.workflow.saving_cctf_encoding = saving_cctf_encoding
 
     _configure_save_output(monkeypatch, controller, output_layer, gui_state, captured)
 
