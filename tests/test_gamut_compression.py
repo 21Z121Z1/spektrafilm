@@ -311,7 +311,7 @@ class TestCompressRgbAcesRgc:
         untouched. It compresses the *other* channels relative to it.
         High-amplitude pixels (max > 1) are not touched by ACES RGC; if
         the bundle is shipped via a perceptual algorithm, the
-        ``lightness_knee`` handles the residual amplitude. ACES RGC
+        ``lightness_compression`` handles the residual amplitude. ACES RGC
         users on its own have no amplitude knee — the simulation is
         expected to stay in [0, 1] by physical construction."""
         rgb = np.array([2.0, -0.1, 0.3])

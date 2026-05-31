@@ -179,10 +179,11 @@ class IOParams:
     # for the design.
     input_gamut_compress: InputGamutCompressSpec = field(default_factory=InputGamutCompressSpec)
     # Output gamut compression: smoothly compresses out-of-output-gamut
-    # chromaticities (via the chroma knee) and out-of-[0,1] lightnesses
-    # (via the lightness_knee) into the output primaries cube. With both
-    # knees engaged the simulation output is guaranteed in [0, 1] and no
-    # downstream clip is needed. See spektrafilm-research/studies/a00/a40_lut_system/n110
+    # chromaticities (via the chroma knee) and above-white lightnesses
+    # (via lightness_compression, a one-sided soft roll-off that leaves
+    # black at 0) into the output primaries cube. With both engaged the
+    # simulation output is guaranteed in [0, 1] and no downstream clip
+    # is needed. See spektrafilm-research/studies/a00/a40_lut_system/n110
     # for the design and b40 for the smoothness analysis.
     output_gamut_compress: OutputGamutCompressSpec = field(default_factory=OutputGamutCompressSpec)
     crop: bool = False

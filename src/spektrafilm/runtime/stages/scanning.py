@@ -85,10 +85,10 @@ class ScanningStage:
         # Output gamut compression. Compresses chromaticities the
         # simulation reached that fall outside the output primaries
         # cube; for perceptual algorithms (oklch / oklrab / jzazbz /
-        # cam16ucs) the spec's lightness_knee also pulls
-        # super-bright and below-black pixels back into the cube via
-        # a two-sided Reinhard on the perceptual lightness axis. With
-        # both knees in place the output is in [0, 1] without a
+        # cam16ucs) the spec's lightness_compression also pulls
+        # super-bright pixels back into the cube via a one-sided soft
+        # roll-off on the perceptual lightness axis (black stays at 0).
+        # With both in place the output is in [0, 1] without a
         # downstream clip; see n100 / n110 for the design and b40 for
         # the smoothness analysis.
         rgb = compress_rgb(
