@@ -38,6 +38,24 @@ _OUTPUT_CS = "sRGB"    # encoded SDR
 _LUT_LICENSE_PATH = Path(__file__).resolve().parents[2] / "SPEKTRAFILM_LICENSE.txt"
 
 
+def test_packaged_license_matches_root():
+    """The license shipped as package data (under spektrafilm/data/license/,
+    the copy builders.py actually bundles into LUT outputs) must stay
+    byte-identical to the canonical repo-root SPEKTRAFILM_LICENSE.txt.
+
+    This guards against the two copies drifting, and against the packaging
+    regression where the license wasn't reachable from an installed wheel.
+    """
+    from spektrafilm_lut_creator.builders import _lut_license_source_path
+
+    packaged = Path(_lut_license_source_path())
+    assert packaged.is_file()
+    assert (
+        packaged.read_text(encoding="utf-8")
+        == _LUT_LICENSE_PATH.read_text(encoding="utf-8")
+    )
+
+
 @pytest.fixture(scope="module")
 def builder() -> BundleBuilder:
     return BundleBuilder(make_bundle_spec(name="test_1lut"))

@@ -348,6 +348,17 @@ def save_profile(profile, suffix=''):
     with resource.open("w") as file:
         json.dump(_json_safe(profile_to_dict(profile)), file, indent=4, allow_nan=False)
 
+def list_profiles():
+    """Return the sorted slugs of all bundled profiles (the JSON file
+    stems under ``spektrafilm.data.profiles``)."""
+    package = pkg_resources.files('spektrafilm.data.profiles')
+    return sorted(
+        entry.name[:-len('.json')]
+        for entry in package.iterdir()
+        if entry.name.endswith('.json')
+    )
+
+
 def load_profile(stock):
     package = pkg_resources.files('spektrafilm.data.profiles')
     filename = stock + '.json'
@@ -375,6 +386,7 @@ __all__ = [
     "PROFILE_USES",
     "profile_from_dict",
     "profile_to_dict",
+    "list_profiles",
     "load_profile",
     "save_profile",
     "load_processed_profile",

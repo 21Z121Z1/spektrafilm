@@ -22,6 +22,7 @@ See studies/a40_lut_system/n030_lut_package_design.md §6 and n070 §6.
 """
 from __future__ import annotations
 
+import importlib.resources as pkg_resources
 import json
 import math
 import shutil
@@ -302,13 +303,22 @@ def _subchain_title(
 
 
 def _lut_license_source_path() -> Path:
-    """Return the repository-local LUT license file shipped with the source tree."""
-    license_path = Path(__file__).resolve().parents[2] / _LUT_LICENSE_FILENAME
-    if not license_path.is_file():
+    """Return the path to the LUT license file shipped as package data.
+
+    The license is bundled under ``spektrafilm/data/license/`` so it
+    resolves identically in the source tree and in an installed wheel —
+    unlike a repo-root path, which only exists during development. The
+    canonical copy stays at the repo root (and on GitHub); the packaged
+    copy is kept byte-identical by ``test_packaged_license_matches_root``.
+    """
+    resource = pkg_resources.files("spektrafilm.data.license") / _LUT_LICENSE_FILENAME
+    if not resource.is_file():
         raise FileNotFoundError(
-            f"missing bundled LUT license file at {license_path}"
+            f"missing bundled LUT license file: {resource}"
         )
-    return license_path
+    # importlib.resources returns a Traversable; for a regular installed
+    # package this is a filesystem path that shutil.copy2 accepts.
+    return Path(str(resource))
 
 
 def _bundle_output_paths(out_path: Path, container: str) -> tuple[Path, Path | None]:
