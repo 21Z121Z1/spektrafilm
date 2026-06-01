@@ -70,12 +70,14 @@ def _run_simulation_case(
         image_data,
         *,
         output_color_space,
+        output_cctf_encoding=True,
         use_display_transform,
         padding_pixels=0.0,
     ):
         captured['display_args'] = {
             'image_data': image_data.copy(),
             'output_color_space': output_color_space,
+            'output_cctf_encoding': output_cctf_encoding,
             'use_display_transform': use_display_transform,
             'padding_pixels': padding_pixels,
         }
@@ -105,7 +107,7 @@ def test_load_input_image_builds_preview_stack_and_homes_view(monkeypatch) -> No
     preview_display_image = np.full((2, 1, 3), 0.75, dtype=np.float32)
     captured: dict[str, object] = {}
 
-    monkeypatch.setattr(controller_module, 'load_image_oiio', lambda path: raw_image)
+    monkeypatch.setattr(controller_module, 'load_image_payload', lambda path: SimpleNamespace(pixels=raw_image, color_encoding=None))
     monkeypatch.setattr(controller_module, 'collect_gui_state', lambda *, widgets: gui_state)
     monkeypatch.setattr(controller_module, 'build_params_from_state', lambda state: (_ for _ in ()).throw(AssertionError('should not build params for image load preview cache')))
     monkeypatch.setattr(controller, '_resize_for_preview', lambda image, *, max_size: preview_image)
@@ -167,7 +169,7 @@ def test_load_input_image_requests_auto_preview_once_when_enabled(monkeypatch) -
         captured['stack_image'] = image
         controller._current_preview_image = preview_image
 
-    monkeypatch.setattr(controller_module, 'load_image_oiio', lambda path: raw_image)
+    monkeypatch.setattr(controller_module, 'load_image_payload', lambda path: SimpleNamespace(pixels=raw_image, color_encoding=None))
     monkeypatch.setattr(controller, '_set_or_add_input_stack', fake_set_or_add_input_stack)
     monkeypatch.setattr(controller, 'request_auto_preview', lambda: captured.setdefault('preview_requests', 0) or captured.__setitem__('preview_requests', captured.get('preview_requests', 0) + 1))
 
@@ -175,6 +177,40 @@ def test_load_input_image_requests_auto_preview_once_when_enabled(monkeypatch) -
 
     np.testing.assert_allclose(captured['stack_image'], raw_image)
     assert captured['preview_requests'] == 1
+
+
+def test_load_input_image_applies_payload_color_encoding_to_gui_state(monkeypatch) -> None:
+    class InputImageWidget:
+        def __init__(self) -> None:
+            self.applied_state = None
+
+        def set_state(self, state) -> None:
+            self.applied_state = state
+
+    input_widget = InputImageWidget()
+    widgets = SimpleNamespace(
+        input_image=input_widget,
+        simulation=SimpleNamespace(auto_preview_value=lambda: False),
+    )
+    controller = GuiController(viewer=object(), widgets=widgets)
+    gui_state = make_test_controller_gui_state()
+    raw_image = np.full((4, 2, 3), 0.25, dtype=np.float32)
+    payload = SimpleNamespace(
+        pixels=raw_image,
+        color_encoding=SimpleNamespace(color_space='Display P3', is_cctf_encoded=True),
+    )
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(controller_module, 'load_image_payload', lambda path: payload)
+    monkeypatch.setattr(controller_module, 'collect_gui_state', lambda *, widgets: gui_state)
+    monkeypatch.setattr(controller, '_set_or_add_input_stack', lambda image: captured.setdefault('stack_image', image))
+
+    controller.load_input_image('C:/tmp/example.heic')
+
+    assert input_widget.applied_state is gui_state.input_image
+    assert gui_state.input_image.input_color_space == 'Display P3'
+    assert gui_state.input_image.apply_cctf_decoding is True
+    np.testing.assert_allclose(captured['stack_image'], raw_image)
 
 
 def test_rotate_input_image_clockwise_rebuilds_preview_hides_output_and_requests_auto_preview(monkeypatch) -> None:
@@ -470,6 +506,8 @@ def test_run_simulation_passes_display_transform_settings(monkeypatch) -> None:
     gui_state = make_test_controller_gui_state()
     gui_state.display.use_display_transform = True
     gui_state.display.white_padding = 0.5
+    gui_state.simulation.output_cctf_encoding = True
+    gui_state.simulation.saving_cctf_encoding = False
     captured = _run_simulation_case(
         monkeypatch,
         preview_source_image=np.full((2, 2, 3), 0.25, dtype=np.float32),
@@ -481,6 +519,7 @@ def test_run_simulation_passes_display_transform_settings(monkeypatch) -> None:
 
     np.testing.assert_allclose(captured['display_args']['image_data'], np.full((4, 4, 3), 0.5, dtype=np.float32))
     assert captured['display_args']['output_color_space'] == gui_state.simulation.output_color_space
+    assert captured['display_args']['output_cctf_encoding'] is True
     assert captured['display_args']['use_display_transform'] is True
     assert captured['display_args']['padding_pixels'] == 0.0
     np.testing.assert_array_equal(captured['output_layer']['image'], np.full((6, 6, 3), 99, dtype=np.uint8))

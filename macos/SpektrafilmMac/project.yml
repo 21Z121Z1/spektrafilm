@@ -1,0 +1,57 @@
+name: SpektrafilmMac
+options:
+  bundleIdPrefix: org.spektrafilm
+  deploymentTarget:
+    macOS: "14.0"
+settings:
+  base:
+    CODE_SIGN_IDENTITY: "Apple Development"
+    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: BL2M85D9LA
+    ENABLE_DEBUG_DYLIB: "NO"
+    ENABLE_HARDENED_RUNTIME: "YES"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    SPEKTRAFILM_REPO_ROOT: "../.."
+    SWIFT_VERSION: "6.0"
+targets:
+  SpektrafilmMacCore:
+    type: library.static
+    platform: macOS
+    sources:
+      - Sources/SpektrafilmMacCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.spektrafilm.mac.core
+  SpektrafilmMac:
+    type: application
+    platform: macOS
+    sources:
+      - Sources/SpektrafilmMac
+    dependencies:
+      - target: SpektrafilmMacCore
+    settings:
+      base:
+        CODE_SIGN_IDENTITY: "Apple Development"
+        CODE_SIGN_STYLE: Manual
+        PRODUCT_BUNDLE_IDENTIFIER: org.spektrafilm.mac
+        PRODUCT_NAME: SpektrafilmMac
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) XCODE_APP"
+    info:
+      path: Config/Info.plist
+      properties:
+        CFBundleDevelopmentRegion: en
+        CFBundleDisplayName: Spektrafilm
+        CFBundleExecutable: "$(EXECUTABLE_NAME)"
+        CFBundleIdentifier: "$(PRODUCT_BUNDLE_IDENTIFIER)"
+        CFBundleInfoDictionaryVersion: "6.0"
+        CFBundleName: "$(PRODUCT_NAME)"
+        CFBundlePackageType: APPL
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleSupportedPlatforms:
+          - MacOSX
+        CFBundleVersion: "1"
+        LSApplicationCategoryType: public.app-category.photography
+        LSMinimumSystemVersion: "14.0"
+        NSHighResolutionCapable: true
+        NSPrincipalClass: NSApplication
+        SpektrafilmRepoRoot: "$(SPEKTRAFILM_REPO_ROOT)"

@@ -12,7 +12,7 @@
 
 ## Evidence And Scope
 
-The research files under `docs 2/dev/` contain three classes of recommendations:
+The research files under `docs/archive/docs-2-legacy-20260531/dev/` contain three classes of recommendations:
 
 1. Verified defects or product-quality gaps that are small enough to fix safely now.
 2. Feature gaps that are real but require larger product design: cancelable simulation, undo/redo, before/after, histogram, crop overlay, batch export, soft proofing, and true HDR preview.

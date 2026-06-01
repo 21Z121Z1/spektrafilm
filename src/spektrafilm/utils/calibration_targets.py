@@ -138,7 +138,7 @@ class CalibrationTarget:
 if __name__ == '__main__':
     from spektrafilm.utils.io import load_image_oiio
     
-    image = load_image_oiio('img/targets/cc11.tiff')
+    image = load_image_oiio('img/targets/cc11.tiff', dtype=np.float64)
     p = init_params(film_profile='kodak_portra_400')
     p.io.input_cctf_decoding = True
       

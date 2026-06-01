@@ -1,18 +1,28 @@
 from __future__ import annotations
 
+import logging
+import json
 from functools import lru_cache
+
+logger = logging.getLogger(__name__)
 
 from spektrafilm.profiles.io import load_profile
 from spektrafilm.runtime.params_schema import RuntimePhotoParams
-from spektrafilm.utils.io import read_neutral_print_filters
 
 
 @lru_cache(maxsize=1)
 def _get_neutral_print_filters():
+    import importlib.resources as pkg_resources
+
+    package = pkg_resources.files('spektrafilm.data.filters')
+    resource = package / 'neutral_print_filters.json'
     try:
-        return read_neutral_print_filters()
-    except FileNotFoundError:
+        with resource.open("r") as file:
+            return json.load(file)
+    except (FileNotFoundError, OSError):
         return {}
+    except json.JSONDecodeError as exc:
+        raise OSError(f"Failed to read neutral print filters: {exc}") from exc
 
 
 def apply_database_neutral_print_filters(
@@ -37,10 +47,12 @@ def apply_database_neutral_print_filters(
         params.enlarger.m_filter_neutral = m_filter
         params.enlarger.y_filter_neutral = y_filter
     elif warn_missing:
-        print(
-            f"Warning: No neutral print filters found in database for print stock {params.print.info.stock} "
-            f"with illuminant {params.enlarger.illuminant} and film stock {params.film.info.stock}. "
-            "Using defaults."
+        logger.warning(
+            "No neutral print filters found in database for print stock %s "
+            "with illuminant %s and film stock %s. Using defaults.",
+            params.print.info.stock,
+            params.enlarger.illuminant,
+            params.film.info.stock,
         )
     return params
 

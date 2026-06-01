@@ -6,6 +6,7 @@ import numpy as np
 
 from spektrafilm.model.illuminants import Illuminants
 from spektrafilm.model.stocks import FilmStocks, PrintPapers
+from spektrafilm.color_management import ACES_INTERCHANGE_COLOR_SPACE, ACES_WORKING_COLOR_SPACE
 from spektrafilm_gui.params_mapper import build_params_from_state
 import spektrafilm_gui.state as state_module
 from spektrafilm_gui.state import (
@@ -95,7 +96,8 @@ def test_build_params_maps_runtime_strings() -> None:
     state.input_image.input_color_space = 'Display P3'
     state.input_image.spectral_upsampling_method = 'mallett2019'
     state.simulation.output_color_space = 'ACES2065-1'
-    state.simulation.saving_cctf_encoding = False
+    state.simulation.output_cctf_encoding = False
+    state.simulation.saving_cctf_encoding = True
     state.display.preview_max_size = 1024
 
     params = build_params_from_state(state)
@@ -105,7 +107,44 @@ def test_build_params_maps_runtime_strings() -> None:
     assert params.settings.rgb_to_raw_method == 'mallett2019'
     assert params.settings.preview_max_size == 1024
     assert params.io.output_color_space == 'ACES2065-1'
+    assert params.io.output_cctf_encoding is False
+
+
+def test_manual_workflow_separates_runtime_output_cctf_from_saving_cctf() -> None:
+    state = make_state()
+    state.simulation.color_management_workflow = 'manual'
+    state.simulation.output_color_space = 'Display P3'
+    state.simulation.output_cctf_encoding = True
+    state.simulation.saving_color_space = 'Display P3'
+    state.simulation.saving_cctf_encoding = False
+
+    params = build_params_from_state(state)
+
+    assert params.settings.color_management_workflow == 'manual'
+    assert params.io.output_color_space == 'Display P3'
     assert params.io.output_cctf_encoding is True
+    assert state.simulation.saving_cctf_encoding is False
+
+
+def test_build_params_applies_aces_reference_workflow() -> None:
+    state = make_state()
+    state.simulation.color_management_workflow = 'aces_reference'
+    state.input_image.input_color_space = 'Display P3'
+    state.input_image.apply_cctf_decoding = True
+    state.simulation.output_color_space = 'sRGB'
+    state.simulation.output_cctf_encoding = True
+    state.simulation.saving_color_space = 'sRGB'
+    state.simulation.saving_cctf_encoding = True
+
+    params = build_params_from_state(state)
+
+    assert params.settings.color_management_workflow == 'aces_reference'
+    assert params.io.input_color_space == ACES_WORKING_COLOR_SPACE
+    assert params.io.input_cctf_decoding is False
+    assert params.io.output_color_space == ACES_WORKING_COLOR_SPACE
+    assert params.io.output_cctf_encoding is False
+    assert params.io.output_clip_min is False
+    assert params.io.output_clip_max is False
 
 
 def test_build_params_maps_enlarger_diffusion_filter() -> None:
@@ -173,7 +212,9 @@ def test_build_default_gui_state_uses_runtime_defaults() -> None:
     assert state.halation.halation_bounce_decay == 0.5
     assert state.halation.halation_renormalize is True
     assert state.input_image.crop_size == (0.1, 0.1)
+    assert state.simulation.color_management_workflow == 'manual'
     assert state.simulation.output_color_space == 'sRGB'
+    assert state.simulation.output_cctf_encoding is True
     assert state.simulation.saving_color_space == 'sRGB'
     assert state.simulation.saving_cctf_encoding is True
     assert state.simulation.camera_diffusion_filter_active is False

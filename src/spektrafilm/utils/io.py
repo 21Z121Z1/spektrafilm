@@ -938,6 +938,7 @@ def load_dichroic_filters(wavelengths, brand='thorlabs'):
             data = data[unique_index,:]
             # filters[:,i] = scipy.interpolate.CubicSpline(data[:,0], data[:,1]/100)(wavelengths)
             filters[:,i] = scipy.interpolate.Akima1DInterpolator(data[:,0], data[:,1]/100)(wavelengths)
+            filters[:,i] = np.nan_to_num(filters[:,i], nan=0.0, posinf=0.0, neginf=0.0)
     return filters
 
 def load_filter(wavelengths, name='KG3', brand='schott', filter_type='heat_absorbing', percent_transmittance=False):
@@ -956,4 +957,5 @@ def load_filter(wavelengths, name='KG3', brand='schott', filter_type='heat_absor
         data = data[unique_index,:]
         # transmittance = scipy.interpolate.CubicSpline(data[:,0], data[:,1]/scale)(wavelengths)
         transmittance = scipy.interpolate.Akima1DInterpolator(data[:,0], data[:,1]/scale)(wavelengths)
+        transmittance = np.nan_to_num(transmittance, nan=0.0, posinf=0.0, neginf=0.0)
     return transmittance

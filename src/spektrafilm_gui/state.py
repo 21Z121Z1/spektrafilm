@@ -4,6 +4,7 @@ from dataclasses import dataclass, is_dataclass, replace
 from typing import TypeVar
 
 from spektrafilm.model.stocks import FilmStocks, PrintPapers
+from spektrafilm.color_management import color_management_workflow_preset
 from spektrafilm.runtime.api import digest_params, init_params
 from spektrafilm.runtime.params_schema import RuntimePhotoParams
 
@@ -151,11 +152,15 @@ class SimulationState:
     scan_black_correction: bool
     scan_black_level: float
     scan_unsharp_mask: tuple[float, float]
+    color_management_workflow: str
     output_color_space: str
+    output_cctf_encoding: bool
     saving_color_space: str
     saving_cctf_encoding: bool
     auto_preview: bool
     scan_film: bool
+    compute_backend: str
+    gpu_precision: str
 
 
 @dataclass(slots=True)
@@ -208,6 +213,14 @@ def gui_state_from_params(
     film_stock: str,
     print_paper: str,
 ) -> GuiState:
+    workflow = getattr(params.settings, 'color_management_workflow', 'manual')
+    workflow_preset = color_management_workflow_preset(workflow)
+    saving_color_space = workflow_preset.saving_color_space or params.io.output_color_space
+    saving_cctf_encoding = (
+        params.io.output_cctf_encoding
+        if workflow_preset.saving_cctf_encoding is None
+        else workflow_preset.saving_cctf_encoding
+    )
     return GuiState(
         input_image=InputImageState(
             upscale_factor=params.io.upscale_factor,
@@ -328,11 +341,15 @@ def gui_state_from_params(
             scan_black_correction=params.scanner.black_correction,
             scan_black_level=params.scanner.black_level,
             scan_unsharp_mask=tuple(params.scanner.unsharp_mask),
-            output_color_space="sRGB",
-            saving_color_space="sRGB",
-            saving_cctf_encoding=params.io.output_cctf_encoding,
+            color_management_workflow=workflow,
+            output_color_space=params.io.output_color_space,
+            output_cctf_encoding=params.io.output_cctf_encoding,
+            saving_color_space=saving_color_space,
+            saving_cctf_encoding=saving_cctf_encoding,
             auto_preview=True,
             scan_film=params.io.scan_film,
+            compute_backend=params.settings.compute_backend,
+            gpu_precision=params.settings.gpu_precision,
         ),
         display=DisplayState(
             use_display_transform=True,

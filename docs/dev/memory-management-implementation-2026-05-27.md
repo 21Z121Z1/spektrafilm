@@ -7,8 +7,8 @@ Date: 2026-05-27
 This implementation addresses the real memory-management issues confirmed in
 the current Spektrafilm runtime and GUI paths after reviewing:
 
-- `docs 2/dev/research-memory-management.md`
-- `docs 2/dev/research-memory-optimization-patterns.md`
+- `docs/archive/docs-2-legacy-20260531/dev/research-memory-management.md`
+- `docs/archive/docs-2-legacy-20260531/dev/research-memory-optimization-patterns.md`
 - current `src/spektrafilm/runtime`, `src/spektrafilm/gpu`, and
   `src/spektrafilm_gui` call sites
 

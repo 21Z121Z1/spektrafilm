@@ -3,25 +3,30 @@ import scipy.ndimage
 from spektrafilm.utils.fast_gaussian_filter import fast_exponential_filter, fast_gaussian_filter
 from spektrafilm.utils.numba_boost_hightlights import boost_highlights
 
-def apply_unsharp_mask(image, sigma=0.0, amount=0.0):
+def apply_unsharp_mask(image, sigma=0.0, amount=0.0, *, backend=None):
     """
     Apply an unsharp mask to an image.
-    
+
     Parameters:
     image (ndarray): The input image to be processed.
     sigma (float, optional): The standard deviation for the Gaussian sharp filter. Leave 0 if not wanted.
     amount (float, optional): The strength of the sharpening effect. Leave 0 if not wanted.
-    
+    backend: Optional GPU backend for accelerated filtering.
+
     Returns:
     ndarray: The processed image after applying the unsharp mask.
     """
     # image_blur = scipy.ndimage.gaussian_filter(image, sigma=(sigma, sigma, 0))
-    image_blur = fast_gaussian_filter(image, sigma)
+    if backend is not None and getattr(backend, "supports_gpu", False):
+        from spektrafilm.gpu.kernels.filters import gaussian_filter_backend as _gauss_backend
+        image_blur = _gauss_backend(image, sigma, backend)
+    else:
+        image_blur = fast_gaussian_filter(image, sigma)
     image_sharp = image + amount * (image - image_blur)
     return image_sharp
 
 
-def apply_halation_um(raw, halation, pixel_size_um):
+def apply_halation_um(raw, halation, pixel_size_um, *, backend=None):
     """Apply highlight boost, in-emulsion scatter, and back-reflection halation.
 
     Ordering is boost -> scatter -> halation: the boost reconstructs pre-clip
@@ -49,9 +54,20 @@ def apply_halation_um(raw, halation, pixel_size_um):
     w_s = np.asarray(halation.scatter_tail_weight, dtype=np.float64)
     sigma_c_px = np.asarray(halation.scatter_core_um, dtype=np.float64) * s_scale / pixel_size_um
     lambda_t_px = np.asarray(halation.scatter_tail_um, dtype=np.float64) * s_scale / pixel_size_um
+    _gpu = backend is not None and getattr(backend, "supports_gpu", False)
     if s_amount > 0 and (np.any(sigma_c_px > 0) or np.any(lambda_t_px > 0)):
-        core = fast_gaussian_filter(raw, np.maximum(sigma_c_px, 1e-6))
-        tail = fast_exponential_filter(raw, np.maximum(lambda_t_px, 1e-6))
+        from spektrafilm.gpu.kernels.filters import (
+            exponential_filter_backend as _exp_backend,
+            gaussian_filter_backend as _gauss_backend,
+        )
+        sigma_c_safe = np.maximum(sigma_c_px, 1e-6)
+        lambda_t_safe = np.maximum(lambda_t_px, 1e-6)
+        if _gpu:
+            core = _gauss_backend(raw, sigma_c_safe, backend)
+            tail = _exp_backend(raw, lambda_t_safe, backend)
+        else:
+            core = fast_gaussian_filter(raw, sigma_c_safe)
+            tail = fast_exponential_filter(raw, lambda_t_safe)
         scattered = (1.0 - w_s) * core + w_s * tail
         raw = (1.0 - s_amount) * raw + s_amount * scattered
 
@@ -66,33 +82,40 @@ def apply_halation_um(raw, halation, pixel_size_um):
     N = int(halation.halation_n_bounces)
     rho = float(halation.halation_bounce_decay)
     if N >= 1 and np.any(a_tot > 0) and np.any(sigma_h_px > 0):
+        from spektrafilm.gpu.kernels.filters import gaussian_filter_backend as _gauss_backend
         decay = np.array([rho ** (k - 1) for k in range(1, N + 1)], dtype=np.float64)
         decay /= decay.sum()
-        halation_blur = np.zeros_like(raw)
+        halation_blur = raw * 0.0  # Same backend type as raw (numpy or GPU)
         for k, wk in zip(range(1, N + 1), decay):
             sigma_k_px = np.maximum(sigma_h_px * np.sqrt(k), 1e-6)
-            halation_blur += wk * fast_gaussian_filter(raw, sigma_k_px)
+            if _gpu:
+                halation_blur += wk * _gauss_backend(raw, sigma_k_px, backend)
+            else:
+                halation_blur += wk * fast_gaussian_filter(raw, sigma_k_px)
         raw = raw + a_tot * halation_blur
         if halation.halation_renormalize:
             raw = raw / (1.0 + a_tot)
 
     return raw
 
-def apply_gaussian_blur(data, sigma):
+def apply_gaussian_blur(data, sigma, *, backend=None):
     if sigma > 0:
         # return scipy.ndimage.gaussian_filter(data, (sigma, sigma, 0))
         # data = np.double(data)
         # data = np.ascontiguousarray(data)
+        if backend is not None and getattr(backend, "supports_gpu", False):
+            from spektrafilm.gpu.kernels.filters import gaussian_filter_backend as _gauss_backend
+            return _gauss_backend(data, sigma, backend)
         return fast_gaussian_filter(data, sigma)
     else:
         return data
     
-def apply_gaussian_blur_um(data, sigma_um, pixel_size_um):
+def apply_gaussian_blur_um(data, sigma_um, pixel_size_um, *, backend=None):
     sigma = sigma_um / pixel_size_um
     if sigma > 0:
-        # return scipy.ndimage.gaussian_filter(data, (sigma, sigma, 0))
-        # data = np.double(data)
-        # data = np.ascontiguousarray(data)
+        if backend is not None and getattr(backend, "supports_gpu", False):
+            from spektrafilm.gpu.kernels.filters import gaussian_filter_backend as _gauss_backend
+            return _gauss_backend(data, sigma, backend)
         return fast_gaussian_filter(data, sigma)
     else:
         return data
@@ -579,7 +602,7 @@ def diffusion_filter_psf(
     return psf
 
 
-def apply_diffusion_filter_um(image, diffusion_filter, pixel_size_um):
+def apply_diffusion_filter_um(image, diffusion_filter, pixel_size_um, *, backend=None):
     """Apply a diffusion-filter PSF to an RGB image.
 
     Implements the energy-conserving convex combination
@@ -625,12 +648,21 @@ def apply_diffusion_filter_um(image, diffusion_filter, pixel_size_um):
         overrides=overrides,
     )
 
-    padded = np.pad(image, ((radius, radius), (radius, radius), (0, 0)), mode='reflect')
-    blurred = np.empty_like(padded)
-    for channel in range(image.shape[2]):
-        blurred[:, :, channel] = fftconvolve(
-            padded[:, :, channel], psf_per_channel[..., channel], mode='same',
-        )
+    _gpu = backend is not None and getattr(backend, "supports_gpu", False)
+    if _gpu:
+        from spektrafilm.gpu.kernels.filters import reflect_pad_hw_backend as _reflect_pad
+        padded = _reflect_pad(image, radius, backend)
+    else:
+        padded = np.pad(image, ((radius, radius), (radius, radius), (0, 0)), mode='reflect')
+    if _gpu:
+        from spektrafilm.gpu.kernels.filters import fft_convolve_same_backend as _fft_conv
+        blurred = _fft_conv(padded, psf_per_channel, backend)
+    else:
+        blurred = np.empty_like(padded)
+        for channel in range(image.shape[2]):
+            blurred[:, :, channel] = fftconvolve(
+                padded[:, :, channel], psf_per_channel[..., channel], mode='same',
+            )
     blurred = blurred[radius:-radius, radius:-radius, :]
 
     return (1.0 - p_s) * image + p_s * blurred

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
@@ -35,6 +36,7 @@ class MlxBackend:
         self.mx = mx
         self.precision = precision
         self.default_dtype = mx.float32 if precision == "float32" else mx.float16
+        self._compiled_elementwise_cache: dict[tuple[Any, ...], Callable[..., Any]] = {}
         self._probe_device()
 
     def _probe_device(self) -> None:
@@ -80,6 +82,37 @@ class MlxBackend:
         if callable(clear_cache):
             clear_cache()
 
+    def _compile_arg_signature(self, value: Any) -> tuple[Any, ...]:
+        if self._is_mlx_array(value):
+            return (
+                "mlx",
+                tuple(int(dim) for dim in value.shape),
+                str(value.dtype),
+            )
+        return ("python", type(value).__module__, type(value).__qualname__)
+
+    def compiled_elementwise(
+        self,
+        name: str,
+        function: Callable[..., Any],
+        *sample_args: Any,
+    ) -> Callable[..., Any]:
+        compile_fn = getattr(self.mx, "compile", None)
+        if not callable(compile_fn):
+            return function
+
+        key = (
+            str(name),
+            tuple(self._compile_arg_signature(arg) for arg in sample_args),
+        )
+        compiled = self._compiled_elementwise_cache.get(key)
+        if compiled is None:
+            if len(self._compiled_elementwise_cache) >= 128:
+                self._compiled_elementwise_cache.clear()
+            compiled = compile_fn(function)
+            self._compiled_elementwise_cache[key] = compiled
+        return compiled
+
     def exp(self, x: Any):
         return self.mx.exp(x)
 
@@ -118,7 +151,11 @@ class MlxBackend:
         return self.mx.maximum(x, y)
 
     def nan_to_num(self, x: Any, nan: float = 0.0):
-        return self.mx.where(self.mx.isnan(x), nan, x)
+        x = self.mx.where(self.mx.isnan(x), nan, x)
+        big = np.finfo(np.float32).max
+        x = self.mx.where(self.mx.isinf(x) & (x > 0), big, x)
+        x = self.mx.where(self.mx.isinf(x) & (x < 0), -big, x)
+        return x
 
     def where(self, condition: Any, x: Any, y: Any):
         return self.mx.where(condition, x, y)

@@ -33,7 +33,7 @@ This workspace task intentionally extends the model: first perform that adversar
 
 - Repository: `/Users/retriedstormtrooper/Documents/spektrafilm-main`.
 - Current branch detected with old-Git-compatible command: `develop`.
-- Existing status before this plan included only untracked files/directories, including `.matplotlib/`, `docs 2/`, `docs/agent_audit/`, several `docs/dev/*.md`, `docs/superpowers/`, `output.heic`, `scratch/`, and `scratch_precision_test.py`.
+- Existing status before this plan included only untracked files/directories, including `.matplotlib/`, the former top-level `docs 2/` tree now archived under `docs/archive/docs-2-legacy-20260531/`, `docs/agent_audit/`, several `docs/dev/*.md`, `docs/superpowers/`, `output.heic`, `scratch/`, and `scratch_precision_test.py`.
 - Treat all pre-existing untracked files as user work. Do not delete, move, or normalize them unless required for the requested goal.
 - Follow `CLAUDE.md`: use `.venv/bin/python` or `uv run --extra dev`, keep fixes within `src/`, `tests/`, `docs/`, `README.md`, and `pyproject.toml`, preserve SDR behavior, and add tests for validation changes.
 

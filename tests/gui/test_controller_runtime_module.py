@@ -21,6 +21,7 @@ def test_execute_simulation_request_uses_runtime_runner_without_padding() -> Non
         image=np.full((2, 2, 3), 0.25, dtype=np.float32),
         params=object(),
         output_color_space='ACES2065-1',
+        output_cctf_encoding=False,
         use_display_transform=True,
     )
     captured: dict[str, object] = {}
@@ -34,7 +35,46 @@ def test_execute_simulation_request_uses_runtime_runner_without_padding() -> Non
     np.testing.assert_allclose(captured['display_args']['image'], np.full((4, 4, 3), 0.5, dtype=np.float32))
     assert result.mode_label == 'Preview'
     np.testing.assert_allclose(result.float_image, np.full((4, 4, 3), 0.5, dtype=np.float32))
+    assert result.output_cctf_encoding is False
+    assert captured['display_args']['output_cctf_encoding'] is False
     assert result.status_message == 'Display transform: active'
+
+
+def test_prepare_output_display_image_uses_aces_output_transform_for_linear_scene(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_aces_output_transform(image, *, color_space, colour_module):
+        captured['aces_call'] = {
+            'image': image.copy(),
+            'color_space': color_space,
+            'colour_module': colour_module,
+        }
+        return np.full_like(image, 0.5)
+
+    def fail_rgb_to_rgb(*_args, **_kwargs):
+        raise AssertionError('ACES preview must use the dedicated ACES output transform')
+
+    monkeypatch.setattr(runtime_module, 'aces_sdr_video_view_transform', fake_aces_output_transform)
+    colour_module = SimpleNamespace(RGB_to_RGB=fail_rgb_to_rgb)
+    preview, status = runtime_module.prepare_output_display_image(
+        np.array([[[-0.25, 1.25, 2.0]]], dtype=np.float32),
+        output_color_space='ACEScg',
+        output_cctf_encoding=False,
+        use_display_transform=True,
+        colour_module=colour_module,
+        imagecms_module=SimpleNamespace(
+            PyCMSError=RuntimeError,
+            get_display_profile=lambda: object(),
+            getProfileName=lambda profile: 'Display',
+        ),
+        pil_image_module=SimpleNamespace(),
+    )
+
+    assert preview.dtype == np.uint8
+    assert status == 'Display transform: ACES SDR video output transform'
+    assert captured['aces_call']['color_space'] == 'ACEScg'
+    assert captured['aces_call']['colour_module'] is colour_module
+    np.testing.assert_allclose(captured['aces_call']['image'], [[[0.0, 1.25, 2.0]]])
 
 
 def test_simulation_worker_emits_failure_message() -> None:
@@ -55,6 +95,30 @@ def test_simulation_worker_emits_failure_message() -> None:
 
     assert worker.signals.finished.emitted == []
     assert worker.signals.failed.emitted == ['ValueError: bad simulation']
+
+
+def test_simulation_worker_emits_failure_message_for_base_exception() -> None:
+    request = runtime_module.SimulationRequest(
+        mode_label='Preview',
+        image=np.zeros((1, 1, 3), dtype=np.float32),
+        params=object(),
+        output_color_space='sRGB',
+        use_display_transform=False,
+    )
+
+    class WorkerAbort(BaseException):
+        pass
+
+    worker = runtime_module.SimulationWorker(
+        request,
+        execute_request=lambda request: (_ for _ in ()).throw(WorkerAbort('metal abort')),
+    )
+    worker.signals = SimpleNamespace(finished=FakeSignal(), failed=FakeSignal())
+
+    worker.run()
+
+    assert worker.signals.finished.emitted == []
+    assert worker.signals.failed.emitted == ['WorkerAbort: metal abort']
 
 
 def test_prepare_input_color_preview_image_converts_to_srgb_float_preview() -> None:

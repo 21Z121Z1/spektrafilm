@@ -47,6 +47,40 @@ def _reference_compute_density_spectral(density_cmy_chw, channel_density):
     return result
 
 
+def _reference_cmy_to_log_xyz_hwc(
+    density_cmy,
+    channel_density,
+    base_density,
+    scan_illuminant,
+    cmfs,
+    normalization,
+):
+    density_spectral = np.einsum("hwk,lk->hwl", density_cmy, channel_density)
+    density_spectral = density_spectral + base_density
+    light = np.power(10.0, -density_spectral) * scan_illuminant
+    light = np.nan_to_num(light, nan=0.0)
+    xyz = np.einsum("hwl,lc->hwc", light, cmfs) / normalization
+    return np.log10(np.fmax(xyz, 0.0) + 1e-10).astype(np.float32)
+
+
+def _reference_cmy_to_log_raw_hwc(
+    density_cmy,
+    channel_density,
+    base_density,
+    illuminant,
+    sensitivity,
+    exposure_factor,
+    preflash,
+):
+    density_spectral = np.einsum("hwk,lk->hwl", density_cmy, channel_density)
+    density_spectral = density_spectral + base_density
+    light = np.power(10.0, -density_spectral) * illuminant
+    light = np.nan_to_num(light, nan=0.0)
+    raw = np.einsum("hwl,lc->hwc", light, sensitivity)
+    raw = raw * exposure_factor + preflash
+    return np.log10(np.fmax(raw, 0.0) + 1e-10).astype(np.float32)
+
+
 def test_density_to_light_matches_numpy(backend) -> None:
     rng = np.random.default_rng(42)
     H = 16
@@ -138,6 +172,138 @@ def test_compute_density_spectral_invalid_shapes(backend) -> None:
         backend.compute_density_spectral(np.zeros((2, 8, 81), dtype=np.float32), np.zeros((3, 81), dtype=np.float32))
     with pytest.raises(ValueError, match="channel_density must have shape"):
         backend.compute_density_spectral(np.zeros((3, 8, 81), dtype=np.float32), np.zeros((3, 80), dtype=np.float32))
+
+
+def test_fused_cmy_to_log_xyz_matches_numpy_for_hwc_runtime_shape(backend) -> None:
+    rng = np.random.default_rng(91)
+    density_cmy = rng.random((5, 7, 3), dtype=np.float32) * 1.4
+    channel_density = rng.random((13, 3), dtype=np.float32) + 0.02
+    base_density = rng.random(13, dtype=np.float32) * 0.05
+    scan_illuminant = rng.random(13, dtype=np.float32) + 0.1
+    cmfs = rng.random((13, 3), dtype=np.float32) + 0.01
+    normalization = float(np.sum(scan_illuminant * cmfs[:, 1]))
+
+    expected = _reference_cmy_to_log_xyz_hwc(
+        density_cmy,
+        channel_density,
+        base_density,
+        scan_illuminant,
+        cmfs,
+        normalization,
+    )
+    actual = backend.cmy_to_log_xyz(
+        density_cmy,
+        channel_density,
+        base_density,
+        scan_illuminant,
+        cmfs,
+        normalization,
+    )
+
+    assert actual.shape == (5, 7, 3)
+    assert actual.dtype == np.float32
+    np.testing.assert_allclose(actual, expected, rtol=2e-5, atol=2e-5)
+
+
+def test_fused_cmy_to_log_xyz_zeroes_nan_light_like_generic_backend(backend) -> None:
+    rng = np.random.default_rng(93)
+    density_cmy = rng.random((3, 4, 3), dtype=np.float32) * 1.4
+    channel_density = rng.random((9, 3), dtype=np.float32) + 0.02
+    channel_density[2, 1] = np.nan
+    base_density = rng.random(9, dtype=np.float32) * 0.05
+    base_density[5] = np.nan
+    scan_illuminant = rng.random(9, dtype=np.float32) + 0.1
+    cmfs = rng.random((9, 3), dtype=np.float32) + 0.01
+    normalization = float(np.sum(scan_illuminant * cmfs[:, 1]))
+
+    expected = _reference_cmy_to_log_xyz_hwc(
+        density_cmy,
+        channel_density,
+        base_density,
+        scan_illuminant,
+        cmfs,
+        normalization,
+    )
+    actual = backend.cmy_to_log_xyz(
+        density_cmy,
+        channel_density,
+        base_density,
+        scan_illuminant,
+        cmfs,
+        normalization,
+    )
+
+    assert np.isfinite(actual).all()
+    np.testing.assert_allclose(actual, expected, rtol=2e-5, atol=2e-5)
+
+
+def test_fused_cmy_to_log_raw_matches_numpy_for_printing_chain(backend) -> None:
+    rng = np.random.default_rng(92)
+    density_cmy = rng.random((6, 4, 3), dtype=np.float32) * 1.2
+    channel_density = rng.random((11, 3), dtype=np.float32) + 0.02
+    base_density = rng.random(11, dtype=np.float32) * 0.04
+    illuminant = rng.random(11, dtype=np.float32) + 0.1
+    sensitivity = rng.random((11, 3), dtype=np.float32) + 0.01
+    exposure_factor = np.array([0.8, 1.1, 1.3], dtype=np.float32)
+    preflash = np.array([0.001, 0.002, 0.003], dtype=np.float32)
+
+    expected = _reference_cmy_to_log_raw_hwc(
+        density_cmy,
+        channel_density,
+        base_density,
+        illuminant,
+        sensitivity,
+        exposure_factor,
+        preflash,
+    )
+    actual = backend.cmy_to_log_raw(
+        density_cmy,
+        channel_density,
+        base_density,
+        illuminant,
+        sensitivity,
+        exposure_factor,
+        preflash,
+    )
+
+    assert actual.shape == (6, 4, 3)
+    assert actual.dtype == np.float32
+    np.testing.assert_allclose(actual, expected, rtol=2e-5, atol=2e-5)
+
+
+def test_fused_cmy_to_log_raw_zeroes_nan_light_like_generic_backend(backend) -> None:
+    rng = np.random.default_rng(94)
+    density_cmy = rng.random((4, 3, 3), dtype=np.float32) * 1.2
+    channel_density = rng.random((10, 3), dtype=np.float32) + 0.02
+    channel_density[1, 2] = np.nan
+    base_density = rng.random(10, dtype=np.float32) * 0.04
+    base_density[7] = np.nan
+    illuminant = rng.random(10, dtype=np.float32) + 0.1
+    sensitivity = rng.random((10, 3), dtype=np.float32) + 0.01
+    exposure_factor = np.array([0.8, 1.1, 1.3], dtype=np.float32)
+    preflash = np.array([0.001, 0.002, 0.003], dtype=np.float32)
+
+    expected = _reference_cmy_to_log_raw_hwc(
+        density_cmy,
+        channel_density,
+        base_density,
+        illuminant,
+        sensitivity,
+        exposure_factor,
+        preflash,
+    )
+    actual = backend.cmy_to_log_raw(
+        density_cmy,
+        channel_density,
+        base_density,
+        illuminant,
+        sensitivity,
+        exposure_factor,
+        preflash,
+    )
+
+    assert np.isfinite(actual).all()
+    np.testing.assert_allclose(actual, expected, rtol=2e-5, atol=2e-5)
 
 
 def test_pipeline_caching_reuses_same_pipeline(backend) -> None:

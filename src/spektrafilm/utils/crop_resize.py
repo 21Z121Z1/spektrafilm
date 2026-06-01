@@ -18,6 +18,7 @@ def crop_image(image, center=(0.5,0.5), size=(0.1, 0.1)):
     shape = image.shape[0:2]
     cn = np.round(shape*np.array(center))
     sz = np.round(np.double(np.max(shape))*np.flip(np.array(size)))
+    sz = np.minimum(sz, shape)
     x0 = np.round(cn - sz/2)
     sz = np.int64(sz)
     x0 = np.int64(x0)

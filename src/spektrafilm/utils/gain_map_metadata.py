@@ -190,7 +190,7 @@ class GainMapMetadata:
             channels=tuple(channels),
         )
 
-    def to_xmp(self) -> str:
+    def to_xmp(self, *, gain_map_length: int | None = None) -> str:
         """Serialize to XMP XML string using Adobe hdrgm namespace.
 
         Returns
@@ -199,12 +199,15 @@ class GainMapMetadata:
             UTF-8 XMP packet suitable for JPEG APP1 or HEIC metadata.
         """
         ch = self.channels[0]
+        gain_map_length_attr = "" if gain_map_length is None else f'\n                  Item:Length="{int(gain_map_length)}"'
         return (
             '<?xpacket begin="\xef\xbb\xbf" id="W5M0MpCehiHzreSzNTczkc9d"?>\n'
             '<x:xmpmeta xmlns:x="adobe:ns:meta/">\n'
             '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">\n'
             '<rdf:Description rdf:about=""\n'
-            '  xmlns:hdrgm="http://ns.adobe.com/hdr-gain-map/1.0/">\n'
+            '  xmlns:hdrgm="http://ns.adobe.com/hdr-gain-map/1.0/"\n'
+            '  xmlns:Container="http://ns.google.com/photos/1.0/container/"\n'
+            '  xmlns:Item="http://ns.google.com/photos/1.0/container/item/">\n'
             f'  <hdrgm:Version>1.0</hdrgm:Version>\n'
             f'  <hdrgm:GainMapMin>{ch.gain_map_min:.6g}</hdrgm:GainMapMin>\n'
             f'  <hdrgm:GainMapMax>{ch.gain_map_max:.6g}</hdrgm:GainMapMax>\n'
@@ -214,6 +217,16 @@ class GainMapMetadata:
             f'  <hdrgm:HDRCapacityMin>{self.base_hdr_headroom:.6g}</hdrgm:HDRCapacityMin>\n'
             f'  <hdrgm:HDRCapacityMax>{self.alternate_hdr_headroom:.6g}</hdrgm:HDRCapacityMax>\n'
             f'  <hdrgm:BaseRenditionIsHDR>{"True" if self.base_hdr_headroom > 0 else "False"}</hdrgm:BaseRenditionIsHDR>\n'
+            '  <Container:Directory>\n'
+            '    <rdf:Seq>\n'
+            '      <rdf:li rdf:parseType="Resource">\n'
+            '        <Container:Item Item:Semantic="Primary" Item:Mime="image/jpeg"/>\n'
+            '      </rdf:li>\n'
+            '      <rdf:li rdf:parseType="Resource">\n'
+            f'        <Container:Item Item:Semantic="GainMap" Item:Mime="image/jpeg"{gain_map_length_attr}/>\n'
+            '      </rdf:li>\n'
+            '    </rdf:Seq>\n'
+            '  </Container:Directory>\n'
             '</rdf:Description>\n'
             '</rdf:RDF>\n'
             '</x:xmpmeta>\n'

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Bring the current non-GUI pytest system into a truthful, maintainable state by correcting stale assumptions in `docs 2/dev/test-improvement-plan.md`, fixing real behavior uncovered by the new tests, and documenting the final verification evidence.
+**Goal:** Bring the current non-GUI pytest system into a truthful, maintainable state by correcting stale assumptions in `docs/archive/docs-2-legacy-20260531/dev/test-improvement-plan.md`, fixing real behavior uncovered by the new tests, and documenting the final verification evidence.
 
 **Architecture:** Keep the work test-first and local to `src/`, `tests/`, and `docs/`. Do not duplicate tests that already exist; strengthen weak assertions where they currently allow broken behavior, and fix only root causes proven by failing tests.
 
@@ -82,5 +82,5 @@ External practice checks used:
 ### Task 5: Documentation And Self-Audit
 
 - [ ] Write `docs/dev/test-system-hardening-2026-05-27.md` with actual findings, changed files, and verification evidence.
-- [ ] Re-read `docs 2/dev/test-improvement-plan.md` and this plan; confirm every real issue is either fixed, already fixed, or explicitly out of scope.
+- [ ] Re-read `docs/archive/docs-2-legacy-20260531/dev/test-improvement-plan.md` and this plan; confirm every real issue is either fixed, already fixed, or explicitly out of scope.
 - [ ] Ask: "Do I have factual 100% confidence?" If not, loop back to add the missing test/fix/documentation before finalizing.

@@ -239,6 +239,8 @@ def _dispatch_2d(image, sigma, truncate):
 
 def _apply_per_channel(image, sigma, truncate, filter_2d):
     image = np.ascontiguousarray(image)
+    if image.size == 0:
+        return image.copy()
     if image.ndim == 2:
         return filter_2d(image, sigma, truncate)
     if image.ndim == 3:

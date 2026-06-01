@@ -94,6 +94,12 @@ class GrainParams:
     micro_structure: tuple[float, float] = (0.2, 30)
     n_sub_layers: int = 1
 
+    def __post_init__(self):
+        if self.n_sub_layers < 1:
+            raise ValueError(
+                f"n_sub_layers must be >= 1, got {self.n_sub_layers}"
+            )
+
 
 @dataclass
 class HalationParams:
@@ -164,6 +170,8 @@ class IOParams:
     input_cctf_decoding: bool = False
     output_color_space: str = "sRGB"
     output_cctf_encoding: bool = True
+    output_clip_min: bool = True
+    output_clip_max: bool = True
     crop: bool = False
     crop_center: tuple[float, float] = (0.5, 0.5)
     crop_size: tuple[float, float] = (0.1, 0.1)
@@ -185,6 +193,7 @@ class DebugParams:
 
 @dataclass
 class SettingsParams:
+    color_management_workflow: str = "manual"
     rgb_to_raw_method: str = "hanatos2025"
     apply_hanatos2025_adaptation_window: bool = True
     apply_hanatos2025_adaptation_surface: bool = False
@@ -196,7 +205,11 @@ class SettingsParams:
     preview_max_size: int = 640
     preview_mode: bool = False
     neutral_print_filters_from_database: bool = True
-    
+    compute_backend: str = "cpu"
+    gpu_precision: str = "float32"
+    gpu_validate: bool = False
+    gpu_validation_tolerance: float | None = None
+
 
 @dataclass
 class RuntimePhotoParams:
@@ -216,3 +229,15 @@ class RuntimePhotoParams:
             raise TypeError("film must be a Profile instance")
         if not isinstance(self.print, Profile):
             raise TypeError("print must be a Profile instance")
+        if self.camera.film_format_mm <= 0:
+            raise ValueError(
+                f"film_format_mm must be > 0, got {self.camera.film_format_mm}"
+            )
+        if self.io.upscale_factor <= 0:
+            raise ValueError(
+                f"upscale_factor must be > 0, got {self.io.upscale_factor}"
+            )
+        if self.settings.lut_resolution < 2:
+            raise ValueError(
+                f"lut_resolution must be >= 2, got {self.settings.lut_resolution}"
+            )

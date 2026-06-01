@@ -1,5 +1,6 @@
 #include <jni.h>
 
+#include <cstdlib>
 #include <cstdint>
 #include <cstring>
 #include <android/log.h>
@@ -86,8 +87,10 @@ namespace {
 
     // Extract a single float from JSON by flat key search
     float extract_json_float(const char* json, size_t len, const char* key, float def) {
+        if (json == nullptr || key == nullptr) return def;
         size_t klen = strlen(key);
-        for (size_t i = 0; i < len - klen; i++) {
+        if (klen == 0 || len < klen) return def;
+        for (size_t i = 0; i + klen <= len; i++) {
             if (memcmp(json + i, key, klen) == 0) {
                 const char* p = json + i + klen;
                 const char* end = json + len;
@@ -97,19 +100,22 @@ namespace {
                 while (p < end && (*p == ' ' || *p == '\t')) p++;
                 const char* start = p;
                 while (p < end && *p != ',' && *p != '}' && *p != ']' && *p != '\n') p++;
-                char tmp = *p;
-                *const_cast<char*>(p) = '\0';
-                float val = static_cast<float>(atof(start));
-                *const_cast<char*>(p) = tmp;
-                return val;
+                const size_t token_len = static_cast<size_t>(p - start);
+                if (token_len == 0 || token_len >= 64) return def;
+                char token[64];
+                memcpy(token, start, token_len);
+                token[token_len] = '\0';
+                return static_cast<float>(atof(token));
             }
         }
         return def;
     }
 
     bool extract_json_bool(const char* json, size_t len, const char* key, bool def) {
+        if (json == nullptr || key == nullptr) return def;
         size_t klen = strlen(key);
-        for (size_t i = 0; i < len - klen; i++) {
+        if (klen == 0 || len < klen) return def;
+        for (size_t i = 0; i + klen <= len; i++) {
             if (memcmp(json + i, key, klen) == 0) {
                 const char* p = json + i + klen;
                 const char* end = json + len;
@@ -160,8 +166,14 @@ namespace {
         uint32_t offset;
         memcpy(&offset, bytes + 8, 4);
 
+        const size_t total_len = static_cast<size_t>(len);
+        if (offset < 16 || static_cast<size_t>(offset) > total_len) {
+            LOGE("Invalid profile data offset: %u", offset);
+            return false;
+        }
+
         const char* data = reinterpret_cast<const char*>(bytes) + offset;
-        size_t data_len = len - offset;
+        size_t data_len = total_len - static_cast<size_t>(offset);
         size_t expected = sizeof(spektrafilm::FilmProfileData);
 
         if (data_len < expected) {
@@ -189,6 +201,7 @@ Java_com_spektrafilm_android_processing_NativeBridge_nativeProcessImage(
     jbyteArray hanatosLutBytes
 ) {
     if (inputBuffer == nullptr || outputBuffer == nullptr) return kNullBuffer;
+    if (paramsJson == nullptr) return kInvalidCount;
     if (width <= 0 || height <= 0) return kInvalidCount;
 
     auto* input_data = static_cast<float*>(env->GetDirectBufferAddress(inputBuffer));
@@ -207,6 +220,7 @@ Java_com_spektrafilm_android_processing_NativeBridge_nativeProcessImage(
     // Load film profile from binary
     if (filmProfileBytes != nullptr) {
         jbyte* bytes = env->GetByteArrayElements(filmProfileBytes, nullptr);
+        if (bytes == nullptr) return kNullBuffer;
         jsize len = env->GetArrayLength(filmProfileBytes);
         bool ok = load_profile_bytes(bytes, len, config.film);
         env->ReleaseByteArrayElements(filmProfileBytes, bytes, JNI_ABORT);
@@ -221,6 +235,7 @@ Java_com_spektrafilm_android_processing_NativeBridge_nativeProcessImage(
     // Load print profile (overrides film profile for print data)
     if (printProfileBytes != nullptr) {
         jbyte* bytes = env->GetByteArrayElements(printProfileBytes, nullptr);
+        if (bytes == nullptr) return kNullBuffer;
         jsize len = env->GetArrayLength(printProfileBytes);
         spektrafilm::FilmProfileData print_data;
         if (load_profile_bytes(bytes, len, print_data)) {
@@ -246,6 +261,7 @@ Java_com_spektrafilm_android_processing_NativeBridge_nativeProcessImage(
                 g_hanatos_lut_size = lut_len;
             }
             jbyte* bytes = env->GetByteArrayElements(hanatosLutBytes, nullptr);
+            if (bytes == nullptr) return kNullBuffer;
             memcpy(g_hanatos_lut_data, bytes, lut_len);
             env->ReleaseByteArrayElements(hanatosLutBytes, bytes, JNI_ABORT);
             config.hanatos_lut.data = g_hanatos_lut_data;
@@ -257,6 +273,7 @@ Java_com_spektrafilm_android_processing_NativeBridge_nativeProcessImage(
 
     // Parse render settings from JSON
     jbyte* json_bytes = env->GetByteArrayElements(paramsJson, nullptr);
+    if (json_bytes == nullptr) return kNullBuffer;
     jsize json_len = env->GetArrayLength(paramsJson);
     parse_render_settings(reinterpret_cast<const char*>(json_bytes), json_len, config.render);
     env->ReleaseByteArrayElements(paramsJson, json_bytes, JNI_ABORT);

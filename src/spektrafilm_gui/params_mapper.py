@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from spektrafilm_gui.state import GuiState
+from spektrafilm.color_management import apply_color_management_workflow_to_io
 from spektrafilm.runtime.api import init_params
 from spektrafilm.runtime.params_schema import RuntimePhotoParams
 
@@ -21,6 +22,7 @@ def build_params_from_state(state: GuiState) -> RuntimePhotoParams:
     _apply_enlarger(params, state)
     _apply_scanner(params, state)
     _apply_settings(params, state)
+    apply_color_management_workflow_to_io(params.io, params.settings.color_management_workflow)
     return params
 
 
@@ -73,7 +75,7 @@ def _apply_io(params: RuntimePhotoParams, state: GuiState) -> None:
     params.io.input_color_space = state.input_image.input_color_space
     params.io.input_cctf_decoding = state.input_image.apply_cctf_decoding
     params.io.output_color_space = state.simulation.output_color_space
-    params.io.output_cctf_encoding = True
+    params.io.output_cctf_encoding = state.simulation.output_cctf_encoding
     params.io.scan_film = state.simulation.scan_film
 
 
@@ -155,6 +157,7 @@ def _apply_scanner(params: RuntimePhotoParams, state: GuiState) -> None:
 
 
 def _apply_settings(params: RuntimePhotoParams, state: GuiState) -> None:
+    params.settings.color_management_workflow = state.simulation.color_management_workflow
     params.settings.rgb_to_raw_method = state.input_image.spectral_upsampling_method
     params.settings.apply_hanatos2025_adaptation_window = bool(state.input_image.apply_hanatos2025_adaptation_window)
     params.settings.apply_hanatos2025_adaptation_surface = bool(state.input_image.apply_hanatos2025_adaptation_surface)
@@ -164,3 +167,5 @@ def _apply_settings(params: RuntimePhotoParams, state: GuiState) -> None:
     params.settings.use_scanner_lut = True
     params.settings.lut_resolution = 17
     params.settings.use_fast_stats = True
+    params.settings.compute_backend = state.simulation.compute_backend
+    params.settings.gpu_precision = state.simulation.gpu_precision

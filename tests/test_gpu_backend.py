@@ -51,6 +51,18 @@ def test_select_backend_auto_returns_usable_backend() -> None:
     assert isinstance(backend.supports_gpu, bool)
 
 
+def test_select_backend_auto_float64_falls_back_to_cpu() -> None:
+    backend = select_backend("auto", precision="float64")
+
+    assert backend.name == "cpu"
+    assert "float64" in (backend.fallback_reason or "")
+
+
+def test_select_backend_mlx_float64_is_strict_error() -> None:
+    with pytest.raises((BackendUnavailableError, ValueError), match="float64"):
+        select_backend("mlx", precision="float64")
+
+
 def test_select_backend_halide_is_strict_when_requested() -> None:
     try:
         backend = select_backend("halide")
@@ -90,6 +102,40 @@ def test_select_backend_mlx_is_strict_when_requested() -> None:
 
     assert backend.name == "mlx"
     assert backend.supports_gpu
+
+
+def test_mlx_compiled_elementwise_cache_reuses_stable_shape_dtype(monkeypatch) -> None:
+    try:
+        backend = select_backend("mlx")
+    except BackendUnavailableError as exc:
+        pytest.skip(str(exc))
+
+    compile_calls = []
+
+    def fake_compile(function):
+        compile_calls.append(function)
+
+        def wrapped(*args):
+            return function(*args)
+
+        return wrapped
+
+    monkeypatch.setattr(backend.mx, "compile", fake_compile, raising=False)
+    image = backend.asarray(np.ones((2, 3), dtype=np.float32))
+    same_shape = backend.asarray(np.full((2, 3), 2.0, dtype=np.float32))
+    changed_shape = backend.asarray(np.ones((4, 3), dtype=np.float32))
+
+    def chain(value):
+        return value + 1.0
+
+    compiled = backend.compiled_elementwise("tests.chain", chain, image)
+    same_compiled = backend.compiled_elementwise("tests.chain", chain, same_shape)
+    changed_compiled = backend.compiled_elementwise("tests.chain", chain, changed_shape)
+
+    assert same_compiled is compiled
+    assert changed_compiled is not compiled
+    assert len(compile_calls) == 2
+    np.testing.assert_allclose(backend.to_numpy(same_compiled(image)), np.full((2, 3), 2.0))
 
 
 def test_mlx_backend_rejects_false_positive_metal_availability(monkeypatch) -> None:

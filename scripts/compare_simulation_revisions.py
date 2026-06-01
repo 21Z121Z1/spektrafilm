@@ -122,7 +122,7 @@ def _evaluate_revision(
     with tempfile.TemporaryDirectory(prefix='spektrafilm-rev-') as temp_dir:
         worktree_path = Path(temp_dir) / revision.replace('/', '_').replace('\\', '_')
         subprocess.run(
-            ['git', 'worktree', 'add', '--detach', str(worktree_path), revision],
+            ['git', 'worktree', 'add', '--detach', str(worktree_path), '--', revision],
             cwd=str(REPO_ROOT),
             check=True,
             capture_output=True,

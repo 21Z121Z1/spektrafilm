@@ -71,7 +71,8 @@ def compute_exposure_correction_dir_couplers(log_raw, density_cmy, density_max,
                                              diffusion_tail_size_pixel=0.0,
                                              diffusion_exp_tail_weight=0.0,
                                              high_exposure_couplers_shift=0.0,
-                                             positive=False):
+                                             positive=False,
+                                             backend=None):
     """
     Apply coupler inhibitors to the raw data based on density curves and inhibitor values.
     Coupler inhibitors are released when density is formed in the emulsion layers.
@@ -88,10 +89,38 @@ def compute_exposure_correction_dir_couplers(log_raw, density_cmy, density_max,
     diffusion_tail_size_pixel (int): The size of the exponential tail for the diffusion of the inhibitors in xy.
     diffusion_exp_tail_weight (float): The weight of the exponential tail in the diffusion of the inhibitors.
     high_exposure_couplers_shift (float): if overexposure increases saturation, this will increase the inhibitors effect at higher density
-    
+
     Returns:
     numpy.ndarray: The modified raw exposure data after applying the effect of inhibitors.
     """
+    _gpu = backend is not None and getattr(backend, "supports_gpu", False)
+
+    if _gpu:
+        from spektrafilm.gpu.kernels.filters import gaussian_filter_backend, exponential_filter_backend
+
+        density_cmy_b = backend.asarray(density_cmy)
+        log_raw_b = backend.asarray(log_raw)
+        density_max_b = backend.asarray(density_max)
+        matrix_b = backend.asarray(dir_couplers_matrix)
+
+        if positive:
+            density_silver = density_max_b - density_cmy_b
+        else:
+            density_silver = density_cmy_b
+        if high_exposure_couplers_shift:
+            density_silver = density_silver + high_exposure_couplers_shift * density_silver * density_silver
+
+        log_raw_correction = backend.einsum('ijk,km->ijm', density_silver, matrix_b)
+
+        if diffusion_size_pixel > 0:
+            log_raw_correction = (
+                (1 - diffusion_exp_tail_weight) * gaussian_filter_backend(log_raw_correction, diffusion_size_pixel, backend)
+                + exponential_filter_backend(log_raw_correction, diffusion_tail_size_pixel, backend) * diffusion_exp_tail_weight
+            )
+
+        return log_raw_b - log_raw_correction
+
+    # CPU path (unchanged)
     if positive:
         density_silver = density_max - density_cmy
     else:
@@ -116,15 +145,17 @@ def apply_density_correction_dir_couplers(
     dir_couplers,
     profile_type,
     gamma_factor=1.0,
+    backend=None,
 ):
     if not dir_couplers.active:
         return density_cmy
 
+    _gpu = backend is not None and getattr(backend, "supports_gpu", False)
     positive = profile_type == 'positive'
-    
+
     couplers_matrix = compute_dir_couplers_matrix(dir_couplers)
     couplers_matrix *= dir_couplers.amount
-    
+
     density_curves_0 = compute_density_curves_before_dir_couplers(
         density_curves,
         log_exposure,
@@ -144,7 +175,13 @@ def apply_density_correction_dir_couplers(
         diffusion_tail_size_pixel,
         diffusion_tail_weight,
         positive=positive,
+        backend=backend,
     )
+    if _gpu:
+        from spektrafilm.gpu.kernels.density import interpolate_exposure_to_density_backend
+        return interpolate_exposure_to_density_backend(
+            log_raw_0, log_exposure, density_curves_0, gamma_factor, backend,
+        )
     return interpolate_exposure_to_density(log_raw_0, density_curves_0, log_exposure, gamma_factor)
 
 if __name__=='__main__':

@@ -219,7 +219,7 @@ def test_save_image_oiio_tiff_uses_icc_resolver_fallback(tmp_path, monkeypatch):
 def test_save_image_oiio_skips_icc_when_profile_missing(tmp_path, monkeypatch):
     import OpenImageIO as oiio
 
-    monkeypatch.setattr(io_module, "_load_icc_profile", lambda color_space, cctf_encoding: None)
+    monkeypatch.setattr(io_module, "resolve_icc_profile_bytes", lambda color_space, cctf_encoding=True: None)
 
     destination_path = tmp_path / "no_icc.jpg"
     save_image_oiio(

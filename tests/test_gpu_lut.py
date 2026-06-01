@@ -7,6 +7,7 @@ from spektrafilm.gpu.backend import BackendUnavailableError, select_backend
 from spektrafilm.gpu.kernels.lut import (
     apply_lut_cubic_2d_backend,
     apply_lut_bilinear_2d_numpy,
+    apply_lut_bilinear_2d_mlx,
     apply_lut_cubic_2d_mlx,
     apply_lut_cubic_2d_numpy,
     apply_lut_trilinear_3d_backend,
@@ -157,10 +158,11 @@ def test_compute_with_lut_gpu_trilinear_does_not_force_backend_eval(monkeypatch)
     )
     captured: dict[str, np.ndarray] = {}
 
-    def fake_apply_lut_trilinear_3d_backend(lut, image, backend):
+    def fake_apply_lut_trilinear_3d_backend(lut, image, backend, *, prepared_lut=None):
         captured["lut"] = np.asarray(lut)
         captured["image"] = np.asarray(image)
         captured["backend"] = backend
+        captured["prepared_lut"] = prepared_lut
         return image + 0.25
 
     monkeypatch.setattr(
@@ -203,7 +205,10 @@ def test_compute_with_lut_gpu_trilinear_reuses_prepared_backend_arrays(monkeypat
         dtype=np.float64,
     )
 
-    def fake_apply_lut_trilinear_3d_backend(_lut, image, _backend):
+    captured: dict[str, object] = {}
+
+    def fake_apply_lut_trilinear_3d_backend(_lut, image, _backend, *, prepared_lut=None):
+        captured["prepared_lut"] = prepared_lut
         return image + 0.5
 
     monkeypatch.setattr(
@@ -238,6 +243,7 @@ def test_compute_with_lut_gpu_trilinear_reuses_prepared_backend_arrays(monkeypat
 
     assert backend.asarray_shapes == [data.shape]
     assert returned_prepared is prepared
+    assert captured["prepared_lut"] is prepared
     np.testing.assert_allclose(second, data + 0.5)
 
 
@@ -290,6 +296,30 @@ def test_trilinear_3d_lut_mlx_matches_numpy_reference_when_available() -> None:
     np.testing.assert_allclose(backend.to_numpy(actual), expected, rtol=2e-6, atol=2e-6)
 
 
+def test_trilinear_3d_lut_mlx_prepared_arrays_avoid_mx_array_copy(monkeypatch) -> None:
+    backend = _mlx_backend_or_skip()
+    lut = _make_3d_lut(7).astype(np.float32)
+    image = np.array(
+        [
+            [[0.0, 0.1, 0.2], [0.3, 0.4, 0.5]],
+            [[0.6, 0.7, 0.8], [1.0, 0.25, 0.75]],
+        ],
+        dtype=np.float32,
+    )
+    lut_mx = backend.asarray(lut)
+    image_mx = backend.asarray(image)
+
+    def fail_array(*_args, **_kwargs):
+        raise AssertionError("prepared MLX arrays should not be copied with mx.array")
+
+    monkeypatch.setattr(backend.mx, "array", fail_array)
+
+    actual = apply_lut_trilinear_3d_backend(lut, image_mx, backend, prepared_lut=lut_mx)
+    expected = apply_lut_trilinear_3d_numpy(lut, image)
+
+    np.testing.assert_allclose(backend.to_numpy(actual), expected, rtol=2e-6, atol=2e-6)
+
+
 def test_cubic_2d_lut_mlx_matches_numpy_reference_when_available() -> None:
     backend = _mlx_backend_or_skip()
     lut = _make_2d_lut(9).astype(np.float32)
@@ -302,6 +332,30 @@ def test_cubic_2d_lut_mlx_matches_numpy_reference_when_available() -> None:
     )
 
     actual = apply_lut_cubic_2d_mlx(lut, image, mx=backend.mx)
+    expected = apply_lut_cubic_2d_numpy(lut, image)
+
+    np.testing.assert_allclose(backend.to_numpy(actual), expected, rtol=2e-5, atol=2e-5)
+
+
+def test_cubic_2d_lut_mlx_prepared_arrays_avoid_mx_array_copy(monkeypatch) -> None:
+    backend = _mlx_backend_or_skip()
+    lut = _make_2d_lut(9).astype(np.float32)
+    image = np.array(
+        [
+            [[0.02, 0.10], [0.31, 0.42]],
+            [[0.63, 0.74], [0.98, 0.25]],
+        ],
+        dtype=np.float32,
+    )
+    lut_mx = backend.asarray(lut)
+    image_mx = backend.asarray(image)
+
+    def fail_array(*_args, **_kwargs):
+        raise AssertionError("prepared MLX arrays should not be copied with mx.array")
+
+    monkeypatch.setattr(backend.mx, "array", fail_array)
+
+    actual = apply_lut_cubic_2d_mlx(lut, image_mx, mx=backend.mx, prepared_lut=lut_mx)
     expected = apply_lut_cubic_2d_numpy(lut, image)
 
     np.testing.assert_allclose(backend.to_numpy(actual), expected, rtol=2e-5, atol=2e-5)
@@ -337,5 +391,32 @@ def test_cubic_2d_lut_cupy_matches_numpy_reference_when_available() -> None:
 
     actual = apply_lut_cubic_2d_backend(lut, backend.asarray(image), backend)
     expected = apply_lut_cubic_2d_numpy(lut, image)
+
+    np.testing.assert_allclose(backend.to_numpy(actual), expected, rtol=2e-5, atol=2e-5)
+
+
+# ---------------------------------------------------------------------------
+# Parity: bilinear 2D LUT GPU path vs CPU reference
+# ---------------------------------------------------------------------------
+
+
+def test_apply_lut_bilinear_2d_mlx_matches_cpu_reference_when_available() -> None:
+    """Bilinear 2D LUT MLX path must match the NumPy reference.
+
+    There is no unified apply_lut_bilinear_2d_backend dispatcher (unlike the
+    cubic and trilinear paths), so we test the MLX primitive directly.
+    """
+    backend = _mlx_backend_or_skip()
+    lut = _make_2d_lut(9).astype(np.float32)
+    image = np.array(
+        [
+            [[0.02, 0.10], [0.31, 0.42]],
+            [[0.63, 0.74], [0.98, 0.25]],
+        ],
+        dtype=np.float32,
+    )
+
+    actual = apply_lut_bilinear_2d_mlx(lut, image, mx=backend.mx)
+    expected = apply_lut_bilinear_2d_numpy(lut, image)
 
     np.testing.assert_allclose(backend.to_numpy(actual), expected, rtol=2e-5, atol=2e-5)

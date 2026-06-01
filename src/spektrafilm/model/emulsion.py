@@ -7,6 +7,7 @@ from spektrafilm.model.couplers import apply_density_correction_dir_couplers
 from spektrafilm.model.density_curves import interpolate_exposure_to_density
 from spektrafilm.model.grain import apply_grain
 from spektrafilm.runtime.params_schema import DirCouplersParams, GrainParams
+from spektrafilm.gpu.kernels.density import interpolate_exposure_to_density_backend
 
 
 FloatArray: TypeAlias = NDArray[np.float64]
@@ -30,8 +31,15 @@ def develop_simple(
     log_exposure,
     density_curves,
     gamma_factor=1.0,
+    *,
+    backend=None,
 ):
-    density_cmy = interpolate_exposure_to_density(log_raw, density_curves, log_exposure, gamma_factor)
+    if backend is not None and getattr(backend, "supports_gpu", False):
+        density_cmy = interpolate_exposure_to_density_backend(
+            log_raw, log_exposure, density_curves, gamma_factor, backend,
+        )
+    else:
+        density_cmy = interpolate_exposure_to_density(log_raw, density_curves, log_exposure, gamma_factor)
     return density_cmy
 
 def develop(
@@ -46,8 +54,16 @@ def develop(
     gamma_factor: float = 1.0,
     bypass_grain: bool = False,
     use_fast_stats: bool = False,
+    *,
+    backend=None,
 ) -> FloatArray:
     density_curves = np.asarray(density_curves)
+    if density_curves.ndim != 2 or density_curves.shape[1] != 3:
+        raise ValueError(f"density_curves must have shape (n, 3), got {density_curves.shape}")
+    missing_channels = np.where(np.all(np.isnan(density_curves), axis=0))[0]
+    if missing_channels.size:
+        channels = ", ".join(str(int(ch)) for ch in missing_channels)
+        raise ValueError(f"density_curves has all-NaN data in channel {channels}")
     normalized_density_curves = density_curves - np.nanmin(density_curves, axis=0)
 
     density_cmy = develop_simple(
@@ -55,7 +71,9 @@ def develop(
         log_exposure,
         normalized_density_curves,
         gamma_factor=gamma_factor,
+        backend=backend,
     )
+
     density_cmy = apply_density_correction_dir_couplers(
         density_cmy,
         log_raw,
@@ -65,8 +83,9 @@ def develop(
         dir_couplers,
         profile_type,
         gamma_factor=gamma_factor,
+        backend=backend,
     )
-    return apply_grain(
+    density_cmy = apply_grain(
         density_cmy,
         pixel_size_um,
         grain,
@@ -75,7 +94,10 @@ def develop(
         profile_type,
         bypass_grain=bypass_grain,
         use_fast_stats=use_fast_stats,
+        backend=backend,
     )
+
+    return density_cmy
 
 # Some future work notes:
 # Add print dye shift in nanometers for dye absorption peaks.
@@ -84,4 +106,3 @@ def develop(
 
 if __name__ == '__main__':
     pass
-

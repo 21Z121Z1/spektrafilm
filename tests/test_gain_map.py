@@ -297,6 +297,20 @@ class TestGainMapMetadata:
         assert "hdrgm:Version" in xmp
         assert "hdrgm:GainMapMax" in xmp
         assert "hdrgm:HDRCapacityMax" in xmp
+        assert "Container:Directory" in xmp
+        assert 'Item:Semantic="Primary"' in xmp
+        assert 'Item:Semantic="GainMap"' in xmp
+        assert 'Item:Mime="image/jpeg"' in xmp
+
+    def test_to_xmp_includes_gain_map_length_when_known(self) -> None:
+        meta = GainMapMetadata(
+            is_multichannel=False,
+            channels=(GainMapChannel(gain_map_min=0.0, gain_map_max=1.0),),
+        )
+
+        xmp = meta.to_xmp(gain_map_length=12345)
+
+        assert 'Item:Length="12345"' in xmp
 
     def test_roundtrip_payload_size(self) -> None:
         """Verify binary payload sizes match ISO 21496-1 C.2.2 spec."""
@@ -520,7 +534,12 @@ class TestGainMapIO:
         """Save a JPEG with gain map and load it back."""
         from spektrafilm.utils.gain_map_io import save_gain_map_jpeg, load_gain_map
 
-        sdr = _random_image((32, 32, 3), 0.1, 1.0)
+        ramp = np.linspace(0.1, 1.0, 32, dtype=np.float32)
+        sdr = np.dstack([
+            np.tile(ramp[None, :], (32, 1)),
+            np.tile(ramp[:, None], (1, 32)),
+            np.full((32, 32), 0.5, dtype=np.float32),
+        ]).astype(np.float32)
         gain = _random_image((32, 32, 3), 0.0, 1.0)
 
         meta = GainMapMetadata(
@@ -544,6 +563,8 @@ class TestGainMapIO:
         assert loaded["format"] == "jpeg"
         assert loaded["base_image"] is not None
         assert loaded["base_image"].size == (32, 32)
+        loaded_base = np.asarray(loaded["base_image"], dtype=np.float32) / 255.0
+        np.testing.assert_allclose(loaded_base, sdr, atol=8 / 255)
 
     def test_save_jpeg_metadata_roundtrip(self, tmp_path) -> None:
         """Verify metadata survives JPEG MPF roundtrip."""
@@ -604,7 +625,7 @@ class TestGainMapIO:
         """Loading a non-existent file should raise."""
         from spektrafilm.utils.gain_map_io import load_gain_map
 
-        with pytest.raises(Exception):
+        with pytest.raises((FileNotFoundError, OSError)):
             load_gain_map("/nonexistent/file.jpg")
 
     def test_load_unsupported_extension_raises(self) -> None:

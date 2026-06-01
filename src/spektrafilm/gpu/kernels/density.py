@@ -33,6 +33,13 @@ def _backend_supports_cupy(backend) -> bool:
     return _backend_supports_gpu(backend) and hasattr(backend, "cp")
 
 
+def _run_compiled_elementwise(backend, name: str, function, *args):
+    compiled_elementwise = getattr(backend, "compiled_elementwise", None)
+    if callable(compiled_elementwise):
+        return compiled_elementwise(name, function, *args)(*args)
+    return function(*args)
+
+
 def _get_interp_density_curves_kernel(mx):
     """Return the cached MLX/Metal density-curve interpolation kernel."""
     global _INTERP_DENSITY_CURVES_KERNEL
@@ -329,7 +336,7 @@ def interpolate_density_cmy_layers_backend(
 ) -> Any:
     """Backend-aware equivalent of ``interp_density_cmy_layers``."""
     if not _backend_supports_gpu(backend):
-        from spektrafilm.model.density_curves import _interp_density_cmy_layers_cpu
+        from spektrafilm.model.density_curves import interp_density_cmy_layers as _interp_density_cmy_layers_cpu
 
         return _interp_density_cmy_layers_cpu(
             density_cmy,
@@ -346,7 +353,7 @@ def interpolate_density_cmy_layers_backend(
             backend=backend,
         )
     if not _backend_supports_mlx_custom_kernels(backend):
-        from spektrafilm.model.density_curves import _interp_density_cmy_layers_cpu
+        from spektrafilm.model.density_curves import interp_density_cmy_layers as _interp_density_cmy_layers_cpu
 
         return backend.asarray(
             _interp_density_cmy_layers_cpu(
@@ -413,7 +420,11 @@ def compute_density_spectral(
     density_spectral : array  shape ``(H, W, K)``
     """
     # einsum 'ijk, lk -> ijl'  ⟺  matmul(density_cmy, channel_density.T)
-    density_spectral = backend.einsum("ijk,lk->ijl", density_cmy, channel_density)
+    density_spectral = backend.einsum(
+        "ijk,lk->ijl",
+        backend.asarray(density_cmy),
+        backend.asarray(channel_density),
+    )
     if base_density is not None:
         density_spectral = density_spectral + base_density
     return density_spectral
@@ -436,10 +447,21 @@ def density_to_light(
     -------
     light : array  shape ``(H, W, K)``
     """
-    transmitted = backend.power(10.0, -density_spectral)
-    transmitted = transmitted * illuminant
-    transmitted = backend.nan_to_num(transmitted, nan=0.0)
-    return transmitted
+    density_spectral = backend.asarray(density_spectral)
+    illuminant = backend.asarray(illuminant)
+
+    def _chain(density_values, illuminant_values):
+        transmitted = backend.power(10.0, -density_values)
+        transmitted = transmitted * illuminant_values
+        return backend.nan_to_num(transmitted, nan=0.0)
+
+    return _run_compiled_elementwise(
+        backend,
+        "density_to_light",
+        _chain,
+        density_spectral,
+        illuminant,
+    )
 
 
 def light_to_raw(
@@ -459,7 +481,16 @@ def light_to_raw(
     -------
     raw : array  shape ``(H, W, C)``
     """
-    return backend.einsum("ijk,kl->ijl", light, sensitivity)
+    return backend.einsum("ijk,kl->ijl", backend.asarray(light), backend.asarray(sensitivity))
+
+
+def safe_log10_backend(values: Any, backend) -> Any:
+    """Compute ``log10(max(values, 0) + 1e-10)`` through the selected backend."""
+    if not _backend_supports_gpu(backend):
+        return np.log10(np.fmax(values, 0.0) + 1e-10)
+
+    values = backend.asarray(values)
+    return backend.log10(backend.fmax(values, 0.0) + 1e-10)
 
 
 def cmy_to_log_xyz_backend(
@@ -476,11 +507,20 @@ def cmy_to_log_xyz_backend(
     This is the backend-portable equivalent of the closure built by
     ``ScanningStage._return_callable_cmy_to_log_xyz``.
     """
+    specialized = getattr(backend, "cmy_to_log_xyz", None)
+    if callable(specialized):
+        return specialized(
+            density_cmy,
+            channel_density,
+            base_density,
+            scan_illuminant,
+            cmfs,
+            normalization,
+        )
+
     density_spectral = compute_density_spectral(
         channel_density, density_cmy, base_density, backend,
     )
     light = density_to_light(density_spectral, scan_illuminant, backend)
     xyz = light_to_raw(light, cmfs, backend) / normalization
-    # log10(max(xyz, 0) + 1e-10)
-    xyz_safe = backend.fmax(xyz, 0.0) + 1e-10
-    return backend.log10(xyz_safe)
+    return safe_log10_backend(xyz, backend)

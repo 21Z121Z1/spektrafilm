@@ -12,7 +12,7 @@
 
 ## Evidence Used
 
-- Local docs: `docs/dev/research-halide-port.md`, `docs/dev/halide-android-port-plan.md`, `docs 2/dev/research-halide-port.md`.
+- Local docs: `docs/dev/research-halide-port.md`, `docs/dev/halide-android-port-plan.md`, `docs/archive/docs-2-legacy-20260531/dev/research-halide-port.md`.
 - Local code: `src/spektrafilm/gpu/backend.py`, `src/spektrafilm/gpu/kernels/lut.py`, `src/spektrafilm/runtime/pipeline.py`, `src/spektrafilm/runtime/services/spectral_lut_compute.py`, `src/spektrafilm_gui/options.py`, `README.md`.
 - Official Halide docs checked on 2026-05-27:
   - Python bindings support `Func`, `Buffer`, `realize`, and the Python buffer protocol.

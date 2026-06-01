@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox syntax for tracking.
 
-**Goal:** Reconcile `docs 2/dev/research-gpu-color-management.md` with the current codebase, then fix the real GPU/color-management defects that still exist.
+**Goal:** Reconcile `docs/archive/docs-2-legacy-20260531/dev/research-gpu-color-management.md` with the current codebase, then fix the real GPU/color-management defects that still exist.
 
 **Architecture:** Keep the current `ArrayBackend` + colour-science + OpenImageIO design. Apply only narrow fixes that preserve float32/float64 numerical parity, color metadata contracts, and existing GUI/runtime APIs. Treat Taichi, OCIO, and cross-platform HDR gain-map encoding as future architecture work unless a current failing behavior proves they are required.
 
@@ -70,7 +70,7 @@ These recommendations from the entrance research doc are not one-shot bug fixes:
 - Modify `src/spektrafilm/gpu/kernels/color.py`: add backend DCI-P3 CCTF encoding.
 - Modify `src/spektrafilm/utils/io.py`: preserve HDR rendition diagnostics and update docstring.
 - Modify `src/spektrafilm_gui/controller.py`: show HDR rendition EXR diagnostics when available.
-- Modify `docs/dev/research-gpu-color-management.md` and `docs 2/dev/research-gpu-color-management.md`: add current audit notes so the stale recommendations are not re-applied blindly.
+- Modify `docs/dev/research-gpu-color-management.md` and `docs/archive/docs-2-legacy-20260531/dev/research-gpu-color-management.md`: add current audit notes so the stale recommendations are not re-applied blindly.
 
 ## Task 1: Add Failing GPU DCI-P3 Encoding Test
 
@@ -260,7 +260,7 @@ Expected: both pass.
 **Files:**
 - Modify: `src/spektrafilm/utils/io.py`
 - Modify: `docs/dev/research-gpu-color-management.md`
-- Modify: `docs 2/dev/research-gpu-color-management.md`
+- Modify: `docs/archive/docs-2-legacy-20260531/dev/research-gpu-color-management.md`
 
 - [x] **Step 1: Update `save_image_oiio()` docstring**
 

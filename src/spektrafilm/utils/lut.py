@@ -30,7 +30,8 @@ def _create_lut_3d(function, xmin=(0.0, 0.0, 0.0), xmax=(1.0, 1.0, 1.0), steps=3
 #     lut = np.reshape(function(X), (steps, steps, 3))
 #     return lut
 
-def compute_with_lut(data, function, xmin=(0.0, 0.0, 0.0), xmax=(1.0, 1.0, 1.0), steps=32, lut=None):
+def compute_with_lut(data, function, xmin=(0.0, 0.0, 0.0), xmax=(1.0, 1.0, 1.0), steps=32, lut=None,
+                     method=None, gpu_backend=None, return_prepared=False, prepared_lut=None):
     # Computes the function on the data using a 3D LUT for acceleration.
     # The data is assumed to be in the range [xmin, xmax] and will be normalized for LUT indexing.
     # The lut is created on the fly in the range [xmin, xmax] with the specified number of steps.
@@ -42,7 +43,29 @@ def compute_with_lut(data, function, xmin=(0.0, 0.0, 0.0), xmax=(1.0, 1.0, 1.0),
     if lut is None:
         lut = _create_lut_3d(function, xmin, xmax, steps)
     data_normalized = (data - xmin) / (xmax - xmin)
-    return apply_lut_3d(lut, data_normalized), lut
+
+    _gpu = method == "gpu_trilinear" and gpu_backend is not None and getattr(gpu_backend, "supports_gpu", False)
+    if _gpu:
+        from spektrafilm.gpu.kernels.lut import apply_lut_trilinear_3d_backend
+        if prepared_lut is not None:
+            gpu_lut = prepared_lut
+        else:
+            gpu_lut = gpu_backend.asarray(lut)
+        gpu_data = gpu_backend.asarray(data_normalized)
+        result = apply_lut_trilinear_3d_backend(
+            lut,
+            gpu_data,
+            gpu_backend,
+            prepared_lut=gpu_lut,
+        )
+        if return_prepared:
+            return result, lut, gpu_lut
+        return result, lut
+
+    result = apply_lut_3d(lut, data_normalized)
+    if return_prepared:
+        return result, lut, prepared_lut
+    return result, lut
 
 def warmup_luts():
     """

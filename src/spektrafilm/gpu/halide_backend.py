@@ -71,6 +71,8 @@ class HalideBackend:
         self._interp_1d_n: int = 0
         self._lut_2d_pipeline: tuple[Any, Any, Any] | None = None
         self._lut_2d_size: int = 0
+        self._cmy_to_log_xyz_pipelines: dict[int, tuple[Any, ...]] = {}
+        self._cmy_to_log_raw_pipelines: dict[int, tuple[Any, ...]] = {}
 
     def asarray(self, value: Any, dtype: Any | None = None) -> np.ndarray:
         return np.asarray(value, dtype=dtype or self.default_dtype)
@@ -99,6 +101,8 @@ class HalideBackend:
         self._interp_1d_n = 0
         self._lut_2d_pipeline = None
         self._lut_2d_size = 0
+        self._cmy_to_log_xyz_pipelines.clear()
+        self._cmy_to_log_raw_pipelines.clear()
 
     def exp(self, x: Any) -> np.ndarray:
         return np.exp(x)
@@ -149,8 +153,13 @@ class HalideBackend:
 
         height, width = rgb_np.shape[:2]
         image_param, matrix_param, output = self._build_rgb_matrix_pipeline()
-        image_param.set(self.hl.Buffer(np.ascontiguousarray(np.transpose(rgb_np, (2, 0, 1)))))
-        matrix_param.set(self.hl.Buffer(np.ascontiguousarray(matrix_np)))
+        # Keep Halide Buffer objects alive until after realize() —
+        # ImageParam.set() does not prevent the Python-side Buffer wrapper
+        # (and its underlying numpy array) from being garbage-collected.
+        image_buf = self.hl.Buffer(np.ascontiguousarray(np.transpose(rgb_np, (2, 0, 1))))
+        matrix_buf = self.hl.Buffer(np.ascontiguousarray(matrix_np))
+        image_param.set(image_buf)
+        matrix_param.set(matrix_buf)
         output_chw = np.asarray(output.realize([width, height, 3]))
         return np.ascontiguousarray(np.transpose(output_chw, (1, 2, 0)), dtype=np.float32)
 
@@ -387,6 +396,204 @@ class HalideBackend:
         output.compile_jit(self.target)
         return density_param, channel_param, output
 
+    def cmy_to_log_xyz(
+        self,
+        density_cmy: Any,
+        channel_density: Any,
+        base_density: Any,
+        scan_illuminant: Any,
+        cmfs: Any,
+        normalization: float,
+    ) -> np.ndarray:
+        """Fused Halide JIT CMY density to log10 XYZ for HWC runtime arrays."""
+        density_np = np.ascontiguousarray(np.asarray(density_cmy, dtype=np.float32))
+        channel_np = np.ascontiguousarray(np.asarray(channel_density, dtype=np.float32))
+        base_np = np.ascontiguousarray(np.asarray(base_density, dtype=np.float32).reshape(-1))
+        illuminant_np = np.ascontiguousarray(np.asarray(scan_illuminant, dtype=np.float32).reshape(-1))
+        cmfs_np = np.ascontiguousarray(np.asarray(cmfs, dtype=np.float32))
+
+        if density_np.ndim != 3 or density_np.shape[-1] != 3:
+            raise ValueError(f"density_cmy must have shape [H, W, 3], got {density_np.shape}")
+        if channel_np.ndim != 2 or channel_np.shape[1] != 3:
+            raise ValueError(f"channel_density must have shape [K, 3], got {channel_np.shape}")
+        k_count = int(channel_np.shape[0])
+        if base_np.shape != (k_count,):
+            raise ValueError(f"base_density must have shape [{k_count}], got {base_np.shape}")
+        if illuminant_np.shape != (k_count,):
+            raise ValueError(f"scan_illuminant must have shape [{k_count}], got {illuminant_np.shape}")
+        if cmfs_np.shape != (k_count, 3):
+            raise ValueError(f"cmfs must have shape [{k_count}, 3], got {cmfs_np.shape}")
+
+        pipeline = self._cmy_to_log_xyz_pipelines.get(k_count)
+        if pipeline is None:
+            pipeline = self._build_cmy_to_log_xyz_pipeline(k_count)
+            self._cmy_to_log_xyz_pipelines[k_count] = pipeline
+
+        density_p, channel_p, base_p, illuminant_p, cmfs_p, normalization_p, output = pipeline
+        density_buf = self.hl.Buffer(density_np)
+        channel_buf = self.hl.Buffer(channel_np)
+        base_buf = self.hl.Buffer(base_np)
+        illuminant_buf = self.hl.Buffer(illuminant_np)
+        cmfs_buf = self.hl.Buffer(cmfs_np)
+        density_p.set(density_buf)
+        channel_p.set(channel_buf)
+        base_p.set(base_buf)
+        illuminant_p.set(illuminant_buf)
+        cmfs_p.set(cmfs_buf)
+        normalization_p.set(float(normalization))
+
+        height, width = density_np.shape[:2]
+        result = np.asarray(output.realize([3, width, height]))
+        return np.ascontiguousarray(result, dtype=np.float32)
+
+    def _build_cmy_to_log_xyz_pipeline(self, k_count: int) -> tuple[Any, ...]:
+        hl = self.hl
+        c = hl.Var(f"sf_halide_cmy_xyz_c_{k_count}")
+        x = hl.Var(f"sf_halide_cmy_xyz_x_{k_count}")
+        y = hl.Var(f"sf_halide_cmy_xyz_y_{k_count}")
+        wl = hl.Var(f"sf_halide_cmy_xyz_wl_{k_count}")
+        r_k = hl.RDom([hl.Range(0, 3)], f"sf_halide_cmy_xyz_rk_{k_count}")
+        r_wl = hl.RDom([hl.Range(0, k_count)], f"sf_halide_cmy_xyz_rwl_{k_count}")
+
+        density_p = hl.ImageParam(hl.Float(32), 3, f"sf_halide_cmy_xyz_density_{k_count}")
+        channel_p = hl.ImageParam(hl.Float(32), 2, f"sf_halide_cmy_xyz_channel_{k_count}")
+        base_p = hl.ImageParam(hl.Float(32), 1, f"sf_halide_cmy_xyz_base_{k_count}")
+        illuminant_p = hl.ImageParam(hl.Float(32), 1, f"sf_halide_cmy_xyz_illum_{k_count}")
+        cmfs_p = hl.ImageParam(hl.Float(32), 2, f"sf_halide_cmy_xyz_cmfs_{k_count}")
+        normalization_p = hl.Param(hl.Float(32), f"sf_halide_cmy_xyz_norm_{k_count}", 1.0)
+
+        density_spectral = hl.Func(f"sf_halide_cmy_xyz_density_spectral_{k_count}")
+        light = hl.Func(f"sf_halide_cmy_xyz_light_{k_count}")
+        xyz = hl.Func(f"sf_halide_cmy_xyz_accum_{k_count}")
+        output = hl.Func(f"sf_halide_cmy_xyz_output_{k_count}")
+
+        density_spectral[wl, x, y] = base_p[wl]
+        density_spectral[wl, x, y] += density_p[r_k.x, x, y] * channel_p[r_k.x, wl]
+        ln10 = hl.f32(2.302585092994046)
+        light_value = hl.exp(ln10 * (-density_spectral[wl, x, y])) * illuminant_p[wl]
+        light[wl, x, y] = hl.select(hl.is_nan(light_value), hl.f32(0.0), light_value)
+        xyz[c, x, y] = hl.f32(0.0)
+        xyz[c, x, y] += light[r_wl.x, x, y] * cmfs_p[c, r_wl.x]
+        v = xyz[c, x, y] / normalization_p
+        safe = hl.select(v > 0.0, v, hl.f32(0.0)) + hl.f32(1.0e-10)
+        output[c, x, y] = hl.log(safe) / ln10
+
+        output.reorder(c, x, y).bound(c, 0, 3).unroll(c).parallel(y)
+        xyz.compute_at(output, y).reorder(c, x, y).bound(c, 0, 3).unroll(c)
+        xyz.update(0).reorder(c, x, y).unroll(c)
+        density_spectral.compute_at(output, y)
+        density_spectral.update(0)
+        light.compute_at(output, y)
+        output.compile_jit(self.target)
+        return density_p, channel_p, base_p, illuminant_p, cmfs_p, normalization_p, output
+
+    def cmy_to_log_raw(
+        self,
+        density_cmy: Any,
+        channel_density: Any,
+        base_density: Any,
+        illuminant: Any,
+        sensitivity: Any,
+        exposure_factor: Any,
+        preflash: Any,
+    ) -> np.ndarray:
+        """Fused Halide JIT CMY density to log10 raw for printing exposure."""
+        density_np = np.ascontiguousarray(np.asarray(density_cmy, dtype=np.float32))
+        channel_np = np.ascontiguousarray(np.asarray(channel_density, dtype=np.float32))
+        base_np = np.ascontiguousarray(np.asarray(base_density, dtype=np.float32).reshape(-1))
+        illuminant_np = np.ascontiguousarray(np.asarray(illuminant, dtype=np.float32).reshape(-1))
+        sensitivity_np = np.ascontiguousarray(np.asarray(sensitivity, dtype=np.float32))
+        exposure_np = self._as_rgb_vector(exposure_factor, "exposure_factor")
+        preflash_np = self._as_rgb_vector(preflash, "preflash")
+
+        if density_np.ndim != 3 or density_np.shape[-1] != 3:
+            raise ValueError(f"density_cmy must have shape [H, W, 3], got {density_np.shape}")
+        if channel_np.ndim != 2 or channel_np.shape[1] != 3:
+            raise ValueError(f"channel_density must have shape [K, 3], got {channel_np.shape}")
+        k_count = int(channel_np.shape[0])
+        if base_np.shape != (k_count,):
+            raise ValueError(f"base_density must have shape [{k_count}], got {base_np.shape}")
+        if illuminant_np.shape != (k_count,):
+            raise ValueError(f"illuminant must have shape [{k_count}], got {illuminant_np.shape}")
+        if sensitivity_np.shape != (k_count, 3):
+            raise ValueError(f"sensitivity must have shape [{k_count}, 3], got {sensitivity_np.shape}")
+
+        pipeline = self._cmy_to_log_raw_pipelines.get(k_count)
+        if pipeline is None:
+            pipeline = self._build_cmy_to_log_raw_pipeline(k_count)
+            self._cmy_to_log_raw_pipelines[k_count] = pipeline
+
+        density_p, channel_p, base_p, illuminant_p, sensitivity_p, exposure_p, preflash_p, output = pipeline
+        density_buf = self.hl.Buffer(density_np)
+        channel_buf = self.hl.Buffer(channel_np)
+        base_buf = self.hl.Buffer(base_np)
+        illuminant_buf = self.hl.Buffer(illuminant_np)
+        sensitivity_buf = self.hl.Buffer(sensitivity_np)
+        exposure_buf = self.hl.Buffer(exposure_np)
+        preflash_buf = self.hl.Buffer(preflash_np)
+        density_p.set(density_buf)
+        channel_p.set(channel_buf)
+        base_p.set(base_buf)
+        illuminant_p.set(illuminant_buf)
+        sensitivity_p.set(sensitivity_buf)
+        exposure_p.set(exposure_buf)
+        preflash_p.set(preflash_buf)
+
+        height, width = density_np.shape[:2]
+        result = np.asarray(output.realize([3, width, height]))
+        return np.ascontiguousarray(result, dtype=np.float32)
+
+    @staticmethod
+    def _as_rgb_vector(value: Any, name: str) -> np.ndarray:
+        arr = np.asarray(value, dtype=np.float32).reshape(-1)
+        if arr.size == 1:
+            arr = np.repeat(arr, 3)
+        if arr.size != 3:
+            raise ValueError(f"{name} must be scalar or have 3 values, got shape {np.asarray(value).shape}")
+        return np.ascontiguousarray(arr.astype(np.float32, copy=False))
+
+    def _build_cmy_to_log_raw_pipeline(self, k_count: int) -> tuple[Any, ...]:
+        hl = self.hl
+        c = hl.Var(f"sf_halide_cmy_raw_c_{k_count}")
+        x = hl.Var(f"sf_halide_cmy_raw_x_{k_count}")
+        y = hl.Var(f"sf_halide_cmy_raw_y_{k_count}")
+        wl = hl.Var(f"sf_halide_cmy_raw_wl_{k_count}")
+        r_k = hl.RDom([hl.Range(0, 3)], f"sf_halide_cmy_raw_rk_{k_count}")
+        r_wl = hl.RDom([hl.Range(0, k_count)], f"sf_halide_cmy_raw_rwl_{k_count}")
+
+        density_p = hl.ImageParam(hl.Float(32), 3, f"sf_halide_cmy_raw_density_{k_count}")
+        channel_p = hl.ImageParam(hl.Float(32), 2, f"sf_halide_cmy_raw_channel_{k_count}")
+        base_p = hl.ImageParam(hl.Float(32), 1, f"sf_halide_cmy_raw_base_{k_count}")
+        illuminant_p = hl.ImageParam(hl.Float(32), 1, f"sf_halide_cmy_raw_illum_{k_count}")
+        sensitivity_p = hl.ImageParam(hl.Float(32), 2, f"sf_halide_cmy_raw_sensitivity_{k_count}")
+        exposure_p = hl.ImageParam(hl.Float(32), 1, f"sf_halide_cmy_raw_exposure_{k_count}")
+        preflash_p = hl.ImageParam(hl.Float(32), 1, f"sf_halide_cmy_raw_preflash_{k_count}")
+
+        density_spectral = hl.Func(f"sf_halide_cmy_raw_density_spectral_{k_count}")
+        light = hl.Func(f"sf_halide_cmy_raw_light_{k_count}")
+        raw = hl.Func(f"sf_halide_cmy_raw_accum_{k_count}")
+        output = hl.Func(f"sf_halide_cmy_raw_output_{k_count}")
+
+        density_spectral[wl, x, y] = base_p[wl]
+        density_spectral[wl, x, y] += density_p[r_k.x, x, y] * channel_p[r_k.x, wl]
+        ln10 = hl.f32(2.302585092994046)
+        light_value = hl.exp(ln10 * (-density_spectral[wl, x, y])) * illuminant_p[wl]
+        light[wl, x, y] = hl.select(hl.is_nan(light_value), hl.f32(0.0), light_value)
+        raw[c, x, y] = hl.f32(0.0)
+        raw[c, x, y] += light[r_wl.x, x, y] * sensitivity_p[c, r_wl.x]
+        v = raw[c, x, y] * exposure_p[c] + preflash_p[c]
+        safe = hl.select(v > 0.0, v, hl.f32(0.0)) + hl.f32(1.0e-10)
+        output[c, x, y] = hl.log(safe) / ln10
+
+        output.reorder(c, x, y).bound(c, 0, 3).unroll(c).parallel(y)
+        raw.compute_at(output, y).reorder(c, x, y).bound(c, 0, 3).unroll(c)
+        raw.update(0).reorder(c, x, y).unroll(c)
+        density_spectral.compute_at(output, y)
+        density_spectral.update(0)
+        light.compute_at(output, y)
+        output.compile_jit(self.target)
+        return density_p, channel_p, base_p, illuminant_p, sensitivity_p, exposure_p, preflash_p, output
+
     # ------------------------------------------------------------------
     # Filter kernels (gaussian_blur_fir, gaussian_blur_iir, highlight_boost)
     # ------------------------------------------------------------------
@@ -588,7 +795,7 @@ class HalideBackend:
 
         v = image_p[x, y, c]
         linear_part = a_p * v + b_p
-        gamma_part = c_p * hl.fast_pow(v, 1.0 / gamma_p) - d_p
+        gamma_part = c_p * hl.pow(v, 1.0 / gamma_p) - d_p
         output[x, y, c] = hl.select(v <= threshold_p, linear_part, gamma_part)
         output.parallel(y)
         output.compile_jit(self.target)

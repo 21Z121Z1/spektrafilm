@@ -8,6 +8,13 @@ from spektrafilm.model.emulsion import compute_density_spectral, develop_simple
 from spektrafilm.model.illuminants import standard_illuminant
 from spektrafilm.utils.timings import timeit
 from spektrafilm.utils.conversions import density_to_light
+from spektrafilm.gpu.kernels.density import (
+    compute_density_spectral as compute_density_spectral_backend,
+    density_to_light as density_to_light_backend,
+    light_to_raw as light_to_raw_backend,
+    safe_log10_backend,
+)
+from spektrafilm.gpu.kernels.lut import apply_lut_trilinear_3d_backend
 
 
 class PrintingStage:
@@ -23,6 +30,7 @@ class PrintingStage:
         enlarger_service,
         resize_service,
         color_reference_service,
+        backend=None,
     ):
         self._film = film
         self._film_render = film_render_params
@@ -34,33 +42,134 @@ class PrintingStage:
         self._enlarger_service = enlarger_service
         self._resize_service = resize_service
         self._color_reference_service = color_reference_service
+        self._backend = backend
+
+        # Pre-compute static spectral tables for GPU to avoid
+        # repeated numpy→backend transfers on every _film_cmy_to_print_log_raw call.
+        self._precompute_spectral_tables()
+
+    def _precompute_spectral_tables(self) -> None:
+        """Pre-convert static spectral arrays to backend arrays once."""
+        _gpu = self._backend is not None and getattr(self._backend, "supports_gpu", False)
+        if not _gpu:
+            return
+
+        sensitivity = 10 ** self._print.data.log_sensitivity
+        sensitivity = np.nan_to_num(sensitivity)
+        enlarger_light_source = standard_illuminant(self._enlarger.illuminant)
+        print_illuminant = self._enlarger_service.enlarger_filtered_illuminant(enlarger_light_source)
+
+        channel_density = np.nan_to_num(
+            self._film.data.channel_density, nan=0.0, posinf=0.0, neginf=0.0,
+        )
+        base_density = self._film.data.base_density
+
+        self._backend_channel_density = self._backend.asarray(channel_density)
+        self._backend_base_density = self._backend.asarray(base_density)
+        self._backend_print_illuminant = self._backend.asarray(print_illuminant)
+        self._backend_sensitivity = self._backend.asarray(sensitivity)
 
     # public methods
 
     @timeit("expose")
     def expose(self, cmy_film_density: np.ndarray) -> np.ndarray:
-        
+        # Black/white reference points — tiny (1,1,3) arrays, direct computation is fine
         cmy_film_black = np.zeros((1,1,3)) - np.array(self._film_render.grain.density_min)
         cmy_film_white = np.nanmax(self._film.data.density_curves, axis=0)[None, None, :]
         self._color_reference_service.log_raw_print_black = self._film_cmy_to_print_log_raw(cmy_film_black)
         self._color_reference_service.log_raw_print_white = self._film_cmy_to_print_log_raw(cmy_film_white)
-        
-        log_raw_print = self._lut_service.spectral_compute_enlarger(
-            cmy_film_density,
-            spectral_calculation=self._film_cmy_to_print_log_raw,
-            data_min=-np.array(self._film_render.grain.density_min),
-            data_max=np.nanmax(self._film.data.density_curves, axis=0),
-            use_lut=self._settings.use_enlarger_lut,
-        )    
-        raw = 10**log_raw_print
-        raw *= self._enlarger.print_exposure
-        raw *= self._color_reference_service.black_white_printing_exposure_correction()
+
+        _gpu = self._backend is not None and getattr(self._backend, "supports_gpu", False)
+        if _gpu:
+            # Main spectral computation — keep intermediates on backend
+            log_raw_print = self._spectral_compute_enlarger_gpu(cmy_film_density)
+            raw = self._backend.power(10.0, log_raw_print)
+            raw = raw * self._backend.asarray(self._enlarger.print_exposure)
+            raw = raw * self._backend.asarray(
+                self._color_reference_service.black_white_printing_exposure_correction()
+            )
+        else:
+            log_raw_print = self._lut_service.spectral_compute_enlarger(
+                cmy_film_density,
+                spectral_calculation=self._film_cmy_to_print_log_raw,
+                data_min=-np.array(self._film_render.grain.density_min),
+                data_max=np.nanmax(self._film.data.density_curves, axis=0),
+                use_lut=self._settings.use_enlarger_lut,
+            )
+            raw = 10**log_raw_print
+            raw *= self._enlarger.print_exposure
+            raw *= self._color_reference_service.black_white_printing_exposure_correction()
+
         raw = apply_diffusion_filter_um(
             raw,
             self._enlarger.diffusion_filter,
             pixel_size_um=self._resize_service.pixel_size_um,
+            backend=self._backend,
         )
+        if _gpu:
+            return safe_log10_backend(raw, self._backend)
         return np.log10(np.fmax(raw, 0.0) + 1e-10)
+
+    def _spectral_compute_enlarger_gpu(self, cmy_film_density: np.ndarray):
+        """GPU-optimized spectral computation that keeps intermediates on backend.
+
+        Computes the same result as _film_cmy_to_print_log_raw but avoids
+        the numpy round-trip by performing the full chain on the backend.
+        """
+        data_min = -np.array(self._film_render.grain.density_min)
+        data_max = np.nanmax(self._film.data.density_curves, axis=0)
+        use_lut = self._settings.use_enlarger_lut
+
+        if not use_lut:
+            return self._film_cmy_to_print_log_raw(cmy_film_density, return_backend=True)
+
+        # Check LUT cache validity
+        test_results = self._film_cmy_to_print_log_raw(
+            np.array(self._lut_service._cmy_test_values)
+        )
+        cached_lut = self._lut_service.enlarger_lut_memory
+        cached_test = self._lut_service._enlarger_test_results_memory
+
+        if (
+            cached_lut is not None
+            and cached_test is not None
+            and np.array_equal(test_results, cached_test)
+        ):
+            lut = cached_lut
+        else:
+            # Build LUT via the spectral_calculation callback
+            from spektrafilm.utils.lut import _create_lut_3d
+
+            lut = _create_lut_3d(
+                self._film_cmy_to_print_log_raw,
+                xmin=data_min,
+                xmax=data_max,
+                steps=self._lut_service.lut_resolution,
+            )
+            self._lut_service.enlarger_lut_memory = lut
+            self._lut_service._enlarger_test_results_memory = np.array(test_results, copy=True)
+            self._lut_service._enlarger_lut_backend = None  # invalidate backend cache
+
+        # Apply LUT on backend — use cached backend LUT if available
+        from spektrafilm.utils.lut import _as_channel_bounds
+        xmin = _as_channel_bounds(data_min)
+        xmax = _as_channel_bounds(data_max)
+        data_normalized = (
+            self._backend.asarray(cmy_film_density)
+            - self._backend.asarray(xmin)
+        ) / self._backend.asarray(xmax - xmin)
+
+        backend_lut = self._lut_service._enlarger_lut_backend
+        if backend_lut is None:
+            backend_lut = self._backend.asarray(lut)
+            self._lut_service._enlarger_lut_backend = backend_lut
+
+        return apply_lut_trilinear_3d_backend(
+            lut,
+            data_normalized,
+            self._backend,
+            prepared_lut=backend_lut,
+        )
 
     @timeit("develop")
     def develop(self, log_raw: np.ndarray) -> np.ndarray:
@@ -70,27 +179,81 @@ class PrintingStage:
             self._print.data.log_exposure,
             self._print.data.density_curves,
             gamma_factor=self._print_render.density_curve_gamma,
+            backend=self._backend,
         )
 
     # private methods
 
-    def _film_cmy_to_print_log_raw(self, cmy_film_density: np.ndarray) -> np.ndarray:
-        sensitivity = 10 ** self._print.data.log_sensitivity
-        sensitivity = np.nan_to_num(sensitivity)
-        enlarger_light_source = standard_illuminant(self._enlarger.illuminant)
+    def _film_cmy_to_print_log_raw(
+        self,
+        cmy_film_density: np.ndarray,
+        *,
+        return_backend: bool = False,
+    ) -> np.ndarray:
+        _gpu = self._backend is not None and getattr(self._backend, "supports_gpu", False)
 
-        raw = np.zeros_like(cmy_film_density)
-        density_spectral = compute_density_spectral(
-            self._film.data.channel_density,
-            cmy_film_density,
-            base_density=self._film.data.base_density,
-        )
-        print_illuminant = self._enlarger_service.enlarger_filtered_illuminant(enlarger_light_source)
-        light = density_to_light(density_spectral, print_illuminant)
-        raw = contract("ijk, kl->ijl", light, sensitivity)
-        raw *= self._compute_exposure_factor_midgray(sensitivity, print_illuminant)
-        raw += self._compute_raw_preflash(enlarger_light_source, sensitivity)
-        return np.log10(np.fmax(raw, 0.0) + 1e-10)
+        if _gpu:
+            fused_log_raw = getattr(self._backend, "cmy_to_log_raw", None)
+            if callable(fused_log_raw):
+                sensitivity = 10 ** self._print.data.log_sensitivity
+                sensitivity = np.nan_to_num(sensitivity)
+                enlarger_light_source = standard_illuminant(self._enlarger.illuminant)
+                print_illuminant = self._enlarger_service.enlarger_filtered_illuminant(enlarger_light_source)
+                raw = fused_log_raw(
+                    cmy_film_density,
+                    self._backend_channel_density,
+                    self._backend_base_density,
+                    self._backend_print_illuminant,
+                    self._backend_sensitivity,
+                    self._compute_exposure_factor_midgray(sensitivity, print_illuminant),
+                    self._compute_raw_preflash(enlarger_light_source, sensitivity),
+                )
+                if return_backend:
+                    return raw
+                return self._backend.to_numpy(raw)
+
+            # Use pre-computed backend arrays — no numpy→backend transfer needed
+            density_spectral = compute_density_spectral_backend(
+                self._backend_channel_density,
+                self._backend.asarray(cmy_film_density),
+                base_density=self._backend_base_density,
+                backend=self._backend,
+            )
+            light = density_to_light_backend(
+                density_spectral, self._backend_print_illuminant, self._backend,
+            )
+            raw = light_to_raw_backend(
+                light, self._backend_sensitivity, self._backend,
+            )
+            # Exposure factor and preflash use small arrays; compute on CPU and transfer
+            sensitivity = 10 ** self._print.data.log_sensitivity
+            sensitivity = np.nan_to_num(sensitivity)
+            enlarger_light_source = standard_illuminant(self._enlarger.illuminant)
+            print_illuminant = self._enlarger_service.enlarger_filtered_illuminant(enlarger_light_source)
+            exp_factor = self._compute_exposure_factor_midgray(sensitivity, print_illuminant)
+            raw = raw * self._backend.asarray(exp_factor)
+            raw = raw + self._backend.asarray(
+                self._compute_raw_preflash(enlarger_light_source, sensitivity)
+            )
+            raw = safe_log10_backend(raw, self._backend)
+            if return_backend:
+                return raw
+            return self._backend.to_numpy(raw)
+        else:
+            sensitivity = 10 ** self._print.data.log_sensitivity
+            sensitivity = np.nan_to_num(sensitivity)
+            enlarger_light_source = standard_illuminant(self._enlarger.illuminant)
+            density_spectral = compute_density_spectral(
+                self._film.data.channel_density,
+                cmy_film_density,
+                base_density=self._film.data.base_density,
+            )
+            print_illuminant = self._enlarger_service.enlarger_filtered_illuminant(enlarger_light_source)
+            light = density_to_light(density_spectral, print_illuminant)
+            raw = contract("ijk, kl->ijl", light, sensitivity)
+            raw *= self._compute_exposure_factor_midgray(sensitivity, print_illuminant)
+            raw += self._compute_raw_preflash(enlarger_light_source, sensitivity)
+            return np.log10(np.fmax(raw, 0.0) + 1e-10)
 
     def _compute_raw_preflash(self, light_source, sensitivity):
         if self._enlarger.preflash_exposure > 0:

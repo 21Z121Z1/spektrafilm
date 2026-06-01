@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import pytest
+import numpy as np
 
 import spektrafilm.color_management as color_management_module
 from spektrafilm.color_management import (
     ACES_INTERCHANGE_COLOR_SPACE,
     ACES_WORKING_COLOR_SPACE,
     ColorEncoding,
+    aces_sdr_video_view_transform,
     input_encoding_from_io,
     is_aces_scene_linear_space,
     output_encoding_from_io,
@@ -145,3 +147,29 @@ def test_aces_reference_workflow_sets_aces_working_and_interchange_contract() ->
 def test_color_management_workflow_rejects_unknown_mode() -> None:
     with pytest.raises(ValueError, match="Unsupported color management workflow"):
         color_management_module.apply_color_management_workflow_to_io(IOParams(), "unknown")
+
+
+def test_aces_sdr_video_view_transform_is_named_output_view_with_srgb_encoding() -> None:
+    class FakeColour:
+        @staticmethod
+        def RGB_to_RGB(image, input_color_space, output_color_space, apply_cctf_decoding, apply_cctf_encoding):
+            assert input_color_space == ACES_WORKING_COLOR_SPACE
+            assert output_color_space == "sRGB"
+            assert apply_cctf_decoding is False
+            assert apply_cctf_encoding is False
+            return image
+
+    image = np.array([[[0.18, 0.5, 2.0]]], dtype=np.float32)
+
+    preview = aces_sdr_video_view_transform(
+        image,
+        color_space=ACES_WORKING_COLOR_SPACE,
+        colour_module=FakeColour,
+    )
+
+    assert preview.shape == image.shape
+    assert preview.dtype == np.float32
+    assert np.all(np.isfinite(preview))
+    assert float(np.min(preview)) >= 0.0
+    assert float(np.max(preview)) <= 1.0
+    assert float(preview[0, 0, 2]) > float(preview[0, 0, 0])

@@ -16,6 +16,13 @@ import numpy as np
 import colour
 
 
+def _run_compiled_elementwise(backend, name: str, function, *args):
+    compiled_elementwise = getattr(backend, "compiled_elementwise", None)
+    if callable(compiled_elementwise):
+        return compiled_elementwise(name, function, *args)(*args)
+    return function(*args)
+
+
 # ---------------------------------------------------------------------------
 # Matrix extraction helpers (CPU-only, run once at init / param-digest time)
 # ---------------------------------------------------------------------------
@@ -100,8 +107,8 @@ def rgb_to_xyz(rgb: Any, matrix_3x3: Any, backend) -> Any:
     if callable(specialized):
         return specialized(rgb, matrix_3x3)
     # M is stored as (3, 3). We want …i,ji->…j which is matmul(rgb, M.T).
-    M_T = matrix_3x3.T if hasattr(matrix_3x3, 'T') else backend.asarray(np.asarray(matrix_3x3).T)
-    return backend.matmul(rgb, M_T)
+    M_T = matrix_3x3.T if hasattr(matrix_3x3, 'T') else np.asarray(matrix_3x3).T
+    return backend.matmul(backend.asarray(rgb), backend.asarray(M_T))
 
 
 def xyz_to_rgb(xyz: Any, matrix_3x3: Any, backend) -> Any:
@@ -109,8 +116,8 @@ def xyz_to_rgb(xyz: Any, matrix_3x3: Any, backend) -> Any:
     specialized = getattr(backend, "rgb_to_xyz", None)
     if callable(specialized):
         return specialized(xyz, matrix_3x3)
-    M_T = matrix_3x3.T if hasattr(matrix_3x3, 'T') else backend.asarray(np.asarray(matrix_3x3).T)
-    return backend.matmul(xyz, M_T)
+    M_T = matrix_3x3.T if hasattr(matrix_3x3, 'T') else np.asarray(matrix_3x3).T
+    return backend.matmul(backend.asarray(xyz), backend.asarray(M_T))
 
 
 # ---------------------------------------------------------------------------
@@ -137,59 +144,89 @@ def _signed_power(x: Any, exponent: float, backend) -> Any:
 
 
 def _cctf_encoding_srgb_like(rgb: Any, backend) -> Any:
-    nonlinear = 1.055 * _signed_power(rgb, 1.0 / 2.4, backend) - 0.055
-    return backend.where(rgb <= 0.0031308, rgb * 12.92, nonlinear)
+    def _chain(values):
+        nonlinear = 1.055 * _signed_power(values, 1.0 / 2.4, backend) - 0.055
+        return backend.where(values <= 0.0031308, values * 12.92, nonlinear)
+
+    return _run_compiled_elementwise(backend, "cctf_encoding_srgb_like", _chain, rgb)
 
 
 def _cctf_encoding_romm_rgb(rgb: Any, backend) -> Any:
-    threshold = 16.0 ** (1.8 / (1.0 - 1.8))
-    nonlinear = _signed_power(rgb, 1.0 / 1.8, backend)
-    return backend.where(rgb < threshold, rgb * 16.0, nonlinear)
+    def _chain(values):
+        threshold = 16.0 ** (1.8 / (1.0 - 1.8))
+        nonlinear = _signed_power(values, 1.0 / 1.8, backend)
+        return backend.where(values < threshold, values * 16.0, nonlinear)
+
+    return _run_compiled_elementwise(backend, "cctf_encoding_romm_rgb", _chain, rgb)
 
 
 def _cctf_encoding_bt2020(rgb: Any, backend) -> Any:
-    alpha = 1.099
-    beta = 0.018
-    nonlinear = alpha * _signed_power(rgb, 0.45, backend) - (alpha - 1.0)
-    return backend.where(rgb < beta, rgb * 4.5, nonlinear)
+    def _chain(values):
+        alpha = 1.099
+        beta = 0.018
+        nonlinear = alpha * _signed_power(values, 0.45, backend) - (alpha - 1.0)
+        return backend.where(values < beta, values * 4.5, nonlinear)
+
+    return _run_compiled_elementwise(backend, "cctf_encoding_bt2020", _chain, rgb)
 
 
 def _cctf_encoding_adobe_rgb_1998(rgb: Any, backend) -> Any:
     # colour-science uses gamma_function(..., negative_number_handling="Indeterminate")
     # for Adobe RGB (1998), so negative fractional powers intentionally
     # produce NaN, matching the CPU reference.
-    return backend.pow(rgb, 0.4547069271758437)
+    def _chain(values):
+        return backend.pow(values, 0.4547069271758437)
+
+    return _run_compiled_elementwise(backend, "cctf_encoding_adobe_rgb_1998", _chain, rgb)
 
 
 def _cctf_encoding_dci_p3(rgb: Any, backend) -> Any:
-    return backend.pow(rgb, 1.0 / 2.6)
+    def _chain(values):
+        return backend.pow(values, 1.0 / 2.6)
+
+    return _run_compiled_elementwise(backend, "cctf_encoding_dci_p3", _chain, rgb)
 
 
 def _cctf_decoding_srgb_like(rgb: Any, backend) -> Any:
-    linear = rgb / 12.92
-    nonlinear = _signed_power((rgb + 0.055) / 1.055, 2.4, backend)
-    return backend.where(rgb <= 0.04045, linear, nonlinear)
+    def _chain(values):
+        linear = values / 12.92
+        nonlinear = _signed_power((values + 0.055) / 1.055, 2.4, backend)
+        return backend.where(values <= 0.04045, linear, nonlinear)
+
+    return _run_compiled_elementwise(backend, "cctf_decoding_srgb_like", _chain, rgb)
 
 
 def _cctf_decoding_romm_rgb(rgb: Any, backend) -> Any:
-    linear_threshold = 16.0 ** (1.8 / (1.0 - 1.8))
-    encoded_threshold = linear_threshold * 16.0
-    nonlinear = _signed_power(rgb, 1.8, backend)
-    return backend.where(rgb < encoded_threshold, rgb / 16.0, nonlinear)
+    def _chain(values):
+        linear_threshold = 16.0 ** (1.8 / (1.0 - 1.8))
+        encoded_threshold = linear_threshold * 16.0
+        nonlinear = _signed_power(values, 1.8, backend)
+        return backend.where(values < encoded_threshold, values / 16.0, nonlinear)
+
+    return _run_compiled_elementwise(backend, "cctf_decoding_romm_rgb", _chain, rgb)
 
 
 def _cctf_decoding_bt2020(rgb: Any, backend) -> Any:
-    alpha = 1.099
-    nonlinear = _signed_power((rgb + (alpha - 1.0)) / alpha, 1.0 / 0.45, backend)
-    return backend.where(rgb <= 0.081, rgb / 4.5, nonlinear)
+    def _chain(values):
+        alpha = 1.099
+        nonlinear = _signed_power((values + (alpha - 1.0)) / alpha, 1.0 / 0.45, backend)
+        return backend.where(values <= 0.081, values / 4.5, nonlinear)
+
+    return _run_compiled_elementwise(backend, "cctf_decoding_bt2020", _chain, rgb)
 
 
 def _cctf_decoding_adobe_rgb_1998(rgb: Any, backend) -> Any:
-    return backend.pow(rgb, 1.0 / 0.4547069271758437)
+    def _chain(values):
+        return backend.pow(values, 1.0 / 0.4547069271758437)
+
+    return _run_compiled_elementwise(backend, "cctf_decoding_adobe_rgb_1998", _chain, rgb)
 
 
 def _cctf_decoding_dci_p3(rgb: Any, backend) -> Any:
-    return backend.pow(rgb, 2.6)
+    def _chain(values):
+        return backend.pow(values, 2.6)
+
+    return _run_compiled_elementwise(backend, "cctf_decoding_dci_p3", _chain, rgb)
 
 
 def cctf_decoding_transfer_backend(rgb: Any, color_space: str, backend) -> Any:
@@ -297,6 +334,10 @@ def boost_highlights_backend(
     if boost_ev <= 0:
         return x
 
+    # Ensure x is in the backend's native array type (e.g. MLX rejects raw
+    # numpy arrays in backend.max()).
+    x = backend.asarray(x)
+
     # Scalar synchronization only; the image itself remains resident. Tiled
     # callers can pass a precomputed full-frame maximum to preserve parity.
     if x_max is None:
@@ -318,10 +359,16 @@ def boost_highlights_backend(
     k = (2.0 ** boost_ev - 1.0) / denom
     boost_scale = k * x_max
     inv_max_raw = 1.0 / x_max
+    params = backend.asarray([raw_x0, a, boost_scale, inv_max_raw])
 
-    # dx = max(x - raw_x0, 0) / max_raw
-    dx = backend.fmax(x - raw_x0, 0.0) * inv_max_raw
-    # b = boost_scale * (exp(a * dx) - a * dx - 1)
-    adx = dx * a
-    b = boost_scale * (backend.exp(adx) - adx - 1.0)
-    return x + b
+    def _chain(values, factors):
+        raw_x0_v = factors[0]
+        a_v = factors[1]
+        boost_scale_v = factors[2]
+        inv_max_raw_v = factors[3]
+        dx = backend.fmax(values - raw_x0_v, 0.0) * inv_max_raw_v
+        adx = dx * a_v
+        b = boost_scale_v * (backend.exp(adx) - adx - 1.0)
+        return values + b
+
+    return _run_compiled_elementwise(backend, "boost_highlights", _chain, x, params)

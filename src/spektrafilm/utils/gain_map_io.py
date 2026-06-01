@@ -43,7 +43,7 @@ def save_gain_map_jpeg(
     gain_map: np.ndarray,
     metadata: GainMapMetadata,
     *,
-    base_quality: int = 95,
+    base_quality: int = 100,
     gain_map_quality: int = 90,
 ) -> None:
     """Save SDR base + gain map as a JPEG file with MPF (ISO 21496-1 C.4).
@@ -68,18 +68,18 @@ def save_gain_map_jpeg(
     # Encode base image to JPEG bytes
     base_img = _to_pil_image(base_image)
     base_buf = io.BytesIO()
-    base_img.save(base_buf, format="JPEG", quality=base_quality)
+    base_img.save(base_buf, format="JPEG", quality=base_quality, subsampling=0)
     base_jpeg = base_buf.getvalue()
 
     # Encode gain map to JPEG bytes
     gm_img = _to_pil_image(gain_map, is_gain_map=True)
     gm_buf = io.BytesIO()
-    gm_img.save(gm_buf, format="JPEG", quality=gain_map_quality)
+    gm_img.save(gm_buf, format="JPEG", quality=gain_map_quality, subsampling=0)
     gm_jpeg = gm_buf.getvalue()
 
     # Build MPF payload
     metadata_bytes = metadata.serialize()
-    xmp_payload = metadata.to_xmp().encode("utf-8")
+    xmp_payload = metadata.to_xmp(gain_map_length=len(gm_jpeg)).encode("utf-8")
 
     mpf_data = _build_mpf_jpeg(base_jpeg, gm_jpeg, metadata_bytes, xmp_payload)
 
@@ -338,8 +338,10 @@ def _load_gain_map_jpeg(path: Path) -> dict:
     # Parse MPF to find gain map offset
     gm_data = _extract_mpf_gain_map(data)
 
-    # Build base image from full JPEG
-    base_img = Image.open(io.BytesIO(data))
+    # Decode only the primary JPEG image. The generated MPF payload appends
+    # the gain-map image after an APP2 segment, which Pillow can otherwise
+    # interpret as a broken continuation of the base entropy stream.
+    base_img = Image.open(io.BytesIO(_extract_mpf_base_image(data))).copy()
 
     result = {
         "base_image": base_img,
@@ -350,7 +352,7 @@ def _load_gain_map_jpeg(path: Path) -> dict:
 
     if gm_data is not None:
         try:
-            result["gain_map"] = Image.open(io.BytesIO(gm_data))
+            result["gain_map"] = Image.open(io.BytesIO(gm_data)).copy()
         except Exception:
             pass
 
@@ -390,6 +392,17 @@ def _extract_mpf_gain_map(jpeg_data: bytes) -> bytes | None:
         offset += 2 + length
 
     return None
+
+
+def _extract_mpf_base_image(jpeg_data: bytes) -> bytes:
+    """Extract the standalone primary JPEG bytes from an MPF JPEG payload."""
+    app2_pos = _find_mpf_app2_position(jpeg_data)
+    if app2_pos is None:
+        return jpeg_data
+    base_bytes = jpeg_data[:app2_pos]
+    if not base_bytes.endswith(_EOI):
+        base_bytes += _EOI
+    return base_bytes
 
 
 def _parse_mpf_gain_map(jpeg_data: bytes, mpf_data: bytes) -> bytes | None:
@@ -454,6 +467,17 @@ def _find_mpf_app2_position(jpeg_data: bytes) -> int | None:
             return offset
 
         offset += 2 + length
+
+    search_from = 2
+    while True:
+        pos = jpeg_data.find(_APP2_MARKER, search_from)
+        if pos < 0 or pos + 8 > len(jpeg_data):
+            return None
+        length = struct.unpack_from(">H", jpeg_data, pos + 2)[0]
+        segment_data = jpeg_data[pos + 4 : pos + 2 + length]
+        if segment_data.startswith(b"MPF\x00"):
+            return pos
+        search_from = pos + 2
 
     return None
 

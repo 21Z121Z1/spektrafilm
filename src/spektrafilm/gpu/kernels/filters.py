@@ -17,6 +17,8 @@ _GAUSSIAN_FIR_KERNEL = None
 _GAUSSIAN_IIR_HORIZONTAL_KERNEL = None
 _GAUSSIAN_IIR_VERTICAL_KERNEL = None
 _REFLECT_PAD_HW_KERNEL = None
+_GAUSSIAN_IIR_HORIZONTAL_KERNEL_F64 = None
+_GAUSSIAN_IIR_VERTICAL_KERNEL_F64 = None
 
 
 def _backend_supports_gpu(backend) -> bool:
@@ -223,6 +225,124 @@ def _get_gaussian_iir_vertical_kernel(mx):
     return _GAUSSIAN_IIR_VERTICAL_KERNEL
 
 
+def _get_gaussian_iir_horizontal_kernel_f64(mx):
+    """Return the cached double-precision horizontal YVV Gaussian kernel."""
+    global _GAUSSIAN_IIR_HORIZONTAL_KERNEL_F64
+    if _GAUSSIAN_IIR_HORIZONTAL_KERNEL_F64 is not None:
+        return _GAUSSIAN_IIR_HORIZONTAL_KERNEL_F64
+
+    source = """
+        uint elem = thread_position_in_grid.x;
+        int H = image_shape[0];
+        int W = image_shape[1];
+        int C = image_shape[2];
+        uint total = H * C;
+        if (elem >= total) {
+            return;
+        }
+
+        int c = elem % C;
+        int y = elem / C;
+        double b = (double)B[c];
+        double b1 = (double)B1[c];
+        double b2 = (double)B2[c];
+        double b3 = (double)B3[c];
+
+        uint first = ((uint)y * W) * C + (uint)c;
+        double x0 = (double)image[first];
+        double w1 = x0;
+        double w2 = x0;
+        double w3 = x0;
+        for (int x = 0; x < W; ++x) {
+            uint idx = ((uint)y * W + (uint)x) * C + (uint)c;
+            double w = b * (double)image[idx] + b1 * w1 + b2 * w2 + b3 * w3;
+            tmp[idx] = T(w);
+            w3 = w2;
+            w2 = w1;
+            w1 = w;
+        }
+
+        uint last = ((uint)y * W + (uint)(W - 1)) * C + (uint)c;
+        double y1 = (double)tmp[last];
+        double y2 = y1;
+        double y3 = y1;
+        for (int x = W - 1; x >= 0; --x) {
+            uint idx = ((uint)y * W + (uint)x) * C + (uint)c;
+            double out_v = b * (double)tmp[idx] + b1 * y1 + b2 * y2 + b3 * y3;
+            tmp[idx] = T(out_v);
+            y3 = y2;
+            y2 = y1;
+            y1 = out_v;
+        }
+    """
+    _GAUSSIAN_IIR_HORIZONTAL_KERNEL_F64 = mx.fast.metal_kernel(
+        name="spektrafilm_gaussian_iir_horizontal_f64",
+        input_names=["image", "B", "B1", "B2", "B3"],
+        output_names=["tmp"],
+        source=source,
+    )
+    return _GAUSSIAN_IIR_HORIZONTAL_KERNEL_F64
+
+
+def _get_gaussian_iir_vertical_kernel_f64(mx):
+    """Return the cached double-precision vertical YVV Gaussian kernel."""
+    global _GAUSSIAN_IIR_VERTICAL_KERNEL_F64
+    if _GAUSSIAN_IIR_VERTICAL_KERNEL_F64 is not None:
+        return _GAUSSIAN_IIR_VERTICAL_KERNEL_F64
+
+    source = """
+        uint elem = thread_position_in_grid.x;
+        int H = tmp_shape[0];
+        int W = tmp_shape[1];
+        int C = tmp_shape[2];
+        uint total = W * C;
+        if (elem >= total) {
+            return;
+        }
+
+        int c = elem % C;
+        int x = elem / C;
+        double b = (double)B[c];
+        double b1 = (double)B1[c];
+        double b2 = (double)B2[c];
+        double b3 = (double)B3[c];
+
+        uint first = ((uint)0 * W + (uint)x) * C + (uint)c;
+        double x0 = (double)tmp[first];
+        double w1 = x0;
+        double w2 = x0;
+        double w3 = x0;
+        for (int y = 0; y < H; ++y) {
+            uint idx = ((uint)y * W + (uint)x) * C + (uint)c;
+            double w = b * (double)tmp[idx] + b1 * w1 + b2 * w2 + b3 * w3;
+            out[idx] = T(w);
+            w3 = w2;
+            w2 = w1;
+            w1 = w;
+        }
+
+        uint last = ((uint)(H - 1) * W + (uint)x) * C + (uint)c;
+        double y1 = (double)out[last];
+        double y2 = y1;
+        double y3 = y1;
+        for (int y = H - 1; y >= 0; --y) {
+            uint idx = ((uint)y * W + (uint)x) * C + (uint)c;
+            double out_v = b * (double)out[idx] + b1 * y1 + b2 * y2 + b3 * y3;
+            out[idx] = T(out_v);
+            y3 = y2;
+            y2 = y1;
+            y1 = out_v;
+        }
+    """
+    _GAUSSIAN_IIR_VERTICAL_KERNEL_F64 = mx.fast.metal_kernel(
+        name="spektrafilm_gaussian_iir_vertical_f64",
+        input_names=["tmp", "B", "B1", "B2", "B3"],
+        output_names=["out"],
+        source=source,
+    )
+    return _GAUSSIAN_IIR_VERTICAL_KERNEL_F64
+
+
 def _get_reflect_pad_hw_kernel(mx):
     """Return the cached MLX/Metal H/W reflect-padding kernel."""
     global _REFLECT_PAD_HW_KERNEL
@@ -387,8 +507,22 @@ def gaussian_filter_large_backend(
     image: Any,
     sigma: Any,
     backend=None,
+    *,
+    _precision: str = "float32",
 ) -> Any:
-    """Large-sigma YVV Gaussian matching ``fast_gaussian_filter`` dispatch."""
+    """Large-sigma YVV Gaussian matching ``fast_gaussian_filter`` dispatch.
+
+    When *_precision* is ``"float64"``, attempts double-precision IIR on
+    the GPU (Metal ``double``).  If the GPU backend does not support
+    float64 (current Apple Silicon via MLX), falls back to the CPU
+    float64 YVV implementation for exact parity with the reference path.
+
+    **Known float32 bias:** The Young-van Vliet IIR filter in float32
+    accumulates a systematic bias of ~5e-6 vs the float64 reference.
+    This is inherent to the reduced-precision accumulation and is
+    visually imperceptible.  Use ``_precision="float64"`` where exact
+    parity is required (unit tests, halide-vs-CPU assertions).
+    """
     if not _backend_supports_gpu(backend):
         return fast_gaussian_filter(image, sigma)
     if _backend_supports_cupy(backend):
@@ -402,14 +536,37 @@ def gaussian_filter_large_backend(
     if np.any(sigmas < 3.0):
         raise ValueError("gaussian_filter_large_backend expects all sigmas >= 3")
 
-    coeffs = np.asarray([_yvv_coeffs(float(sigma_ch)) for sigma_ch in sigmas], dtype=np.float32)
     mx = backend.mx
-    B = mx.array(coeffs[:, 0], dtype=mx.float32)
-    B1 = mx.array(coeffs[:, 1], dtype=mx.float32)
-    B2 = mx.array(coeffs[:, 2], dtype=mx.float32)
-    B3 = mx.array(coeffs[:, 3], dtype=mx.float32)
+    use_f64 = _precision == "float64"
+    coeff_np_dtype = np.float64 if use_f64 else np.float32
+    coeff_mx_dtype = mx.float64 if use_f64 else mx.float32
 
-    horizontal = _get_gaussian_iir_horizontal_kernel(mx)
+    if use_f64:
+        try:
+            image_3d = image_3d.astype(mx.float64)
+        except (ValueError, RuntimeError):
+            # GPU backend does not support float64 — fall back to CPU float64
+            # IIR for exact parity with the reference path.
+            return backend.asarray(
+                fast_gaussian_filter(backend.to_numpy(image), sigma)
+            )
+
+    coeffs = np.asarray(
+        [_yvv_coeffs(float(sigma_ch)) for sigma_ch in sigmas],
+        dtype=coeff_np_dtype,
+    )
+    B = mx.array(coeffs[:, 0], dtype=coeff_mx_dtype)
+    B1 = mx.array(coeffs[:, 1], dtype=coeff_mx_dtype)
+    B2 = mx.array(coeffs[:, 2], dtype=coeff_mx_dtype)
+    B3 = mx.array(coeffs[:, 3], dtype=coeff_mx_dtype)
+
+    if use_f64:
+        horizontal = _get_gaussian_iir_horizontal_kernel_f64(mx)
+        vertical = _get_gaussian_iir_vertical_kernel_f64(mx)
+    else:
+        horizontal = _get_gaussian_iir_horizontal_kernel(mx)
+        vertical = _get_gaussian_iir_vertical_kernel(mx)
+
     tmp = horizontal(
         inputs=[image_3d, B, B1, B2, B3],
         template=[("T", image_3d.dtype)],
@@ -418,7 +575,6 @@ def gaussian_filter_large_backend(
         output_shapes=[image_3d.shape],
         output_dtypes=[image_3d.dtype],
     )[0]
-    vertical = _get_gaussian_iir_vertical_kernel(mx)
     out = vertical(
         inputs=[tmp, B, B1, B2, B3],
         template=[("T", image_3d.dtype)],
@@ -470,6 +626,7 @@ def _gaussian_filter_mlx_mixed_backend(
     backend,
     *,
     truncate: float = 3.0,
+    _precision: str = "float32",
 ) -> Any:
     image_3d, squeeze = _promote_image_to_3d(backend.asarray(image))
     channels = int(image_3d.shape[-1])
@@ -483,7 +640,9 @@ def _gaussian_filter_mlx_mixed_backend(
         if sigma_value <= 0.0:
             filtered = channel_image
         elif sigma_value >= 3.0:
-            filtered = gaussian_filter_large_backend(channel_image, sigma_value, backend)
+            filtered = gaussian_filter_large_backend(
+                channel_image, sigma_value, backend, _precision=_precision,
+            )
         else:
             filtered = gaussian_filter_small_backend(
                 channel_image,
@@ -503,6 +662,7 @@ def gaussian_filter_backend(
     backend=None,
     *,
     truncate: float = 3.0,
+    _precision: str = "float32",
 ) -> Any:
     """Backend-aware Gaussian blur.
 
@@ -522,13 +682,14 @@ def gaussian_filter_backend(
     channels = int(image.shape[-1]) if len(tuple(image.shape)) == 3 else 1
     sigmas = _normalize_sigma_for_channels(sigma, channels)
     if np.min(sigmas) >= 3.0:
-        return gaussian_filter_large_backend(image, sigmas, backend)
+        return gaussian_filter_large_backend(image, sigmas, backend, _precision=_precision)
     if np.max(sigmas) >= 3.0:
         return _gaussian_filter_mlx_mixed_backend(
             image,
             sigmas,
             backend,
             truncate=truncate,
+            _precision=_precision,
         )
     return gaussian_filter_small_backend(image, sigmas, backend, truncate=truncate)
 
@@ -540,8 +701,14 @@ def exponential_filter_backend(
     *,
     n_gaussians: int = 3,
     truncate: float = 3.0,
+    _precision: str = "float32",
 ) -> Any:
-    """Backend-aware exponential filter using the existing Gaussian mixture."""
+    """Backend-aware exponential filter using the existing Gaussian mixture.
+
+    MLX stays on the GPU by default and uses float32 Gaussian components.
+    Callers which explicitly need CPU-reference float64 behavior may pass
+    ``_precision="float64"``, accepting a possible CPU fallback on MLX.
+    """
     if not _backend_supports_gpu(backend):
         return fast_exponential_filter(
             image,
@@ -558,6 +725,7 @@ def exponential_filter_backend(
             f"available: {sorted(_EXPONENTIAL_GAUSSIAN_FITS)}"
         )
     decay = np.asarray(decay_constant, dtype=np.float64)
+
     result = None
     for amplitude, sigma_ratio in _EXPONENTIAL_GAUSSIAN_FITS[n_gaussians]:
         component = gaussian_filter_backend(
@@ -565,8 +733,10 @@ def exponential_filter_backend(
             sigma_ratio * decay,
             backend,
             truncate=truncate,
+            _precision=_precision,
         )
         result = amplitude * component if result is None else result + amplitude * component
+
     return result
 
 

@@ -82,6 +82,18 @@ def select_backend(name: str | None = "auto", *, precision: str = "float32") -> 
 
         return NumpyBackend()
 
+    if precision == "float64":
+        if requested == "auto":
+            from spektrafilm.gpu.numpy_backend import NumpyBackend
+
+            return NumpyBackend(
+                fallback_reason="GPU backends require float32 precision; using CPU for float64."
+            )
+        raise BackendUnavailableError(
+            f"compute_backend='{requested}' does not support gpu_precision='float64'; "
+            "use compute_backend='cpu' for float64."
+        )
+
     if requested in {"cupy", "cuda"}:
         return _select_cupy_backend(precision=precision)
 

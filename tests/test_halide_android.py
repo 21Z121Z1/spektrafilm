@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from spektrafilm.halide.android import (
@@ -10,6 +12,13 @@ from spektrafilm.halide.android import (
 
 
 pytestmark = pytest.mark.unit
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+JNI_SOURCE = REPO_ROOT / "android" / "app" / "src" / "main" / "cpp" / "spektrafilm_android_jni.cpp"
+
+
+def _jni_source() -> str:
+    return JNI_SOURCE.read_text()
 
 
 @pytest.mark.parametrize(
@@ -61,3 +70,27 @@ def test_render_add_halide_library_rejects_unsafe_identifiers(unsafe: str) -> No
             generator_target="spektrafilm_generators",
             generator_name="spektrafilm_rgb_to_xyz",
         )
+
+
+def test_android_jni_json_helpers_guard_short_payloads() -> None:
+    source = _jni_source()
+
+    assert "json == nullptr" in source
+    assert "key == nullptr" in source
+    assert "len < klen" in source
+    assert "i + klen <= len" in source
+    assert "char token[64]" in source
+
+
+def test_android_jni_profile_loader_rejects_out_of_bounds_offset() -> None:
+    source = _jni_source()
+
+    assert "offset < 16" in source
+    assert "static_cast<size_t>(offset) > total_len" in source
+
+
+def test_android_jni_process_image_rejects_null_params_json() -> None:
+    source = _jni_source()
+
+    assert "paramsJson == nullptr" in source
+    assert "json_bytes == nullptr" in source

@@ -1,0 +1,2251 @@
+{
+  "run_id": "20260531-124701",
+  "input": {
+    "path": "/Users/retriedstormtrooper/Documents/OPPO 互联/IMG20260530191638.dng",
+    "size_label": "512x384",
+    "shape": [
+      384,
+      512,
+      3
+    ],
+    "dtype": "float64",
+    "megapixels": 0.196608
+  },
+  "config": {
+    "grain": "on",
+    "use_lut": true,
+    "warmups": 0,
+    "runs": 1,
+    "synced": true
+  },
+  "runs": [
+    {
+      "label": "cpu_float64",
+      "requested_backend": "cpu",
+      "selected_backend": "cpu",
+      "precision": "float64",
+      "effective_precision_note": "float64",
+      "status": "ok",
+      "supports_gpu": false,
+      "halide_target": "",
+      "warmup_seconds": [],
+      "timed_seconds": [
+        0.33043095900211483
+      ],
+      "best_seconds": 0.33043095900211483,
+      "avg_seconds": 0.33043095900211483,
+      "internal_timings": {
+        "FilmingStage.auto_exposure": 1.00000761449337e-06,
+        "SpectralLUTService.get_filming_tc_lut": 1.029198756441474e-05,
+        "FilmingStage.expose": 0.06202891701832414,
+        "FilmingStage.develop": 0.1521559579996392,
+        "SpectralLUTService.spectral_compute_enlarger": 0.0367517500417307,
+        "PrintingStage.expose": 0.04495137499179691,
+        "PrintingStage.develop": 0.0029015420004725456,
+        "SpectralLUTService.spectral_compute_scanner": 0.023424915969371796,
+        "ScanningStage.scan": 0.06774691701866686
+      },
+      "output": {
+        "type": "numpy.ndarray",
+        "backend": "numpy",
+        "shape": [
+          384,
+          512,
+          3
+        ],
+        "dtype": "float64",
+        "bytes": 4718592,
+        "nbytes": 4718592
+      },
+      "conversions": {},
+      "synced_stages": [
+        {
+          "name": "preprocess.auto_exposure",
+          "seconds": 3.0410010367631912e-06,
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 4718592,
+            "nbytes": 4718592
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 4718592,
+            "nbytes": 4718592
+          }
+        },
+        {
+          "name": "preprocess.crop_rescale",
+          "seconds": 2.6958994567394257e-05,
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 4718592,
+            "nbytes": 4718592
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 4718592,
+            "nbytes": 4718592
+          }
+        },
+        {
+          "name": "film.expose",
+          "seconds": 0.04387537500588223,
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 4718592,
+            "nbytes": 4718592
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 4718592,
+            "nbytes": 4718592
+          }
+        },
+        {
+          "name": "film.develop",
+          "seconds": 0.11894374998519197,
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 4718592,
+            "nbytes": 4718592
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 4718592,
+            "nbytes": 4718592
+          }
+        },
+        {
+          "name": "print.expose",
+          "seconds": 0.027488666004501283,
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 4718592,
+            "nbytes": 4718592
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 4718592,
+            "nbytes": 4718592
+          }
+        },
+        {
+          "name": "print.develop",
+          "seconds": 0.0027389999595470726,
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 4718592,
+            "nbytes": 4718592
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 4718592,
+            "nbytes": 4718592
+          }
+        },
+        {
+          "name": "scan",
+          "seconds": 0.05365587503183633,
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 4718592,
+            "nbytes": 4718592
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 4718592,
+            "nbytes": 4718592
+          }
+        },
+        {
+          "name": "final.asarray_float64",
+          "seconds": 1.00000761449337e-06,
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 4718592,
+            "nbytes": 4718592
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 4718592,
+            "nbytes": 4718592
+          }
+        }
+      ],
+      "synced_total_seconds": 0.24673366599017754,
+      "synced_output": {
+        "type": "numpy.ndarray",
+        "backend": "numpy",
+        "shape": [
+          384,
+          512,
+          3
+        ],
+        "dtype": "float64",
+        "bytes": 4718592,
+        "nbytes": 4718592
+      },
+      "synced_conversions": {}
+    },
+    {
+      "label": "mlx_float32",
+      "requested_backend": "mlx",
+      "selected_backend": "mlx",
+      "precision": "float32",
+      "effective_precision_note": "float32",
+      "status": "ok",
+      "supports_gpu": true,
+      "halide_target": "",
+      "warmup_seconds": [],
+      "timed_seconds": [
+        1.4989256670232862
+      ],
+      "best_seconds": 1.4989256670232862,
+      "avg_seconds": 1.4989256670232862,
+      "internal_timings": {
+        "FilmingStage.auto_exposure": 1.2500095181167126e-06,
+        "SpectralLUTService.get_filming_tc_lut": 2.041697734966874e-05,
+        "SpectralLUTService.get_filming_tc_lut_backend": 0.0003901669988408685,
+        "FilmingStage.expose": 0.09730116702849045,
+        "FilmingStage.develop": 1.3446595420246013,
+        "PrintingStage.expose": 0.0067265830002725124,
+        "PrintingStage.develop": 6.558297900483012e-05,
+        "SpectralLUTService.spectral_compute_scanner": 0.03582108404953033,
+        "ScanningStage.scan": 0.04550804104655981
+      },
+      "output": {
+        "type": "numpy.ndarray",
+        "backend": "numpy",
+        "shape": [
+          384,
+          512,
+          3
+        ],
+        "dtype": "float64",
+        "bytes": 4718592,
+        "nbytes": 4718592
+      },
+      "conversions": {
+        "backend.asarray": {
+          "count": 110,
+          "bytes": 91232064,
+          "samples": [
+            {
+              "type": "mlx.core.array",
+              "backend": "mlx",
+              "shape": [
+                192,
+                192,
+                3
+              ],
+              "dtype": "mlx.core.float32",
+              "bytes": 442368,
+              "nbytes": 442368
+            },
+            {
+              "type": "mlx.core.array",
+              "backend": "mlx",
+              "shape": [
+                384,
+                512,
+                2
+              ],
+              "dtype": "mlx.core.float32",
+              "bytes": 1572864,
+              "nbytes": 1572864
+            },
+            {
+              "type": "mlx.core.array",
+              "backend": "mlx",
+              "shape": [
+                384,
+                512,
+                1
+              ],
+              "dtype": "mlx.core.float32",
+              "bytes": 786432,
+              "nbytes": 786432
+            },
+            {
+              "type": "mlx.core.array",
+              "backend": "mlx",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "mlx.core.float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "mlx.core.array",
+              "backend": "mlx",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "mlx.core.float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "mlx.core.array",
+              "backend": "mlx",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "mlx.core.float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "mlx.core.array",
+              "backend": "mlx",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "mlx.core.float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "mlx.core.array",
+              "backend": "mlx",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "mlx.core.float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "mlx.core.array",
+              "backend": "mlx",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "mlx.core.float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "mlx.core.array",
+              "backend": "mlx",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "mlx.core.float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "mlx.core.array",
+              "backend": "mlx",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "mlx.core.float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "mlx.core.array",
+              "backend": "mlx",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "mlx.core.float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            }
+          ]
+        },
+        "backend.to_numpy": {
+          "count": 15,
+          "bytes": 11855508,
+          "samples": [
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512
+              ],
+              "dtype": "int32",
+              "bytes": 786432,
+              "nbytes": 786432
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512
+              ],
+              "dtype": "int32",
+              "bytes": 786432,
+              "nbytes": 786432
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512
+              ],
+              "dtype": "int32",
+              "bytes": 786432,
+              "nbytes": 786432
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512
+              ],
+              "dtype": "int32",
+              "bytes": 786432,
+              "nbytes": 786432
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512
+              ],
+              "dtype": "int32",
+              "bytes": 786432,
+              "nbytes": 786432
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512
+              ],
+              "dtype": "int32",
+              "bytes": 786432,
+              "nbytes": 786432
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512
+              ],
+              "dtype": "int32",
+              "bytes": 786432,
+              "nbytes": 786432
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512
+              ],
+              "dtype": "int32",
+              "bytes": 786432,
+              "nbytes": 786432
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512
+              ],
+              "dtype": "int32",
+              "bytes": 786432,
+              "nbytes": 786432
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                1,
+                1,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 12,
+              "nbytes": 12
+            }
+          ]
+        }
+      },
+      "synced_stages": [
+        {
+          "name": "preprocess.auto_exposure",
+          "seconds": 3.362499410286546e-05,
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 4718592,
+            "nbytes": 4718592
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 4718592,
+            "nbytes": 4718592
+          }
+        },
+        {
+          "name": "preprocess.crop_rescale",
+          "seconds": 4.891701973974705e-05,
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 4718592,
+            "nbytes": 4718592
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 4718592,
+            "nbytes": 4718592
+          }
+        },
+        {
+          "name": "film.expose",
+          "seconds": 0.0406386669492349,
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 4718592,
+            "nbytes": 4718592
+          },
+          "output": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 2359296,
+            "nbytes": 2359296
+          }
+        },
+        {
+          "name": "film.develop",
+          "seconds": 0.10860475001391023,
+          "input": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 2359296,
+            "nbytes": 2359296
+          },
+          "output": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 2359296,
+            "nbytes": 2359296
+          }
+        },
+        {
+          "name": "print.expose",
+          "seconds": 0.0059512919979169965,
+          "input": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 2359296,
+            "nbytes": 2359296
+          },
+          "output": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 2359296,
+            "nbytes": 2359296
+          }
+        },
+        {
+          "name": "print.develop",
+          "seconds": 0.00044012494618073106,
+          "input": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 2359296,
+            "nbytes": 2359296
+          },
+          "output": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 2359296,
+            "nbytes": 2359296
+          }
+        },
+        {
+          "name": "scan",
+          "seconds": 0.019144457997754216,
+          "input": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 2359296,
+            "nbytes": 2359296
+          },
+          "output": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 2359296,
+            "nbytes": 2359296
+          }
+        },
+        {
+          "name": "final.asarray_float64",
+          "seconds": 0.0001325419871136546,
+          "input": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 2359296,
+            "nbytes": 2359296
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 4718592,
+            "nbytes": 4718592
+          }
+        }
+      ],
+      "synced_total_seconds": 0.17499437590595335,
+      "synced_output": {
+        "type": "numpy.ndarray",
+        "backend": "numpy",
+        "shape": [
+          384,
+          512,
+          3
+        ],
+        "dtype": "float64",
+        "bytes": 4718592,
+        "nbytes": 4718592
+      },
+      "synced_conversions": {
+        "backend.asarray": {
+          "count": 94,
+          "bytes": 87306740,
+          "samples": [
+            {
+              "type": "mlx.core.array",
+              "backend": "mlx",
+              "shape": [
+                384,
+                512,
+                2
+              ],
+              "dtype": "mlx.core.float32",
+              "bytes": 1572864,
+              "nbytes": 1572864
+            },
+            {
+              "type": "mlx.core.array",
+              "backend": "mlx",
+              "shape": [
+                384,
+                512,
+                1
+              ],
+              "dtype": "mlx.core.float32",
+              "bytes": 786432,
+              "nbytes": 786432
+            },
+            {
+              "type": "mlx.core.array",
+              "backend": "mlx",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "mlx.core.float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "mlx.core.array",
+              "backend": "mlx",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "mlx.core.float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "mlx.core.array",
+              "backend": "mlx",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "mlx.core.float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "mlx.core.array",
+              "backend": "mlx",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "mlx.core.float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "mlx.core.array",
+              "backend": "mlx",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "mlx.core.float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "mlx.core.array",
+              "backend": "mlx",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "mlx.core.float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "mlx.core.array",
+              "backend": "mlx",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "mlx.core.float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "mlx.core.array",
+              "backend": "mlx",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "mlx.core.float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "mlx.core.array",
+              "backend": "mlx",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "mlx.core.float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "mlx.core.array",
+              "backend": "mlx",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "mlx.core.float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            }
+          ]
+        },
+        "backend.to_numpy": {
+          "count": 14,
+          "bytes": 11796552,
+          "samples": [
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512
+              ],
+              "dtype": "int32",
+              "bytes": 786432,
+              "nbytes": 786432
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512
+              ],
+              "dtype": "int32",
+              "bytes": 786432,
+              "nbytes": 786432
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512
+              ],
+              "dtype": "int32",
+              "bytes": 786432,
+              "nbytes": 786432
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512
+              ],
+              "dtype": "int32",
+              "bytes": 786432,
+              "nbytes": 786432
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512
+              ],
+              "dtype": "int32",
+              "bytes": 786432,
+              "nbytes": 786432
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512
+              ],
+              "dtype": "int32",
+              "bytes": 786432,
+              "nbytes": 786432
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512
+              ],
+              "dtype": "int32",
+              "bytes": 786432,
+              "nbytes": 786432
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512
+              ],
+              "dtype": "int32",
+              "bytes": 786432,
+              "nbytes": 786432
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512
+              ],
+              "dtype": "int32",
+              "bytes": 786432,
+              "nbytes": 786432
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                1,
+                1,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 12,
+              "nbytes": 12
+            }
+          ]
+        }
+      }
+    },
+    {
+      "label": "halide_float32",
+      "requested_backend": "halide",
+      "selected_backend": "halide",
+      "precision": "float32",
+      "effective_precision_note": "float32",
+      "status": "ok",
+      "supports_gpu": true,
+      "halide_target": "arm-64-osx-arm_dot_prod-arm_fp16",
+      "warmup_seconds": [],
+      "timed_seconds": [
+        0.9119161669514142
+      ],
+      "best_seconds": 0.9119161669514142,
+      "avg_seconds": 0.9119161669514142,
+      "internal_timings": {
+        "FilmingStage.auto_exposure": 8.330098353326321e-07,
+        "SpectralLUTService.get_filming_tc_lut": 1.9916973542422056e-05,
+        "SpectralLUTService.get_filming_tc_lut_backend": 7.783295586705208e-05,
+        "FilmingStage.expose": 0.05623995896894485,
+        "FilmingStage.develop": 0.12122583301970735,
+        "PrintingStage.expose": 0.5166742089786567,
+        "PrintingStage.develop": 0.0060034170164726675,
+        "SpectralLUTService.spectral_compute_scanner": 0.13231312501011416,
+        "ScanningStage.scan": 0.2113769999705255
+      },
+      "output": {
+        "type": "numpy.ndarray",
+        "backend": "numpy",
+        "shape": [
+          384,
+          512,
+          3
+        ],
+        "dtype": "float64",
+        "bytes": 4718592,
+        "nbytes": 4718592
+      },
+      "conversions": {
+        "backend.asarray": {
+          "count": 32,
+          "bytes": 50105612,
+          "samples": [
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                192,
+                192,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 442368,
+              "nbytes": 442368
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                2
+              ],
+              "dtype": "float32",
+              "bytes": 1572864,
+              "nbytes": 1572864
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                1
+              ],
+              "dtype": "float32",
+              "bytes": 786432,
+              "nbytes": 786432
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            }
+          ]
+        },
+        "backend.to_numpy": {
+          "count": 20,
+          "bytes": 48817812,
+          "samples": [
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                2
+              ],
+              "dtype": "float32",
+              "bytes": 1572864,
+              "nbytes": 1572864
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float64",
+              "bytes": 4718592,
+              "nbytes": 4718592
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float64",
+              "bytes": 4718592,
+              "nbytes": 4718592
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float64",
+              "bytes": 4718592,
+              "nbytes": 4718592
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float64",
+              "bytes": 4718592,
+              "nbytes": 4718592
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            }
+          ]
+        },
+        "halide.Buffer": {
+          "count": 46,
+          "bytes": 9688848,
+          "samples": [
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                1,
+                1,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 12,
+              "nbytes": 12
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                81,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 972,
+              "nbytes": 972
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                81
+              ],
+              "dtype": "float32",
+              "bytes": 324,
+              "nbytes": 324
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                81
+              ],
+              "dtype": "float32",
+              "bytes": 324,
+              "nbytes": 324
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                81,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 972,
+              "nbytes": 972
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 12,
+              "nbytes": 12
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 12,
+              "nbytes": 12
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                1,
+                1,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 12,
+              "nbytes": 12
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                81,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 972,
+              "nbytes": 972
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                81
+              ],
+              "dtype": "float32",
+              "bytes": 324,
+              "nbytes": 324
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                81
+              ],
+              "dtype": "float32",
+              "bytes": 324,
+              "nbytes": 324
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                81,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 972,
+              "nbytes": 972
+            }
+          ]
+        }
+      },
+      "synced_stages": [
+        {
+          "name": "preprocess.auto_exposure",
+          "seconds": 3.7499703466892242e-06,
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 4718592,
+            "nbytes": 4718592
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 4718592,
+            "nbytes": 4718592
+          }
+        },
+        {
+          "name": "preprocess.crop_rescale",
+          "seconds": 3.4374999813735485e-05,
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 4718592,
+            "nbytes": 4718592
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 4718592,
+            "nbytes": 4718592
+          }
+        },
+        {
+          "name": "film.expose",
+          "seconds": 0.04712020797887817,
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 4718592,
+            "nbytes": 4718592
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 4718592,
+            "nbytes": 4718592
+          }
+        },
+        {
+          "name": "film.develop",
+          "seconds": 0.12361762503860518,
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 4718592,
+            "nbytes": 4718592
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 4718592,
+            "nbytes": 4718592
+          }
+        },
+        {
+          "name": "print.expose",
+          "seconds": 0.01033495896263048,
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 4718592,
+            "nbytes": 4718592
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float32",
+            "bytes": 2359296,
+            "nbytes": 2359296
+          }
+        },
+        {
+          "name": "print.develop",
+          "seconds": 0.002720166987273842,
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float32",
+            "bytes": 2359296,
+            "nbytes": 2359296
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float32",
+            "bytes": 2359296,
+            "nbytes": 2359296
+          }
+        },
+        {
+          "name": "scan",
+          "seconds": 0.021424165985081345,
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float32",
+            "bytes": 2359296,
+            "nbytes": 2359296
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float32",
+            "bytes": 2359296,
+            "nbytes": 2359296
+          }
+        },
+        {
+          "name": "final.asarray_float64",
+          "seconds": 9.8041957244277e-05,
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float32",
+            "bytes": 2359296,
+            "nbytes": 2359296
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 4718592,
+            "nbytes": 4718592
+          }
+        }
+      ],
+      "synced_total_seconds": 0.20535329187987372,
+      "synced_output": {
+        "type": "numpy.ndarray",
+        "backend": "numpy",
+        "shape": [
+          384,
+          512,
+          3
+        ],
+        "dtype": "float64",
+        "bytes": 4718592,
+        "nbytes": 4718592
+      },
+      "synced_conversions": {
+        "backend.asarray": {
+          "count": 29,
+          "bytes": 49545332,
+          "samples": [
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                2
+              ],
+              "dtype": "float32",
+              "bytes": 1572864,
+              "nbytes": 1572864
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                1
+              ],
+              "dtype": "float32",
+              "bytes": 786432,
+              "nbytes": 786432
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            }
+          ]
+        },
+        "backend.to_numpy": {
+          "count": 19,
+          "bytes": 48758856,
+          "samples": [
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                2
+              ],
+              "dtype": "float32",
+              "bytes": 1572864,
+              "nbytes": 1572864
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float64",
+              "bytes": 4718592,
+              "nbytes": 4718592
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float64",
+              "bytes": 4718592,
+              "nbytes": 4718592
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float64",
+              "bytes": 4718592,
+              "nbytes": 4718592
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float64",
+              "bytes": 4718592,
+              "nbytes": 4718592
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            },
+            {
+              "type": "numpy.ndarray",
+              "backend": "numpy",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "bytes": 2359296,
+              "nbytes": 2359296
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "precision": [
+    {
+      "reference": "cpu_float64",
+      "actual": "mlx_float32",
+      "metrics": {
+        "max_diff": 0.05557601114647484,
+        "mean_diff": 0.0019155452764097827,
+        "median_diff": 0.001419927837184854,
+        "rmse": 0.002627677927217984,
+        "psnr": 51.60855734087383,
+        "psnr_db": 51.60855734087383,
+        "channel_max_diff": [
+          0.02310321619013738,
+          0.031983722149067695,
+          0.05557601114647484
+        ],
+        "channel_mean_diff": [
+          0.0022940169826350157,
+          0.001703898883525408,
+          0.0017487199630689205
+        ]
+      }
+    },
+    {
+      "reference": "cpu_float64",
+      "actual": "halide_float32",
+      "metrics": {
+        "max_diff": 0.07525053630124748,
+        "mean_diff": 0.0019195349570978698,
+        "median_diff": 0.001420228435490195,
+        "rmse": 0.0026378660786422433,
+        "psnr": 51.57494513699889,
+        "psnr_db": 51.57494513699889,
+        "channel_max_diff": [
+          0.029402852768374642,
+          0.03051743298643189,
+          0.07525053630124748
+        ],
+        "channel_mean_diff": [
+          0.00230472683351609,
+          0.001704427202969333,
+          0.0017494508348082508
+        ]
+      }
+    },
+    {
+      "reference": "mlx_float32",
+      "actual": "halide_float32",
+      "metrics": {
+        "max_diff": 0.08598505705595016,
+        "mean_diff": 0.0018940664314600144,
+        "median_diff": 0.001392468810081482,
+        "rmse": 0.0026139609970919956,
+        "psnr": 51.65401793628849,
+        "psnr_db": 51.65401793628849,
+        "channel_max_diff": [
+          0.030999012291431427,
+          0.03017321228981018,
+          0.08598505705595016
+        ],
+        "channel_mean_diff": [
+          0.0022386263696413757,
+          0.0016924392139117117,
+          0.0017511337108269559
+        ]
+      }
+    }
+  ]
+}

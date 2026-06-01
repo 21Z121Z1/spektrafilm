@@ -5,7 +5,10 @@ from enum import Enum
 
 from spektrafilm_gui.options import (
     AutoExposureMethods,
+    ColorManagementWorkflows,
+    ComputeBackend,
     DiffusionFilterFamilies,
+    GpuPrecision,
     NapariInterpolationModes,
     RGBColorSpaces,
     RGBtoRAWMethod,
@@ -49,9 +52,12 @@ GUI_SECTION_ENUMS: dict[str, dict[str, type[Enum]]] = {
         "camera_diffusion_filter_family": DiffusionFilterFamilies,
         "print_paper": PrintPapers,
         "print_illuminant": Illuminants,
+        "color_management_workflow": ColorManagementWorkflows,
         "output_color_space": RGBColorSpaces,
         "saving_color_space": RGBColorSpaces,
         "diffusion_filter_family": DiffusionFilterFamilies,
+        "compute_backend": ComputeBackend,
+        "gpu_precision": GpuPrecision,
     },
 }
 
@@ -282,7 +288,15 @@ GUI_WIDGET_SPECS = {
             step=0.05,
             min_value=0,
         ),
+        "color_management_workflow": WidgetSpec(
+            label="Color workflow",
+            tooltip="Manual preserves explicit GUI color fields. ACES reference maps input to ACES2065-1 and runtime output to scene-linear ACEScg.",
+        ),
         "output_color_space": WidgetSpec(label="Output color space", tooltip="Output color space of the simulation"),
+        "output_cctf_encoding": WidgetSpec(
+            label="Runtime output CCTF",
+            tooltip="Apply the output color space CCTF to the simulation runtime output. Keep disabled for scene-linear ACES/HDR output.",
+        ),
         "saving_color_space": WidgetSpec(label="Saving color space", tooltip="Color space of the saved image file"),
         "saving_cctf_encoding": WidgetSpec(
             label="Saving CCTF encoding",
@@ -290,6 +304,14 @@ GUI_WIDGET_SPECS = {
         ),
         "auto_preview": WidgetSpec(label="Auto preview", tooltip="trigger the preview after every change of gui parameters, use mouse scrollwheel on parameters field, read preview tooltip for details"),
         "scan_film": WidgetSpec(label="Scan film", tooltip="Show a scan of the negative instead of the print"),
+        "compute_backend": WidgetSpec(
+            label="Compute backend",
+            tooltip="GPU/CPU backend for acceleration. 'auto' tries MLX→CuPy→CPU and applies on the next preview or process run.",
+        ),
+        "gpu_precision": WidgetSpec(
+            label="GPU precision",
+            tooltip="Numerical precision request. float64 is the CPU reference path; GPU backends currently run float32.",
+        ),
     },
     "display": {
         "use_display_transform": WidgetSpec(

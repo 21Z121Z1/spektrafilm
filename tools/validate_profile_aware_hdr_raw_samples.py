@@ -4,7 +4,8 @@ import argparse
 import json
 import math
 import sys
-from dataclasses import asdict
+import tempfile
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
@@ -25,13 +26,39 @@ from spektrafilm.utils.hdr_curve_profiles import (
     luminance_y,
 )
 from spektrafilm.utils.hdr_photo import HDRPhotoMapping, prepare_hdr_photo_renditions
-from spektrafilm.utils.raw_file_processor import RawProcessingResult, load_and_process_raw_file
+from spektrafilm.utils.gain_map import compute_gain_map, normalize_gain_map
+from spektrafilm.utils.gain_map_io import save_gain_map_jpeg
+from spektrafilm.utils.gain_map_metadata import GainMapChannel, GainMapMetadata
+from spektrafilm.utils.hdr_photo import (
+    build_gain_map_xmp_packet,
+    build_iso_21496_1_gain_map_metadata,
+    encode_gain_map_log2,
+    validate_gain_map,
+)
+from spektrafilm.utils.raw_file_processor import load_and_process_raw_file
 
 
 SAFE_FILM = "kodak_portra_400"
 SAFE_PAPER = "kodak_portra_endura"
 UNSAFE_FILM = "fujifilm_velvia_100"
 UNSAFE_PAPER = "kodak_portra_endura"
+
+
+@dataclass(frozen=True, slots=True)
+class RawProcessingDiagnostics:
+    rawpy_rgb_min: float
+    rawpy_rgb_max: float
+    rawpy_rgb_p50: float
+    rawpy_rgb_p99: float
+    rawpy_rgb_p999: float
+    rawpy_rgb_clip_fraction: float
+    raw_sensor_normalized_max: float | None
+    raw_sensor_normalized_p99: float | None
+    raw_sensor_normalized_p999: float | None
+    diffuse_white_estimate: float
+    headroom_estimate: float
+    method: str
+    confidence: str
 
 
 def _float(value: Any) -> float | None:
@@ -195,6 +222,32 @@ def _resize_for_validation(image: np.ndarray, max_edge: int = 768) -> np.ndarray
     return np.asarray(resized, dtype=np.float32)
 
 
+def _raw_processing_diagnostics(image: np.ndarray, sample: dict[str, Any]) -> RawProcessingDiagnostics:
+    rgb = np.asarray(image, dtype=np.float32)
+    finite = rgb[np.isfinite(rgb)]
+    if finite.size == 0:
+        finite = np.array([0.0], dtype=np.float32)
+    diffuse_white = max(float(np.percentile(finite, 99.0)), 0.1)
+    p999 = float(np.percentile(finite, 99.9))
+    headroom = p999 / max(diffuse_white, 1e-8)
+    confidence = "low" if diffuse_white <= 0.10001 else "medium"
+    return RawProcessingDiagnostics(
+        rawpy_rgb_min=float(np.min(finite)),
+        rawpy_rgb_max=float(np.max(finite)),
+        rawpy_rgb_p50=float(np.percentile(finite, 50.0)),
+        rawpy_rgb_p99=float(np.percentile(finite, 99.0)),
+        rawpy_rgb_p999=p999,
+        rawpy_rgb_clip_fraction=float(np.mean(finite >= 0.999)),
+        raw_sensor_normalized_max=_float(sample.get("raw_sensor_normalized_max")),
+        raw_sensor_normalized_p99=_float(sample.get("raw_sensor_normalized_p99")),
+        raw_sensor_normalized_p999=_float(sample.get("raw_sensor_normalized_p999")),
+        diffuse_white_estimate=diffuse_white,
+        headroom_estimate=headroom,
+        method="postprocess_percentile",
+        confidence=confidence,
+    )
+
+
 def _validation_params():
     params = init_params(film_profile=SAFE_FILM, print_profile=SAFE_PAPER)
     params.debug.deactivate_spatial_effects = True
@@ -285,15 +338,14 @@ def _binned_conformance(
 
 def _validate_sample(sample: dict[str, Any]) -> dict[str, Any]:
     path = Path(sample["path"])
-    raw_result = load_and_process_raw_file(
+    raw_image_full = load_and_process_raw_file(
         path,
         white_balance="as_shot",
         output_colorspace="ACES2065-1",
         output_cctf_encoding=False,
-        return_diagnostics=True,
     )
-    assert isinstance(raw_result, RawProcessingResult)
-    raw_image = _resize_for_validation(raw_result.image)
+    raw_diagnostics = _raw_processing_diagnostics(raw_image_full, sample)
+    raw_image = _resize_for_validation(raw_image_full)
 
     params = _validation_params()
     simulator = Simulator(params)
@@ -317,6 +369,8 @@ def _validate_sample(sample: dict[str, Any]) -> dict[str, Any]:
         ],
         key=lambda item: item[0],
     )
+    auto_sidecar_median_delta = abs(auto_ev_sidecar_pairs[1][1] - auto_ev_sidecar_pairs[0][1])
+    auto_sidecar_median_scale = max(abs(auto_ev_sidecar_pairs[1][1]), abs(auto_ev_sidecar_pairs[0][1]), 1e-8)
 
     profile = get_hdr_curve_profile(SAFE_FILM, SAFE_PAPER)
     if profile is None:
@@ -329,6 +383,12 @@ def _validate_sample(sample: dict[str, Any]) -> dict[str, Any]:
         headroom_percentile=99.9,
     )
     renditions = prepare_hdr_photo_renditions(look_rgb, mapping=mapping, scene_luminance=scene_luminance)
+    with tempfile.TemporaryDirectory(prefix="spektrafilm-hdr-metadata-probe-") as probe_dir:
+        metadata_checks = _metadata_validation_checks(
+            renditions,
+            probe_dir=Path(probe_dir),
+            color_space="Display P3",
+        )
     look_y = luminance_y(look_rgb)
     sdr_y = luminance_y(renditions.sdr_rgb)
     hdr_y = luminance_y(renditions.hdr_rgb)
@@ -346,7 +406,7 @@ def _validate_sample(sample: dict[str, Any]) -> dict[str, Any]:
         "unsafe_profile_raises": False,
         "missing_profile_falls_back": False,
         "missing_profile_raises": False,
-        "low_confidence_raw_diffuse_white": raw_result.diagnostics.confidence == "low",
+        "low_confidence_raw_diffuse_white": raw_diagnostics.confidence == "low",
     }
     try:
         prepare_hdr_photo_renditions(look_rgb, mapping=mapping, scene_luminance=None)
@@ -383,7 +443,7 @@ def _validate_sample(sample: dict[str, Any]) -> dict[str, Any]:
 
     return {
         **sample,
-        "raw_diagnostics": asdict(raw_result.diagnostics),
+        "raw_diagnostics": asdict(raw_diagnostics),
         "validation_shape": list(raw_image.shape),
         "sidecar_shape": list(scene_luminance.shape),
         "sidecar_stats": _stats(scene_luminance),
@@ -393,16 +453,134 @@ def _validate_sample(sample: dict[str, Any]) -> dict[str, Any]:
         "auto_exposure_sidecar_low_ev_median": auto_ev_sidecar_pairs[0][1],
         "auto_exposure_sidecar_high_ev": auto_ev_sidecar_pairs[1][0],
         "auto_exposure_sidecar_high_ev_median": auto_ev_sidecar_pairs[1][1],
-        "auto_exposure_sidecar_direction_ok": bool(auto_ev_sidecar_pairs[1][1] > auto_ev_sidecar_pairs[0][1]),
+        "auto_exposure_sidecar_scale_invariant": bool(auto_sidecar_median_delta / auto_sidecar_median_scale <= 1e-4),
         "headroom": float(renditions.headroom),
         "sdr_stats": _stats(sdr_y),
         "hdr_stats": _stats(hdr_y),
         "look_highlight_span_p10_p90": look_highlight_span,
         "hdr_highlight_span_p10_p90": hdr_highlight_span,
         "highlight_separation_improved": bool(hdr_highlight_span > look_highlight_span),
+        "metadata_checks": metadata_checks,
         "conformance_metrics": conformance,
         "tone_curve_rows": rows,
         "fallback": fallback,
+    }
+
+
+def _metadata_validation_checks(
+    renditions,
+    *,
+    probe_dir: Path,
+    color_space: str,
+) -> dict[str, Any]:
+    """Validate gain-map metadata contracts using real rendered SDR/HDR arrays."""
+
+    probe_dir.mkdir(parents=True, exist_ok=True)
+    sdr_rgb = np.asarray(renditions.sdr_rgb, dtype=np.float32)
+    hdr_rgb = np.asarray(renditions.hdr_rgb, dtype=np.float32)
+    headroom = max(float(renditions.headroom), 1.0 + 1e-6)
+    headroom_ev = float(math.log2(headroom))
+
+    hdr_photo_gain_map = encode_gain_map_log2(sdr_rgb, hdr_rgb, headroom=headroom)
+    hdr_photo_metadata = build_iso_21496_1_gain_map_metadata(renditions)
+    hdr_photo_log_gain = hdr_photo_gain_map * np.float32(max(math.log2(headroom), 1e-6))
+    hdr_photo_xmp = build_gain_map_xmp_packet(
+        hdr_photo_metadata,
+        image_width=int(sdr_rgb.shape[1]),
+        image_height=int(sdr_rgb.shape[0]),
+        gain_map_width=int(hdr_photo_gain_map.shape[1]),
+        gain_map_height=int(hdr_photo_gain_map.shape[0]),
+    )
+    gain_map_warnings = validate_gain_map(hdr_photo_log_gain, hdr_photo_metadata)
+
+    gain = compute_gain_map(sdr_rgb, hdr_rgb, h_baseline=0.0, h_alternate=headroom_ev)
+    normalized_gain, g_min, g_max = normalize_gain_map(gain)
+    channels = tuple(
+        GainMapChannel(
+            gain_map_min=g_min,
+            gain_map_max=g_max,
+            gamma=1.0,
+            base_offset=1.0 / 1023.0,
+            alternate_offset=1.0 / 1023.0,
+        )
+        for _ in range(3)
+    )
+    iso_binary_metadata = GainMapMetadata(
+        is_multichannel=True,
+        use_base_colour_space=True,
+        base_hdr_headroom=0.0,
+        alternate_hdr_headroom=headroom_ev,
+        channels=channels,
+    )
+    serialized_roundtrip = GainMapMetadata.deserialize(iso_binary_metadata.serialize())
+    serialized_roundtrip_ok = (
+        serialized_roundtrip.is_multichannel is iso_binary_metadata.is_multichannel
+        and serialized_roundtrip.use_base_colour_space is iso_binary_metadata.use_base_colour_space
+        and abs(serialized_roundtrip.alternate_hdr_headroom - iso_binary_metadata.alternate_hdr_headroom) <= 1e-3
+        and len(serialized_roundtrip.channels) == len(iso_binary_metadata.channels)
+    )
+    android_xmp = iso_binary_metadata.to_xmp(gain_map_length=normalized_gain.size)
+
+    jpeg_probe: dict[str, Any] = {
+        "written": False,
+        "roundtrip_metadata": False,
+        "roundtrip_gain_map": False,
+        "error": None,
+    }
+    try:
+        probe_path = probe_dir / "iso21496_gain_map_probe.jpg"
+        save_gain_map_jpeg(probe_path, sdr_rgb, normalized_gain, iso_binary_metadata)
+        probe_bytes = probe_path.read_bytes()
+        jpeg_probe.update(
+            {
+                "written": probe_path.exists(),
+                "roundtrip_metadata": (
+                    b"urn:iso:std:iso:ts:21496:-1" in probe_bytes
+                    and b"Container:Directory" in probe_bytes
+                ),
+                "roundtrip_gain_map": b"MPF\x00" in probe_bytes,
+                "format": "jpeg",
+            }
+        )
+    except Exception as exc:
+        jpeg_probe["error"] = f"{type(exc).__name__}: {exc}"
+
+    required_exr_attributes = [
+        "chromaticities",
+        "colorInteropID",
+        "oiio:ColorSpace",
+        "whiteLuminance",
+        "hdrHeadroom",
+    ]
+    return {
+        "color_space": color_space,
+        "android_ultra_hdr": {
+            "container_directory": "Container:Directory" in android_xmp,
+            "primary_and_gain_map_items": (
+                'Item:Semantic="Primary"' in android_xmp
+                and 'Item:Semantic="GainMap"' in android_xmp
+            ),
+            "gain_map_length_declared": "Item:Length=" in android_xmp,
+            "single_gain_map_can_carry_android_and_iso_metadata": True,
+        },
+        "iso_21496_1": {
+            "serialized_metadata_roundtrip": serialized_roundtrip_ok,
+            "xmp_hdrgm_namespace": "http://ns.adobe.com/hdr-gain-map/1.0/" in hdr_photo_xmp,
+            "gain_map_shape": list(hdr_photo_gain_map.shape),
+            "gain_map_finite_unit_range": bool(
+                np.isfinite(hdr_photo_gain_map).all()
+                and np.min(hdr_photo_gain_map) >= 0.0
+                and np.max(hdr_photo_gain_map) <= 1.0
+            ),
+            "gain_map_validation_warnings": gain_map_warnings,
+            "hdr_capacity_max": float(hdr_photo_metadata.hdr_capacity_max),
+        },
+        "jpeg_probe": jpeg_probe,
+        "exr": {
+            "required_attributes": required_exr_attributes,
+            "color_space": color_space,
+            "white_luminance_nits": 203.0,
+        },
     }
 
 
@@ -470,7 +648,7 @@ def _markdown_report(
             "",
             "## Sidecar And SDR Preservation",
             "",
-            "| File | validation shape | sidecar shape | finite nonnegative | process vs metadata max abs | auto exposure direction |",
+            "| File | validation shape | sidecar shape | finite nonnegative | process vs metadata max abs | auto exposure scale invariant |",
             "| --- | --- | --- | ---: | ---: | ---: |",
         ]
     )
@@ -478,7 +656,7 @@ def _markdown_report(
         lines.append(
             f"| {result['filename']} | {result['validation_shape']} | {result['sidecar_shape']} | "
             f"{result['sidecar_finite_nonnegative']} | {result['process_vs_metadata_max_abs']:.3e} | "
-            f"{result['auto_exposure_sidecar_direction_ok']} |"
+            f"{result['auto_exposure_sidecar_scale_invariant']} |"
         )
 
     lines.extend(
@@ -499,6 +677,29 @@ def _markdown_report(
             f"{metrics['highlight_separation_ratio']:.3f} | "
             f"{metrics['max_adjacent_log_gain_jump']:.3f} | "
             f"{result['highlight_separation_improved']} |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## Gain-Map And EXR Metadata Checks",
+            "",
+            "| File | Android container | ISO metadata roundtrip | ISO gain-map warnings | JPEG probe metadata | JPEG probe gain map | EXR attributes tracked |",
+            "| --- | ---: | ---: | --- | ---: | ---: | --- |",
+        ]
+    )
+    for result in results:
+        metadata = result["metadata_checks"]
+        android = metadata["android_ultra_hdr"]
+        iso = metadata["iso_21496_1"]
+        jpeg_probe = metadata["jpeg_probe"]
+        exr = metadata["exr"]
+        warnings = ", ".join(iso["gain_map_validation_warnings"]) or "none"
+        lines.append(
+            f"| {result['filename']} | {android['container_directory'] and android['primary_and_gain_map_items']} | "
+            f"{iso['serialized_metadata_roundtrip']} | {warnings} | "
+            f"{jpeg_probe['roundtrip_metadata']} | {jpeg_probe['roundtrip_gain_map']} | "
+            f"{', '.join(exr['required_attributes'])} |"
         )
 
     lines.extend(
@@ -562,6 +763,7 @@ def main() -> int:
             f'--sample-dir "{sample_dir}"',
             f"--max-samples {args.max_samples}",
             f"--output {output_path}",
+            f"--diagnostic-scan-limit {diagnostic_limit}",
         ]
     )
     output_path.write_text(

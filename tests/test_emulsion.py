@@ -111,3 +111,26 @@ def test_top_level_develop_matches_manual_pipeline(profile_type: str) -> None:
     )
 
     np.testing.assert_allclose(result, expected, atol=1e-10)
+
+
+def test_develop_rejects_all_nan_density_curve_channel() -> None:
+    log_raw = np.full((2, 2, 3), -1.0, dtype=float)
+    log_exposure = np.linspace(-3.0, 1.0, 4)
+    density_curves = np.column_stack([
+        np.full(4, np.nan),
+        np.linspace(0.1, 1.0, 4),
+        np.linspace(0.2, 1.1, 4),
+    ])
+    density_curves_layers = np.zeros((4, 3, 3), dtype=float)
+
+    with pytest.raises(ValueError, match="density_curves.*channel 0"):
+        develop(
+            log_raw,
+            2.5,
+            log_exposure,
+            density_curves,
+            density_curves_layers,
+            DirCouplersParams(active=False),
+            GrainParams(active=False),
+            "negative",
+        )

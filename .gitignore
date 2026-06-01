@@ -191,10 +191,11 @@ uv.lock
 
 # claude
 .claude
+.codex/
 
 # Project-local generated artifacts
 ISSUE_color_space_metadata.md
-archive/
+/archive/
 artifacts/
 
 CITATION.cff

@@ -492,6 +492,7 @@ def test_connect_auto_preview_signals_covers_hidden_linked_controls_and_footer_t
                 'auto_preview',
                 'scan_film',
                 'output_color_space',
+                'output_cctf_encoding',
                 'saving_color_space',
                 'saving_cctf_encoding',
             },

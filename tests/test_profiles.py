@@ -5,7 +5,15 @@ import ast
 import inspect
 
 from spektrafilm.model import stocks
-from spektrafilm.profiles.io import Profile, _json_safe, load_profile, profile_to_dict, profile_from_dict
+from spektrafilm.profiles.io import (
+    Profile,
+    ProfileData,
+    _json_safe,
+    load_profile,
+    profile_to_dict,
+    profile_from_dict,
+    save_profile,
+)
 
 
 class TestLoadProfile:
@@ -83,6 +91,84 @@ class TestLoadProfile:
         with pytest.raises(TypeError, match='ProfileInfo'):
             Profile(info={}, data={})
 
+    def test_profile_from_dict_ignores_extra_unknown_keys(self, portra_400_profile):
+        profile_dict = profile_to_dict(portra_400_profile)
+        # Inject unknown keys that a future version might add
+        profile_dict['metadata']['future_field'] = 'should be ignored'
+        profile_dict['info']['new_option'] = 42
+        profile_dict['data']['experimental_array'] = [1, 2, 3]
+
+        profile_rt = profile_from_dict(profile_dict)
+
+        assert profile_rt.info.stock == portra_400_profile.info.stock
+        np.testing.assert_allclose(
+            profile_rt.data.density_curves,
+            portra_400_profile.data.density_curves,
+        )
+
+    def test_load_profile_rejects_path_traversal_stock_name(self):
+        with pytest.raises(ValueError, match="Invalid profile stock"):
+            load_profile("../kodak_portra_400")
+
+    def test_save_profile_rejects_path_traversal_stock_name(self, portra_400_profile, monkeypatch):
+        class GuardedPackage:
+            def __truediv__(self, _filename):
+                raise AssertionError("save_profile constructed a resource path before validating stock")
+
+        profile = portra_400_profile.clone()
+        profile.info.stock = "../evil"
+        monkeypatch.setattr("spektrafilm.profiles.io.pkg_resources.files", lambda _package: GuardedPackage())
+
+        with pytest.raises(ValueError, match="Invalid profile stock"):
+            save_profile(profile)
+
+    def test_profile_data_rejects_density_curves_with_wrong_channel_count(self):
+        with pytest.raises(ValueError, match="density_curves"):
+            ProfileData(
+                log_exposure=np.array([0.0, 1.0]),
+                density_curves=np.zeros((2, 4)),
+            )
+
+    def test_profile_data_rejects_non_finite_density_curves(self):
+        with pytest.raises(ValueError, match="density_curves"):
+            ProfileData(
+                log_exposure=np.array([0.0, 1.0]),
+                density_curves=np.array([[0.0, 0.1, 0.2], [np.inf, 0.2, 0.3]]),
+            )
+
+    def test_profile_data_allows_nan_channel_density_gaps(self):
+        data = ProfileData(
+            wavelengths=np.array([450.0, 550.0]),
+            channel_density=np.array([[np.nan, np.nan, np.nan], [0.1, 0.2, 0.3]]),
+        )
+
+        assert np.isnan(data.channel_density[0]).all()
+
+    def test_profile_data_rejects_infinite_channel_density(self):
+        with pytest.raises(ValueError, match="channel_density"):
+            ProfileData(
+                wavelengths=np.array([450.0, 550.0]),
+                channel_density=np.array([[0.1, 0.2, 0.3], [np.inf, 0.4, 0.5]]),
+            )
+
+    def test_profile_data_rejects_log_sensitivity_with_wrong_channel_count(self):
+        with pytest.raises(ValueError, match="log_sensitivity"):
+            ProfileData(log_sensitivity=np.zeros((3, 2)))
+
+    def test_profile_data_rejects_wavelength_length_mismatch(self):
+        with pytest.raises(ValueError, match="channel_density"):
+            ProfileData(
+                wavelengths=np.array([450.0, 550.0]),
+                channel_density=np.zeros((3, 3)),
+            )
+
+    def test_profile_data_rejects_log_exposure_density_curve_length_mismatch(self):
+        with pytest.raises(ValueError, match="log_exposure"):
+            ProfileData(
+                log_exposure=np.array([0.0]),
+                density_curves=np.zeros((2, 3)),
+            )
+
     def test_profile_clone_is_deep_copy(self, portra_400_profile):
         clone = portra_400_profile.clone()
 
@@ -121,6 +207,4 @@ class TestDependencyBoundaries:
         tree = ast.parse(inspect.getsource(stocks))
         for node in tree.body:
             assert not isinstance(node, ast.If)
-
-
 

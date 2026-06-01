@@ -2,7 +2,7 @@
 
 ## Scope
 
-This pass started from `docs 2/dev/test-improvement-plan.md` and verified it against the current workspace instead of treating the document as current truth.
+This pass started from `docs/archive/docs-2-legacy-20260531/dev/test-improvement-plan.md` and verified it against the current workspace instead of treating the document as current truth.
 
 The original plan's P1/P2/P5 "new test file" items were already present in the tree:
 
@@ -103,7 +103,7 @@ Result: exit code `0`
 
 ## Self-Audit
 
-Question: Do I have factual 100% confidence that the test system improvements requested by `docs 2/dev/test-improvement-plan.md` are handled?
+Question: Do I have factual 100% confidence that the test system improvements requested by `docs/archive/docs-2-legacy-20260531/dev/test-improvement-plan.md` are handled?
 
 Answer: Yes for the non-GUI test system in this workspace. The old plan's high-priority missing files already existed, the remaining real defects now have red-green proof, the non-GUI suite passes with warnings elevated to errors, and the local Halide/Numba test surface imports cleanly.
 

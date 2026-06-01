@@ -5,6 +5,18 @@ from typing import Any
 import numpy as np
 
 
+def _is_mlx_array(value: Any) -> bool:
+    return type(value).__module__.startswith("mlx.")
+
+
+def _as_mlx_array(mx, value: Any, dtype: Any):
+    if _is_mlx_array(value):
+        if value.dtype == dtype:
+            return value
+        return value.astype(dtype)
+    return mx.array(value, dtype=dtype)
+
+
 # ---------------------------------------------------------------------------
 # 2D LUT Mitchell-Netravali cubic interpolation
 # ---------------------------------------------------------------------------
@@ -179,13 +191,17 @@ def _get_lut_cubic_2d_kernel(mx):
     return _LUT_CUBIC_2D_KERNEL
 
 
-def apply_lut_cubic_2d_mlx(lut: Any, image: Any, *, mx=None):
-    """Apply a normalized 2D LUT with Mitchell-Netravali cubic interpolation."""
+def apply_lut_cubic_2d_mlx(lut: Any, image: Any, *, mx=None, prepared_lut: Any = None):
+    """Apply a normalized 2D LUT with Mitchell-Netravali cubic interpolation.
+
+    When *prepared_lut* is provided it is used directly as the LUT array,
+    avoiding a redundant numpy-to-MLX conversion on every call.
+    """
     if mx is None:
         import mlx.core as mx
 
-    lut = mx.array(lut, dtype=mx.float32)
-    image = mx.array(image, dtype=mx.float32)
+    lut = _as_mlx_array(mx, prepared_lut if prepared_lut is not None else lut, mx.float32)
+    image = _as_mlx_array(mx, image, mx.float32)
     size = int(lut.shape[0])
     if lut.ndim != 3:
         raise ValueError("2D LUT must have shape LxLxC")
@@ -275,11 +291,16 @@ def apply_lut_cubic_2d_cupy(lut: Any, image: Any, *, cp=None):
     return cp.where(weight_sum != 0.0, acc / weight_sum, acc)
 
 
-def apply_lut_cubic_2d_backend(lut: Any, image: Any, backend):
-    """Dispatch 2D cubic LUT sampling to the selected GPU backend."""
+def apply_lut_cubic_2d_backend(lut: Any, image: Any, backend, *, prepared_lut: Any = None):
+    """Dispatch 2D cubic LUT sampling to the selected GPU backend.
+
+    When *prepared_lut* is provided and the backend supports GPU, the
+    pre-converted backend array is used directly, avoiding a redundant
+    numpy-to-backend transfer of the LUT on every call.
+    """
     if backend is not None and getattr(backend, "supports_gpu", False):
         if hasattr(backend, "mx"):
-            return apply_lut_cubic_2d_mlx(lut, image, mx=backend.mx)
+            return apply_lut_cubic_2d_mlx(lut, image, mx=backend.mx, prepared_lut=prepared_lut)
         if hasattr(backend, "cp"):
             return apply_lut_cubic_2d_cupy(lut, image, cp=backend.cp)
         return backend.asarray(apply_lut_cubic_2d_numpy(lut, backend.to_numpy(image)))
@@ -299,8 +320,8 @@ def apply_lut_trilinear_3d_mlx(lut: Any, image: Any, *, mx=None):
     if mx is None:
         import mlx.core as mx
 
-    lut = mx.array(lut, dtype=mx.float32)
-    image = mx.array(image, dtype=mx.float32)
+    lut = _as_mlx_array(mx, lut, mx.float32)
+    image = _as_mlx_array(mx, image, mx.float32)
     size = int(lut.shape[0])
     if lut.ndim != 4 or lut.shape[-1] != 3:
         raise ValueError("3D LUT must have shape LxLxLx3")
@@ -439,16 +460,28 @@ def apply_lut_trilinear_3d_cupy(lut: Any, image: Any, *, cp=None):
     return c0 + fb * (c1 - c0)
 
 
-def apply_lut_trilinear_3d_backend(lut: Any, image: Any, backend):
-    """Dispatch 3D trilinear LUT sampling to the selected GPU backend."""
+def apply_lut_trilinear_3d_backend(lut: Any, image: Any, backend, *, prepared_lut: Any = None):
+    """Dispatch 3D trilinear LUT sampling to the selected GPU backend.
+
+    When *prepared_lut* is provided and the backend supports GPU, the
+    pre-converted backend array is used directly, avoiding a redundant
+    numpy-to-backend transfer of the LUT on every call.
+    """
     if backend is not None and getattr(backend, "supports_gpu", False):
         halide_lut = getattr(backend, "apply_lut_trilinear_3d", None)
         if callable(halide_lut):
             return halide_lut(lut, image)
         if hasattr(backend, "mx"):
-            return apply_lut_trilinear_3d_mlx(lut, image, mx=backend.mx)
+            mx = backend.mx
+            image_mx = _as_mlx_array(mx, image, mx.float32)
+            lut_mx = _as_mlx_array(mx, prepared_lut if prepared_lut is not None else lut, mx.float32)
+            return apply_lut_trilinear_3d_mlx(lut_mx, image_mx, mx=mx)
         if hasattr(backend, "cp"):
-            return apply_lut_trilinear_3d_cupy(lut, image, cp=backend.cp)
+            return apply_lut_trilinear_3d_cupy(
+                prepared_lut if prepared_lut is not None else lut,
+                image,
+                cp=backend.cp,
+            )
         return backend.asarray(apply_lut_trilinear_3d_numpy(lut, backend.to_numpy(image)))
     return apply_lut_trilinear_3d_numpy(lut, image)
 
@@ -469,8 +502,8 @@ def apply_lut_bilinear_2d_mlx(lut: Any, image: Any, *, mx=None):
     if mx is None:
         import mlx.core as mx
 
-    lut = mx.array(lut, dtype=mx.float32)
-    image = mx.array(image, dtype=mx.float32)
+    lut = _as_mlx_array(mx, lut, mx.float32)
+    image = _as_mlx_array(mx, image, mx.float32)
     size = int(lut.shape[0])
     channels = int(lut.shape[2])
     if lut.ndim != 3:

@@ -159,6 +159,112 @@ class TestCropImageBoundaryConditions:
         assert cropped.shape[2] == 3
 
 
+class TestFilterInterpolationSanitization:
+    def test_load_filter_replaces_akima_out_of_range_nan_with_zero(self, monkeypatch) -> None:
+        import spektrafilm.utils.io as io_utils
+
+        class FakePackage:
+            def __truediv__(self, _filename):
+                return self
+
+            def open(self, *_args, **_kwargs):
+                class Handle:
+                    def __enter__(self):
+                        return object()
+
+                    def __exit__(self, *_exc):
+                        return False
+
+                return Handle()
+
+        class FakeAkima:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            def __call__(self, wavelengths):
+                values = np.linspace(0.1, 0.3, np.size(wavelengths), dtype=float)
+                values[0] = np.nan
+                values[-1] = np.nan
+                return values
+
+        monkeypatch.setattr(io_utils.pkg_resources, "files", lambda _package: FakePackage())
+        monkeypatch.setattr(io_utils.np, "loadtxt", lambda *_args, **_kwargs: np.array([[400.0, 10.0], [500.0, 20.0]]))
+        monkeypatch.setattr(io_utils.scipy.interpolate, "Akima1DInterpolator", FakeAkima)
+
+        transmittance = io_utils.load_filter(np.array([380.0, 450.0, 780.0]), name="KG3")
+
+        np.testing.assert_allclose(transmittance, np.array([0.0, 0.2, 0.0]))
+
+    def test_load_dichroic_filters_replaces_akima_out_of_range_nan_with_zero(self, monkeypatch) -> None:
+        import spektrafilm.utils.io as io_utils
+
+        class FakePackage:
+            def __truediv__(self, _filename):
+                return self
+
+            def open(self, *_args, **_kwargs):
+                class Handle:
+                    def __enter__(self):
+                        return object()
+
+                    def __exit__(self, *_exc):
+                        return False
+
+                return Handle()
+
+        class FakeAkima:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            def __call__(self, wavelengths):
+                values = np.full(np.size(wavelengths), 0.5, dtype=float)
+                values[0] = np.nan
+                values[-1] = np.nan
+                return values
+
+        monkeypatch.setattr(io_utils.pkg_resources, "files", lambda _package: FakePackage())
+        monkeypatch.setattr(io_utils.np, "loadtxt", lambda *_args, **_kwargs: np.array([[400.0, 10.0], [500.0, 20.0]]))
+        monkeypatch.setattr(io_utils.scipy.interpolate, "Akima1DInterpolator", FakeAkima)
+
+        filters = io_utils.load_dichroic_filters(np.array([380.0, 450.0, 780.0]))
+
+        np.testing.assert_allclose(filters[0], np.zeros(3))
+        np.testing.assert_allclose(filters[1], np.full(3, 0.5))
+        np.testing.assert_allclose(filters[2], np.zeros(3))
+
+
+class TestFastGaussianFilterEmptyInputs:
+    def test_large_sigma_empty_2d_height_returns_empty_copy(self) -> None:
+        from spektrafilm.utils.fast_gaussian_filter import fast_gaussian_filter
+
+        image = np.empty((0, 5), dtype=np.float64)
+        result = fast_gaussian_filter(image, sigma=5.0)
+
+        assert result.shape == image.shape
+        assert result.dtype == image.dtype
+        assert result is not image
+
+    def test_large_sigma_empty_2d_width_returns_empty_copy(self) -> None:
+        from spektrafilm.utils.fast_gaussian_filter import fast_gaussian_filter
+
+        image = np.empty((5, 0), dtype=np.float64)
+        result = fast_gaussian_filter(image, sigma=5.0)
+
+        assert result.shape == image.shape
+        assert result.dtype == image.dtype
+        assert result is not image
+
+    def test_large_sigma_empty_3d_returns_empty_copy(self) -> None:
+        from spektrafilm.utils.fast_gaussian_filter import fast_gaussian_filter
+
+        image = np.empty((0, 5, 3), dtype=np.float64)
+        result = fast_gaussian_filter(image, sigma=5.0)
+
+        assert result.shape == image.shape
+        assert result.dtype == image.dtype
+        assert result is not image
+
+
 # ---------------------------------------------------------------------------
 # TC-M4: _strength_to_scatter interpolation
 # ---------------------------------------------------------------------------
@@ -196,12 +302,18 @@ class TestStrengthToScatter:
             np.testing.assert_allclose(result, expected, atol=0.02)
 
     def test_unknown_family_uses_gain_1(self) -> None:
-        # For an unknown family, gain defaults to 1.0
+        from spektrafilm.model.diffusion import (
+            _DIFFUSION_STRENGTH_BREAKPOINTS,
+            _DIFFUSION_STRENGTH_TOTAL_FRACTION,
+        )
+
         result_unknown = _strength_to_scatter(1.0, "nonexistent_family")
-        # At strength=1.0, log2(1.0)=0 is the midpoint of the breakpoints,
-        # so the base fraction is approximately 0.55 (from the table).
-        # With gain=1.0, result should equal the base fraction.
-        assert 0.0 < result_unknown < 1.0
+        expected = np.interp(
+            0.0,
+            np.log2(_DIFFUSION_STRENGTH_BREAKPOINTS),
+            _DIFFUSION_STRENGTH_TOTAL_FRACTION,
+        )
+        np.testing.assert_allclose(result_unknown, expected, atol=1e-12)
 
 
 # ---------------------------------------------------------------------------
@@ -210,20 +322,21 @@ class TestStrengthToScatter:
 
 
 class TestMeasureDensityMinConvergence:
-    def test_measure_density_min_warns_on_poor_fit(self) -> None:
-        """Verify that measure_density_min issues a warning when fitting fails."""
-        from spektrafilm.utils.measure import measure_density_min
+    def test_measure_density_min_handles_degenerate_data(self) -> None:
+        """Verify that measure_density_min returns a valid result on degenerate (all-zero) data."""
         import warnings
+        from spektrafilm.utils.measure import measure_density_min
 
         # Create data that's hard to fit (all zeros - degenerate case)
         log_exposure = np.linspace(-3, 3, 64)
         density_curves = np.zeros((64, 3))
 
-        with warnings.catch_warnings(record=True):
+        with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             result = measure_density_min(log_exposure, density_curves, info_type='negative')
-            # The fit may or may not converge on degenerate data, but the function should return
+            # The function handles degenerate data gracefully (no warning) and returns a valid shape
             assert result.shape == (3,)
+            assert len(w) == 0, f"Unexpected warnings: {[str(x.message) for x in w]}"
 
 
 # ---------------------------------------------------------------------------
@@ -239,16 +352,19 @@ class TestFormatElapsedTime:
     def test_microseconds(self) -> None:
         from spektrafilm.utils.timings import format_elapsed_time
         result = format_elapsed_time(5e-6)
+        assert "5.00" in result
         assert "us" in result
 
     def test_milliseconds(self) -> None:
         from spektrafilm.utils.timings import format_elapsed_time
         result = format_elapsed_time(0.005)
+        assert "5.00" in result
         assert "ms" in result
 
     def test_seconds(self) -> None:
         from spektrafilm.utils.timings import format_elapsed_time
         result = format_elapsed_time(1.5)
+        assert "1.50" in result
         assert "s" in result
         assert "ms" not in result
 
@@ -262,11 +378,13 @@ class TestFormatElapsedTime:
     def test_boundary_at_one_second(self) -> None:
         from spektrafilm.utils.timings import format_elapsed_time
         result = format_elapsed_time(1.0)
+        assert "1.00" in result
         assert "s" in result
 
     def test_boundary_at_one_millisecond(self) -> None:
         from spektrafilm.utils.timings import format_elapsed_time
         result = format_elapsed_time(0.001)
+        assert "1.00" in result
         assert "ms" in result
 
 

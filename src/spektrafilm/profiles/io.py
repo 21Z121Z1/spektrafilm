@@ -1,8 +1,8 @@
 import copy
 from datetime import date
-from importlib.metadata import PackageNotFoundError, version as distribution_version
 import importlib.resources as pkg_resources
 import json
+import re
 from dataclasses import dataclass, field, is_dataclass, replace
 from typing import Any, Mapping
 
@@ -19,10 +19,13 @@ LEGACY_PROFILE_INFO_KEYS = frozenset({
     'fitted_cmy_midscale_neutral_density',
     'log_exposure_midscale_neutral',
 })
+_SAFE_PROFILE_STOCK_RE = re.compile(r'^[A-Za-z0-9_-]+$')
 
 
 def _package_version() -> str:
     try:
+        from importlib.metadata import PackageNotFoundError, version as distribution_version
+
         return distribution_version('spektrafilm')
     except PackageNotFoundError:
         return '0+unknown'
@@ -45,6 +48,46 @@ def _empty_tensor() -> np.ndarray:
 
 def _empty_layer_matrix() -> np.ndarray:
     return np.empty((3, 0), dtype=float)
+
+
+def _validate_profile_stock(stock: str, label: str = "profile stock") -> None:
+    if not isinstance(stock, str) or not _SAFE_PROFILE_STOCK_RE.match(stock):
+        raise ValueError(
+            f"Invalid {label} {stock!r}: must contain only letters, digits, hyphens, and underscores."
+        )
+
+
+def _validate_finite_array(name: str, value: np.ndarray) -> None:
+    if value.size and not np.all(np.isfinite(value)):
+        raise ValueError(f"{name} must contain only finite values")
+
+
+def _validate_no_infinite_array(name: str, value: np.ndarray) -> None:
+    if value.size and np.any(np.isinf(value)):
+        raise ValueError(f"{name} must not contain infinite values")
+
+
+def _validate_2d_three_columns(name: str, value: np.ndarray, *, allow_nan: bool = False) -> None:
+    if value.size and (value.ndim != 2 or value.shape[1] != 3):
+        raise ValueError(f"{name} must have shape (n, 3)")
+    if allow_nan:
+        _validate_no_infinite_array(name, value)
+    else:
+        _validate_finite_array(name, value)
+
+
+def _validate_1d(name: str, value: np.ndarray, *, allow_nan: bool = False) -> None:
+    if value.size and value.ndim != 1:
+        raise ValueError(f"{name} must be one-dimensional")
+    if allow_nan:
+        _validate_no_infinite_array(name, value)
+    else:
+        _validate_finite_array(name, value)
+
+
+def _validate_matching_length(name: str, value: np.ndarray, other_name: str, other: np.ndarray) -> None:
+    if value.size and other.size and value.shape[0] != other.shape[0]:
+        raise ValueError(f"{name} length must match {other_name} length")
 
 
 @dataclass
@@ -117,6 +160,7 @@ class Hanatos2025SensitivityAdaptation:
 class ProfileData:
     wavelengths: np.ndarray = field(default_factory=_empty_vector)
     log_sensitivity: np.ndarray = field(default_factory=_empty_matrix)
+    bandpass_hanatos2025: np.ndarray = field(default_factory=_empty_matrix)
     hanatos2025_adaptation_window_params: np.ndarray = field(default_factory=_empty_vector)
     hanatos2025_adaptation_surface_params: np.ndarray = field(default_factory=_empty_vector)
     channel_density: np.ndarray = field(default_factory=_empty_matrix)
@@ -130,6 +174,9 @@ class ProfileData:
     def __post_init__(self):
         self.wavelengths = np.asarray(self.wavelengths, dtype=float)
         self.log_sensitivity = np.asarray(self.log_sensitivity, dtype=float)
+        self.bandpass_hanatos2025 = np.asarray(self.bandpass_hanatos2025, dtype=float)
+        if self.bandpass_hanatos2025.size == 0:
+            self.bandpass_hanatos2025 = _empty_matrix()
         self.hanatos2025_adaptation_window_params = np.asarray(self.hanatos2025_adaptation_window_params, dtype=float)
         if self.hanatos2025_adaptation_window_params.size == 0:
             self.hanatos2025_adaptation_window_params = _empty_vector()
@@ -144,9 +191,37 @@ class ProfileData:
         self.density_curves_layers = np.asarray(self.density_curves_layers, dtype=float)
         if not isinstance(self.density_curves_model, DensityCurvesModel):
             if isinstance(self.density_curves_model, Mapping):
-                self.density_curves_model = DensityCurvesModel(**dict(self.density_curves_model))
+                known = DensityCurvesModel.__dataclass_fields__
+                filtered = {k: v for k, v in self.density_curves_model.items() if k in known}
+                self.density_curves_model = DensityCurvesModel(**filtered)
             else:
                 raise TypeError('density_curves_model must be a DensityCurvesModel or Mapping')
+        self._validate_shapes_and_values()
+
+    def _validate_shapes_and_values(self) -> None:
+        _validate_1d('wavelengths', self.wavelengths)
+        _validate_2d_three_columns('log_sensitivity', self.log_sensitivity, allow_nan=True)
+        _validate_2d_three_columns('channel_density', self.channel_density, allow_nan=True)
+        _validate_1d('base_density', self.base_density, allow_nan=True)
+        _validate_1d('midscale_neutral_density', self.midscale_neutral_density, allow_nan=True)
+        _validate_1d('log_exposure', self.log_exposure)
+        _validate_2d_three_columns('density_curves', self.density_curves)
+
+        if self.bandpass_hanatos2025.size:
+            if self.bandpass_hanatos2025.shape != self.log_sensitivity.shape:
+                raise ValueError('bandpass_hanatos2025 must be empty or match log_sensitivity shape')
+            _validate_no_infinite_array('bandpass_hanatos2025', self.bandpass_hanatos2025)
+
+        if self.density_curves_layers.size:
+            if self.density_curves_layers.ndim != 3 or self.density_curves_layers.shape[1:] != (3, 3):
+                raise ValueError('density_curves_layers must have shape (n, 3, 3)')
+            _validate_finite_array('density_curves_layers', self.density_curves_layers)
+
+        _validate_matching_length('channel_density', self.channel_density, 'wavelengths', self.wavelengths)
+        _validate_matching_length('base_density', self.base_density, 'wavelengths', self.wavelengths)
+        _validate_matching_length('midscale_neutral_density', self.midscale_neutral_density, 'wavelengths', self.wavelengths)
+        _validate_matching_length('log_exposure', self.log_exposure, 'density_curves', self.density_curves)
+        _validate_matching_length('density_curves_layers', self.density_curves_layers, 'log_exposure', self.log_exposure)
 
 
 @dataclass
@@ -250,10 +325,15 @@ def profile_from_dict(data: Any) -> Profile:
     for key in LEGACY_PROFILE_INFO_KEYS:
         info_payload.pop(key, None)
 
+    def _filter_known(cls, payload):
+        """Keep only keys that are declared dataclass fields of *cls*."""
+        known = cls.__dataclass_fields__
+        return {k: v for k, v in payload.items() if k in known}
+
     return Profile(
-        metadata=ProfileMetadata(**dict(metadata_payload)),
-        info=ProfileInfo(**info_payload),
-        data=ProfileData(**dict(data_payload)),
+        metadata=ProfileMetadata(**_filter_known(ProfileMetadata, dict(metadata_payload))),
+        info=ProfileInfo(**_filter_known(ProfileInfo, info_payload)),
+        data=ProfileData(**_filter_known(ProfileData, dict(data_payload))),
     )
 
 
@@ -278,7 +358,7 @@ def _json_safe(data):
         return [_json_safe(v) for v in data]
     if isinstance(data, np.ndarray):
         return _json_safe(data.tolist())
-    if isinstance(data, float) and np.isnan(data):
+    if isinstance(data, (float, np.floating)) and (np.isnan(data) or np.isinf(data)):
         return None
     return data
 
@@ -309,6 +389,9 @@ def _validate_profile(profile, stock):
             and data.density_curves.shape[0] == data.log_exposure.shape[0]
             and data.log_sensitivity.ndim == 2
             and data.log_sensitivity.shape[1] == 3
+            and (data.bandpass_hanatos2025.ndim == 0
+                 or data.bandpass_hanatos2025.size == 0
+                 or data.bandpass_hanatos2025.shape == data.log_sensitivity.shape)
             and data.wavelengths.ndim == 1
             and data.channel_density.ndim == 2
             and data.channel_density.shape[1] == 3
@@ -325,8 +408,12 @@ def _validate_profile(profile, stock):
         raise ValueError(f"Invalid profile '{stock}'")
 
 def save_profile(profile, suffix=''):
+    if profile.info.stock is None:
+        raise ValueError("Cannot save profile: profile.info.stock is None — set a stock name before saving")
     profile = copy.deepcopy(profile)
     profile.info.stock = profile.info.stock + suffix
+    _validate_profile_stock(profile.info.stock)
+
     package = pkg_resources.files('spektrafilm.data.profiles')
     filename = profile.info.stock + '.json'
     resource = package / filename
@@ -335,6 +422,8 @@ def save_profile(profile, suffix=''):
         json.dump(_json_safe(profile_to_dict(profile)), file, indent=4, allow_nan=False)
 
 def load_profile(stock):
+    _validate_profile_stock(stock)
+
     package = pkg_resources.files('spektrafilm.data.profiles')
     filename = stock + '.json'
     resource = package / filename

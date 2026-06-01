@@ -13,8 +13,8 @@
 ## Evidence And Scope
 
 - Requested documents read:
-  - `docs 2/dev/research-memory-management.md`
-  - `docs 2/dev/research-memory-optimization-patterns.md`
+  - `docs/archive/docs-2-legacy-20260531/dev/research-memory-management.md`
+  - `docs/archive/docs-2-legacy-20260531/dev/research-memory-optimization-patterns.md`
 - Current source confirms the real H3 issue from `docs/dev/code-review-2026-05-26.md`: `GuiController._process_image_with_runtime()` calls `process_with_metadata()` whenever available, so normal preview/scan pays for full-frame `scene_luminance`, full-frame `scene_rgb`, and profile characterization.
 - Current `HDRSceneEnergyMetadata.scene_rgb` is already typed as optional, and GUI mapping kwargs do not expose `hdr_highlight_color_mode="source_chroma"`, so retaining `scene_rgb` by default is unnecessary memory cost.
 - Current `CupyBackend` and `MlxBackend` expose `synchronize()` but no cleanup hook. Official CuPy docs say pools preserve freed blocks and `free_all_blocks()` releases free blocks; official MLX docs expose `clear_cache()`.

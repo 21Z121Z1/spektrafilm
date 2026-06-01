@@ -126,7 +126,7 @@ Expected after implementation and dependency install: pass. If the wheel is unav
 
 - [ ] Update `docs/dev/halide-android-port-plan.md` with the actual implemented foundation, Android CPU AOT default, and Vulkan caution.
 - [ ] Update `docs/dev/research-halide-port.md` with the current repo status and a short usage note for `compute_backend='halide'`.
-- [ ] Do not modify the `docs 2/` copies because `CLAUDE.md` limits edits to `docs/`, `src/`, `tests/`, `README.md`, and `pyproject.toml`.
+- [ ] Do not modify the archived legacy copies under `docs/archive/docs-2-legacy-20260531/` because `CLAUDE.md` limits implementation edits to `docs/`, `src/`, `tests/`, `README.md`, and `pyproject.toml`.
 
 ### Task 6: Final verification and confidence loop
 

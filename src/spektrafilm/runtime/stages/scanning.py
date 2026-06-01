@@ -5,6 +5,12 @@ import numpy as np
 from opt_einsum import contract
 
 from spektrafilm.config import STANDARD_OBSERVER_CMFS
+from spektrafilm.gpu.kernels.color import (
+    cctf_encoding_backend,
+    precompute_xyz_to_rgb_matrix,
+    xyz_to_rgb as xyz_to_rgb_backend,
+)
+from spektrafilm.gpu.kernels.density import cmy_to_log_xyz_backend
 from spektrafilm.model.diffusion import apply_gaussian_blur, apply_unsharp_mask
 from spektrafilm.model.emulsion import compute_density_spectral
 from spektrafilm.model.glare import add_glare
@@ -25,6 +31,7 @@ class ScanningStage:
         settings_params,
         lut_service,
         color_reference_service,
+        backend=None,
     ):
         self._film = film
         self._film_render = film_render_params
@@ -35,7 +42,8 @@ class ScanningStage:
         self._settings = settings_params
         self._lut_service = lut_service
         self._color_reference_service = color_reference_service
-        
+        self._backend = backend
+
         self.cmy_to_log_xyz = self._return_callable_cmy_to_log_xyz()
         
         # communicate to the color reference service the callable to convert cmy densities to log xyz
@@ -62,7 +70,7 @@ class ScanningStage:
             density_min = np.nanmin(self._print.data.density_curves, axis=0)
             density_max = np.nanmax(self._print.data.density_curves, axis=0)
             scan_illuminant = standard_illuminant(self._print.info.viewing_illuminant)
-            
+
         normalization = np.sum(scan_illuminant * STANDARD_OBSERVER_CMFS[:, 1], axis=0)
 
         log_xyz = self._lut_service.spectral_compute_scanner(
@@ -75,14 +83,19 @@ class ScanningStage:
         xyz = 10 ** log_xyz
         xyz = self._color_reference_service.black_white_xyz_correction(xyz)
         illuminant_xyz = contract("k,kl->l", scan_illuminant, STANDARD_OBSERVER_CMFS[:]) / normalization
-        illuminant_xy = colour.XYZ_to_xy(illuminant_xyz)
-        xyz = add_glare(xyz, illuminant_xyz, glare)
-        return colour.XYZ_to_RGB(
-            xyz,
-            colourspace=self._io.output_color_space,
-            apply_cctf_encoding=False,
-            illuminant=illuminant_xy,
-        )
+        xyz = add_glare(xyz, illuminant_xyz, glare, backend=self._backend)
+
+        if self._backend is not None and self._backend.supports_gpu:
+            rgb = xyz_to_rgb_backend(xyz, self._xyz_to_rgb_matrix, self._backend)
+        else:
+            illuminant_xy = colour.XYZ_to_xy(illuminant_xyz)
+            rgb = colour.XYZ_to_RGB(
+                xyz,
+                colourspace=self._io.output_color_space,
+                apply_cctf_encoding=False,
+                illuminant=illuminant_xy,
+            )
+        return rgb
 
     def _return_callable_cmy_to_log_xyz(self):
         if self._io.scan_film:
@@ -93,37 +106,75 @@ class ScanningStage:
             channel_density = self._print.data.channel_density
             base_density = self._print.data.base_density
             scan_illuminant = standard_illuminant(self._print.info.viewing_illuminant)
-            
-        normalization = np.sum(scan_illuminant * STANDARD_OBSERVER_CMFS[:, 1], axis=0)
+
+        cmfs = STANDARD_OBSERVER_CMFS[:]
+        normalization = np.sum(scan_illuminant * cmfs[:, 1], axis=0)
+
+        # Pre-compute the XYZ-to-RGB matrix with chromatic adaptation for GPU path
+        _gpu = self._backend is not None and self._backend.supports_gpu
+        if _gpu:
+            illuminant_xyz = np.dot(scan_illuminant, cmfs) / normalization
+            illuminant_xy = colour.XYZ_to_xy(illuminant_xyz)
+            self._xyz_to_rgb_matrix = precompute_xyz_to_rgb_matrix(
+                self._io.output_color_space, illuminant_xy=illuminant_xy
+            )
+            # Pre-convert static spectral tables to backend arrays once
+            _backend_channel_density = self._backend.asarray(channel_density)
+            _backend_base_density = self._backend.asarray(base_density)
+            _backend_scan_illuminant = self._backend.asarray(scan_illuminant)
+            _backend_cmfs = self._backend.asarray(cmfs)
 
         def cmy_to_log_xyz(density_cmy: np.ndarray) -> np.ndarray:
+            if _gpu:
+                return cmy_to_log_xyz_backend(
+                    density_cmy, _backend_channel_density, _backend_base_density,
+                    _backend_scan_illuminant, _backend_cmfs, normalization,
+                    self._backend,
+                )
             density_spectral = compute_density_spectral(
                 channel_density,
                 density_cmy,
                 base_density,
             )
             light = density_to_light(density_spectral, scan_illuminant)
-            xyz = contract("ijk,kl->ijl", light, STANDARD_OBSERVER_CMFS[:]) / normalization
+            xyz = contract("ijk,kl->ijl", light, cmfs) / normalization
             return np.log10(np.fmax(xyz, 0.0) + 1e-10)
         return cmy_to_log_xyz
 
     def _apply_blur_and_unsharp(self, rgb: np.ndarray) -> np.ndarray:
-        rgb = apply_gaussian_blur(rgb, self._scanner.lens_blur)
+        rgb = apply_gaussian_blur(rgb, self._scanner.lens_blur, backend=self._backend)
         sigma, amount = self._scanner.unsharp_mask
         if sigma > 0 and amount > 0:
-            rgb = apply_unsharp_mask(rgb, sigma=sigma, amount=amount)
+            rgb = apply_unsharp_mask(rgb, sigma=sigma, amount=amount, backend=self._backend)
         return rgb
 
-    def _apply_cctf_encoding_and_clip(self, rgb: np.ndarray) -> np.ndarray:
-        if self._io.output_cctf_encoding:
-            rgb = colour.RGB_to_RGB(
-                rgb,
-                self._io.output_color_space,
-                self._io.output_color_space,
-                apply_cctf_decoding=False,
-                apply_cctf_encoding=True,
-            )
-        return np.clip(rgb, a_min=0, a_max=1)
+    def _apply_cctf_encoding_and_clip(self, rgb: np.ndarray, encoding=None) -> np.ndarray:
+        if encoding is not None:
+            apply_cctf = encoding.is_cctf_encoded
+            color_space = encoding.color_space
+            clip_negatives = encoding.clip_negatives
+            clip_highlights = encoding.clip_highlights
+        else:
+            apply_cctf = self._io.output_cctf_encoding
+            color_space = self._io.output_color_space
+            clip_negatives = self._io.output_clip_min
+            clip_highlights = self._io.output_clip_max
 
+        if apply_cctf:
+            if self._backend is not None and self._backend.supports_gpu:
+                rgb = cctf_encoding_backend(rgb, color_space, self._backend)
+            else:
+                rgb = colour.RGB_to_RGB(
+                    rgb,
+                    color_space,
+                    color_space,
+                    apply_cctf_decoding=False,
+                    apply_cctf_encoding=True,
+                )
+        a_min = 0.0 if clip_negatives else -np.inf
+        a_max = 1.0 if clip_highlights else np.inf
+        if self._backend is not None and self._backend.supports_gpu:
+            return self._backend.clip(rgb, a_min, a_max)
+        return np.clip(rgb, a_min=a_min, a_max=a_max)
 
 

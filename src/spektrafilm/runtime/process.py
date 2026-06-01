@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from spektrafilm.runtime.params_schema import RuntimePhotoParams
-from spektrafilm.runtime.pipeline import SimulationPipeline
+from spektrafilm.runtime.pipeline import HDRSceneEnergyMetadata, SimulationPipeline, SimulationPipelineResult
 from spektrafilm.utils.preview import resize_for_preview
 from spektrafilm.runtime.params_builder import (
     digest_params,
@@ -22,6 +22,10 @@ class Simulator:
     def process(self, image):
         """Process the input image through the simulation pipeline and return the final result."""
         return self._pipeline.process(image)
+
+    def process_with_metadata(self, image) -> SimulationPipelineResult:
+        """Process the input image and return image output plus HDR scene metadata."""
+        return self._pipeline.process_with_metadata(image)
 
     def update_params(self, params):
         """Update the parameters of the simulation pipeline."""
@@ -69,6 +73,19 @@ def simulate(image, params: RuntimePhotoParams,
     return result
 
 
+def simulate_with_metadata(image, params: RuntimePhotoParams,
+                           digest_params_first: bool = True,
+                           print_timings: bool = False) -> SimulationPipelineResult:
+    """Run the simulation once and return image output plus HDR scene metadata."""
+    if digest_params_first:
+        params = digest_params(params)
+    simulator = Simulator(params)
+    result = simulator.process_with_metadata(image)
+    if print_timings:
+        simulator.print_timings()
+    return result
+
+
 def simulate_preview(image, params: RuntimePhotoParams,
                      digest_params_first: bool = True,
                      print_timings: bool = False):
@@ -106,8 +123,11 @@ def photo_params(film_profile, print_profile) -> RuntimePhotoParams:
 
 __all__ = [
     "RuntimePhotoParams",
+    "HDRSceneEnergyMetadata",
+    "SimulationPipelineResult",
     "Simulator",
     "simulate",
+    "simulate_with_metadata",
     "simulate_preview",
     "AgXPhoto", # legacy for ART
     "photo_params", # legacy for ART

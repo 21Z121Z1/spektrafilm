@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
 from typing import Any, Callable
 
 import numpy as np
 from qtpy import QtCore
+
+from spektrafilm.color_management import aces_sdr_video_view_transform, is_aces_scene_linear_space
+from spektrafilm.utils.io import resolve_icc_profile_bytes
 
 
 DISPLAY_PREVIEW_COLOR_SPACE = 'sRGB'
@@ -21,6 +25,7 @@ class SimulationRequest:
     params: object
     output_color_space: str
     use_display_transform: bool
+    output_cctf_encoding: bool = True
 
 
 @dataclass(slots=True)
@@ -31,6 +36,8 @@ class SimulationResult:
     output_color_space: str
     use_display_transform: bool
     status_message: str
+    output_cctf_encoding: bool = True
+    hdr_scene_energy: object | None = None
 
 
 class SimulationWorkerSignals(QObject):
@@ -48,14 +55,16 @@ class SimulationWorker(QRunnable):
     def run(self) -> None:
         try:
             result = self._execute_request(self._request)
-        except (AttributeError, LookupError, OSError, RuntimeError, TypeError, ValueError) as exc:
+        except BaseException as exc:
             self.signals.failed.emit(f'{type(exc).__name__}: {exc}')
             return
         self.signals.finished.emit(result)
 
 
-def normalized_image_data(image: np.ndarray) -> np.ndarray:
+def normalized_image_data(image: np.ndarray, *, preserve_highlights: bool = False) -> np.ndarray:
     if np.issubdtype(image.dtype, np.floating):
+        if preserve_highlights:
+            return np.clip(image.astype(np.float32, copy=False), 0.0, None)
         return np.clip(image, 0.0, 1.0)
     if np.issubdtype(image.dtype, np.integer):
         max_value = np.iinfo(image.dtype).max
@@ -159,32 +168,85 @@ def apply_display_transform(
     image_data: np.ndarray,
     *,
     output_color_space: str,
+    output_cctf_encoding: bool,
     colour_module: Any,
     imagecms_module: Any,
     pil_image_module: Any,
 ) -> tuple[np.ndarray, str]:
+    if is_aces_scene_linear_space(output_color_space):
+        preview = aces_sdr_video_view_transform(
+            image_data,
+            color_space=output_color_space,
+            colour_module=colour_module,
+        )
+        return (
+            np.uint8(np.clip(preview, 0.0, 1.0) * 255),
+            'Display transform: ACES SDR video output transform',
+        )
+
+    if not output_cctf_encoding:
+        srgb_preview = colour_module.RGB_to_RGB(
+            image_data,
+            output_color_space,
+            DISPLAY_PREVIEW_COLOR_SPACE,
+            apply_cctf_decoding=False,
+            apply_cctf_encoding=True,
+        )
+        return (
+            np.uint8(np.clip(srgb_preview, 0.0, 1.0) * 255),
+            'Display transform: linear scene preview, using sRGB display encoding',
+        )
+
     display_profile, profile_name = display_profile_details(imagecms_module=imagecms_module)
     if display_profile is None:
         return np.uint8(np.clip(image_data, 0.0, 1.0) * 255), 'Display transform: no display profile, using raw preview'
 
-    srgb_preview = colour_module.RGB_to_RGB(
-        image_data,
+    source_profile = imagecms_profile_for_color_space(
         output_color_space,
-        DISPLAY_PREVIEW_COLOR_SPACE,
-        apply_cctf_decoding=True,
-        apply_cctf_encoding=True,
+        output_cctf_encoding=output_cctf_encoding,
+        imagecms_module=imagecms_module,
     )
-    srgb_preview_uint8 = np.uint8(np.clip(srgb_preview, 0.0, 1.0) * 255)
-    source_profile = imagecms_module.createProfile(DISPLAY_PREVIEW_COLOR_SPACE)
-    source_image = pil_image_module.fromarray(srgb_preview_uint8, mode='RGB')
+    source_image_data = np.uint8(np.clip(image_data, 0.0, 1.0) * 255)
+    if source_profile is None:
+        srgb_preview = colour_module.RGB_to_RGB(
+            image_data,
+            output_color_space,
+            DISPLAY_PREVIEW_COLOR_SPACE,
+            apply_cctf_decoding=True,
+            apply_cctf_encoding=True,
+        )
+        source_image_data = np.uint8(np.clip(srgb_preview, 0.0, 1.0) * 255)
+        source_profile = imagecms_module.createProfile(DISPLAY_PREVIEW_COLOR_SPACE)
+
+    source_image = pil_image_module.fromarray(source_image_data, mode='RGB')
     transformed_image = imagecms_module.profileToProfile(source_image, source_profile, display_profile, outputMode='RGB')
     return np.asarray(transformed_image, dtype=np.uint8), f'Display transform: active ({profile_name})'
+
+
+def imagecms_profile_for_color_space(
+    color_space: str,
+    *,
+    output_cctf_encoding: bool,
+    imagecms_module: Any,
+) -> object | None:
+    icc_bytes = resolve_icc_profile_bytes(color_space, output_cctf_encoding)
+    if icc_bytes is not None and hasattr(imagecms_module, 'ImageCmsProfile'):
+        return imagecms_module.ImageCmsProfile(BytesIO(icc_bytes))
+    if output_cctf_encoding:
+        pycms_error = getattr(imagecms_module, 'PyCMSError', RuntimeError)
+        try:
+            return imagecms_module.createProfile(color_space)
+        except (AttributeError, OSError, ValueError, TypeError, pycms_error):
+            if color_space == DISPLAY_PREVIEW_COLOR_SPACE:
+                return imagecms_module.createProfile(DISPLAY_PREVIEW_COLOR_SPACE)
+    return None
 
 
 def prepare_output_display_image(
     image_data: np.ndarray,
     *,
     output_color_space: str,
+    output_cctf_encoding: bool = True,
     use_display_transform: bool,
     padding_pixels: float = 0.0,
     imagecms_module: Any,
@@ -192,20 +254,24 @@ def prepare_output_display_image(
     pil_image_module: Any,
 ) -> tuple[np.ndarray, str]:
     del padding_pixels
-    normalized_image = normalized_image_data(np.asarray(image_data)[..., :3])
-    preview_image = np.uint8(np.clip(normalized_image, 0.0, 1.0) * 255)
+    source_image = np.asarray(image_data)[..., :3]
+    preview_image = np.uint8(np.clip(normalized_image_data(source_image), 0.0, 1.0) * 255)
     if not use_display_transform:
         return preview_image, display_transform_status_message(False, imagecms_module=imagecms_module)
+    preserve_scene_highlights = is_aces_scene_linear_space(output_color_space) or not output_cctf_encoding
+    transform_image = normalized_image_data(source_image, preserve_highlights=preserve_scene_highlights)
+    pycms_error = getattr(imagecms_module, 'PyCMSError', RuntimeError)
     try:
         transformed_image, status = apply_display_transform(
-            normalized_image,
+            transform_image,
             output_color_space=output_color_space,
+            output_cctf_encoding=output_cctf_encoding,
             colour_module=colour_module,
             imagecms_module=imagecms_module,
             pil_image_module=pil_image_module,
         )
         return transformed_image, status
-    except (OSError, ValueError, TypeError, imagecms_module.PyCMSError):
+    except (AttributeError, LookupError, OSError, RuntimeError, ValueError, TypeError, pycms_error):
         return preview_image, 'Display transform: transform failed, using raw preview'
 
 
@@ -215,10 +281,13 @@ def execute_simulation_request(
     run_simulation_fn: Callable[[np.ndarray, object], np.ndarray],
     prepare_output_display_image_fn: Callable[..., tuple[np.ndarray, str]],
 ) -> SimulationResult:
-    scan = run_simulation_fn(request.image, request.params)
+    simulation_output = run_simulation_fn(request.image, request.params)
+    scan = getattr(simulation_output, 'image', simulation_output)
+    hdr_scene_energy = getattr(simulation_output, 'hdr_scene_energy', None)
     scan_display, display_status = prepare_output_display_image_fn(
         scan,
         output_color_space=request.output_color_space,
+        output_cctf_encoding=request.output_cctf_encoding,
         use_display_transform=request.use_display_transform,
     )
     return SimulationResult(
@@ -226,6 +295,8 @@ def execute_simulation_request(
         display_image=scan_display,
         float_image=np.asarray(scan),
         output_color_space=request.output_color_space,
+        output_cctf_encoding=request.output_cctf_encoding,
         use_display_transform=request.use_display_transform,
         status_message=display_status,
+        hdr_scene_energy=hdr_scene_energy,
     )

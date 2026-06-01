@@ -24,7 +24,7 @@ def test_lut_resolution_property_matches_constructor_value():
 # ---------------------------------------------------------------------------
 
 def test_clear_releases_all_cached_fields(monkeypatch):
-    def fake_compute_tc_lut(sensitivity):
+    def fake_compute_tc_lut(sensitivity, adaptation=None):
         return np.ones((2, 2, 3), dtype=float)
 
     monkeypatch.setattr(
@@ -114,6 +114,41 @@ def test_pipeline_update_reuses_lut_service_when_resolution_unchanged():
     pipeline.update(params_new)
 
     assert pipeline._lut_service is original_service
+
+
+def test_pipeline_update_rebuilds_lut_service_when_backend_changes(monkeypatch):
+    from spektrafilm.runtime.params_builder import init_params, digest_params
+    from spektrafilm.runtime import pipeline as pipeline_module
+
+    class FakeBackend:
+        supports_gpu = False
+        fallback_reason = None
+        requires_serial_runtime = False
+
+        def __init__(self, name):
+            self.name = name
+
+    def fake_select_backend(name, *, precision):
+        return FakeBackend(f"{name}:{precision}")
+
+    monkeypatch.setattr(pipeline_module, "select_backend", fake_select_backend)
+
+    params = digest_params(init_params())
+    params.settings.compute_backend = "cpu"
+    params.settings.gpu_precision = "float32"
+    params.settings.lut_resolution = 17
+    pipeline = pipeline_module.SimulationPipeline(params)
+    original_service = pipeline._lut_service
+    assert original_service._backend is pipeline._backend
+
+    params_new = digest_params(init_params())
+    params_new.settings.compute_backend = "auto"
+    params_new.settings.gpu_precision = "float32"
+    params_new.settings.lut_resolution = 17
+    pipeline.update(params_new)
+
+    assert pipeline._lut_service is not original_service
+    assert pipeline._lut_service._backend is pipeline._backend
 
 
 def test_pipeline_update_does_not_reuse_lut_service_when_resolution_differs():

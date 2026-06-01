@@ -6,9 +6,9 @@ Date: 2026-05-27
 
 Convert the actionable findings from:
 
-- `docs 2/dev/research-gui-product-logic.md`
-- `docs 2/dev/research-gui-aesthetics.md`
-- `docs 2/dev/research-gui-color-hdr.md`
+- `docs/archive/docs-2-legacy-20260531/dev/research-gui-product-logic.md`
+- `docs/archive/docs-2-legacy-20260531/dev/research-gui-aesthetics.md`
+- `docs/archive/docs-2-legacy-20260531/dev/research-gui-color-hdr.md`
 
 into tested GUI improvements without pretending that broader items such as
 true HDR preview, worker cancellation, or undo can be safely solved by surface

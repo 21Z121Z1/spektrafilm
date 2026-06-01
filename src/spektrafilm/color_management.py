@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Literal, TYPE_CHECKING
+from typing import Any, Literal, TYPE_CHECKING
+
+import numpy as np
 
 Transfer = Literal["linear", "cctf"]
 ColorRole = Literal["scene", "display", "interchange"]
@@ -31,6 +33,80 @@ def is_aces_scene_linear_space(color_space: str) -> bool:
     """Return whether *color_space* is an ACES scene-linear RGB encoding."""
 
     return str(color_space) in ACES_SCENE_LINEAR_COLOR_SPACES
+
+
+_ACES_SDR_INPUT_MATRIX = np.array(
+    [
+        [0.59719, 0.35458, 0.04823],
+        [0.07600, 0.90834, 0.01566],
+        [0.02840, 0.13383, 0.83777],
+    ],
+    dtype=np.float32,
+)
+_ACES_SDR_OUTPUT_MATRIX = np.array(
+    [
+        [1.60475, -0.53108, -0.07367],
+        [-0.10208, 1.10813, -0.00605],
+        [-0.00327, -0.07276, 1.07602],
+    ],
+    dtype=np.float32,
+)
+
+
+def _apply_rgb_matrix(image: np.ndarray, matrix: np.ndarray) -> np.ndarray:
+    return np.tensordot(image, matrix.T, axes=1).astype(np.float32, copy=False)
+
+
+def _aces_sdr_rrt_odt_fit(linear_srgb: np.ndarray) -> np.ndarray:
+    """Stephen Hill ACES fitted SDR rendering curve for display preview."""
+
+    color = _apply_rgb_matrix(linear_srgb, _ACES_SDR_INPUT_MATRIX)
+    color = (color * (color + np.float32(0.0245786)) - np.float32(0.000090537)) / (
+        color * (np.float32(0.983729) * color + np.float32(0.4329510)) + np.float32(0.238081)
+    )
+    return _apply_rgb_matrix(color, _ACES_SDR_OUTPUT_MATRIX)
+
+
+def _srgb_cctf_encoding(linear_rgb: np.ndarray) -> np.ndarray:
+    linear_rgb = np.clip(np.asarray(linear_rgb, dtype=np.float32), 0.0, None)
+    return np.where(
+        linear_rgb <= np.float32(0.0031308),
+        np.float32(12.92) * linear_rgb,
+        np.float32(1.055) * np.power(linear_rgb, np.float32(1.0 / 2.4)) - np.float32(0.055),
+    ).astype(np.float32, copy=False)
+
+
+def aces_sdr_video_view_transform(
+    image_data: np.ndarray,
+    *,
+    color_space: str,
+    colour_module: Any | None = None,
+) -> np.ndarray:
+    """Render ACES scene-linear RGB through SpektraFilm's SDR video view.
+
+    This is a named ACES-style SDR Output Transform for GUI preview: input is
+    scene-linear ACES2065-1 or ACEScg, output is display-referred sRGB code
+    values in [0, 1]. It is intentionally local and deterministic until the
+    project ships an OCIO ACES config dependency.
+    """
+
+    color_space = str(color_space)
+    if not is_aces_scene_linear_space(color_space):
+        raise ValueError(f"ACES SDR view requires ACES scene-linear input, got {color_space!r}.")
+    if colour_module is None:
+        import colour as colour_module
+
+    image = np.asarray(image_data, dtype=np.float32)
+    linear_srgb = colour_module.RGB_to_RGB(
+        image,
+        color_space,
+        "sRGB",
+        apply_cctf_decoding=False,
+        apply_cctf_encoding=False,
+    )
+    linear_srgb = np.clip(np.asarray(linear_srgb, dtype=np.float32), 0.0, None)
+    rendered = _aces_sdr_rrt_odt_fit(linear_srgb)
+    return np.asarray(np.clip(_srgb_cctf_encoding(rendered), 0.0, 1.0), dtype=np.float32)
 
 
 @dataclass(frozen=True, slots=True)

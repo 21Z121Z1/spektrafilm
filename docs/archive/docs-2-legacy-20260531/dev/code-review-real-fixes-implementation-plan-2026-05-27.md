@@ -14,18 +14,18 @@
 
 Read and cross-checked:
 
-- `docs 2/dev/code-review-2026-05-26.md`
-- `docs 2/dev/code-quality-review-round-1.md`
-- `docs 2/dev/code-quality-review-round-2.md`
-- `docs 2/dev/code-quality-review-round-3.md`
-- `docs 2/dev/code-quality-review-round-4.md`
-- `docs 2/dev/code-quality-review-round-5.md`
-- `docs 2/dev/code-quality-review-round-6.md`
-- `docs 2/dev/research-implementation-round-1.md`
-- `docs 2/dev/research-implementation-round-2.md`
-- `docs 2/dev/research-implementation-round-3.md`
-- `docs 2/dev/research-implementation-round-4.md`
-- `docs 2/dev/research-implementation-round-5.md`
+- `docs/archive/docs-2-legacy-20260531/dev/code-review-2026-05-26.md`
+- `docs/archive/docs-2-legacy-20260531/dev/code-quality-review-round-1.md`
+- `docs/archive/docs-2-legacy-20260531/dev/code-quality-review-round-2.md`
+- `docs/archive/docs-2-legacy-20260531/dev/code-quality-review-round-3.md`
+- `docs/archive/docs-2-legacy-20260531/dev/code-quality-review-round-4.md`
+- `docs/archive/docs-2-legacy-20260531/dev/code-quality-review-round-5.md`
+- `docs/archive/docs-2-legacy-20260531/dev/code-quality-review-round-6.md`
+- `docs/archive/docs-2-legacy-20260531/dev/research-implementation-round-1.md`
+- `docs/archive/docs-2-legacy-20260531/dev/research-implementation-round-2.md`
+- `docs/archive/docs-2-legacy-20260531/dev/research-implementation-round-3.md`
+- `docs/archive/docs-2-legacy-20260531/dev/research-implementation-round-4.md`
+- `docs/archive/docs-2-legacy-20260531/dev/research-implementation-round-5.md`
 - `CLAUDE.md`
 
 External best-practice checks used:
@@ -82,7 +82,7 @@ External best-practice checks used:
 - Modify `src/spektrafilm/utils/numba_boost_hightlights.py`: compatibility wrapper for the old misspelled import path.
 - Modify imports in `src/spektrafilm/runtime/stages/filming.py`, `src/spektrafilm/utils/numba_warmup.py`, and comments/tests as needed to use the correctly spelled module.
 - Add/update tests in `tests/test_image_io_color_metadata.py`, `tests/test_hdr_photo.py`, `tests/test_runtime_api.py`, `tests/test_grain.py` or a nearby model test file, `tests/test_numba_warmup.py`, and `tests/gui/test_controller_output.py` if import-safe.
-- Add final documentation in `docs 2/dev/code-review-real-fixes-completion-2026-05-27.md`.
+- Add final documentation in `docs/archive/docs-2-legacy-20260531/dev/code-review-real-fixes-completion-2026-05-27.md`.
 
 ## Tasks
 
@@ -136,5 +136,5 @@ External best-practice checks used:
 - [ ] Run `.venv/bin/python -m pytest --ignore=tests/gui -q`.
 - [ ] Run `.venv/bin/python -m compileall src tests`.
 - [ ] Run `git diff --check`.
-- [ ] Write `docs 2/dev/code-review-real-fixes-completion-2026-05-27.md` with actual fixed/resolved/skipped findings and verification results.
+- [ ] Write `docs/archive/docs-2-legacy-20260531/dev/code-review-real-fixes-completion-2026-05-27.md` with actual fixed/resolved/skipped findings and verification results.
 - [ ] Final self-audit: ask whether any still-real in-scope review item lacks a test or code/doc decision. If yes, loop back; if no, mark the goal complete.

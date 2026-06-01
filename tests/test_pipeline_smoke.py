@@ -228,8 +228,8 @@ def test_midgray_input_produces_expected_output_values(default_params) -> None:
     result = simulate(mid_gray, default_params)
     _assert_valid_output(result, shape=(4, 4, 3))
     center = result[1, 1, :]
-    expected_center = np.array([0.4711485, 0.47128558, 0.47134435], dtype=np.float32)
-    np.testing.assert_allclose(center, expected_center, rtol=0.0, atol=5e-4)
+    expected_center = np.array([0.46369073, 0.46374183, 0.46358347])
+    np.testing.assert_allclose(center, expected_center, rtol=0.0, atol=1e-5)
     # Uniform input should produce uniform output (no spatial artifacts)
     for row in range(4):
         for col in range(4):

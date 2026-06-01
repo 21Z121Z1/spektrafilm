@@ -10,8 +10,8 @@ Spectral simulation of analog film photography. Python 3.13+, Qt GUI, GPU backen
 - Python: `.venv/bin/python`
 - Dependencies: `uv sync`
 
-## Code Review Document
-Read `docs/dev/code-review-2026-05-26.md` for the full review findings.
+## Documentation Entry Points
+Read `docs/README.md` first for the current documentation map, then use `docs/dev/code-review-2026-05-26.md` when the task specifically needs the older full review findings.
 
 ## Scope for Fixes
 Fix all Critical, High, and Medium findings EXCEPT:

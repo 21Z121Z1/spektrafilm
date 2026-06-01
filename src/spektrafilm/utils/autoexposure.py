@@ -16,9 +16,28 @@ def _normalized_coords(image):
 
 
 def measure_autoexposure_ev(image, color_space='sRGB', apply_cctf_decoding=True, method='center_weighted'):
+    # For ACES scene-linear spaces, skip CCTF decoding — the data is already linear.
+    from spektrafilm.color_management import is_aces_scene_linear_space
+    if is_aces_scene_linear_space(color_space):
+        apply_cctf_decoding = False
+
     image_Y = _luminance_y(image, color_space, apply_cctf_decoding)
 
-    if method == 'average':
+    # Sanitize: clamp negatives to zero and replace non-finite values so that
+    # downstream statistics do not propagate NaN / Inf.
+    image_Y = np.nan_to_num(image_Y, nan=0.0, posinf=0.0, neginf=0.0)
+    image_Y = np.maximum(image_Y, 0.0)
+
+    if method == 'scene_linear':
+        # Scene-linear weighted meter: log2(median(Y) / middle_gray).
+        # Uses median rather than mean so that HDR specular highlights
+        # do not skew the meter reading.
+        valid = image_Y[image_Y > 0.0]
+        if valid.size == 0:
+            return 0.0
+        exposure = np.median(valid) / 0.184
+
+    elif method == 'average':
         # Uniform average over the entire frame.
         exposure = np.mean(image_Y) / 0.184
 
@@ -93,7 +112,11 @@ def measure_autoexposure_ev(image, color_space='sRGB', apply_cctf_decoding=True,
         exposure = float(np.sum(image_Y * weights) / total) / 0.184
 
     else:
-        exposure = 1.0
+        raise ValueError(
+            f"Unsupported auto exposure method {method!r}; "
+            f"expected 'scene_linear', 'average', 'median', 'center_weighted', "
+            f"'partial', 'matrix', 'multi_zone', or 'highlight_weighted'."
+        )
 
     exposure_compensation_ev = -np.log2(exposure)
     if np.isinf(exposure_compensation_ev):

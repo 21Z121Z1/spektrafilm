@@ -132,6 +132,62 @@ class TestSimulatorDebugSwitches:
         assert params.print_render.glare.active is False
 
 
+class TestRuntimePhotoParamsValidation:
+    def test_negative_film_format_mm_raises(self):
+        params = init_params()
+        params.camera.film_format_mm = -1.0
+        import pytest
+
+        with pytest.raises(ValueError, match="film_format_mm must be > 0"):
+            from spektrafilm.runtime.params_schema import RuntimePhotoParams
+            RuntimePhotoParams(film=params.film, print=params.print, camera=params.camera)
+
+    def test_zero_film_format_mm_raises(self):
+        params = init_params()
+        params.camera.film_format_mm = 0.0
+        import pytest
+
+        with pytest.raises(ValueError, match="film_format_mm must be > 0"):
+            from spektrafilm.runtime.params_schema import RuntimePhotoParams
+            RuntimePhotoParams(film=params.film, print=params.print, camera=params.camera)
+
+    def test_negative_upscale_factor_raises(self):
+        params = init_params()
+        params.io.upscale_factor = -0.5
+        import pytest
+
+        with pytest.raises(ValueError, match="upscale_factor must be > 0"):
+            from spektrafilm.runtime.params_schema import RuntimePhotoParams
+            RuntimePhotoParams(film=params.film, print=params.print, io=params.io)
+
+    def test_zero_upscale_factor_raises(self):
+        params = init_params()
+        params.io.upscale_factor = 0.0
+        import pytest
+
+        with pytest.raises(ValueError, match="upscale_factor must be > 0"):
+            from spektrafilm.runtime.params_schema import RuntimePhotoParams
+            RuntimePhotoParams(film=params.film, print=params.print, io=params.io)
+
+    def test_lut_resolution_below_2_raises(self):
+        params = init_params()
+        params.settings.lut_resolution = 1
+        import pytest
+
+        with pytest.raises(ValueError, match="lut_resolution must be >= 2"):
+            from spektrafilm.runtime.params_schema import RuntimePhotoParams
+            RuntimePhotoParams(film=params.film, print=params.print, settings=params.settings)
+
+    def test_lut_resolution_zero_raises(self):
+        params = init_params()
+        params.settings.lut_resolution = 0
+        import pytest
+
+        with pytest.raises(ValueError, match="lut_resolution must be >= 2"):
+            from spektrafilm.runtime.params_schema import RuntimePhotoParams
+            RuntimePhotoParams(film=params.film, print=params.print, settings=params.settings)
+
+
 class TestDigestParamsFilmDefaults:
     def test_negative_profile_keeps_explicit_scan_film_choice(self):
         params = init_params()

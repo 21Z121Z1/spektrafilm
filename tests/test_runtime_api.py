@@ -46,6 +46,25 @@ class TestRuntimeApi:
 
         assert simulator.process('frame') == 'processed-updated-frame'
 
+    def test_process_with_metadata_delegates_to_pipeline(self, monkeypatch):
+        pipeline_result = SimpleNamespace(
+            image=np.full((1, 1, 3), 0.5, dtype=np.float32),
+            hdr_scene_energy=SimpleNamespace(scene_luminance=np.full((1, 1), 0.18, dtype=np.float32)),
+        )
+
+        class FakePipeline:
+            def __init__(self, params):
+                self.params = params
+
+            def process_with_metadata(self, image):
+                assert image == 'frame'
+                return pipeline_result
+
+        monkeypatch.setattr(process_module, 'SimulationPipeline', FakePipeline)
+        simulator = process_module.Simulator(SimpleNamespace(label='metadata'))
+
+        assert simulator.process_with_metadata('frame') is pipeline_result
+
     def test_soft_update_delegates_to_pipeline(self, monkeypatch):
         captured_kwargs = {}
 

@@ -639,6 +639,7 @@ class SimulationSection(DataclassSection):
                 'auto_preview',
                 'scan_film',
                 'output_color_space',
+                'output_cctf_encoding',
                 'saving_color_space',
                 'saving_cctf_encoding',
             },
@@ -767,6 +768,7 @@ class OutputSection(QWidget):
                 'Output',
                 [
                     _spec_row('simulation', 'output_color_space', simulation_section.output_color_space),
+                    _spec_row('simulation', 'output_cctf_encoding', simulation_section.output_cctf_encoding),
                     _spec_row('simulation', 'saving_color_space', simulation_section.saving_color_space),
                     _spec_row('simulation', 'saving_cctf_encoding', simulation_section.saving_cctf_encoding),
                 ],

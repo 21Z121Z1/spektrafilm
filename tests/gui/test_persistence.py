@@ -89,11 +89,15 @@ def test_gui_state_from_dict_fills_missing_field_from_defaults() -> None:
     data = gui_state_to_dict(PROJECT_DEFAULT_GUI_STATE)
     del data['display']['output_interpolation']
     del data['simulation']['print_exposure']
+    del data['simulation']['color_management_workflow']
+    del data['simulation']['output_cctf_encoding']
 
     restored = gui_state_from_dict(data)
 
     assert restored.display.output_interpolation == PROJECT_DEFAULT_GUI_STATE.display.output_interpolation
     assert restored.simulation.print_exposure == PROJECT_DEFAULT_GUI_STATE.simulation.print_exposure
+    assert restored.simulation.color_management_workflow == 'manual'
+    assert restored.simulation.output_cctf_encoding is True
 
 
 def test_gui_state_from_dict_ignores_unknown_fields() -> None:

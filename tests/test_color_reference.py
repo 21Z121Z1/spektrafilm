@@ -41,6 +41,7 @@ def _make_io_params(scan_film: bool = False) -> SimpleNamespace:
     return SimpleNamespace(
         scan_film=scan_film,
         output_color_space="sRGB",
+        output_cctf_encoding=True,
         output_clip_min=True,
         output_clip_max=True,
     )
@@ -53,6 +54,7 @@ def _make_service(
     white_correction: bool = False,
     black_level: float = 0.01,
     white_level: float = 0.98,
+    backend=None,
 ) -> ColorReferenceService:
     film = _make_profile(profile_type)
     print_profile = _make_profile("negative")
@@ -66,22 +68,23 @@ def _make_service(
         black_level=black_level,
         white_level=white_level,
         io_params=_make_io_params(scan_film=scan_film),
+        backend=backend,
     )
 
 
 class TestRemoveCCTF:
     def test_srgb_round_trip_is_close_to_identity(self) -> None:
-        """_remove_cctf decodes sRGB CCTF; a mid-gray input should stay near mid-gray."""
+        """_remove_cctf decodes sRGB CCTF; 0.5 should decode to ~0.214 (sRGB OETF inverse)."""
         result = _remove_cctf(0.5, color_space="sRGB")
-        assert 0.1 < result < 0.6
+        np.testing.assert_allclose(result, 0.21404114, atol=1e-6)
 
     def test_white_level_decodes_to_near_one(self) -> None:
         result = _remove_cctf(1.0, color_space="sRGB")
-        assert 0.8 < result < 1.1
+        np.testing.assert_allclose(result, 1.0, atol=1e-12)
 
     def test_zero_decodes_to_zero(self) -> None:
         result = _remove_cctf(0.0, color_space="sRGB")
-        assert abs(result) < 0.01
+        np.testing.assert_allclose(result, 0.0, atol=1e-12)
 
 
 class TestColorReferenceServiceNoCorrection:
@@ -210,3 +213,49 @@ class TestColorReferenceServiceWithCorrection:
         expected_y = 0.1 + (0.8 - 0.1) / (0.9 - 0.1) * (0.5 - 0.1)
         scale = expected_y / 0.5
         np.testing.assert_allclose(result, xyz * scale)
+
+    def test_backend_correction_uses_backend_clip(self) -> None:
+        class FakeBackend:
+            supports_gpu = True
+
+            def __init__(self) -> None:
+                self.clip_calls: list[tuple[float, float]] = []
+
+            def clip(self, value, a_min, a_max):
+                self.clip_calls.append((a_min, a_max))
+                return np.clip(value, a_min, a_max)
+
+        backend = FakeBackend()
+        service = _make_service(
+            profile_type="positive",
+            scan_film=True,
+            black_correction=True,
+            white_correction=True,
+            black_level=0.2,
+            white_level=0.8,
+            backend=backend,
+        )
+        service._y_black = np.array(0.1)
+        service._y_white = np.array(0.9)
+        service._black_level = 0.2
+        service._white_level = 0.8
+
+        result = service.black_white_xyz_correction(np.array([[[0.25, 0.5, 0.75]]], dtype=float))
+
+        assert backend.clip_calls == [(0, 1)]
+        assert result.shape == (1, 1, 3)
+
+    def test_correction_respects_unclipped_hdr_output_policy(self) -> None:
+        service = self._service_with_reference_levels(
+            black_correction=True,
+            white_correction=True,
+            black_level=0.2,
+            white_level=1.4,
+        )
+        service._output_clip_min = False
+        service._output_clip_max = False
+
+        correction_func, _midgray = service._correction_fucntion()
+        corrected = correction_func(np.array([1.0], dtype=float))
+
+        assert corrected[0] > 1.0

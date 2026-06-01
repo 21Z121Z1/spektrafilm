@@ -11,6 +11,12 @@ class RGBColorSpaces(Enum):
     ITU_R_BT2020 = "ITU-R BT.2020"
     ProPhotoRGB = "ProPhoto RGB"
     ACES2065_1 = "ACES2065-1"
+    ACEScg = "ACEScg"
+
+
+class ColorManagementWorkflows(Enum):
+    manual = "manual"
+    aces_reference = "aces_reference"
 
 
 class RGBtoRAWMethod(Enum):
@@ -50,3 +56,16 @@ class DiffusionFilterFamilies(Enum):
     black_pro_mist = "black_pro_mist"
     pro_mist = "pro_mist"
     cinebloom = "cinebloom"
+
+
+class ComputeBackend(Enum):
+    cpu = "cpu"
+    auto = "auto"
+    mlx = "mlx"
+    cupy = "cupy"
+    halide = "halide"
+
+
+class GpuPrecision(Enum):
+    float64 = "float64"
+    float32 = "float32"

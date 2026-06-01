@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 from typing import Callable
-from colour import RGB_to_RGB
+from colour import RGB_to_RGB, cctf_decoding
 
 from spektrafilm.model.emulsion import develop_simple
 
@@ -12,7 +12,8 @@ class ColorReferenceService:
                        print_profile, print_render,
                        black_correction, white_correction,
                        black_level, white_level,
-                       io_params):
+                       io_params,
+                       backend=None):
         self._film = film_profile
         self._film_render = film_render
         self._print = print_profile
@@ -20,6 +21,9 @@ class ColorReferenceService:
         self._scan_film = io_params.scan_film
         self._output_color_space = io_params.output_color_space
         self._output_cctf_encoding = io_params.output_cctf_encoding
+        self._output_clip_min = bool(io_params.output_clip_min)
+        self._output_clip_max = bool(io_params.output_clip_max)
+        self._backend = backend
 
         self._black_correction = black_correction
         self._white_correction = white_correction
@@ -45,6 +49,12 @@ class ColorReferenceService:
             return
         else:
             if self._scan_film and self._film.info.type == 'positive' and not in_print:
+                if self.cmy_to_log_xyz is None:
+                    raise RuntimeError(
+                        "ColorReferenceService.cmy_to_log_xyz was not set before "
+                        "_update_cmy_black_white_references was called. "
+                        "The scanning stage must assign this callable during pipeline init."
+                    )
                 cmy_black = np.nanmax(self._film.data.density_curves, axis=0)[None, None, :]
                 cmy_white = np.zeros((1, 1, 3))
                 log_xyz_black = self.cmy_to_log_xyz(cmy_black)
@@ -52,6 +62,23 @@ class ColorReferenceService:
                 self._y_black = (10 ** log_xyz_black)[:, :, 1]
                 self._y_white = (10 ** log_xyz_white)[:, :, 1]
             elif not self._scan_film and self._print.info.type == 'negative' and in_print:
+                if self.cmy_to_log_xyz is None:
+                    raise RuntimeError(
+                        "ColorReferenceService.cmy_to_log_xyz was not set before "
+                        "_update_cmy_black_white_references was called. "
+                        "The scanning stage must assign this callable during pipeline init."
+                    )
+                if self.log_raw_print_black is None or self.log_raw_print_white is None:
+                    missing = []
+                    if self.log_raw_print_black is None:
+                        missing.append("log_raw_print_black")
+                    if self.log_raw_print_white is None:
+                        missing.append("log_raw_print_white")
+                    raise RuntimeError(
+                        f"ColorReferenceService attribute(s) {', '.join(missing)} not set before "
+                        "_update_cmy_black_white_references was called. "
+                        "The scanning stage must assign these during pipeline init."
+                    )
                 cmy_black = develop_simple(
                     self.log_raw_print_black,
                     self._print.data.log_exposure,
@@ -79,6 +106,7 @@ class ColorReferenceService:
             density_midgray = -np.log10(0.184)
             self._update_cmy_black_white_references(in_print=False)
             midgray_corrected = self._correction_fucntion()[1]
+            midgray_corrected = self._to_numpy_scalar(midgray_corrected)
             density_midgray_corrected = -np.log10(midgray_corrected)
             density_curve_av = np.nanmean(self._film.data.density_curves, axis=1)
             density_min_av = np.nanmean(self._film.data.base_density)
@@ -99,6 +127,7 @@ class ColorReferenceService:
             density_midgray = -np.log10(0.184)
             self._update_cmy_black_white_references(in_print=True)
             midgray_corrected = self._correction_fucntion()[1]
+            midgray_corrected = self._to_numpy_scalar(midgray_corrected)
             density_midgray_corrected = -np.log10(midgray_corrected)
             density_curve_av = np.nanmean(self._print.data.density_curves, axis=1)
             density_min_av = np.nanmean(self._print.data.base_density)
@@ -138,17 +167,43 @@ class ColorReferenceService:
             m = (white_level - black_level) / (self._y_white - self._y_black + 1e-10)
             q = black_level - m * self._y_black
             def correction_func(y):
-                return np.clip(m * y + q, 0, 1)
+                corrected = m * y + q
+                a_min = 0 if self._output_clip_min else -np.inf
+                a_max = 1 if self._output_clip_max else np.inf
+                if self._backend is not None and getattr(self._backend, "supports_gpu", False):
+                    return self._backend.clip(corrected, a_min, a_max)
+                return np.clip(corrected, a_min, a_max)
         midgray_black_white_corrected = (0.184 - q)/m
         return correction_func, midgray_black_white_corrected
 
+    def _to_numpy_scalar(self, value) -> float:
+        if self._backend is not None and hasattr(self._backend, "to_numpy"):
+            value = self._backend.to_numpy(value)
+        return float(np.asarray(value).reshape(-1)[0])
+
 # private functions
     
+def _remove_cctf(y_input, *, color_space="sRGB"):
+    """Decode (remove) the content colour transfer function.
+
+    Parameters
+    ----------
+    y_input : float or array-like
+        CCTF-encoded value(s).
+    color_space : str
+        The colour space whose CCTF to decode.  Currently only ``"sRGB"``
+        is supported.
+
+    Returns
+    -------
+    float
+        Linear-light value after CCTF decoding.
+    """
+    if color_space == "sRGB":
+        return _remove_sRGB_cctf(y_input)
+    raise ValueError(f"Unsupported color space for CCTF decoding: {color_space}")
+
+
 def _remove_sRGB_cctf(y_input):
-    return RGB_to_RGB(y_input*np.ones((1,1,3)),
-                    'sRGB',
-                    'sRGB',
-                    apply_cctf_decoding=True,
-                    apply_cctf_encoding=False,
-                ).mean()
+    return float(cctf_decoding(y_input, function='sRGB'))
     
