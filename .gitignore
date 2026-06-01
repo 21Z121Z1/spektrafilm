@@ -185,6 +185,7 @@ cython_debug/
 # temporary files
 .temp
 .DS_Store
+.matplotlib/
 
 # uv
 uv.lock
