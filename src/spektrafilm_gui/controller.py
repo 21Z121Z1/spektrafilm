@@ -119,6 +119,14 @@ def save_image_oiio(*args, **kwargs):
     return import_module("spektrafilm.utils.io").save_image_oiio(*args, **kwargs)
 
 
+def sample_runtime_film_scan_curve_profile(*args, **kwargs):
+    module = import_module("spektrafilm.utils.hdr_curve_profiles")
+    sample_or_profile = module.sample_runtime_film_scan_curve_profile(*args, **kwargs)
+    if isinstance(sample_or_profile, dict):
+        return module.curve_profile_from_sample(sample_or_profile)
+    return sample_or_profile
+
+
 def read_image_metadata(*args, **kwargs):
     return import_module("spektrafilm.utils.io").read_image_metadata(*args, **kwargs)
 
@@ -345,7 +353,7 @@ class GuiController:
             dialog_parent(self._viewer),
             'Save output image',
             default_name,
-            'Images (*.jpg *.jpeg *.png *.tif *.tiff *.exr)',
+            'Images (*.jpg *.jpeg *.png *.tif *.tiff *.exr *.heic *.heif)',
         )
         if not filepath:
             return
@@ -394,6 +402,11 @@ class GuiController:
             source_metadata = read_image_metadata(self._current_input_path)
 
         try:
+            save_kwargs: dict[str, object] = {}
+            if Path(filepath).suffix.lower() in {'.heic', '.heif', '.exr'}:
+                hdr_mapping_kwargs = self._hdr_mapping_kwargs(gui_state)
+                if hdr_mapping_kwargs is not None:
+                    save_kwargs['hdr_mapping_kwargs'] = hdr_mapping_kwargs
             save_image_oiio(
                 filepath,
                 image_data,
@@ -401,6 +414,7 @@ class GuiController:
                 color_space=saving_color_space,
                 cctf_encoding=saving_cctf_encoding,
                 scene_luminance=scene_luminance,
+                **save_kwargs,
             )
         except (OSError, ValueError) as exc:
             QMessageBox.critical(dialog_parent(self._viewer), 'Save output', f'Failed to save output image.\n\n{exc}')
@@ -424,6 +438,30 @@ class GuiController:
             )
         else:
             set_status(self._viewer, f"Saved output image to {filepath}")
+
+    def _hdr_mapping_kwargs(self, gui_state) -> dict[str, object] | None:
+        mode = getattr(gui_state.simulation, 'hdr_mapping_mode', 'generic')
+        if mode == 'generic':
+            return None
+        if mode == 'profile_aware':
+            return {
+                'hdr_mapping_mode': 'profile_aware',
+                'film': gui_state.simulation.film_stock,
+                'paper': gui_state.simulation.print_paper,
+            }
+        if mode == 'film_scan_aware':
+            params = digest_params(build_params_from_state(gui_state))
+            curve_profile = sample_runtime_film_scan_curve_profile(
+                params=params,
+                film=gui_state.simulation.film_stock,
+            )
+            return {
+                'hdr_mapping_mode': 'film_scan_aware',
+                'film': gui_state.simulation.film_stock,
+                'paper': None,
+                'curve_profile': curve_profile,
+            }
+        raise ValueError(f"Unknown HDR mapping mode: {mode!r}")
 
     def save_current_as_default(self) -> None:
         persistence_actions.save_current_as_default(

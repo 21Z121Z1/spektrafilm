@@ -449,7 +449,8 @@ def sample_runtime_film_scan_curve_profile(
             print_profile=_DEFAULT_FILM_SCAN_SAMPLE_PAPER,
         )
     if film is None:
-        film = str(getattr(getattr(params, "film", None), "info", object()).stock)
+        film = getattr(getattr(getattr(params, "film", None), "info", None), "stock", None)
+        film = None if film is None else str(film)
     if not film or film == "None":
         raise ValueError("film-scan curve sampling requires a film identifier.")
 
@@ -495,6 +496,9 @@ def curve_profile_from_sample(sample: dict[str, object]) -> HDRCurveProfile:
     route = str(sample.get("route", "print_scan"))
     if route not in ("print_scan", "film_scan"):
         raise ValueError("curve profile sample route must be 'print_scan' or 'film_scan'.")
+    defaults = sample.get("hdr_defaults", {})
+    if not isinstance(defaults, dict):
+        defaults = {}
 
     return HDRCurveProfile(
         film=str(sample["film"]),
@@ -507,7 +511,7 @@ def curve_profile_from_sample(sample: dict[str, object]) -> HDRCurveProfile:
         highlight_slope=_finite_float(metrics["highlight_slope"], 0.0),
         shoulder_severity=_finite_float(metrics["shoulder_severity"], 0.75),
         highlight_tint_spread=_finite_float(metrics["highlight_tint_spread"], 0.0),
-        defaults=_defaults_from_mapping(sample.get("hdr_defaults", {})),
+        defaults=_defaults_from_mapping(defaults),
         scene_y=np.asarray(input_domain["scene_y"], dtype=np.float32),
         sdr_luminance_y=np.asarray(output["luminance_y"], dtype=np.float32),
         route=route,  # type: ignore[arg-type]

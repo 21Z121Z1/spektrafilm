@@ -30,6 +30,7 @@ This is the canonical router for Markdown documentation in this workspace. Start
 | --- | --- |
 | [`color-management-hdr-review-2026-05-31.md`](color-management-hdr-review-2026-05-31.md) | Current 2026-05-31 color-management/HDR code review, remediation notes, verification status, and remaining risks. |
 | [`hdr_profile_aware_raw_validation.md`](hdr_profile_aware_raw_validation.md) | Real ProRAW validation for profile-aware HDR export; companion JSON is `hdr_profile_aware_raw_validation.json`. |
+| [`hdr-film-scan-aware.md`](hdr-film-scan-aware.md) | `film_scan_aware` HDR export mode semantics, route behavior, sampling contract, and limitations. |
 | [`hdr_exr_output_plan.md`](hdr_exr_output_plan.md) | Scene-linear EXR export plan for unclipped HDR archives. |
 | [`color-management-hdr-deep-review.md`](color-management-hdr-deep-review.md) | Color management and HDR remediation verification report. |
 | [`color-management-system-review.md`](color-management-system-review.md) | Runtime, RAW import, GUI preview, and output saving color-management review. |
