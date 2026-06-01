@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import math
@@ -7,7 +8,7 @@ import re
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, Literal, TypeAlias
 
 import numpy as np
 
@@ -17,9 +18,11 @@ _log = logging.getLogger(__name__)
 
 _LUMA_COEFFS: Final = np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
 _EPS: Final = 1e-8
+_DEFAULT_FILM_SCAN_SAMPLE_PAPER: Final = "kodak_portra_endura"
 DEFAULT_CURVE_PROFILE_DIR: Final = (
     Path(__file__).resolve().parents[1] / "data" / "hdr_curve_profiles"
 )
+HDRCurveRoute: TypeAlias = Literal["print_scan", "film_scan"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,9 +38,9 @@ class HDRCurveDefaults:
 
 
 @dataclass(frozen=True, slots=True)
-class FilmPrintHDRCurveProfile:
+class HDRCurveProfile:
     film: str
-    paper: str
+    paper: str | None
     polarity: str
     safe_for_profile_aware_hdr: bool
     look_diffuse_white_y: float
@@ -49,6 +52,11 @@ class FilmPrintHDRCurveProfile:
     defaults: HDRCurveDefaults
     scene_y: np.ndarray
     sdr_luminance_y: np.ndarray
+    route: HDRCurveRoute = "print_scan"
+    scanner: str | None = None
+
+
+FilmPrintHDRCurveProfile: TypeAlias = HDRCurveProfile
 
 
 def luminance_y(rgb: np.ndarray) -> np.ndarray:
@@ -139,10 +147,17 @@ def _default_hdr_defaults(metrics: dict[str, float | str | bool]) -> HDRCurveDef
 def build_curve_profile_sample(
     *,
     film: str,
-    paper: str,
+    paper: str | None,
+    route: HDRCurveRoute = "print_scan",
+    scanner: str | None = None,
     scene_y: np.ndarray,
     output_rgb: np.ndarray,
 ) -> dict[str, object]:
+    if route not in ("print_scan", "film_scan"):
+        raise ValueError("route must be 'print_scan' or 'film_scan'.")
+    if route == "print_scan" and paper is None:
+        raise ValueError("print_scan curve profiles require a paper identifier.")
+
     scene = _clean_array(scene_y).reshape(-1)
     rgb = _clean_array(output_rgb)
     if rgb.ndim != 2 or rgb.shape[1] < 3:
@@ -196,8 +211,10 @@ def build_curve_profile_sample(
     ev = np.log2(scene)
     return {
         "version": 2,
+        "route": route,
         "film": film,
         "paper": paper,
+        "scanner": scanner,
         "input_domain": {
             "scene_y_anchor": "diffuse_white_is_1.0",
             "ev_relative_to_diffuse_white": [float(v) for v in ev],
@@ -268,7 +285,7 @@ def build_dynamic_curve_profile(
     }
     defaults = _default_hdr_defaults(metrics)
 
-    return FilmPrintHDRCurveProfile(
+    return HDRCurveProfile(
         film=fallback_profile.film,
         paper=fallback_profile.paper,
         polarity=polarity,
@@ -282,6 +299,8 @@ def build_dynamic_curve_profile(
         defaults=defaults,
         scene_y=scene,
         sdr_luminance_y=y,
+        route=fallback_profile.route,
+        scanner=fallback_profile.scanner,
     )
 
 def _slug(value: str) -> str:
@@ -294,8 +313,10 @@ def _summary_entry(sample: dict[str, object], sample_path: str) -> dict[str, obj
     if not isinstance(metrics, dict) or not isinstance(defaults, dict):
         raise ValueError("sample must contain metrics and hdr_defaults objects.")
     return {
+        "route": str(sample.get("route", "print_scan")),
         "film": sample["film"],
-        "paper": sample["paper"],
+        "paper": sample.get("paper"),
+        "scanner": sample.get("scanner"),
         "sample": sample_path,
         "polarity": metrics["polarity"],
         "safe_for_profile_aware_hdr": bool(metrics["safe_for_profile_aware_hdr"]),
@@ -315,7 +336,11 @@ def write_curve_profile_database(samples: list[dict[str, object]], output_dir: s
     samples_dir.mkdir(parents=True, exist_ok=True)
     profiles: list[dict[str, object]] = []
     for sample in samples:
-        filename = f"{_slug(str(sample['film']))}__{_slug(str(sample['paper']))}.json"
+        route = str(sample.get("route", "print_scan"))
+        if route == "film_scan":
+            filename = f"{_slug(str(sample['film']))}__film_scan.json"
+        else:
+            filename = f"{_slug(str(sample['film']))}__{_slug(str(sample['paper']))}.json"
         relative_path = f"samples/{filename}"
         path = root / relative_path
         path.write_text(json.dumps(sample, indent=2, sort_keys=True), encoding="utf-8")
@@ -348,6 +373,32 @@ def neutral_scene_y_samples(
     return np.asarray(np.sort(scene), dtype=np.float32)
 
 
+def _prepare_profile_sampling_params(
+    params,
+    *,
+    scan_film: bool,
+    unclipped_scan_output: bool,
+):
+    from spektrafilm.runtime.params_builder import digest_params
+
+    sampled = copy.deepcopy(params)
+    sampled.io.scan_film = bool(scan_film)
+    sampled.debug.deactivate_spatial_effects = True
+    sampled.debug.deactivate_stochastic_effects = True
+    sampled.settings.use_enlarger_lut = False
+    sampled.settings.use_scanner_lut = False
+    sampled.io.upscale_factor = 1.0
+    sampled.io.crop = False
+    sampled.io.input_cctf_decoding = False
+    sampled.io.output_cctf_encoding = False
+    if unclipped_scan_output:
+        sampled.io.output_clip_min = False
+        sampled.io.output_clip_max = False
+    sampled.camera.auto_exposure = False
+    sampled.camera.exposure_compensation_ev = 0.0
+    return digest_params(sampled)
+
+
 def sample_runtime_curve_profile(
     *,
     film: str,
@@ -356,21 +407,15 @@ def sample_runtime_curve_profile(
     ev_max: float = 6.0,
     ev_step: float = 0.5,
 ) -> dict[str, object]:
-    from spektrafilm.runtime.params_builder import digest_params, init_params
+    from spektrafilm.runtime.params_builder import init_params
     from spektrafilm.runtime.process import Simulator
 
     params = init_params(film_profile=film, print_profile=paper)
-    params.debug.deactivate_spatial_effects = True
-    params.debug.deactivate_stochastic_effects = True
-    params.settings.use_enlarger_lut = False
-    params.settings.use_scanner_lut = False
-    params.io.upscale_factor = 1.0
-    params.io.crop = False
-    params.io.input_cctf_decoding = False
-    params.io.output_cctf_encoding = False
-    params.camera.auto_exposure = False
-    params.camera.exposure_compensation_ev = 0.0
-    params = digest_params(params)
+    params = _prepare_profile_sampling_params(
+        params,
+        scan_film=False,
+        unclipped_scan_output=False,
+    )
 
     scene_y = neutral_scene_y_samples(ev_min=ev_min, ev_max=ev_max, ev_step=ev_step)
     ramp_rgb = np.repeat(scene_y.reshape(1, -1, 1), 3, axis=2).astype(np.float64)
@@ -378,6 +423,50 @@ def sample_runtime_curve_profile(
     return build_curve_profile_sample(
         film=film,
         paper=paper,
+        route="print_scan",
+        scene_y=scene_y,
+        output_rgb=output_rgb,
+    )
+
+
+def sample_runtime_film_scan_curve_profile(
+    *,
+    params=None,
+    film: str | None = None,
+    paper: str | None = None,
+    ev_min: float = -10.0,
+    ev_max: float = 6.0,
+    ev_step: float = 0.5,
+) -> dict[str, object]:
+    from spektrafilm.runtime.params_builder import init_params
+    from spektrafilm.runtime.process import Simulator
+
+    if params is None:
+        if film is None:
+            raise ValueError("film is required when params is not provided.")
+        params = init_params(
+            film_profile=film,
+            print_profile=_DEFAULT_FILM_SCAN_SAMPLE_PAPER,
+        )
+    if film is None:
+        film = str(getattr(getattr(params, "film", None), "info", object()).stock)
+    if not film or film == "None":
+        raise ValueError("film-scan curve sampling requires a film identifier.")
+
+    sampled_params = _prepare_profile_sampling_params(
+        params,
+        scan_film=True,
+        unclipped_scan_output=True,
+    )
+
+    scene_y = neutral_scene_y_samples(ev_min=ev_min, ev_max=ev_max, ev_step=ev_step)
+    ramp_rgb = np.repeat(scene_y.reshape(1, -1, 1), 3, axis=2).astype(np.float64)
+    output_rgb = np.asarray(Simulator(sampled_params).process(ramp_rgb)[0], dtype=np.float32)
+    return build_curve_profile_sample(
+        film=film,
+        paper=None,
+        route="film_scan",
+        scanner="runtime_current",
         scene_y=scene_y,
         output_rgb=output_rgb,
     )
@@ -396,7 +485,7 @@ def _defaults_from_mapping(values: dict[str, object]) -> HDRCurveDefaults:
     )
 
 
-def _profile_from_entry(root: Path, entry: dict[str, object]) -> FilmPrintHDRCurveProfile:
+def _profile_from_entry(root: Path, entry: dict[str, object]) -> HDRCurveProfile:
     sample_path = root / str(entry["sample"])
     sample = json.loads(sample_path.read_text(encoding="utf-8"))
     scene_y = np.asarray(sample["input_domain"]["scene_y"], dtype=np.float32)
@@ -404,9 +493,12 @@ def _profile_from_entry(root: Path, entry: dict[str, object]) -> FilmPrintHDRCur
     defaults_map = entry.get("defaults")
     if not isinstance(defaults_map, dict):
         defaults_map = sample.get("hdr_defaults", {})
-    return FilmPrintHDRCurveProfile(
+    route = str(entry.get("route", sample.get("route", "print_scan")))
+    if route not in ("print_scan", "film_scan"):
+        route = "print_scan"
+    return HDRCurveProfile(
         film=str(entry["film"]),
-        paper=str(entry["paper"]),
+        paper=None if entry.get("paper") is None else str(entry["paper"]),
         polarity=str(entry["polarity"]),
         safe_for_profile_aware_hdr=bool(entry["safe_for_profile_aware_hdr"]),
         look_diffuse_white_y=_finite_float(entry["look_diffuse_white_y"], 0.83),
@@ -418,13 +510,15 @@ def _profile_from_entry(root: Path, entry: dict[str, object]) -> FilmPrintHDRCur
         defaults=_defaults_from_mapping(defaults_map),
         scene_y=scene_y,
         sdr_luminance_y=sdr_y,
+        route=route,  # type: ignore[arg-type]
+        scanner=None if entry.get("scanner") is None else str(entry["scanner"]),
     )
 
 
 @lru_cache(maxsize=8)
 def load_hdr_curve_profiles(
     data_dir: str | Path = DEFAULT_CURVE_PROFILE_DIR,
-) -> dict[tuple[str, str], FilmPrintHDRCurveProfile]:
+) -> dict[tuple[str, str], HDRCurveProfile]:
     root = Path(data_dir)
     summary_path = root / "curve_profiles_v2.json"
     try:
@@ -432,12 +526,13 @@ def load_hdr_curve_profiles(
         entries = summary.get("profiles", [])
         if int(summary.get("version", 0)) != 2 or not isinstance(entries, list):
             return {}
-        profiles: dict[tuple[str, str], FilmPrintHDRCurveProfile] = {}
+        profiles: dict[tuple[str, str], HDRCurveProfile] = {}
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
             profile = _profile_from_entry(root, entry)
-            profiles[(profile.film, profile.paper)] = profile
+            if profile.route == "print_scan" and profile.paper is not None:
+                profiles[(profile.film, profile.paper)] = profile
         return profiles
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
         _log.warning("Failed to load HDR curve profiles from %s: %s", summary_path, exc)
@@ -448,19 +543,19 @@ def get_hdr_curve_profile(
     film: str,
     paper: str,
     data_dir: str | Path = DEFAULT_CURVE_PROFILE_DIR,
-) -> FilmPrintHDRCurveProfile | None:
+) -> HDRCurveProfile | None:
     return load_hdr_curve_profiles(data_dir).get((film, paper))
 
 
 def evaluate_profile_sdr_curve(
-    profile: FilmPrintHDRCurveProfile,
+    profile: HDRCurveProfile,
     scene_y: np.ndarray,
 ) -> np.ndarray:
     return _interp_log_domain(scene_y, profile.scene_y, profile.sdr_luminance_y)
 
 
 def build_profile_hdr_curve(
-    profile: FilmPrintHDRCurveProfile,
+    profile: HDRCurveProfile,
     scene_y: np.ndarray,
     *,
     mapping: object | None = None,
