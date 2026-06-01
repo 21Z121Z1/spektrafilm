@@ -96,6 +96,7 @@ def test_curve_profile_database_schema_and_loader_roundtrip(tmp_path: Path) -> N
 
     profiles = hdr_curve_profiles.load_hdr_curve_profiles(tmp_path)
     profile = profiles[("kodak_portra_400", "kodak_portra_endura")]
+    assert profile.route == "print_scan"
     assert profile.safe_for_profile_aware_hdr is True
     assert profile.defaults.safe_max_headroom >= 1.01
     np.testing.assert_allclose(
@@ -125,11 +126,99 @@ def test_repo_smoke_samples_known_runtime_profile() -> None:
 
     assert sample["film"] == "kodak_portra_400"
     assert sample["paper"] == "kodak_portra_endura"
+    assert sample["route"] == "print_scan"
     assert 1.0 in sample["input_domain"]["scene_y"]
     assert 0.184 in sample["input_domain"]["scene_y"]
     assert len(sample["output"]["rgb"]) == len(sample["input_domain"]["scene_y"])
     assert sample["metrics"]["polarity"] in {"increasing", "decreasing", "nonmonotonic"}
     _assert_finite_tree(sample)
+
+
+def test_film_scan_curve_profile_records_route_without_paper() -> None:
+    scene_y = np.array([0.125, 0.184, 0.5, 1.0, 2.0, 4.0], dtype=np.float32)
+    y = np.array([0.04, 0.08, 0.35, 0.74, 1.02, 1.34], dtype=np.float32)
+
+    sample = hdr_curve_profiles.build_curve_profile_sample(
+        film="kodak_portra_400",
+        paper=None,
+        route="film_scan",
+        scene_y=scene_y,
+        output_rgb=np.repeat(y[:, None], 3, axis=1),
+    )
+
+    assert sample["route"] == "film_scan"
+    assert sample["paper"] is None
+    assert sample["metrics"]["safe_for_profile_aware_hdr"] is True
+
+
+def test_film_scan_runtime_sampling_forces_scan_route_and_disables_output_clip(monkeypatch) -> None:
+    from spektrafilm.runtime.params_builder import init_params
+
+    captured: dict[str, object] = {}
+
+    class FakeSimulator:
+        def __init__(self, params) -> None:
+            captured["params"] = params
+
+        def process(self, ramp_rgb: np.ndarray) -> np.ndarray:
+            scene = ramp_rgb[0, :, 0].astype(np.float32)
+            response = scene * np.float32(0.35) + np.float32(0.05)
+            return np.repeat(response.reshape(1, -1, 1), 3, axis=2).astype(np.float32)
+
+    monkeypatch.setattr("spektrafilm.runtime.process.Simulator", FakeSimulator)
+    params = init_params(film_profile="kodak_portra_400", print_profile="kodak_portra_endura")
+    params.io.scan_film = False
+    params.io.output_cctf_encoding = True
+    params.io.output_clip_min = True
+    params.io.output_clip_max = True
+    params.camera.auto_exposure = True
+
+    sample = hdr_curve_profiles.sample_runtime_film_scan_curve_profile(
+        params=params,
+        film="kodak_portra_400",
+        ev_min=0.0,
+        ev_max=3.0,
+        ev_step=1.0,
+    )
+
+    sampled_params = captured["params"]
+    assert sampled_params.io.scan_film is True
+    assert sampled_params.io.output_cctf_encoding is False
+    assert sampled_params.io.output_clip_min is False
+    assert sampled_params.io.output_clip_max is False
+    assert sampled_params.debug.deactivate_spatial_effects is True
+    assert sampled_params.debug.deactivate_stochastic_effects is True
+    assert sampled_params.camera.auto_exposure is False
+    assert sample["route"] == "film_scan"
+    assert sample["paper"] is None
+    assert max(sample["output"]["luminance_y"]) > 1.0
+
+
+def test_print_scan_runtime_sampling_keeps_print_route(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeSimulator:
+        def __init__(self, params) -> None:
+            captured["params"] = params
+
+        def process(self, ramp_rgb: np.ndarray) -> np.ndarray:
+            scene = ramp_rgb[0, :, 0].astype(np.float32)
+            response = np.minimum(scene * np.float32(0.2) + np.float32(0.1), np.float32(0.95))
+            return np.repeat(response.reshape(1, -1, 1), 3, axis=2).astype(np.float32)
+
+    monkeypatch.setattr("spektrafilm.runtime.process.Simulator", FakeSimulator)
+
+    sample = hdr_curve_profiles.sample_runtime_curve_profile(
+        film="kodak_portra_400",
+        paper="kodak_portra_endura",
+        ev_min=0.0,
+        ev_max=2.0,
+        ev_step=1.0,
+    )
+
+    assert captured["params"].io.scan_film is False
+    assert sample["route"] == "print_scan"
+    assert sample["paper"] == "kodak_portra_endura"
 
 
 # ---------------------------------------------------------------------------
