@@ -1,10 +1,37 @@
 from __future__ import annotations
 
+import copy
+from dataclasses import fields
 from functools import lru_cache
 
 from spektrafilm.profiles.io import load_profile
 from spektrafilm.runtime.params_schema import RuntimePhotoParams
 from spektrafilm.utils.io import read_neutral_print_filters
+
+
+# Heavy fields shared by reference when cloning: the two Profiles carry the
+# spectral arrays and density-curve models. They are swapped at selection
+# time, never mutated during ordinary parameter edits, so a snapshot can
+# share them safely.
+_SHARED_PROFILE_FIELDS = ("film", "print")
+
+
+def clone_runtime_params(params: RuntimePhotoParams) -> RuntimePhotoParams:
+    """Cheap snapshot of runtime params for GUI undo / preview.
+
+    Deep-copies the whole parameter subtree so edits to the clone never
+    leak into the original, but shares the two ``Profile`` objects
+    (``film``, ``print``) by reference. This keeps a snapshot O(params)
+    instead of O(spectral data), the same property that made the GUI's
+    old ``clone_gui_state`` cheap — without maintaining a mirror state.
+    """
+    kwargs = {
+        f.name: getattr(params, f.name)
+        if f.name in _SHARED_PROFILE_FIELDS
+        else copy.deepcopy(getattr(params, f.name))
+        for f in fields(params)
+    }
+    return RuntimePhotoParams(**kwargs)
 
 
 @lru_cache(maxsize=1)
@@ -56,7 +83,7 @@ def digest_params(params: RuntimePhotoParams, apply_stocks_specifics=True) -> Ru
         params.enlarger.lens_blur = 0.0
         params.film_render.dir_couplers.diffusion_size_um = 0.0
         params.film_render.grain.active = False
-        params.film_render.grain.agx_particle_area_um2 = 0.0
+        params.film_render.grain.particle_area_um2 = 0.0
         params.film_render.grain.blur = 0.0
         # scatter/halation kernel sigmas are preserved in preview mode
         params.print_render.glare.blur = 0.0
@@ -217,6 +244,7 @@ def _apply_print_specifics(params: RuntimePhotoParams) -> RuntimePhotoParams:
 
 __all__ = [
     "apply_database_neutral_print_filters",
+    "clone_runtime_params",
     "digest_params",
     "init_params",
 ]

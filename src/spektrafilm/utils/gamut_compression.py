@@ -103,7 +103,20 @@ class OutputGamutCompressSpec:
         in the runtime, the LUT cube can then leak outside [0, 1] —
         use ``"off"`` only for diagnostic builds.
 
-        ``"oklch"`` (default) — perceptual-hue-preserving chroma
+        ``"cam16ucs"`` (default) — CIECAM16 Uniform Color Space chroma reduction
+        (Li & Luo 2017, CIE-endorsed). Same JpCphp polar shape as
+        ``oklch`` / ``jzazbz``, but in CAM16-UCS, which models
+        chromatic adaptation and viewing-condition response explicitly
+        and has the cleanest constant-hue lines of the three across
+        the full gamut — including the blue region where OkLab drifts.
+        Viewing conditions are fixed at typical display review
+        (``L_A = 64 cd/m²``, ``Y_b = 20``, Average surround). Heavier
+        per-pixel than OkLab or JzAzBz (full CAM forward/inverse), so
+        bake time grows ~4–6× on the compression stage; pick this when
+        you want the smoothest principled chroma reduction and can
+        afford the cost.
+
+        ``"oklch"`` — perceptual-hue-preserving chroma
         reduction in OkLab. Convert output RGB → OkLab → OkLch
         (L, C, h), look up ``C_max(L, h)`` for the output color
         space's RGB cube, apply the Reinhard knee to ``C / C_max``,
@@ -147,18 +160,6 @@ class OutputGamutCompressSpec:
         changes. Same per-pixel cost as ``oklch`` (one extra scalar
         operation per sample for the ``L → Lr`` remap).
 
-        ``"cam16ucs"`` — CIECAM16 Uniform Color Space chroma reduction
-        (Li & Luo 2017, CIE-endorsed). Same JpCphp polar shape as
-        ``oklch`` / ``jzazbz``, but in CAM16-UCS, which models
-        chromatic adaptation and viewing-condition response explicitly
-        and has the cleanest constant-hue lines of the three across
-        the full gamut — including the blue region where OkLab drifts.
-        Viewing conditions are fixed at typical display review
-        (``L_A = 64 cd/m²``, ``Y_b = 20``, Average surround). Heavier
-        per-pixel than OkLab or JzAzBz (full CAM forward/inverse), so
-        bake time grows ~4–6× on the compression stage; pick this when
-        you want the smoothest principled chroma reduction and can
-        afford the cost.
     knee :
         ``(threshold, limit, power)`` of the Reinhard knee. Default
         ``(0.0, 1.0, 6.0)`` applies a soft full-range roll-off so
@@ -194,7 +195,7 @@ class OutputGamutCompressSpec:
 
     algorithm: Literal[
         "off", "aces_rgc", "oklch", "oklrab", "jzazbz", "cam16ucs",
-    ] = "oklch"
+    ] = "cam16ucs"
     knee: tuple[float, float, float] = (0.0, 1.0, 6.0)
     # One-sided soft compression on the perceptual lightness coordinate
     # (L for oklch/oklrab, Jz for jzazbz, Jp for cam16ucs), rolling

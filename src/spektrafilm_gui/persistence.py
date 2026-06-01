@@ -1,26 +1,75 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, fields, is_dataclass
+from dataclasses import asdict, fields, is_dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-from qtpy.QtCore import QSettings, QStandardPaths
+from qtpy import QtCore
 
-from spektrafilm_gui.state import GuiState, PROJECT_DEFAULT_GUI_STATE, clone_gui_state
+from spektrafilm_gui.state import (
+    GuiState,
+    display_to_dict,
+    input_image_to_dict,
+    normalize_display_dict,
+    normalize_input_image_dict,
+    normalize_simulation_dict,
+    normalize_special_dict,
+    PROJECT_DEFAULT_GUI_STATE,
+    clone_gui_state,
+    simulation_to_dict,
+    special_to_dict,
+)
 
 
 DEFAULT_GUI_STATE_FILENAME = "gui_default_state.json"
+QSettings = cast(Any, getattr(QtCore, 'QSettings'))
+QStandardPaths = cast(Any, getattr(QtCore, 'QStandardPaths'))
+
+
+def _copy_section_dict(section: dict[str, Any]) -> dict[str, Any]:
+    return dict(section)
+
+
+SECTION_NORMALIZERS = {
+    'input_image': normalize_input_image_dict,
+    'special': normalize_special_dict,
+    'simulation': normalize_simulation_dict,
+}
+GUI_ONLY_SECTION_NORMALIZERS = {
+    'load_raw': _copy_section_dict,
+    'display': normalize_display_dict,
+}
 
 
 def gui_state_to_dict(state: GuiState) -> dict[str, Any]:
-    return asdict(state)
+    data = asdict(state)
+    data.pop('gui_only', None)
+    data.pop('selection', None)
+    data['input_image'] = input_image_to_dict(state.input_image)
+    data['load_raw'] = asdict(state.gui_only.load_raw)
+    data['special'] = special_to_dict(state.special)
+    data['simulation'] = simulation_to_dict(state.simulation)
+    data['display'] = display_to_dict(state.gui_only.display)
+    return data
 
 
 def gui_state_from_dict(data: dict[str, Any]) -> GuiState:
     if not isinstance(data, dict):
         raise ValueError("GUI state data must be a JSON object.")
-    return _merge_into_dataclass(clone_gui_state(PROJECT_DEFAULT_GUI_STATE), data)
+    normalized = dict(data)
+    for section_name, normalizer in SECTION_NORMALIZERS.items():
+        section = normalized.get(section_name)
+        if isinstance(section, dict):
+            normalized[section_name] = normalizer(section)
+    gui_only = dict(normalized.get('gui_only')) if isinstance(normalized.get('gui_only'), dict) else {}
+    for section_name, normalizer in GUI_ONLY_SECTION_NORMALIZERS.items():
+        section = normalized.pop(section_name, None)
+        if isinstance(section, dict):
+            gui_only[section_name] = normalizer(section)
+    if gui_only:
+        normalized['gui_only'] = gui_only
+    return _merge_into_dataclass(clone_gui_state(PROJECT_DEFAULT_GUI_STATE), normalized)
 
 
 def load_default_gui_state() -> GuiState:
@@ -65,6 +114,9 @@ def default_gui_state_path() -> Path:
 def _merge_into_dataclass(target: Any, data: Any) -> Any:
     if not isinstance(data, dict):
         return target
+    params = getattr(target, '__dataclass_params__', None)
+    frozen = bool(params and params.frozen)
+    updates: dict[str, Any] = {}
     for field_info in fields(target):
         name = field_info.name
         if name not in data:
@@ -72,11 +124,23 @@ def _merge_into_dataclass(target: Any, data: Any) -> Any:
         current = getattr(target, name)
         value = data[name]
         if is_dataclass(current):
-            _merge_into_dataclass(current, value)
+            merged = _merge_into_dataclass(current, value)
+            if frozen:
+                updates[name] = merged
+            elif merged is not current:
+                setattr(target, name, merged)
         elif isinstance(current, tuple) and isinstance(value, (list, tuple)):
-            setattr(target, name, tuple(value))
+            if frozen:
+                updates[name] = tuple(value)
+            else:
+                setattr(target, name, tuple(value))
         elif not is_dataclass(current) and not isinstance(current, tuple):
-            setattr(target, name, value)
+            if frozen:
+                updates[name] = value
+            else:
+                setattr(target, name, value)
+    if frozen and updates:
+        return replace(target, **updates)
     return target
 
 

@@ -89,9 +89,9 @@ class ScannerParams:
 class GrainParams:
     active: bool = True
     sublayers_active: bool = True
-    agx_particle_area_um2: float = 0.2
-    agx_particle_scale: tuple[float, float, float] = (1.6, 1.6, 3.2)
-    agx_particle_scale_layers: tuple[float, float, float] = (2.0, 1.0, 0.5)
+    particle_area_um2: float = 0.2
+    particle_scale: tuple[float, float, float] = (1.6, 1.6, 3.2)
+    particle_scale_layers: tuple[float, float, float] = (2.0, 1.0, 0.5)
     density_min: tuple[float, float, float] = (0.03, 0.03, 0.03)
     uniformity: tuple[float, float, float] = (0.97, 0.99, 0.97)
     blur: float = 0.65

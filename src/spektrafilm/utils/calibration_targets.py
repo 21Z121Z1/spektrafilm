@@ -68,7 +68,7 @@ class CalibrationTarget:
         self.clean_params(steps=np.size(values))
         self.title = 'Grain Particle Area (um$^2$)'
         for p, v in zip(self.params, values):
-            p.film_render.grain.agx_particle_area_um2 = v
+            p.film_render.grain.particle_area_um2 = v
             p.label = f'{v:.2f}'
             
     def dir_couplers_ramp(self, values=[0.0, 0.5, 1.0, 1.5, 2.0]):

@@ -46,9 +46,9 @@ def test_top_level_develop_matches_manual_pipeline(profile_type: str) -> None:
         grain=GrainParams(
             active=True,
             sublayers_active=True,
-            agx_particle_area_um2=0.18,
-            agx_particle_scale=(0.85, 1.0, 1.25),
-            agx_particle_scale_layers=(2.2, 1.0, 0.55),
+            particle_area_um2=0.18,
+            particle_scale=(0.85, 1.0, 1.25),
+            particle_scale_layers=(2.2, 1.0, 0.55),
             density_min=(0.04, 0.06, 0.08),
             uniformity=(0.99, 0.98, 0.97),
             blur=0.0,

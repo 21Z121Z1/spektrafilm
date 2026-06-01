@@ -287,3 +287,87 @@ def test_request_dark_title_bar_uses_windows_dwm_api(monkeypatch) -> None:
 
     assert napari_layout_module._request_dark_title_bar(FakeWindow()) is True
     assert fake_ctypes.calls == [(1234, napari_layout_module._DWMWA_USE_IMMERSIVE_DARK_MODE, 4)]
+
+
+def test_build_controls_panel_places_gamut_compression_sections_on_advanced_tab(monkeypatch) -> None:
+    captured_tabs: list[tuple[str, tuple[object, ...]]] = []
+
+    class FakeTabWidget:
+        def setObjectName(self, _name: str) -> None:
+            pass
+
+        def setDocumentMode(self, _enabled: bool) -> None:
+            pass
+
+        def setUsesScrollButtons(self, _enabled: bool) -> None:
+            pass
+
+        def tabBar(self):
+            return SimpleNamespace(setDrawBase=lambda _enabled: None)
+
+        def addTab(self, widget, label: str) -> None:
+            captured_tabs.append((label, widget))
+
+    monkeypatch.setattr(napari_layout_module.QtWidgets, 'QTabWidget', FakeTabWidget)
+    monkeypatch.setattr(napari_layout_module.QtWidgets, 'QWidget', lambda: SimpleNamespace())
+
+    class FakeVBoxLayout:
+        def __init__(self, _parent) -> None:
+            pass
+
+        def setContentsMargins(self, *_args) -> None:
+            pass
+
+        def setSpacing(self, _spacing: int) -> None:
+            pass
+
+        def addWidget(self, _widget) -> None:
+            pass
+
+    monkeypatch.setattr(napari_layout_module.QtWidgets, 'QVBoxLayout', FakeVBoxLayout)
+    monkeypatch.setattr(napari_layout_module, '_wrap_scrollable', lambda widget: widget)
+    monkeypatch.setattr(napari_layout_module, '_borrow_layer_list_widget', lambda _viewer: None)
+    monkeypatch.setattr(napari_layout_module, 'CollapsibleSection', lambda *_args, **_kwargs: 'collapsible')
+    monkeypatch.setattr(napari_layout_module, '_build_controls_tab', lambda *sections: sections)
+
+    widgets = SimpleNamespace(
+        filepicker='filepicker',
+        load_raw='load_raw',
+        preview_crop='preview_crop',
+        input_image='input_image',
+        input_gamut_compress='input_gamut_compress',
+        camera='camera',
+        simulation='simulation',
+        exposure_control='exposure_control',
+        enlarger='enlarger',
+        scanner='scanner',
+        output='output',
+        output_gamut_compress='output_gamut_compress',
+        halation='halation',
+        couplers='couplers',
+        grain='grain',
+        camera_diffusion='camera_diffusion',
+        chemistry='chemistry',
+        glare='glare',
+        preflashing='preflashing',
+        enlarger_diffusion='enlarger_diffusion',
+        spectral_upsampling='spectral_upsampling',
+        tune='tune',
+        special='special',
+        gui_config='gui_config',
+        display='display',
+    )
+
+    panel = napari_layout_module.build_controls_panel(SimpleNamespace(), widgets)
+
+    assert isinstance(panel, FakeTabWidget)
+    tabs = {label: sections for label, sections in captured_tabs}
+    assert 'input_gamut_compress' not in tabs['MAIN']
+    assert 'output_gamut_compress' not in tabs['MAIN']
+    assert tabs['ADVANCED'] == (
+        'spectral_upsampling',
+        'input_gamut_compress',
+        'output_gamut_compress',
+        'tune',
+        'special',
+    )
