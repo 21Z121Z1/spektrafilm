@@ -16,6 +16,7 @@ from typing import Final, Literal
 import numpy as np
 
 from spektrafilm.utils.hdr_curve_profiles import (
+    HDRCurveProfile,
     FilmPrintHDRCurveProfile,
     ProfilePreservingHDRCurveResult,
     ProfileHDRCurveResult,
@@ -24,7 +25,9 @@ from spektrafilm.utils.hdr_curve_profiles import (
     evaluate_profile_sdr_curve,
     get_hdr_curve_profile,
     build_dynamic_curve_profile,
+    curve_profile_from_sample,
     luminance_y,
+    sample_runtime_film_scan_curve_profile,
 )
 from spektrafilm.utils.math_ops import smoothstep as _smoothstep
 from spektrafilm.gpu.kernels.color import (
@@ -43,7 +46,7 @@ MIN_HDR_PHOTO_HEADROOM: Final = 1.01
 HDR_REFERENCE_WHITE_LUMINANCE_NITS: Final = 203.0
 
 _ROLLOFF_MODES: Final = {"logistic", "logarithmic"}
-_HDR_MAPPING_MODES: Final = {"generic", "profile_aware"}
+_HDR_MAPPING_MODES: Final = {"generic", "profile_aware", "film_scan_aware"}
 _EPS32: Final = np.float32(1e-8)
 _GAIN_MAP_SDR_LUMA_FLOOR: Final = np.float32(1e-3)
 _log = logging.getLogger(__name__)
@@ -55,11 +58,11 @@ class HDRPhotoExportError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class HDRPhotoMapping:
-    hdr_mapping_mode: Literal["generic", "profile_aware"] = "generic"
+    hdr_mapping_mode: Literal["generic", "profile_aware", "film_scan_aware"] = "generic"
     preserve_sdr_base: bool = True
     film: str | None = None
     paper: str | None = None
-    curve_profile: FilmPrintHDRCurveProfile | None = None
+    curve_profile: HDRCurveProfile | None = None
     diffuse_white: float = 1.0
     sdr_paper_white: float = 0.9
     max_headroom: float = 8.0
@@ -243,7 +246,7 @@ class HDRPhotoRenditions:
     hdr_rgb: np.ndarray
     sdr_rgb: np.ndarray
     headroom: float
-    mapping_mode_used: Literal["generic", "profile_aware"] = "generic"
+    mapping_mode_used: Literal["generic", "profile_aware", "film_scan_aware"] = "generic"
     diagnostics: tuple[str, ...] = ()
 
 
@@ -484,8 +487,8 @@ def prepare_hdr_photo_renditions(
 ) -> HDRPhotoRenditions:
     mapping = HDRPhotoMapping() if mapping is None else mapping
     image = _prepare_hdr_rgb(image_data)
-    if mapping.hdr_mapping_mode == "profile_aware":
-        return _prepare_profile_aware_renditions(image, mapping=mapping, scene_luminance=scene_luminance, scene_rgb=scene_rgb)
+    if mapping.hdr_mapping_mode in {"profile_aware", "film_scan_aware"}:
+        return _prepare_curve_profile_renditions(image, mapping=mapping, scene_luminance=scene_luminance, scene_rgb=scene_rgb)
     return _prepare_generic_renditions(image, mapping=mapping, scene_luminance=scene_luminance)
 
 
@@ -525,15 +528,22 @@ def _prepare_generic_renditions(
     )
 
 
-def _resolve_curve_profile(mapping: HDRPhotoMapping) -> FilmPrintHDRCurveProfile | None:
+def _resolve_curve_profile(mapping: HDRPhotoMapping) -> HDRCurveProfile | None:
     if mapping.curve_profile is not None:
         return mapping.curve_profile
+    if mapping.hdr_mapping_mode == "film_scan_aware":
+        if mapping.film is None:
+            return None
+        sample = sample_runtime_film_scan_curve_profile(film=mapping.film)
+        if isinstance(sample, HDRCurveProfile):
+            return sample
+        return curve_profile_from_sample(sample)
     if mapping.film is None or mapping.paper is None:
         return None
     return get_hdr_curve_profile(mapping.film, mapping.paper)
 
 
-def _prepare_profile_aware_renditions(
+def _prepare_curve_profile_renditions(
     image: np.ndarray,
     *,
     mapping: HDRPhotoMapping,
@@ -541,11 +551,19 @@ def _prepare_profile_aware_renditions(
     scene_rgb: np.ndarray | None = None,
 ) -> HDRPhotoRenditions:
     if scene_luminance is None:
-        raise ValueError("profile-aware HDR mapping requires a scene luminance sidecar.")
+        mode_label = "film-scan-aware" if mapping.hdr_mapping_mode == "film_scan_aware" else "profile-aware"
+        raise ValueError(f"{mode_label} HDR mapping requires a scene luminance sidecar.")
 
     static_profile = _resolve_curve_profile(mapping)
     if static_profile is None:
-        raise ValueError("profile-aware HDR mapping requires a valid curve profile.")
+        mode_label = "film-scan-aware" if mapping.hdr_mapping_mode == "film_scan_aware" else "profile-aware"
+        raise ValueError(f"{mode_label} HDR mapping requires a valid curve profile.")
+    expected_route = "film_scan" if mapping.hdr_mapping_mode == "film_scan_aware" else "print_scan"
+    if static_profile.route != expected_route:
+        raise ValueError(
+            f"{mapping.hdr_mapping_mode} requires a {expected_route!r} curve profile, "
+            f"but got {static_profile.route!r}."
+        )
 
     if mapping.profile_scene_y_samples is not None and mapping.profile_look_y_samples is not None:
         profile = build_dynamic_curve_profile(
@@ -557,7 +575,7 @@ def _prepare_profile_aware_renditions(
         profile = static_profile
 
     if profile.polarity != "increasing" or not profile.safe_for_profile_aware_hdr:
-        raise ValueError(f"profile-aware HDR mapping requires a safe increasing curve profile, but got unsafe {profile.polarity}.")
+        raise ValueError(f"{mapping.hdr_mapping_mode} requires a safe increasing curve profile, but got unsafe {profile.polarity}.")
 
     look = np.maximum(np.asarray(image, dtype=np.float32), 0.0)
     scene_y = _prepare_scene_luminance(scene_luminance, shape=look.shape[:2])
@@ -632,8 +650,23 @@ def _prepare_profile_aware_renditions(
         hdr_rgb=np.ascontiguousarray(hdr_rgb),
         sdr_rgb=np.ascontiguousarray(sdr_rgb),
         headroom=float(headroom),
-        mapping_mode_used="profile_aware",
+        mapping_mode_used=mapping.hdr_mapping_mode,
         diagnostics=tuple(diagnostics_list),
+    )
+
+
+def _prepare_profile_aware_renditions(
+    image: np.ndarray,
+    *,
+    mapping: HDRPhotoMapping,
+    scene_luminance: np.ndarray | None,
+    scene_rgb: np.ndarray | None = None,
+) -> HDRPhotoRenditions:
+    return _prepare_curve_profile_renditions(
+        image,
+        mapping=mapping,
+        scene_luminance=scene_luminance,
+        scene_rgb=scene_rgb,
     )
 
 

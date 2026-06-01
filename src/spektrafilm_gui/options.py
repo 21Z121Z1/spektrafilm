@@ -31,6 +31,12 @@ class RawWhiteBalance(Enum):
     custom = "custom"
 
 
+class HDRMappingModes(Enum):
+    generic = "generic"
+    profile_aware = "profile_aware"
+    film_scan_aware = "film_scan_aware"
+
+
 class AutoExposureMethods(Enum):
     center_weighted = "center_weighted"
     matrix = "matrix"

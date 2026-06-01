@@ -485,6 +485,36 @@ def _defaults_from_mapping(values: dict[str, object]) -> HDRCurveDefaults:
     )
 
 
+def curve_profile_from_sample(sample: dict[str, object]) -> HDRCurveProfile:
+    input_domain = sample.get("input_domain", {})
+    output = sample.get("output", {})
+    metrics = sample.get("metrics", {})
+    if not isinstance(input_domain, dict) or not isinstance(output, dict) or not isinstance(metrics, dict):
+        raise ValueError("curve profile sample must contain input_domain, output, and metrics objects.")
+
+    route = str(sample.get("route", "print_scan"))
+    if route not in ("print_scan", "film_scan"):
+        raise ValueError("curve profile sample route must be 'print_scan' or 'film_scan'.")
+
+    return HDRCurveProfile(
+        film=str(sample["film"]),
+        paper=None if sample.get("paper") is None else str(sample["paper"]),
+        polarity=str(metrics["polarity"]),
+        safe_for_profile_aware_hdr=bool(metrics["safe_for_profile_aware_hdr"]),
+        look_diffuse_white_y=_finite_float(metrics["look_diffuse_white_y"], 0.83),
+        shoulder_limit_y=_finite_float(metrics["shoulder_limit_y"], 1.0),
+        midtone_slope=_finite_float(metrics["midtone_slope"], 0.5),
+        highlight_slope=_finite_float(metrics["highlight_slope"], 0.0),
+        shoulder_severity=_finite_float(metrics["shoulder_severity"], 0.75),
+        highlight_tint_spread=_finite_float(metrics["highlight_tint_spread"], 0.0),
+        defaults=_defaults_from_mapping(sample.get("hdr_defaults", {})),
+        scene_y=np.asarray(input_domain["scene_y"], dtype=np.float32),
+        sdr_luminance_y=np.asarray(output["luminance_y"], dtype=np.float32),
+        route=route,  # type: ignore[arg-type]
+        scanner=None if sample.get("scanner") is None else str(sample["scanner"]),
+    )
+
+
 def _profile_from_entry(root: Path, entry: dict[str, object]) -> HDRCurveProfile:
     sample_path = root / str(entry["sample"])
     sample = json.loads(sample_path.read_text(encoding="utf-8"))

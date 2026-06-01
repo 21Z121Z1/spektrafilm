@@ -9,6 +9,7 @@ from spektrafilm_gui.options import (
     ComputeBackend,
     DiffusionFilterFamilies,
     GpuPrecision,
+    HDRMappingModes,
     NapariInterpolationModes,
     RGBColorSpaces,
     RGBtoRAWMethod,
@@ -55,6 +56,7 @@ GUI_SECTION_ENUMS: dict[str, dict[str, type[Enum]]] = {
         "color_management_workflow": ColorManagementWorkflows,
         "output_color_space": RGBColorSpaces,
         "saving_color_space": RGBColorSpaces,
+        "hdr_mapping_mode": HDRMappingModes,
         "diffusion_filter_family": DiffusionFilterFamilies,
         "compute_backend": ComputeBackend,
         "gpu_precision": GpuPrecision,
@@ -301,6 +303,10 @@ GUI_WIDGET_SPECS = {
         "saving_cctf_encoding": WidgetSpec(
             label="Saving CCTF encoding",
             tooltip="Add or not the CCTF to the saved image file",
+        ),
+        "hdr_mapping_mode": WidgetSpec(
+            label="HDR mapping",
+            tooltip="HDR export mapping: generic scene graft, print profile-aware, or film scan-aware.",
         ),
         "auto_preview": WidgetSpec(label="Auto preview", tooltip="trigger the preview after every change of gui parameters, use mouse scrollwheel on parameters field, read preview tooltip for details"),
         "scan_film": WidgetSpec(label="Scan film", tooltip="Show a scan of the negative instead of the print"),

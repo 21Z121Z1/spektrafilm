@@ -157,6 +157,7 @@ class SimulationState:
     output_cctf_encoding: bool
     saving_color_space: str
     saving_cctf_encoding: bool
+    hdr_mapping_mode: str
     auto_preview: bool
     scan_film: bool
     compute_backend: str
@@ -346,6 +347,7 @@ def gui_state_from_params(
             output_cctf_encoding=params.io.output_cctf_encoding,
             saving_color_space=saving_color_space,
             saving_cctf_encoding=saving_cctf_encoding,
+            hdr_mapping_mode='generic',
             auto_preview=True,
             scan_film=params.io.scan_film,
             compute_backend=params.settings.compute_backend,
