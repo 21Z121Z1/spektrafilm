@@ -5,7 +5,7 @@ import numpy as np
 from spektrafilm.model.illuminants import standard_illuminant
 from spektrafilm.model.color_filters import compute_band_pass_filter
 from spektrafilm.model.diffusion import apply_diffusion_filter_um, apply_gaussian_blur_um, apply_halation_um, boost_highlights
-from spektrafilm.model.emulsion import compute_density_spectral, develop, develop_simple
+from spektrafilm.model.develop import compute_density_spectral, develop, develop_simple
 from spektrafilm.gpu.kernels.color import boost_highlights_backend
 from spektrafilm.gpu.kernels.density import safe_log10_backend
 from spektrafilm.utils.autoexposure import measure_autoexposure_ev
@@ -32,6 +32,10 @@ class FilmingStage:
         hanatos2025_adaptation.apply_surface = self._settings.apply_hanatos2025_adaptation_surface
         hanatos2025_adaptation.spectral_gaussian_blur = self._settings.spectral_gaussian_blur
         self._lut_service.set_hanatos2025_adaptation(hanatos2025_adaptation)
+        # Input gamut compression is per-bundle config (lives on params.io
+        # so the GUI and bundle bakes share the same code path). The
+        # service caches the LUT and invalidates it when this spec changes.
+        self._lut_service.set_input_gamut_compress(self._io.input_gamut_compress)
         self._enlarger_service.density_spectral_midgray, self._enlarger_service.density_spectral_midgray_comp = self._compute_density_spectral_midgray_to_balance_print()
         self._color_reference_service = color_reference_service
 
@@ -54,7 +58,6 @@ class FilmingStage:
             return image * 2 ** autoexposure_ev, float(autoexposure_ev)
         return image, None
 
-    @timeit("expose")
     def expose(self, image: np.ndarray) -> np.ndarray:
         raw = self._rgb_to_film_raw(
             image,
@@ -91,7 +94,6 @@ class FilmingStage:
             log_raw = np.log10(np.fmax(raw, 0.0) + 1e-10)
         return log_raw
 
-    @timeit("develop")
     def develop(self, log_raw: np.ndarray) -> np.ndarray:
         return develop(
             log_raw,

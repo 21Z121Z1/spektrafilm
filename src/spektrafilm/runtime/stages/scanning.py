@@ -12,11 +12,12 @@ from spektrafilm.gpu.kernels.color import (
 )
 from spektrafilm.gpu.kernels.density import cmy_to_log_xyz_backend
 from spektrafilm.model.diffusion import apply_gaussian_blur, apply_unsharp_mask
-from spektrafilm.model.emulsion import compute_density_spectral
+from spektrafilm.model.develop import compute_density_spectral
 from spektrafilm.model.glare import add_glare
 from spektrafilm.model.illuminants import standard_illuminant
-from spektrafilm.utils.timings import timeit
 from spektrafilm.utils.conversions import density_to_light
+from spektrafilm.utils.gamut_compression import compress_rgb
+from spektrafilm.utils.timings import timeit
 
 
 class ScanningStage:
@@ -95,6 +96,22 @@ class ScanningStage:
                 apply_cctf_encoding=False,
                 illuminant=illuminant_xy,
             )
+
+        # Output gamut compression. Compresses chromaticities the
+        # simulation reached that fall outside the output primaries
+        # cube; for perceptual algorithms (oklch / oklrab / jzazbz /
+        # cam16ucs) the spec's lightness_compression also pulls
+        # super-bright pixels back into the cube via a one-sided soft
+        # roll-off on the perceptual lightness axis (black stays at 0).
+        # With both in place the output is in [0, 1] without a
+        # downstream clip; see n100 / n110 for the design and b40 for
+        # the smoothness analysis.
+        rgb = compress_rgb(
+            rgb, self._io.output_gamut_compress,
+            output_color_space=self._io.output_color_space,
+        )
+        if self._backend is not None and self._backend.supports_gpu:
+            rgb = self._backend.asarray(rgb)
         return rgb
 
     def _return_callable_cmy_to_log_xyz(self):
@@ -176,5 +193,4 @@ class ScanningStage:
         if self._backend is not None and self._backend.supports_gpu:
             return self._backend.clip(rgb, a_min, a_max)
         return np.clip(rgb, a_min=a_min, a_max=a_max)
-
 

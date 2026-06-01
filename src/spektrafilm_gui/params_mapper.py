@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+from spektrafilm.utils.morph_curves import PrintCurvesMorphParams
 from spektrafilm_gui.state import GuiState
 from spektrafilm.color_management import apply_color_management_workflow_to_io
 from spektrafilm.runtime.api import init_params
 from spektrafilm.runtime.params_schema import RuntimePhotoParams
+from spektrafilm.utils.gamut_compression import (
+    InputGamutCompressSpec,
+    OutputGamutCompressSpec,
+)
 
 
 def build_params_from_state(state: GuiState) -> RuntimePhotoParams:
@@ -19,6 +24,7 @@ def build_params_from_state(state: GuiState) -> RuntimePhotoParams:
     _apply_halation(params, state)
     _apply_grain(params, state)
     _apply_couplers(params, state)
+    _apply_chemistry(params, state)
     _apply_enlarger(params, state)
     _apply_scanner(params, state)
     _apply_settings(params, state)
@@ -36,7 +42,6 @@ def _apply_special(params: RuntimePhotoParams, state: GuiState) -> None:
         params.print = swap_channels(params.print, state.special.print_channel_swap)
 
     params.film_render.density_curve_gamma = state.special.film_gamma_factor
-    params.print_render.density_curve_gamma = state.special.print_gamma_factor
 
 
 def _apply_glare(params: RuntimePhotoParams, state: GuiState) -> None:
@@ -68,6 +73,7 @@ def _apply_camera(params: RuntimePhotoParams, state: GuiState) -> None:
 
 
 def _apply_io(params: RuntimePhotoParams, state: GuiState) -> None:
+    input_gamut_compress_algorithm = state.input_image.input_gamut_compress_algorithm
     params.io.upscale_factor = state.input_image.upscale_factor
     params.io.crop = state.input_image.crop
     params.io.crop_center = state.input_image.crop_center
@@ -77,6 +83,15 @@ def _apply_io(params: RuntimePhotoParams, state: GuiState) -> None:
     params.io.output_color_space = state.simulation.output_color_space
     params.io.output_cctf_encoding = state.simulation.output_cctf_encoding
     params.io.scan_film = state.simulation.scan_film
+    params.io.input_gamut_compress = InputGamutCompressSpec(
+        active=input_gamut_compress_algorithm != 'off',
+        algorithm='xy' if input_gamut_compress_algorithm == 'off' else input_gamut_compress_algorithm,
+        knee=tuple(state.input_image.input_gamut_compress_knee),
+    )
+    params.io.output_gamut_compress = OutputGamutCompressSpec(
+        algorithm=state.simulation.output_gamut_compress_algorithm,
+        knee=tuple(state.simulation.output_gamut_compress_knee),
+    )
 
 
 def _apply_halation(params: RuntimePhotoParams, state: GuiState) -> None:
@@ -123,6 +138,19 @@ def _apply_couplers(params: RuntimePhotoParams, state: GuiState) -> None:
     params.film_render.dir_couplers.gamma_interlayer_g_to_rb = tuple(state.couplers.gamma_interlayer_g_to_rb)
     params.film_render.dir_couplers.gamma_interlayer_b_to_rg = tuple(state.couplers.gamma_interlayer_b_to_rg)
     params.film_render.dir_couplers.diffusion_size_um = state.couplers.diffusion_size_um
+
+
+def _apply_chemistry(params: RuntimePhotoParams, state: GuiState) -> None:
+    params.print_render.density_curves_morph = PrintCurvesMorphParams(
+        active=bool(state.chemistry.active),
+        gamma_factor=float(state.chemistry.gamma_factor),
+        gamma_factor_fast=float(state.chemistry.gamma_factor_fast),
+        gamma_factor_slow=float(state.chemistry.gamma_factor_slow),
+        gamma_factor_red=float(state.chemistry.gamma_factor_red),
+        gamma_factor_green=float(state.chemistry.gamma_factor_green),
+        gamma_factor_blue=float(state.chemistry.gamma_factor_blue),
+        developer_exhaustion=float(state.chemistry.developer_exhaustion),
+    )
 
 
 def _apply_enlarger(params: RuntimePhotoParams, state: GuiState) -> None:

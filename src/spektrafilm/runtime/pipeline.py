@@ -15,6 +15,7 @@ from spektrafilm.runtime.services import (
 )
 from spektrafilm.gpu.backend import select_backend
 from spektrafilm.runtime.stages import FilmingStage, PrintingStage, ScanningStage
+from spektrafilm.runtime.topology import Node, Tap, run_topology
 from spektrafilm.utils.autoexposure import _luminance_y
 from spektrafilm.utils.timings import format_timings
 
@@ -46,7 +47,14 @@ def _backend_cache_key(backend):
 
 
 class SimulationPipeline:
-    """Thin runtime orchestrator that composes stage objects."""
+    """Thin runtime orchestrator that composes stage objects around a
+    tap-based topology dispatcher.
+
+    The pipeline declares its stages as a list of :class:`Node` objects via
+    :meth:`_build_topology`. Calling :meth:`process` walks the topology in
+    declared order, firing each node whose input taps are present in state,
+    and returns the value at the requested ``collect`` tap.
+    """
 
     def __init__(self, params, update_params=False):
         previous_lut_service = getattr(self, "_lut_service", None) if update_params else None
@@ -64,6 +72,7 @@ class SimulationPipeline:
         self.io = self._params.io
         self.debug = self._params.debug
         self.settings = self._params.settings
+        self.taps = self._params.taps
         self._backend = select_backend(
             self.settings.compute_backend,
             precision=self.settings.gpu_precision,
@@ -90,7 +99,6 @@ class SimulationPipeline:
                                                               self.io,
                                                               backend=self._backend)
 
-        
         self._filming_stage = FilmingStage(
             self.film,
             self.film_render,
@@ -98,8 +106,8 @@ class SimulationPipeline:
             self.io,
             self.settings,
             self._lut_service,
-            self._resize_service, # to get pixel size um for blurs
-            self._enlarger_service, # to compute and save density spectral midgray to balance print
+            self._resize_service,
+            self._enlarger_service,
             self._color_reference_service,
             self._backend,
         )
@@ -112,7 +120,7 @@ class SimulationPipeline:
             self.settings,
             self._lut_service,
             self._enlarger_service,
-            self._resize_service, # to get pixel size um for diffusion filter
+            self._resize_service,
             self._color_reference_service,
             self._backend,
         )
@@ -135,8 +143,12 @@ class SimulationPipeline:
         self._scanning_stage.timings = self.timings
         self._lut_service.timings = self.timings
 
-    def process(self, image):
+        self._topology: list[Node] = self._build_topology()
+
+    def process(self, image, *, inject: str | None = None, collect: str | None = None):
         """Process an image through the simulation pipeline."""
+        if inject is not None or collect is not None or self.taps.inject is not None or self.taps.collect is not None:
+            return self._process_topology(image, inject=inject, collect=collect)
         return self._process_result(image, include_metadata=False).image
 
     def process_with_metadata(self, image) -> SimulationPipelineResult:
@@ -156,6 +168,20 @@ class SimulationPipeline:
                 result = SimulationPipelineResult(image=self._pipeline_debug(image), hdr_scene_energy=None)
             self._run_gpu_validate(image, result.image)
             return result
+        finally:
+            self._last_elapsed_time = perf_counter() - start
+
+    def _process_topology(self, image, *, inject: str | None = None, collect: str | None = None):
+        inject = inject or self.taps.inject or Tap.RGB_IN
+        collect = collect or self.taps.collect or Tap.RGB_OUT
+
+        self.timings.clear()
+        start = perf_counter()
+        try:
+            return run_topology(
+                self._topology, inject, collect, image,
+                on_fire=self._record_node_timing,
+            )
         finally:
             self._last_elapsed_time = perf_counter() - start
 
@@ -279,11 +305,11 @@ class SimulationPipeline:
 
     def print_timings(self):
         print(self.format_timings())
-    
+
     def update(self, params):
         """Update params and re-initialize stages that depend on them."""
         self.__init__(params, update_params=True)
-        
+
     def soft_update(self,
                     exposure_compensation_ev=None,
                     print_exposure=None,
@@ -314,9 +340,9 @@ class SimulationPipeline:
                 self._enlarger_service.density_spectral_midgray,
                 self._enlarger_service.density_spectral_midgray_comp,
             ) = self._filming_stage._compute_density_spectral_midgray_to_balance_print()
-        
+
     # private methods
-    
+
     def _pipeline(self, image):
         image = self._preprocess(image)
         if self.io.scan_film: # replace with route switch
@@ -429,3 +455,23 @@ class SimulationPipeline:
             "debug_mode is 'inject' but inject_film_density_cmy is False; "
             "no inject target is enabled."
         )
+
+    def _build_topology(self) -> list[Node]:
+        f, p, s = self._filming_stage, self._printing_stage, self._scanning_stage
+        common = [
+            Node((Tap.RGB_IN,),     (Tap.RGB_PRE,),    self._preprocess, "preprocess"),
+            Node((Tap.RGB_PRE,),    (Tap.LOG_E_FILM,), f.expose,         "filming.expose"),
+            Node((Tap.LOG_E_FILM,), (Tap.CMY_FILM,),   f.develop,        "filming.develop"),
+        ]
+        if self.io.scan_film:
+            return common + [
+                Node((Tap.CMY_FILM,), (Tap.RGB_OUT,), s.scan, "scanning.scan_film"),
+            ]
+        return common + [
+            Node((Tap.CMY_FILM,),    (Tap.LOG_E_PRINT,), p.expose,  "printing.expose"),
+            Node((Tap.LOG_E_PRINT,), (Tap.CMY_PRINT,),   p.develop, "printing.develop"),
+            Node((Tap.CMY_PRINT,),   (Tap.RGB_OUT,),     s.scan,    "scanning.scan_print"),
+        ]
+
+    def _record_node_timing(self, node: Node, elapsed: float) -> None:
+        self.timings[node.label] = self.timings.get(node.label, 0.0) + elapsed

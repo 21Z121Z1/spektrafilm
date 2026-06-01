@@ -125,13 +125,24 @@ def _rgb_to_tc_b(rgb, color_space='ITU-R BT.2020', apply_cctf_decoding=False, re
     #                                 adaptation_transform='Bradford')    
     # illu_xy = colour.CCS_ILLUMINANTS['CIE 1931 2 Degree Standard Observer'][reference_illuminant]
     illu_xy = _illuminant_to_xy(reference_illuminant)
+    # CAT16 (Li et al. 2017) replaces the cone-primary instabilities
+    # of CAT02 around blue and violet; it is the adaptation matrix
+    # CIECAM16 and the spektrafilm output-side CAM16-UCS algorithm use
+    # internally, so the input chromaticity projection stays in the
+    # same adaptation family as the output gamut compression.
     xyz = colour.RGB_to_XYZ(rgb, colourspace=color_space,
                             apply_cctf_decoding=apply_cctf_decoding,
                             illuminant=illu_xy,
-                            chromatic_adaptation_transform='CAT02')
+                            chromatic_adaptation_transform='CAT16')
     b = np.sum(xyz, axis=-1)
     xy = xyz[...,0:2] / np.fmax(b[...,None], 1e-10)
-    xy = np.clip(xy,0,1)
+    # Previously: xy = np.clip(xy, 0, 1). Removed because the input gamut
+    # compression baked into the tc_lut at build time (see
+    # gamut_compression.remap_tc_lut_for_compression) now handles OOG
+    # chromaticities correctly via the LUT itself. _tri2quad below already
+    # clamps each output component to [0, 1] for the (rare) inputs that
+    # also fall outside the lower xy triangle, so the LUT lookup
+    # coordinates remain in-bounds.
     tc = _tri2quad(xy)
     b = np.nan_to_num(b)
     return tc, b
@@ -309,7 +320,6 @@ def rgb_to_raw_mallett2019(RGB, sensitivity,
     lrgb = colour.RGB_to_RGB(RGB, color_space, 'sRGB',
                     apply_cctf_decoding=apply_cctf_decoding,
                     apply_cctf_encoding=False)
-    lrgb = np.clip(lrgb, 0, None)
     raw  = contract('ijk,lk,lm->ijm', lrgb, basis_set_with_illuminant, sensitivity)
     raw = np.nan_to_num(raw)
     raw = np.ascontiguousarray(raw)
@@ -323,17 +333,30 @@ def rgb_to_raw_mallett2019(RGB, sensitivity,
 HANATOS2025_SPECTRA_LUT = _load_hanatos2025_spectra_lut()
 HANATOS2025_NO_ADAPTATION = Hanatos2025SensitivityAdaptation(apply_surface=False, apply_window=False)
 
-def compute_hanatos2025_tc_lut(sensitivity, hanatos2025_adaptation):
+def compute_hanatos2025_tc_lut(sensitivity, hanatos2025_adaptation, gamut_compress=None):
     """Compute the LUT of spectra for given sensitivities and hanatos2025 adaptation parameters.
     Both window and surface preserve white balance.
+
+    Parameters
+    ----------
+    sensitivity, hanatos2025_adaptation :
+        As before.
+    gamut_compress :
+        Optional ``spektrafilm.utils.gamut_compression.InputGamutCompressSpec``.
+        When provided and ``gamut_compress.active``, the returned
+        LUT has the input gamut compression baked into it via remap-resample
+        (see n100 §3.1): a runtime lookup ``new_lut[xy]`` returns the same
+        raw value the uncompressed LUT would have returned for
+        ``compress(xy)``. The per-pixel hot path therefore stays
+        compression-agnostic.
     """
-    
+
     spectra_lut = HANATOS2025_SPECTRA_LUT
-    
+
     if hanatos2025_adaptation.spectral_gaussian_blur > 0:
         spectra_lut = scipy.ndimage.gaussian_filter(spectra_lut,
-                        (0, 0, hanatos2025_adaptation.spectral_gaussian_blur)) 
-    
+                        (0, 0, hanatos2025_adaptation.spectral_gaussian_blur))
+
     if hanatos2025_adaptation.apply_window:
         window = eval_spectral_bandpass_window(hanatos2025_adaptation.window_params)
         illuminant = standard_illuminant(hanatos2025_adaptation.reference_illuminant)
@@ -345,12 +368,20 @@ def compute_hanatos2025_tc_lut(sensitivity, hanatos2025_adaptation):
         raw_lut = contract('ijl,lm->ijm', spectra_lut, sensitivity * window)
     else:
         raw_lut = contract('ijl,lm->ijm', spectra_lut, sensitivity)
-    
+
     if hanatos2025_adaptation.apply_surface:
         xy_illu = _illuminant_to_xy(hanatos2025_adaptation.reference_illuminant)
         surface = eval_log_exposure_correction_surface(hanatos2025_adaptation.surface_params,
                                                        illuminant_xy=xy_illu)
         raw_lut *= 2**surface
+
+    if gamut_compress is not None and gamut_compress.active:
+        # Bake compression into the LUT at build time. The reference
+        # illuminant matches what _rgb_to_tc_b uses at runtime, so the
+        # compression's achromatic axis is the film's white.
+        from spektrafilm.utils.gamut_compression import remap_tc_lut_for_compression
+        ref_xy = _illuminant_to_xy(hanatos2025_adaptation.reference_illuminant)
+        raw_lut = remap_tc_lut_for_compression(raw_lut, ref_xy, gamut_compress)
 
     return raw_lut
 

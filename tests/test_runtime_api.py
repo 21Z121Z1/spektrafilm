@@ -119,8 +119,8 @@ class TestRuntimeApi:
                 self.timings.clear()
                 start = pipeline_module.perf_counter()
                 try:
-                    self.timings['FilmingStage.expose'] = 0.012345
-                    self.timings['ScanningStage.scan'] = 0.0004567
+                    self.timings['filming.expose'] = 0.012345
+                    self.timings['scanning.scan_print'] = 0.0004567
                     return image
                 finally:
                     self._last_elapsed_time = pipeline_module.perf_counter() - start
@@ -153,8 +153,8 @@ class TestRuntimeApi:
             "Simulation timings\n"
             "  Total                 123 ms  100.0%\n"
             "  -------------------  -------  ------\n"
-            "  FilmingStage.expose  \033[31m12.3 ms\033[0m  \033[31m 10.0%\033[0m\n"
-            "  ScanningStage.scan   \033[31m 457 us\033[0m  \033[31m  0.4%\033[0m"
+            "  filming.expose       \033[31m12.3 ms\033[0m  \033[31m 10.0%\033[0m\n"
+            "  scanning.scan_print  \033[31m 457 us\033[0m  \033[31m  0.4%\033[0m"
         )
 
     def test_art_extlut_compatibility_path_runs(self):
@@ -195,7 +195,6 @@ class TestRuntimeApi:
             params.film_render.dir_couplers.active = True
             params.film_render.dir_couplers.amount = 1.0
             params.print_render.glare.active = False
-            params.print_render.density_curve_gamma = 1.0
             return params
 
         image = np.array([[[0.184, 0.184, 0.184]]], dtype=np.float64)

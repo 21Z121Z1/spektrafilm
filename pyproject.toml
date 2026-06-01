@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "spektrafilm"
-version = "0.3.2"
+version = "0.3.3"
 description = "Spectral simulation of analog film photography"
 readme = "README.md"
 requires-python = "~=3.13"
@@ -13,29 +13,41 @@ authors = [
     { name = "Andrea Volpato", email = "volpedellenevi@gmail.com" },
 ]
 dependencies = [
+    # Core runtime — the physical-pipeline core under `spektrafilm/`.
+    # See studies/a40_lut_system/n070_runtime_architecture_split.md for
+    # why the runtime is the one layer that imports nothing from the
+    # GUI or LUT-creator packages.
     "numpy~=2.4",
-    "matplotlib~=3.10",
     "scipy~=1.17",
     "colour-science~=0.4.6",
     "scikit-image~=0.26",
+    "matplotlib~=3.10",
     "opt-einsum~=3.4.0",
-    "napari~=0.6.6",
-    "qtpy~=2.4",
-    "lmfit~=1.3.2",
-    "pyside6~=6.9",
-    "Pillow~=12.1",
     "numba~=0.64",
     "OpenImageIO~=3.1.11",
     "pyfftw~=0.15.0",
     "rawpy~=0.26.1",
     "exiv2~=0.18.1",
     "lensfunpy~=1.18.0",
-    "PyYAML~=6.0",
+    # GUI app dependencies — installed by default because the package
+    # ships the `spektrafilm` entry point, but not imported by the core
+    # physical runtime under `spektrafilm/`.
+    "qtpy~=2.4",
+    "pyside6~=6.9",
+    "napari~=0.6.6",
+    "Pillow~=12.1",
     "pyconify~=0.2.1",
+    # LUT creator dependencies — also installed by default because the
+    # package ships the `spektrafilm-lut` entry point, but they are not
+    # required by the core runtime.
+    "markdown~=3.7",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = [
+    "pytest",
+    "opencolorio~=2.5",
+]
 halide = ["halide>=21,<22"]
 gpu-apple = ["mlx>=0.31"]
 gpu-cuda12 = ["cupy-cuda12x>=13"]
@@ -43,6 +55,7 @@ gpu-cupy-source = ["cupy>=13"]
 
 [project.scripts]
 spektrafilm = "spektrafilm_gui.app:main"
+spektrafilm-lut = "spektrafilm_lut_creator.cli:main"
 
 [tool.setuptools]
 zip-safe = false
@@ -54,6 +67,8 @@ include = [
     "spektrafilm.*",
     "spektrafilm_gui",
     "spektrafilm_gui.*",
+    "spektrafilm_lut_creator",
+    "spektrafilm_lut_creator.*",
 ]
 
 [tool.setuptools.package-data]

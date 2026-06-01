@@ -4,6 +4,7 @@ from typing import Callable
 import numpy as np
 
 from spektrafilm.profiles.io import Hanatos2025SensitivityAdaptation
+from spektrafilm.utils.gamut_compression import InputGamutCompressSpec
 from spektrafilm.utils.lut import _as_channel_bounds, _create_lut_3d, compute_with_lut
 from spektrafilm.utils.spectral_upsampling import compute_hanatos2025_tc_lut
 from spektrafilm.utils.timings import timeit
@@ -17,6 +18,10 @@ class SpectralLUTService:
 
         self.timings = {}
         self.hanatos2025_adaptation = None # to be set by filming stage with info from film profile and settings
+        # Input gamut compression spec (set by the pipeline from
+        # params.io.input_gamut_compress). Drives the build-time bake
+        # of the filming tc_lut; changes invalidate the cache below.
+        self.input_gamut_compress: InputGamutCompressSpec = InputGamutCompressSpec()
 
         # external memory
         self.filming_tc_lut_memory : np.ndarray | None = None # tc_lut memory
@@ -27,6 +32,7 @@ class SpectralLUTService:
         self._film_sensitivity = None # to track if tc_lut needs to be recomputed when film sensitivity changes
         self._film_tc_lut_key = None # cache key for tc_lut
         self._cached_filming_adaptation = None # full adaptation state for which the cached tc_lut was computed
+        self._cached_input_gamut_compress: InputGamutCompressSpec | None = None
         self._enlarger_test_results_memory = None # to test if enlarger LUTs are identical for same input
         self._scanner_test_results_memory = None # to test if scanner LUTs are identical for same input
 
@@ -50,6 +56,7 @@ class SpectralLUTService:
         self._film_sensitivity = None
         self._film_tc_lut_key = None
         self._cached_filming_adaptation = None
+        self._cached_input_gamut_compress = None
         self._enlarger_test_results_memory = None
         self._scanner_test_results_memory = None
         self._enlarger_lut_backend = None
@@ -74,6 +81,18 @@ class SpectralLUTService:
             self._film_sensitivity = None
             self._cached_filming_adaptation = None
             self._tc_lut_backend = None
+
+    def set_input_gamut_compress(self, spec: InputGamutCompressSpec) -> None:
+        """Set the input-gamut-compression spec used when baking the
+        filming tc_lut. A change invalidates the cached LUT.
+        """
+        if spec != self.input_gamut_compress:
+            self.input_gamut_compress = spec
+            # Force a rebuild of the filming tc_lut on the next call.
+            self.filming_tc_lut_memory = None
+            self._film_sensitivity = None
+            self._cached_filming_adaptation = None
+            self._cached_input_gamut_compress = None
 
     @staticmethod
     def _copy_hanatos2025_adaptation(
@@ -244,14 +263,20 @@ class SpectralLUTService:
             self.filming_tc_lut_memory is not None
             and self._film_sensitivity is not None
             and self._same_hanatos2025_adaptation(self._cached_filming_adaptation, self.hanatos2025_adaptation)
+            and self._cached_input_gamut_compress == self.input_gamut_compress
             and np.array_equal(self._film_sensitivity, sensitivity)
         ):
             return self.filming_tc_lut_memory
 
         self._film_sensitivity = np.array(sensitivity, copy=True)
         self._cached_filming_adaptation = self._copy_hanatos2025_adaptation(self.hanatos2025_adaptation)
-        self.filming_tc_lut_memory = compute_hanatos2025_tc_lut(sensitivity, self.hanatos2025_adaptation)
-        # Invalidate backend cache when numpy tc_lut changes
+        self._cached_input_gamut_compress = self.input_gamut_compress
+        self.filming_tc_lut_memory = compute_hanatos2025_tc_lut(
+            sensitivity,
+            self.hanatos2025_adaptation,
+            gamut_compress=self.input_gamut_compress,
+        )
+        # Invalidate backend cache when numpy tc_lut changes.
         self._tc_lut_backend = None
         return self.filming_tc_lut_memory
 
