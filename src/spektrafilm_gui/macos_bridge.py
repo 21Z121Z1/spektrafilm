@@ -140,29 +140,29 @@ def build_state_from_options(options: BridgeRenderOptions):
         film_stock=options.film_stock,
         print_paper=options.print_paper,
     )
-    state.input_image.input_color_space = options.input_color_space
-    state.input_image.apply_cctf_decoding = bool(options.apply_cctf_decoding)
-    state.display.preview_max_size = int(options.preview_max_size)
+    state.input_image.io.input_color_space = options.input_color_space
+    state.input_image.io.input_cctf_decoding = bool(options.apply_cctf_decoding)
+    state.gui_only.display.settings.preview_max_size = int(options.preview_max_size)
 
-    state.load_raw.white_balance = options.white_balance
-    state.load_raw.temperature = float(options.temperature)
-    state.load_raw.tint = float(options.tint)
-    state.load_raw.lens_correction = bool(options.lens_correction)
+    state.gui_only.load_raw.white_balance = options.white_balance
+    state.gui_only.load_raw.temperature = float(options.temperature)
+    state.gui_only.load_raw.tint = float(options.tint)
+    state.gui_only.load_raw.lens_correction = bool(options.lens_correction)
 
-    state.simulation.film_stock = options.film_stock
-    state.simulation.print_paper = options.print_paper
-    state.simulation.output_color_space = options.output_color_space
-    state.simulation.output_cctf_encoding = bool(options.output_cctf_encoding)
-    state.simulation.saving_color_space = options.saving_color_space
-    state.simulation.saving_cctf_encoding = bool(options.saving_cctf_encoding)
-    state.simulation.compute_backend = options.compute_backend
-    state.simulation.gpu_precision = options.gpu_precision
-    state.simulation.scan_film = bool(options.scan_film)
-    state.simulation.auto_exposure = bool(options.auto_exposure)
-    state.simulation.exposure_compensation_ev = float(options.exposure_compensation_ev)
-    state.simulation.print_exposure = float(options.print_exposure)
-    state.simulation.print_y_filter_shift = float(options.print_y_filter_shift)
-    state.simulation.print_m_filter_shift = float(options.print_m_filter_shift)
+    state.simulation.selection.film_stock = options.film_stock
+    state.simulation.selection.print_paper = options.print_paper
+    state.simulation.io.output_color_space = options.output_color_space
+    state.simulation.io.output_cctf_encoding = bool(options.output_cctf_encoding)
+    state.simulation.workflow.saving_color_space = options.saving_color_space
+    state.simulation.workflow.saving_cctf_encoding = bool(options.saving_cctf_encoding)
+    state.input_image.settings.compute_backend = options.compute_backend
+    state.input_image.settings.gpu_precision = options.gpu_precision
+    state.simulation.io.scan_film = bool(options.scan_film)
+    state.camera.auto_exposure = bool(options.auto_exposure)
+    state.camera.exposure_compensation_ev = float(options.exposure_compensation_ev)
+    state.simulation.enlarger.print_exposure = float(options.print_exposure)
+    state.simulation.enlarger.y_filter_shift = float(options.print_y_filter_shift)
+    state.simulation.enlarger.m_filter_shift = float(options.print_m_filter_shift)
 
     state.grain.active = bool(options.grain_active)
     state.halation.active = bool(options.halation_active)

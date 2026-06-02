@@ -55,30 +55,30 @@ def test_build_state_from_options_maps_core_fields() -> None:
 
     state = macos_bridge.build_state_from_options(options)
 
-    assert state.simulation.film_stock == "kodak_portra_400"
-    assert state.simulation.print_paper == "kodak_portra_endura"
-    assert state.input_image.input_color_space == "Display P3"
-    assert state.input_image.apply_cctf_decoding is True
-    assert state.simulation.output_color_space == "Adobe RGB (1998)"
-    assert state.simulation.output_cctf_encoding is True
-    assert state.simulation.saving_color_space == "ProPhoto RGB"
-    assert state.simulation.saving_cctf_encoding is False
-    assert state.display.preview_max_size == 512
-    assert state.simulation.compute_backend == "cpu"
-    assert state.simulation.gpu_precision == "float64"
-    assert state.simulation.scan_film is True
-    assert state.simulation.auto_exposure is False
-    assert state.simulation.exposure_compensation_ev == 0.5
-    assert state.simulation.print_exposure == 1.25
-    assert state.simulation.print_y_filter_shift == -2.0
-    assert state.simulation.print_m_filter_shift == 3.0
+    assert state.simulation.selection.film_stock == "kodak_portra_400"
+    assert state.simulation.selection.print_paper == "kodak_portra_endura"
+    assert state.input_image.io.input_color_space == "Display P3"
+    assert state.input_image.io.input_cctf_decoding is True
+    assert state.simulation.io.output_color_space == "Adobe RGB (1998)"
+    assert state.simulation.io.output_cctf_encoding is True
+    assert state.simulation.workflow.saving_color_space == "ProPhoto RGB"
+    assert state.simulation.workflow.saving_cctf_encoding is False
+    assert state.gui_only.display.settings.preview_max_size == 512
+    assert state.input_image.settings.compute_backend == "cpu"
+    assert state.input_image.settings.gpu_precision == "float64"
+    assert state.simulation.io.scan_film is True
+    assert state.camera.auto_exposure is False
+    assert state.camera.exposure_compensation_ev == 0.5
+    assert state.simulation.enlarger.print_exposure == 1.25
+    assert state.simulation.enlarger.y_filter_shift == -2.0
+    assert state.simulation.enlarger.m_filter_shift == 3.0
     assert state.grain.active is False
     assert state.halation.active is False
     assert state.couplers.active is False
-    assert state.load_raw.white_balance == "custom"
-    assert state.load_raw.temperature == 5100.0
-    assert state.load_raw.tint == 1.2
-    assert state.load_raw.lens_correction is True
+    assert state.gui_only.load_raw.white_balance == "custom"
+    assert state.gui_only.load_raw.temperature == 5100.0
+    assert state.gui_only.load_raw.tint == 1.2
+    assert state.gui_only.load_raw.lens_correction is True
 
 
 def test_display_preview_preserves_aces_scene_highlights() -> None:

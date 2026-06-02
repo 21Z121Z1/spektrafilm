@@ -321,7 +321,7 @@ def test_build_controls_panel_places_gamut_compression_sections_on_advanced_tab(
         def setSpacing(self, _spacing: int) -> None:
             pass
 
-        def addWidget(self, _widget) -> None:
+        def addWidget(self, _widget, *_args) -> None:
             pass
 
     monkeypatch.setattr(napari_layout_module.QtWidgets, 'QVBoxLayout', FakeVBoxLayout)
