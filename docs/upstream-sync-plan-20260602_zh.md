@@ -26,6 +26,7 @@
 - 不执行 rebase、reset、force push、大范围 ours/theirs checkout。
 - 不推送到 `upstream`。
 - 将当前工作区里的本地文档整理、HDR GUI、MLX runtime hot path、film-scan-aware HDR 等工作作为普通提交保留下来。
+- 提交 `40e387b` 后，分支相对 `upstream/main` 仍然是 `behind = 0`；增加的 ahead 只来自本地 fork/report 工作。
 - 推送前再次确认 remote、分支、ahead/behind 和验证结果。
 
 ## 冲突情况
@@ -74,5 +75,6 @@
 
 - 需要单独做一次 SDR baseline reconciliation，明确当前 SDR 行为是否应成为新基线。
 - 本轮不会为通过测试而修改 SDR runtime behavior。
+- `40e387b` 之后如有额外报告/文档提交，推送前仍必须确认相对 `upstream/main` 的 `behind = 0`。
 - 推送只能使用 `git push origin develop`。
 - 禁止 `git push upstream ...`、`git push --force upstream ...`、`git push --mirror ...`。

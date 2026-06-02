@@ -199,6 +199,7 @@ This goal is complete only when:
 - Confirmed `upstream/main` is already an ancestor of `HEAD`.
 - Created backup branch: `backup/before-upstream-sync-20260602-2303`.
 - Did not run a new merge, rebase, reset, force push, repository-wide checkout, or upstream push.
+- After committing the preserved local work in `40e387b`, the branch remained `behind = 0` relative to `upstream/main`; the extra ahead count is local fork/report work only.
 
 ### Final Sync Strategy
 
@@ -326,4 +327,5 @@ To classify these failures, a temporary clean worktree was created at `/tmp/spek
 
 - The six SDR baseline/golden failures should be handled in a separate SDR baseline reconciliation task. Do not silently update baselines unless the current SDR behavior is explicitly accepted as the new reference.
 - The temporary clean worktree `/tmp/spektrafilm-head-VUcgYc` can be removed after final reporting.
+- Any additional local report/documentation commits after `40e387b` must still preserve `behind = 0` relative to `upstream/main` before push.
 - Push is safe only as a normal `git push origin develop`; no upstream push and no force push are permitted.
