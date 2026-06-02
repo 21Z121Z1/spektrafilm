@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import types
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, get_args, get_origin, get_type_hints
+from typing import Any, Union, get_args, get_origin, get_type_hints
 
 from qtpy import QtCore, QtWidgets
 
@@ -250,6 +251,13 @@ def _editor_from_param_spec(annotation: Any, spec: ParamSpec, *, label: str) -> 
     Shared by the group-bound (ParamsGroupSection) and path-bound (input_image)
     sections so the type -> editor mapping lives in one place.
     """
+    # Unwrap Optional[T] / T | None → T for editor selection.
+    origin = get_origin(annotation)
+    if origin is types.UnionType or origin is Union:
+        args = [a for a in get_args(annotation) if a is not type(None)]
+        if len(args) == 1:
+            annotation = args[0]
+
     decimals = 2 if spec.decimals is None else spec.decimals
     if spec.enum is not None:
         if spec.leaf in {'film_stock', 'print_paper'}:
