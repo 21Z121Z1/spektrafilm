@@ -78,7 +78,6 @@ class GpuPrecision(Enum):
 
 
 class InputGamutCompressAlgorithms(Enum):
-    off = "off"
     xy = "xy"
     oklch = "oklch"
 

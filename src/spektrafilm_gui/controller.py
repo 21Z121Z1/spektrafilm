@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 import numpy as np
 from qtpy import QtCore, QtWidgets
 
-from spektrafilm.color_management import ColorEncoding
 from spektrafilm_gui import controller_persistence as persistence_actions
 from spektrafilm_gui import controller_profile_sync as profile_sync
 from spektrafilm_gui import controller_runtime as runtime
@@ -27,15 +26,14 @@ from spektrafilm_gui.persistence import (
 from spektrafilm_gui.state import PROJECT_DEFAULT_GUI_STATE, digest_after_selection, gui_state_from_params
 from spektrafilm_gui.napari_layout import dialog_parent, reset_viewer_camera, set_canvas_background, set_status
 from spektrafilm_gui.params_mapper import build_params_from_state
-from spektrafilm_gui.state_bridge import apply_gui_state, apply_gui_state_sections, collect_gui_state
+from spektrafilm_gui.state_bridge import apply_gui_state, collect_gui_state
 from spektrafilm_gui.widgets import WidgetBundle
 
 OUTPUT_FLOAT_DATA_KEY = 'pipeline_float_output'
 OUTPUT_COLOR_SPACE_KEY = 'pipeline_output_color_space'
 OUTPUT_CCTF_ENCODING_KEY = 'pipeline_output_cctf_encoding'
 OUTPUT_DISPLAY_TRANSFORM_KEY = 'pipeline_use_display_transform'
-OUTPUT_HDR_SCENE_ENERGY_KEY = 'pipeline_hdr_scene_energy'
-PROFILE_SYNC_FIELDS = profile_sync.PROFILE_SYNC_FIELDS
+PROFILE_SYNC_SECTION_NAMES = profile_sync.PROFILE_SYNC_SECTION_NAMES
 if TYPE_CHECKING:
     import napari
     from napari.layers import Image as NapariImageLayer
@@ -111,20 +109,8 @@ def load_image_oiio(*args, **kwargs):
     return import_module('spektrafilm.utils.io').load_image_oiio(*args, **kwargs)
 
 
-def load_image_payload(*args, **kwargs):
-    return import_module('spektrafilm.utils.io').load_image_payload(*args, **kwargs)
-
-
 def save_image_oiio(*args, **kwargs):
     return import_module("spektrafilm.utils.io").save_image_oiio(*args, **kwargs)
-
-
-def sample_runtime_film_scan_curve_profile(*args, **kwargs):
-    module = import_module("spektrafilm.utils.hdr_curve_profiles")
-    sample_or_profile = module.sample_runtime_film_scan_curve_profile(*args, **kwargs)
-    if isinstance(sample_or_profile, dict):
-        return module.curve_profile_from_sample(sample_or_profile)
-    return sample_or_profile
 
 
 def read_image_metadata(*args, **kwargs):
@@ -176,7 +162,7 @@ class GuiController:
             return
 
         state = collect_gui_state(widgets=self._widgets)
-        preview_height = max(int(state.display.preview_max_size), 1)
+        preview_height = max(int(state.gui_only.display.settings.preview_max_size), 1)
         preview_width = max(
             int(round(preview_height * STARTUP_PREVIEW_ASPECT_RATIO[1] / STARTUP_PREVIEW_ASPECT_RATIO[0])),
             1,
@@ -185,20 +171,14 @@ class GuiController:
         self._layers.set_or_add_input_preview_layer(
             placeholder_preview,
             watermark_source_size=(preview_height, preview_width),
-            white_padding=state.display.white_padding,
+            white_padding=state.gui_only.display.white_padding,
             hide_output=True,
             set_active=True,
         )
         self._home_input_stack()
 
     def load_input_image(self, path: str) -> None:
-        payload = load_image_payload(path)
-        image = payload.pixels[..., :3]
-        if payload.color_encoding is not None:
-            gui_state = collect_gui_state(widgets=self._widgets)
-            gui_state.input_image.input_color_space = payload.color_encoding.color_space
-            gui_state.input_image.apply_cctf_decoding = payload.color_encoding.is_cctf_encoded
-            apply_gui_state_sections(gui_state, widgets=self._widgets, section_names=('input_image',))
+        image = load_image_oiio(path)[..., :3]
         self._current_input_path = path
         self._set_or_add_input_stack(image)
         self._request_auto_preview_if_enabled()
@@ -210,12 +190,12 @@ class GuiController:
         try:
             image = load_and_process_raw_file(
                 path,
-                white_balance=gui_state.load_raw.white_balance,
-                temperature=gui_state.load_raw.temperature,
-                tint=gui_state.load_raw.tint,
-                lens_correction=gui_state.load_raw.lens_correction,
-                output_colorspace=gui_state.input_image.input_color_space,
-                output_cctf_encoding=gui_state.input_image.apply_cctf_decoding,
+                white_balance=gui_state.gui_only.load_raw.white_balance,
+                temperature=gui_state.gui_only.load_raw.temperature,
+                tint=gui_state.gui_only.load_raw.tint,
+                lens_correction=gui_state.gui_only.load_raw.lens_correction,
+                output_colorspace=gui_state.input_image.io.input_color_space,
+                output_cctf_encoding=gui_state.input_image.io.input_cctf_decoding,
                 lens_info_out=lens_info,
             )
         except (OSError, ValueError) as exc:
@@ -232,7 +212,7 @@ class GuiController:
                 self._viewer,
                 f"Loaded raw and applied lens correction: {lens_summary}",
             )
-        elif gui_state.load_raw.lens_correction:
+        elif gui_state.gui_only.load_raw.lens_correction:
             set_status(self._viewer, "Loaded raw, lens correction not applied")
         else:
             set_status(self._viewer, "Loaded raw")
@@ -269,14 +249,14 @@ class GuiController:
 
     def apply_profile_defaults(self, _selected_value: str) -> None:
         state = collect_gui_state(widgets=self._widgets)
-        if not state.simulation.film_stock or not state.simulation.print_paper:
+        if not state.selection.film_stock or not state.selection.print_paper:
             return
 
         params = build_params_from_state(state)
         synced_state = gui_state_from_params(
             digest_after_selection(params),
-            film_stock=state.simulation.film_stock,
-            print_paper=state.simulation.print_paper,
+            film_stock=state.selection.film_stock,
+            print_paper=state.selection.print_paper,
         )
         self._apply_profile_sync_state(synced_state)
         self._next_runtime_digest_applies_stock_specifics = True
@@ -288,7 +268,7 @@ class GuiController:
         profile_sync.apply_profile_sync_state(
             widgets=self._widgets,
             synced_state=synced_state,
-            profile_sync_fields=PROFILE_SYNC_FIELDS,
+            profile_sync_section_names=PROFILE_SYNC_SECTION_NAMES,
         )
 
     def run_preview(self) -> None:
@@ -353,7 +333,7 @@ class GuiController:
             dialog_parent(self._viewer),
             'Save output image',
             default_name,
-            'Images (*.jpg *.jpeg *.png *.tif *.tiff *.exr *.heic *.heif)',
+            'Images (*.jpg *.jpeg *.png *.tif *.tiff *.exr)',
         )
         if not filepath:
             return
@@ -366,19 +346,11 @@ class GuiController:
             image_data = np.asarray(float_image_data)[..., :3]
 
         source_color_space, source_cctf_encoding = self._output_layer_render_settings(
-            default_color_space=gui_state.simulation.output_color_space,
-            default_cctf_encoding=gui_state.simulation.output_cctf_encoding,
+            default_color_space=gui_state.simulation.io.output_color_space,
+            default_cctf_encoding=True,
         )
-        saving_color_space = gui_state.simulation.saving_color_space
-        saving_cctf_encoding = gui_state.simulation.saving_cctf_encoding
-        saving_encoding = ColorEncoding(
-            color_space=saving_color_space,
-            transfer='cctf' if saving_cctf_encoding else 'linear',
-            role='display' if saving_cctf_encoding else 'scene',
-            clip_highlights=saving_cctf_encoding,
-        )
-        output_layer_hdr_scene_energy = output_layer.metadata.get(OUTPUT_HDR_SCENE_ENERGY_KEY)
-        scene_luminance = getattr(output_layer_hdr_scene_energy, 'scene_luminance', None)
+        saving_color_space = gui_state.simulation.workflow.saving_color_space
+        saving_cctf_encoding = gui_state.simulation.workflow.saving_cctf_encoding
         if source_color_space != saving_color_space:
             image_data = colour.RGB_to_RGB(
                 image_data,
@@ -402,19 +374,11 @@ class GuiController:
             source_metadata = read_image_metadata(self._current_input_path)
 
         try:
-            save_kwargs: dict[str, object] = {}
-            if Path(filepath).suffix.lower() in {'.heic', '.heif', '.exr'}:
-                hdr_mapping_kwargs = self._hdr_mapping_kwargs(gui_state)
-                if hdr_mapping_kwargs is not None:
-                    save_kwargs['hdr_mapping_kwargs'] = hdr_mapping_kwargs
             save_image_oiio(
                 filepath,
                 image_data,
-                encoding=saving_encoding,
                 color_space=saving_color_space,
                 cctf_encoding=saving_cctf_encoding,
-                scene_luminance=scene_luminance,
-                **save_kwargs,
             )
         except (OSError, ValueError) as exc:
             QMessageBox.critical(dialog_parent(self._viewer), 'Save output', f'Failed to save output image.\n\n{exc}')
@@ -438,30 +402,6 @@ class GuiController:
             )
         else:
             set_status(self._viewer, f"Saved output image to {filepath}")
-
-    def _hdr_mapping_kwargs(self, gui_state) -> dict[str, object] | None:
-        mode = getattr(gui_state.simulation, 'hdr_mapping_mode', 'generic')
-        if mode == 'generic':
-            return None
-        if mode == 'profile_aware':
-            return {
-                'hdr_mapping_mode': 'profile_aware',
-                'film': gui_state.simulation.film_stock,
-                'paper': gui_state.simulation.print_paper,
-            }
-        if mode == 'film_scan_aware':
-            params = digest_params(build_params_from_state(gui_state))
-            curve_profile = sample_runtime_film_scan_curve_profile(
-                params=params,
-                film=gui_state.simulation.film_stock,
-            )
-            return {
-                'hdr_mapping_mode': 'film_scan_aware',
-                'film': gui_state.simulation.film_stock,
-                'paper': None,
-                'curve_profile': curve_profile,
-            }
-        raise ValueError(f"Unknown HDR mapping mode: {mode!r}")
 
     def save_current_as_default(self) -> None:
         persistence_actions.save_current_as_default(
@@ -526,7 +466,6 @@ class GuiController:
         output_color_space: str,
         output_cctf_encoding: bool,
         use_display_transform: bool,
-        hdr_scene_energy: object | None = None,
     ) -> None:
         self._layers.set_or_add_output_layer(
             image,
@@ -536,9 +475,6 @@ class GuiController:
             use_display_transform=use_display_transform,
             output_interpolation_mode=self._output_interpolation_mode(),
         )
-        output_layer = self._output_layer()
-        if output_layer is not None:
-            output_layer.metadata[OUTPUT_HDR_SCENE_ENERGY_KEY] = hdr_scene_energy
 
     def _set_or_add_input_stack(
         self,
@@ -558,18 +494,18 @@ class GuiController:
         hide_output: bool,
     ) -> None:
         state = collect_gui_state(widgets=self._widgets)
-        preview_image = self._resize_for_preview(image, max_size=state.display.preview_max_size)
+        preview_image = self._resize_for_preview(image, max_size=state.gui_only.display.settings.preview_max_size)
         preview_display_image = self._prepare_input_color_preview_image(
             preview_image,
-            input_color_space=state.input_image.input_color_space,
-            apply_cctf_decoding=state.input_image.apply_cctf_decoding,
+            input_color_space=state.input_image.io.input_color_space,
+            apply_cctf_decoding=state.input_image.io.input_cctf_decoding,
         )
         self._current_input_image = image
         self._current_preview_image = preview_image
         self._layers.set_or_add_input_preview_layer(
             preview_display_image,
             watermark_source_size=tuple(int(dimension) for dimension in image.shape[:2]),
-            white_padding=state.display.white_padding,
+            white_padding=state.gui_only.display.white_padding,
             hide_output=hide_output,
             set_active=home_input_stack or self._output_layer() is None,
         )
@@ -677,14 +613,12 @@ class GuiController:
         image_data: np.ndarray,
         *,
         output_color_space: str,
-        output_cctf_encoding: bool = True,
         use_display_transform: bool,
         padding_pixels: float = 0.0,
     ) -> tuple[np.ndarray, str]:
         return runtime.prepare_output_display_image(
             image_data,
             output_color_space=output_color_space,
-            output_cctf_encoding=output_cctf_encoding,
             use_display_transform=use_display_transform,
             padding_pixels=padding_pixels,
             imagecms_module=ImageCms,
@@ -692,7 +626,7 @@ class GuiController:
             pil_image_module=PILImage,
         )
 
-    def _process_image_with_runtime(self, image_data: np.ndarray, params):
+    def _process_image_with_runtime(self, image_data: np.ndarray, params) -> np.ndarray:
         apply_stocks_specifics = (
             self._runtime_simulator is None
             or self._next_runtime_digest_applies_stock_specifics
@@ -707,9 +641,6 @@ class GuiController:
             else:
                 self._runtime_simulator.update_params(digested_params)
             self._next_runtime_digest_applies_stock_specifics = False
-            process_with_metadata = getattr(self._runtime_simulator, 'process_with_metadata', None)
-            if callable(process_with_metadata):
-                return process_with_metadata(image_data)
             return self._runtime_simulator.process(image_data)
         except Exception:
             self._runtime_simulator = None
@@ -766,23 +697,19 @@ class GuiController:
             return
 
         state = collect_gui_state(widgets=self._widgets)
-        self._sync_white_border(white_padding=state.display.white_padding)
+        self._sync_white_border(white_padding=state.gui_only.display.white_padding)
         params = self._configure_simulation_params(
             build_params_from_state(state),
             source_layer_name=source_layer_name,
         )
-        io_params = getattr(params, 'io', None)
-        output_color_space = getattr(io_params, 'output_color_space', state.simulation.output_color_space)
-        output_cctf_encoding = getattr(io_params, 'output_cctf_encoding', state.simulation.output_cctf_encoding)
 
         image = np.double(image_data)
         request = SimulationRequest(
             mode_label=mode_label,
             image=image,
             params=params,
-            output_color_space=output_color_space,
-            output_cctf_encoding=output_cctf_encoding,
-            use_display_transform=state.display.use_display_transform,
+            output_color_space=state.simulation.io.output_color_space,
+            use_display_transform=state.gui_only.display.use_display_transform,
         )
 
         worker = runtime.SimulationWorker(request, execute_request=self._execute_simulation_request)
@@ -806,9 +733,8 @@ class GuiController:
             result.display_image,
             float_image=result.float_image,
             output_color_space=result.output_color_space,
-            output_cctf_encoding=result.output_cctf_encoding,
+            output_cctf_encoding=True,
             use_display_transform=result.use_display_transform,
-            hdr_scene_energy=result.hdr_scene_energy,
         )
         if report_status:
             set_status(self._viewer, f'{result.mode_label} completed. {result.status_message}')
@@ -841,31 +767,24 @@ class GuiController:
             return
 
         state = collect_gui_state(widgets=self._widgets)
-        self._sync_white_border(white_padding=state.display.white_padding)
+        self._sync_white_border(white_padding=state.gui_only.display.white_padding)
         params = self._configure_simulation_params(
             build_params_from_state(state),
             source_layer_name=source_layer_name,
         )
-        io_params = getattr(params, 'io', None)
-        output_color_space = getattr(io_params, 'output_color_space', state.simulation.output_color_space)
-        output_cctf_encoding = getattr(io_params, 'output_cctf_encoding', state.simulation.output_cctf_encoding)
 
         image = np.double(image_data)
-        simulation_output = self._process_image_with_runtime(image, params)
-        scan = getattr(simulation_output, 'image', simulation_output)
-        hdr_scene_energy = getattr(simulation_output, 'hdr_scene_energy', None)
+        scan = self._process_image_with_runtime(image, params)
         scan_display, display_status = self._prepare_output_display_image(
             scan,
-            output_color_space=output_color_space,
-            output_cctf_encoding=output_cctf_encoding,
-            use_display_transform=state.display.use_display_transform,
+            output_color_space=state.simulation.io.output_color_space,
+            use_display_transform=state.gui_only.display.use_display_transform,
         )
         self._set_or_add_output_layer(
             scan_display,
             float_image=scan,
-            output_color_space=output_color_space,
-            output_cctf_encoding=output_cctf_encoding,
-            use_display_transform=state.display.use_display_transform,
-            hdr_scene_energy=hdr_scene_energy,
+            output_color_space=state.simulation.io.output_color_space,
+            output_cctf_encoding=True,
+            use_display_transform=state.gui_only.display.use_display_transform,
         )
         set_status(self._viewer, display_status)

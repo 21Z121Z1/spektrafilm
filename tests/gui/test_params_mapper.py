@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 import numpy as np
 
 from spektrafilm.model.illuminants import Illuminants
 from spektrafilm.model.stocks import FilmStocks, PrintPapers
-from spektrafilm.color_management import ACES_INTERCHANGE_COLOR_SPACE, ACES_WORKING_COLOR_SPACE
 from spektrafilm.utils.gamut_compression import InputGamutCompressSpec
 from spektrafilm_gui.params_mapper import build_params_from_state
 import spektrafilm_gui.state as state_module
@@ -23,7 +23,7 @@ from spektrafilm.runtime.api import init_params
 
 def make_state():
     state = clone_gui_state(PROJECT_DEFAULT_GUI_STATE)
-    state.simulation.print_illuminant = Illuminants.lamp.value
+    state.simulation.enlarger.illuminant = Illuminants.lamp.value
     return state
 
 
@@ -35,33 +35,45 @@ def test_build_params_maps_grain_fields() -> None:
 
     params = build_params_from_state(state)
 
-    assert params.film_render.grain.agx_particle_area_um2 == 0.42
-    assert params.film_render.grain.agx_particle_scale == (1.1, 1.2, 1.3)
-    assert params.film_render.grain.agx_particle_scale_layers == (2.2, 1.2, 0.6)
+    assert params.film_render.grain.particle_area_um2 == 0.42
+    assert params.film_render.grain.particle_scale == (1.1, 1.2, 1.3)
+    assert params.film_render.grain.particle_scale_layers == (2.2, 1.2, 0.6)
 
 
-def test_build_params_maps_scanner_corrections() -> None:
+def test_build_params_copies_scanner_group() -> None:
     state = make_state()
-    state.simulation.scan_white_correction = True
-    state.simulation.scan_white_level = 0.72
-    state.simulation.scan_black_correction = False
-    state.simulation.scan_black_level = 0.14
+    state.scanner = replace(
+        state.scanner,
+        lens_blur=0.4,
+        white_correction=True,
+        white_level=0.72,
+        black_correction=False,
+        black_level=0.14,
+        unsharp_mask=(0.5, 1.2),
+    )
 
     params = build_params_from_state(state)
 
+    assert params.scanner.lens_blur == 0.4
     assert params.scanner.white_correction is True
     assert params.scanner.white_level == 0.72
     assert params.scanner.black_correction is False
     assert params.scanner.black_level == 0.14
+    assert params.scanner.unsharp_mask == (0.5, 1.2)
+    # mapper copies, does not alias the widget's group
+    assert params.scanner is not state.scanner
 
 
-def test_build_params_converts_halation_percentages_to_fractions() -> None:
+def test_build_params_copies_halation_group() -> None:
+    # state.halation is the runtime HalationParams group, in runtime units
+    # (0-1 fractions, surfaced verbatim in the GUI). The mapper copies it
+    # through unchanged — no GUI-only transforms.
     state = make_state()
     state.halation.boost_ev = 1.25
     state.halation.protect_ev = 2.5
     state.halation.boost_range = 0.35
-    state.halation.halation_strength = (12.0, 6.0, 3.0)
-    state.halation.scatter_tail_weight = (30.0, 25.0, 20.0)
+    state.halation.halation_strength = (0.12, 0.06, 0.03)
+    state.halation.scatter_tail_weight = (0.30, 0.25, 0.20)
 
     params = build_params_from_state(state)
 
@@ -70,6 +82,8 @@ def test_build_params_converts_halation_percentages_to_fractions() -> None:
     assert params.film_render.halation.boost_range == 0.35
     np.testing.assert_allclose(params.film_render.halation.halation_strength, np.array([0.12, 0.06, 0.03]))
     np.testing.assert_allclose(params.film_render.halation.scatter_tail_weight, np.array([0.30, 0.25, 0.20]))
+    # mapper copies, does not alias the widget's group
+    assert params.film_render.halation is not state.halation
 
 
 def test_build_params_propagates_halation_high_level_knobs() -> None:
@@ -95,13 +109,12 @@ def test_build_params_propagates_halation_high_level_knobs() -> None:
 
 def test_build_params_maps_runtime_strings() -> None:
     state = make_state()
-    state.simulation.auto_exposure_method = 'median'
-    state.input_image.input_color_space = 'Display P3'
-    state.input_image.spectral_upsampling_method = 'mallett2019'
-    state.simulation.output_color_space = 'ACES2065-1'
-    state.simulation.output_cctf_encoding = False
-    state.simulation.saving_cctf_encoding = True
-    state.display.preview_max_size = 1024
+    state.camera.auto_exposure_method = 'median'
+    state.input_image.io.input_color_space = 'Display P3'
+    state.input_image.settings.rgb_to_raw_method = 'mallett2019'
+    state.simulation.io.output_color_space = 'ACES2065-1'
+    state.simulation.workflow.saving_cctf_encoding = False
+    state.gui_only.display.settings.preview_max_size = 1024
 
     params = build_params_from_state(state)
 
@@ -110,53 +123,16 @@ def test_build_params_maps_runtime_strings() -> None:
     assert params.settings.rgb_to_raw_method == 'mallett2019'
     assert params.settings.preview_max_size == 1024
     assert params.io.output_color_space == 'ACES2065-1'
-    assert params.io.output_cctf_encoding is False
-
-
-def test_manual_workflow_separates_runtime_output_cctf_from_saving_cctf() -> None:
-    state = make_state()
-    state.simulation.color_management_workflow = 'manual'
-    state.simulation.output_color_space = 'Display P3'
-    state.simulation.output_cctf_encoding = True
-    state.simulation.saving_color_space = 'Display P3'
-    state.simulation.saving_cctf_encoding = False
-
-    params = build_params_from_state(state)
-
-    assert params.settings.color_management_workflow == 'manual'
-    assert params.io.output_color_space == 'Display P3'
     assert params.io.output_cctf_encoding is True
-    assert state.simulation.saving_cctf_encoding is False
-
-
-def test_build_params_applies_aces_reference_workflow() -> None:
-    state = make_state()
-    state.simulation.color_management_workflow = 'aces_reference'
-    state.input_image.input_color_space = 'Display P3'
-    state.input_image.apply_cctf_decoding = True
-    state.simulation.output_color_space = 'sRGB'
-    state.simulation.output_cctf_encoding = True
-    state.simulation.saving_color_space = 'sRGB'
-    state.simulation.saving_cctf_encoding = True
-
-    params = build_params_from_state(state)
-
-    assert params.settings.color_management_workflow == 'aces_reference'
-    assert params.io.input_color_space == ACES_WORKING_COLOR_SPACE
-    assert params.io.input_cctf_decoding is False
-    assert params.io.output_color_space == ACES_WORKING_COLOR_SPACE
-    assert params.io.output_cctf_encoding is False
-    assert params.io.output_clip_min is False
-    assert params.io.output_clip_max is False
 
 
 def test_build_params_maps_enlarger_diffusion_filter() -> None:
     state = make_state()
-    state.simulation.diffusion_filter_active = True
-    state.simulation.diffusion_filter_family = 'pro_mist'
-    state.simulation.diffusion_filter_strength = 0.5
-    state.simulation.diffusion_filter_spatial_scale = 1.6
-    state.simulation.diffusion_filter_halo_warmth = 0.3
+    state.enlarger_diffusion.active = True
+    state.enlarger_diffusion.filter_family = 'pro_mist'
+    state.enlarger_diffusion.strength = 0.5
+    state.enlarger_diffusion.spatial_scale = 1.6
+    state.enlarger_diffusion.halo_warmth = 0.3
 
     params = build_params_from_state(state)
 
@@ -167,21 +143,45 @@ def test_build_params_maps_enlarger_diffusion_filter() -> None:
     assert params.enlarger.diffusion_filter.halo_warmth == 0.3
 
 
-def test_build_params_maps_camera_diffusion_filter() -> None:
+def test_build_params_copies_camera_group_and_standalone_camera_diffusion() -> None:
     state = make_state()
-    state.simulation.camera_diffusion_filter_active = True
-    state.simulation.camera_diffusion_filter_family = 'glimmerglass'
-    state.simulation.camera_diffusion_filter_strength = 0.25
-    state.simulation.camera_diffusion_filter_spatial_scale = 1.2
-    state.simulation.camera_diffusion_filter_halo_warmth = -0.15
+    state.camera.lens_blur_um = 4.0
+    state.camera.exposure_compensation_ev = 0.75
+    state.camera.filter_uv = (0.5, 400.0, 10.0)
+    # The camera diffusion filter is now its own section (FILM tab), owned by
+    # state.camera_diffusion -- NOT the passthrough state.camera.diffusion_filter.
+    state.camera_diffusion = replace(
+        state.camera_diffusion,
+        active=True,
+        filter_family='glimmerglass',
+        strength=0.25,
+        spatial_scale=1.2,
+        halo_warmth=-0.15,
+    )
 
     params = build_params_from_state(state)
 
+    assert params.camera.lens_blur_um == 4.0
+    assert params.camera.exposure_compensation_ev == 0.75
+    assert params.camera.filter_uv == (0.5, 400.0, 10.0)
     assert params.camera.diffusion_filter.active is True
     assert params.camera.diffusion_filter.filter_family == 'glimmerglass'
     assert params.camera.diffusion_filter.strength == 0.25
     assert params.camera.diffusion_filter.spatial_scale == 1.2
     assert params.camera.diffusion_filter.halo_warmth == -0.15
+    assert params.camera is not state.camera
+
+
+def test_build_params_camera_diffusion_owner_wins_over_stale_camera_passthrough() -> None:
+    # Regression guard: the camera section passes its diffusion_filter through
+    # untouched, so a stale value there must NOT win over the standalone owner.
+    state = make_state()
+    state.camera.diffusion_filter = replace(state.camera.diffusion_filter, strength=99.0)
+    state.camera_diffusion = replace(state.camera_diffusion, strength=0.5)
+
+    params = build_params_from_state(state)
+
+    assert params.camera.diffusion_filter.strength == 0.5
 
 
 def test_build_params_uses_preview_tuned_lut_settings() -> None:
@@ -193,17 +193,40 @@ def test_build_params_uses_preview_tuned_lut_settings() -> None:
     assert params.settings.use_fast_stats is True
 
 
-def test_build_params_maps_input_gamut_compress_off_to_inactive_runtime_spec() -> None:
+def test_build_params_copies_input_gamut_compress_group() -> None:
     state = make_state()
-    state.input_image.input_gamut_compress_algorithm = 'off'
+    state.input_gamut_compress = replace(
+        state.input_gamut_compress,
+        active=False,
+        algorithm='oklch',
+        knee=(0.1, 1.0, 4.0),
+    )
 
     params = build_params_from_state(state)
 
     assert params.io.input_gamut_compress.active is False
-    assert params.io.input_gamut_compress.algorithm == 'xy'
+    assert params.io.input_gamut_compress.algorithm == 'oklch'
+    assert params.io.input_gamut_compress.knee == (0.1, 1.0, 4.0)
+    # mapper copies, does not alias the widget's group
+    assert params.io.input_gamut_compress is not state.input_gamut_compress
 
 
-def test_gui_state_from_params_maps_inactive_input_gamut_compress_to_off() -> None:
+def test_build_params_copies_output_gamut_compress_group() -> None:
+    state = make_state()
+    state.output_gamut_compress = replace(
+        state.output_gamut_compress,
+        algorithm='aces_rgc',
+        knee=(0.2, 1.0, 3.0),
+    )
+
+    params = build_params_from_state(state)
+
+    assert params.io.output_gamut_compress.algorithm == 'aces_rgc'
+    assert params.io.output_gamut_compress.knee == (0.2, 1.0, 3.0)
+    assert params.io.output_gamut_compress is not state.output_gamut_compress
+
+
+def test_gui_state_from_params_mirrors_input_gamut_compress_group() -> None:
     params = init_params(
         film_profile=FilmStocks.kodak_gold_200.value,
         print_profile=PrintPapers.kodak_supra_endura.value,
@@ -216,7 +239,7 @@ def test_gui_state_from_params_maps_inactive_input_gamut_compress_to_off() -> No
         print_paper=PrintPapers.kodak_supra_endura.value,
     )
 
-    assert state.input_image.input_gamut_compress_algorithm == 'off'
+    assert state.input_gamut_compress.active is False
 
 
 def test_build_default_gui_state_uses_runtime_defaults() -> None:
@@ -235,37 +258,37 @@ def test_build_default_gui_state_uses_runtime_defaults() -> None:
     assert state.halation.halation_amount == 1.0
     assert state.halation.halation_spatial_scale == 1.0
     # kodak_gold_200 is (use=still, antihalation=weak), so _apply_halation_preset
-    # seeds halation_strength from the weak-AH row of §5: (0.08, 0.02, 0.0) -> percent
-    assert state.halation.halation_strength == (8.0, 2.0, 0.0)
+    # seeds halation_strength from the weak-AH row of §5: (0.08, 0.02, 0.0).
+    # state.halation holds the runtime group verbatim (0-1 fractions, shown
+    # as-is in the GUI — no percentage transform).
+    assert state.halation.halation_strength == (0.08, 0.02, 0.0)
     assert state.halation.halation_n_bounces == 3
     assert state.halation.halation_bounce_decay == 0.5
     assert state.halation.halation_renormalize is True
-    assert state.input_image.crop_size == (0.1, 0.1)
-    assert state.simulation.color_management_workflow == 'manual'
-    assert state.simulation.output_color_space == 'sRGB'
-    assert state.simulation.output_cctf_encoding is True
-    assert state.simulation.saving_color_space == 'sRGB'
-    assert state.simulation.saving_cctf_encoding is True
-    assert state.simulation.camera_diffusion_filter_active is False
-    assert state.simulation.camera_diffusion_filter_family == 'black_pro_mist'
-    assert state.simulation.camera_diffusion_filter_strength == 0.5
-    assert state.simulation.camera_diffusion_filter_spatial_scale == 1.0
-    assert state.simulation.camera_diffusion_filter_halo_warmth == 0.0
-    assert state.simulation.diffusion_filter_active is False
-    assert state.simulation.diffusion_filter_family == 'black_pro_mist'
-    assert state.simulation.diffusion_filter_strength == 0.5
-    assert state.simulation.diffusion_filter_spatial_scale == 1.0
-    assert state.simulation.diffusion_filter_halo_warmth == 0.0
-    assert state.simulation.scan_white_correction is False
-    assert state.simulation.scan_white_level == 0.98
-    assert state.simulation.scan_black_correction is False
-    assert state.simulation.scan_black_level == 0.01
-    assert state.display.use_display_transform is True
-    assert state.display.gray_18_canvas is True
-    assert state.simulation.auto_exposure_method == 'center_weighted'
-    assert state.display.white_padding == 0.03
-    assert state.display.preview_max_size == 640
-    assert state.display.output_interpolation == 'spline36'
+    assert state.input_image.io.crop_size == (0.1, 0.1)
+    assert state.simulation.io.output_color_space == 'sRGB'
+    assert state.simulation.workflow.saving_color_space == 'sRGB'
+    assert state.simulation.workflow.saving_cctf_encoding is True
+    assert state.camera_diffusion.active is False
+    assert state.camera_diffusion.filter_family == 'black_pro_mist'
+    assert state.camera_diffusion.strength == 0.5
+    assert state.camera_diffusion.spatial_scale == 1.0
+    assert state.camera_diffusion.halo_warmth == 0.0
+    assert state.enlarger_diffusion.active is False
+    assert state.enlarger_diffusion.filter_family == 'black_pro_mist'
+    assert state.enlarger_diffusion.strength == 0.5
+    assert state.enlarger_diffusion.spatial_scale == 1.0
+    assert state.enlarger_diffusion.halo_warmth == 0.0
+    assert state.scanner.white_correction is False
+    assert state.scanner.white_level == 0.98
+    assert state.scanner.black_correction is False
+    assert state.scanner.black_level == 0.01
+    assert state.gui_only.display.use_display_transform is True
+    assert state.gui_only.display.gray_18_canvas is True
+    assert state.camera.auto_exposure_method == 'center_weighted'
+    assert state.gui_only.display.white_padding == 0.03
+    assert state.gui_only.display.settings.preview_max_size == 640
+    assert state.gui_only.display.output_interpolation == 'spline36'
 
 
 def test_build_default_gui_state_applies_selection_defaults(monkeypatch) -> None:

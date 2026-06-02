@@ -40,7 +40,7 @@ The science itself is **not the GUI's responsibility**. If a piece of behavior i
 - `napari_layout.py` — napari integration
 - `controller*.py` — per-domain controllers (runtime, layers, profile sync, persistence)
 - `state.py`, `state_bridge.py` — central state + napari ↔ params plumbing
-- `widget_specs.py`, `widget_sections.py`, `widget_editors.py` — widget definitions
+- `widget_sections.py`, `widget_editors.py` — widget definitions
 - `params_mapper.py` — params ↔ widget value translation
 - `persistence.py` — project I/O
 - `polaroid_animation.py`, `virtual_photo_paper_back.py` — specialty UIs

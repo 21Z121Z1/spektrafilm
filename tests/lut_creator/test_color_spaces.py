@@ -247,6 +247,9 @@ class TestInputExposureGain:
         gain = cs.input_exposure_gain("Panasonic V-Log", 6.0)
         assert gain < 1.0
 
+    def test_vlog_auto_default_is_curated_to_six_stops(self):
+        assert cs.native_stops_above_midgray("Panasonic V-Log") == 6.0
+
     def test_unknown_input_color_space_raises(self):
         with pytest.raises(KeyError, match="Unknown color space"):
             cs.input_exposure_gain("Not A Real Space", 6.0)

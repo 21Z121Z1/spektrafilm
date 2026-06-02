@@ -7,7 +7,7 @@ import pytest
 
 from spektrafilm_gui import controller as controller_module
 from spektrafilm_gui import controller_layers as controller_layers_module
-from spektrafilm_gui.controller import GuiController, PROFILE_SYNC_FIELDS
+from spektrafilm_gui.controller import GuiController, PROFILE_SYNC_SECTION_NAMES
 from spektrafilm_gui.controller_layers import (
     INPUT_LAYER_NAME,
     INPUT_PREVIEW_LAYER_NAME,
@@ -70,14 +70,12 @@ def _run_simulation_case(
         image_data,
         *,
         output_color_space,
-        output_cctf_encoding=True,
         use_display_transform,
         padding_pixels=0.0,
     ):
         captured['display_args'] = {
             'image_data': image_data.copy(),
             'output_color_space': output_color_space,
-            'output_cctf_encoding': output_cctf_encoding,
             'use_display_transform': use_display_transform,
             'padding_pixels': padding_pixels,
         }
@@ -107,7 +105,7 @@ def test_load_input_image_builds_preview_stack_and_homes_view(monkeypatch) -> No
     preview_display_image = np.full((2, 1, 3), 0.75, dtype=np.float32)
     captured: dict[str, object] = {}
 
-    monkeypatch.setattr(controller_module, 'load_image_payload', lambda path: SimpleNamespace(pixels=raw_image, color_encoding=None))
+    monkeypatch.setattr(controller_module, 'load_image_oiio', lambda path: raw_image)
     monkeypatch.setattr(controller_module, 'collect_gui_state', lambda *, widgets: gui_state)
     monkeypatch.setattr(controller_module, 'build_params_from_state', lambda state: (_ for _ in ()).throw(AssertionError('should not build params for image load preview cache')))
     monkeypatch.setattr(controller, '_resize_for_preview', lambda image, *, max_size: preview_image)
@@ -134,8 +132,8 @@ def test_show_startup_placeholder_builds_portrait_preview_stack_and_homes_view(m
     viewer = FakeViewer()
     controller = GuiController(viewer=viewer, widgets=object())
     gui_state = make_test_controller_gui_state()
-    gui_state.display.preview_max_size = 90
-    gui_state.display.white_padding = 0.05
+    gui_state.gui_only.display.settings.preview_max_size = 90
+    gui_state.gui_only.display.white_padding = 0.05
     captured: dict[str, object] = {}
 
     monkeypatch.setattr(controller_module, 'collect_gui_state', lambda *, widgets: gui_state)
@@ -169,7 +167,7 @@ def test_load_input_image_requests_auto_preview_once_when_enabled(monkeypatch) -
         captured['stack_image'] = image
         controller._current_preview_image = preview_image
 
-    monkeypatch.setattr(controller_module, 'load_image_payload', lambda path: SimpleNamespace(pixels=raw_image, color_encoding=None))
+    monkeypatch.setattr(controller_module, 'load_image_oiio', lambda path: raw_image)
     monkeypatch.setattr(controller, '_set_or_add_input_stack', fake_set_or_add_input_stack)
     monkeypatch.setattr(controller, 'request_auto_preview', lambda: captured.setdefault('preview_requests', 0) or captured.__setitem__('preview_requests', captured.get('preview_requests', 0) + 1))
 
@@ -177,40 +175,6 @@ def test_load_input_image_requests_auto_preview_once_when_enabled(monkeypatch) -
 
     np.testing.assert_allclose(captured['stack_image'], raw_image)
     assert captured['preview_requests'] == 1
-
-
-def test_load_input_image_applies_payload_color_encoding_to_gui_state(monkeypatch) -> None:
-    class InputImageWidget:
-        def __init__(self) -> None:
-            self.applied_state = None
-
-        def set_state(self, state) -> None:
-            self.applied_state = state
-
-    input_widget = InputImageWidget()
-    widgets = SimpleNamespace(
-        input_image=input_widget,
-        simulation=SimpleNamespace(auto_preview_value=lambda: False),
-    )
-    controller = GuiController(viewer=object(), widgets=widgets)
-    gui_state = make_test_controller_gui_state()
-    raw_image = np.full((4, 2, 3), 0.25, dtype=np.float32)
-    payload = SimpleNamespace(
-        pixels=raw_image,
-        color_encoding=SimpleNamespace(color_space='Display P3', is_cctf_encoded=True),
-    )
-    captured: dict[str, object] = {}
-
-    monkeypatch.setattr(controller_module, 'load_image_payload', lambda path: payload)
-    monkeypatch.setattr(controller_module, 'collect_gui_state', lambda *, widgets: gui_state)
-    monkeypatch.setattr(controller, '_set_or_add_input_stack', lambda image: captured.setdefault('stack_image', image))
-
-    controller.load_input_image('C:/tmp/example.heic')
-
-    assert input_widget.applied_state is gui_state.input_image
-    assert gui_state.input_image.input_color_space == 'Display P3'
-    assert gui_state.input_image.apply_cctf_decoding is True
-    np.testing.assert_allclose(captured['stack_image'], raw_image)
 
 
 def test_rotate_input_image_clockwise_rebuilds_preview_hides_output_and_requests_auto_preview(monkeypatch) -> None:
@@ -273,11 +237,11 @@ def test_load_raw_image_uses_pipeline_input_settings_and_builds_preview_stack(mo
     viewer = FakeViewer([FakeLayer(np.zeros((2, 2, 3), dtype=np.float32), name='older')])
     controller = GuiController(viewer=viewer, widgets=object())
     gui_state = make_test_controller_gui_state()
-    gui_state.input_image.input_color_space = 'Display P3'
-    gui_state.input_image.apply_cctf_decoding = True
-    gui_state.load_raw.white_balance = 'custom'
-    gui_state.load_raw.temperature = 3200.0
-    gui_state.load_raw.tint = 0.85
+    gui_state.input_image.io.input_color_space = 'Display P3'
+    gui_state.input_image.io.input_cctf_decoding = True
+    gui_state.gui_only.load_raw.white_balance = 'custom'
+    gui_state.gui_only.load_raw.temperature = 3200.0
+    gui_state.gui_only.load_raw.tint = 0.85
     raw_image = np.full((4, 2, 3), 0.4, dtype=np.float32)
     preview_image = np.full((2, 1, 3), 0.6, dtype=np.float32)
     captured: dict[str, object] = {}
@@ -351,9 +315,9 @@ def test_load_raw_image_reports_invalid_custom_white_balance_without_mutating_la
     ])
     controller = GuiController(viewer=viewer, widgets=object())
     gui_state = make_test_controller_gui_state()
-    gui_state.load_raw.white_balance = 'custom'
-    gui_state.load_raw.temperature = 3200.0
-    gui_state.load_raw.tint = 0.85
+    gui_state.gui_only.load_raw.white_balance = 'custom'
+    gui_state.gui_only.load_raw.temperature = 3200.0
+    gui_state.gui_only.load_raw.tint = 0.85
     statuses: list[tuple[str, int]] = []
     captured_dialog: dict[str, object] = {}
 
@@ -393,7 +357,7 @@ def test_load_raw_image_reports_when_lens_correction_is_not_applied(monkeypatch)
     viewer = FakeViewer([FakeLayer(np.zeros((2, 2, 3), dtype=np.float32), name='older')])
     controller = GuiController(viewer=viewer, widgets=object())
     gui_state = make_test_controller_gui_state()
-    gui_state.load_raw.lens_correction = True
+    gui_state.gui_only.load_raw.lens_correction = True
     raw_image = np.full((2, 2, 3), 0.4, dtype=np.float32)
     statuses: list[tuple[str, int]] = []
     captured: dict[str, object] = {}
@@ -456,24 +420,21 @@ def test_apply_profile_defaults_routes_through_selection_digest(monkeypatch) -> 
     controller.apply_profile_defaults('ignored-by-handler')
 
     assert captured['digested_input'] is built_params
-    assert captured['synced_args'] == (digested_params, gui_state.simulation.film_stock, gui_state.simulation.print_paper)
+    assert captured['synced_args'] == (digested_params, gui_state.selection.film_stock, gui_state.selection.print_paper)
     assert captured['applied_state'] is synced_state
     assert controller._next_runtime_digest_applies_stock_specifics is True
 
 
 def test_apply_profile_sync_state_updates_runtime_owned_widget_fields() -> None:
-    original_fields = dict(PROFILE_SYNC_FIELDS)
+    original_section_names = PROFILE_SYNC_SECTION_NAMES
     try:
-        controller_module.PROFILE_SYNC_FIELDS = {
-            'couplers': ('gamma_samelayer_rgb',),
-            'simulation': ('scan_film',),
-        }
+        controller_module.PROFILE_SYNC_SECTION_NAMES = ('couplers', 'simulation')
         captured: dict[str, object] = {}
         controller = GuiController(
             viewer=object(),
             widgets=SimpleNamespace(
-                couplers=SimpleNamespace(gamma_samelayer_rgb=SimpleNamespace(value=(0.0, 0.0, 0.0))),
-                simulation=SimpleNamespace(set_scan_film_value=lambda value: captured.setdefault('scan_film', []).append(value)),
+                couplers=SimpleNamespace(set_state=lambda value: captured.setdefault('couplers', value)),
+                simulation=SimpleNamespace(set_state=lambda value: captured.setdefault('simulation', value)),
             ),
         )
         synced_state = SimpleNamespace(
@@ -483,10 +444,10 @@ def test_apply_profile_sync_state_updates_runtime_owned_widget_fields() -> None:
 
         controller._apply_profile_sync_state(synced_state)
 
-        assert controller._widgets.couplers.gamma_samelayer_rgb.value == (0.35, 0.2275, 0.1225)
-        assert captured['scan_film'] == [True]
+        assert captured['couplers'] is synced_state.couplers
+        assert captured['simulation'] is synced_state.simulation
     finally:
-        controller_module.PROFILE_SYNC_FIELDS = original_fields
+        controller_module.PROFILE_SYNC_SECTION_NAMES = original_section_names
 
 
 def test_run_simulation_uses_cached_preview_input(monkeypatch) -> None:
@@ -499,15 +460,13 @@ def test_run_simulation_uses_cached_preview_input(monkeypatch) -> None:
     )
 
     np.testing.assert_allclose(captured['processing_input'], raw_image)
-    assert captured['white_padding'] == make_test_controller_gui_state().display.white_padding
+    assert captured['white_padding'] == make_test_controller_gui_state().gui_only.display.white_padding
 
 
 def test_run_simulation_passes_display_transform_settings(monkeypatch) -> None:
     gui_state = make_test_controller_gui_state()
-    gui_state.display.use_display_transform = True
-    gui_state.display.white_padding = 0.5
-    gui_state.simulation.output_cctf_encoding = True
-    gui_state.simulation.saving_cctf_encoding = False
+    gui_state.gui_only.display.use_display_transform = True
+    gui_state.gui_only.display.white_padding = 0.5
     captured = _run_simulation_case(
         monkeypatch,
         preview_source_image=np.full((2, 2, 3), 0.25, dtype=np.float32),
@@ -518,8 +477,7 @@ def test_run_simulation_passes_display_transform_settings(monkeypatch) -> None:
     )
 
     np.testing.assert_allclose(captured['display_args']['image_data'], np.full((4, 4, 3), 0.5, dtype=np.float32))
-    assert captured['display_args']['output_color_space'] == gui_state.simulation.output_color_space
-    assert captured['display_args']['output_cctf_encoding'] is True
+    assert captured['display_args']['output_color_space'] == gui_state.simulation.io.output_color_space
     assert captured['display_args']['use_display_transform'] is True
     assert captured['display_args']['padding_pixels'] == 0.0
     np.testing.assert_array_equal(captured['output_layer']['image'], np.full((6, 6, 3), 99, dtype=np.uint8))
@@ -574,7 +532,7 @@ def test_start_simulation_reports_persistent_computing_status(monkeypatch) -> No
     controller._start_simulation(source_layer_name=INPUT_PREVIEW_LAYER_NAME, mode_label='Preview')
 
     assert captured['status'] == ('Computing preview...', 0)
-    assert captured['white_padding'] == gui_state.display.white_padding
+    assert captured['white_padding'] == gui_state.gui_only.display.white_padding
     assert controller._active_simulation_label == 'Preview'
     np.testing.assert_allclose(captured['worker']._request.image, np.double(preview_image))
 
@@ -601,7 +559,7 @@ def test_start_simulation_skips_computing_status_for_silent_preview(monkeypatch)
     )
 
     assert 'status_calls' not in captured
-    assert captured['white_padding'] == gui_state.display.white_padding
+    assert captured['white_padding'] == gui_state.gui_only.display.white_padding
     assert controller._active_simulation_label == 'Preview'
     assert controller._active_simulation_reports_status is False
     np.testing.assert_allclose(captured['worker']._request.image, np.double(preview_image))
@@ -675,7 +633,7 @@ def test_refresh_preview_cache_recomputes_cached_preview_without_hiding_visible_
     output_image = np.full((8, 4, 3), 99, dtype=np.uint8)
     float_image = np.full((8, 4, 3), 0.5, dtype=np.float32)
 
-    controller._layers.set_or_add_input_preview_layer(old_preview, white_padding=gui_state.display.white_padding)
+    controller._layers.set_or_add_input_preview_layer(old_preview, white_padding=gui_state.gui_only.display.white_padding)
     controller._layers.set_or_add_output_layer(
         output_image,
         float_image=float_image,

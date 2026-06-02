@@ -1,12 +1,27 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, is_dataclass, replace
-from typing import TypeVar
+from dataclasses import dataclass, field, is_dataclass, replace
+from typing import Any, TypeVar
 
 from spektrafilm.model.stocks import FilmStocks, PrintPapers
-from spektrafilm.color_management import color_management_workflow_preset
 from spektrafilm.runtime.api import digest_params, init_params
-from spektrafilm.runtime.params_schema import RuntimePhotoParams
+from spektrafilm.runtime.params_schema import (
+    CameraParams,
+    DiffusionFilterParams,
+    DirCouplersParams,
+    EnlargerParams,
+    FilmRenderingParams,
+    GlareParams,
+    GrainParams,
+    HalationParams,
+    IOParams,
+    RuntimePhotoParams,
+    ScannerParams,
+    SettingsParams,
+)
+from spektrafilm.utils.gamut_compression import InputGamutCompressSpec, OutputGamutCompressSpec
+from spektrafilm.utils.morph_curves import PrintCurvesMorphParams
+from spektrafilm_gui.param_manifest import DISPLAY_PANEL_FIELDS, INPUT_IMAGE_FIELDS, SIMULATION_FIELDS, SPECIAL_FIELDS
 
 
 StateSection = TypeVar('StateSection')
@@ -14,20 +29,16 @@ StateSection = TypeVar('StateSection')
 
 @dataclass(slots=True)
 class InputImageState:
-    upscale_factor: float
-    crop: bool
-    crop_center: tuple[float, float]
-    crop_size: tuple[float, float]
-    input_color_space: str
-    apply_cctf_decoding: bool
-    spectral_upsampling_method: str
-    apply_hanatos2025_adaptation_window: bool
-    apply_hanatos2025_adaptation_surface: bool
-    spectral_gaussian_blur: float
-    filter_uv: tuple[float, float, float]
-    filter_ir: tuple[float, float, float]
-    input_gamut_compress_algorithm: str
-    input_gamut_compress_knee: tuple[float, float, float]
+    """Thin container for the two runtime groups the input_image panels edit.
+
+    No GUI-side facades: the Input / Crop / Spectral panels bind their editors
+    directly to dotted paths on this object (``io.upscale_factor``,
+    ``settings.rgb_to_raw_method``) via the INPUT_IMAGE_FIELDS manifest. ``io``
+    and ``settings`` mirror the runtime groups verbatim.
+    """
+
+    io: IOParams = field(default_factory=IOParams)
+    settings: SettingsParams = field(default_factory=SettingsParams)
 
 
 @dataclass(slots=True)
@@ -39,144 +50,136 @@ class LoadRawState:
 
 
 @dataclass(slots=True)
-class GrainState:
-    active: bool
-    sublayers_active: bool
-    particle_area_um2: float
-    particle_scale: tuple[float, float, float]
-    particle_scale_layers: tuple[float, float, float]
-    density_min: tuple[float, float, float]
-    uniformity: tuple[float, float, float]
-    blur: float
-    blur_dye_clouds_um: float
-    micro_structure: tuple[float, float]
-
-
-@dataclass(slots=True)
-class PreflashingState:
-    exposure: float
-    y_filter_shift: float
-    m_filter_shift: float
-
-
-@dataclass(slots=True)
-class HalationState:
-    active: bool
-    # high-level knobs (intended for the simplified GUI)
-    scatter_amount: float
-    scatter_spatial_scale: float
-    halation_amount: float
-    halation_spatial_scale: float
-    # highlight boost
-    boost_ev: float
-    protect_ev: float
-    boost_range: float
-    # scatter (low-level, developer GUI)
-    scatter_core_um: tuple[float, float, float]
-    scatter_tail_um: tuple[float, float, float]
-    scatter_tail_weight: tuple[float, float, float]  # stored 0-100 percent
-    # halation (low-level, developer GUI)
-    halation_strength: tuple[float, float, float]  # stored 0-100 percent
-    halation_first_sigma_um: tuple[float, float, float]
-    halation_n_bounces: int
-    halation_bounce_decay: float
-    halation_renormalize: bool
-
-
-@dataclass(slots=True)
-class CouplersState:
-    active: bool
-    amount: float
-    inhibition_samelayer: float
-    inhibition_interlayer: float
-    gamma_samelayer_rgb: tuple[float, float, float]
-    gamma_interlayer_r_to_gb: tuple[float, float]
-    gamma_interlayer_g_to_rb: tuple[float, float]
-    gamma_interlayer_b_to_rg: tuple[float, float]
-    diffusion_size_um: float
-
-
-@dataclass(slots=True)
-class PrintChemistryState:
-    active: bool
-    gamma_factor: float
-    gamma_factor_fast: float
-    gamma_factor_slow: float
-    gamma_factor_red: float
-    gamma_factor_green: float
-    gamma_factor_blue: float
-    developer_exhaustion: float
-
-
-@dataclass(slots=True)
-class GlareState:
-    active: bool
-    percent: float
-    roughness: float
-    blur: float
-
-
-@dataclass(slots=True)
 class SpecialState:
     film_channel_swap: tuple[int, int, int]
-    film_gamma_factor: float
     print_channel_swap: tuple[int, int, int]
+    film_render: FilmRenderingParams = field(default_factory=FilmRenderingParams)
+
+
+@dataclass(slots=True)
+class SelectionState:
+    film_stock: str
+    print_paper: str
+
+
+@dataclass(slots=True)
+class SimulationWorkflowState:
+    saving_color_space: str
+    saving_cctf_encoding: bool
+    auto_preview: bool
 
 
 @dataclass(slots=True)
 class SimulationState:
-    film_stock: str
-    film_format_mm: float
-    camera_lens_blur_um: float
-    camera_diffusion_filter_active: bool
-    camera_diffusion_filter_family: str
-    camera_diffusion_filter_strength: float
-    camera_diffusion_filter_spatial_scale: float
-    camera_diffusion_filter_halo_warmth: float
-    camera_diffusion_filter_core_intensity: float
-    camera_diffusion_filter_core_size: float
-    camera_diffusion_filter_halo_intensity: float
-    camera_diffusion_filter_halo_size: float
-    camera_diffusion_filter_bloom_intensity: float
-    camera_diffusion_filter_bloom_size: float
-    exposure_compensation_ev: float
-    auto_exposure: bool
-    auto_exposure_method: str
-    print_paper: str
-    print_illuminant: str
-    print_exposure: float
-    print_exposure_compensation: bool
-    print_y_filter_shift: float
-    print_m_filter_shift: float
-    diffusion_filter_active: bool
-    diffusion_filter_family: str
-    diffusion_filter_strength: float
-    diffusion_filter_spatial_scale: float
-    diffusion_filter_halo_warmth: float
-    diffusion_filter_core_intensity: float
-    diffusion_filter_core_size: float
-    diffusion_filter_halo_intensity: float
-    diffusion_filter_halo_size: float
-    diffusion_filter_bloom_intensity: float
-    diffusion_filter_bloom_size: float
-    scan_lens_blur: float
-    scan_white_correction: bool
-    scan_white_level: float
-    scan_black_correction: bool
-    scan_black_level: float
-    scan_unsharp_mask: tuple[float, float]
-    color_management_workflow: str
-    output_color_space: str
-    output_cctf_encoding: bool
-    saving_color_space: str
-    saving_cctf_encoding: bool
-    hdr_mapping_mode: str
-    output_gamut_compress_algorithm: str
-    output_gamut_compress_knee: tuple[float, float, float]
-    auto_preview: bool
-    scan_film: bool
-    compute_backend: str
-    gpu_precision: str
+    selection: SelectionState = field(default_factory=lambda: SelectionState(film_stock='', print_paper=''))
+    enlarger: EnlargerParams = field(default_factory=EnlargerParams)
+    io: IOParams = field(default_factory=IOParams)
+    workflow: SimulationWorkflowState = field(default_factory=lambda: SimulationWorkflowState(
+        saving_color_space='sRGB',
+        saving_cctf_encoding=True,
+        auto_preview=True,
+    ))
+
+
+def _read_attr_path(root: Any, path: str) -> object:
+    obj = root
+    for part in path.split('.'):
+        obj = getattr(obj, part)
+    return obj
+
+
+def input_image_to_dict(state: InputImageState) -> dict[str, object]:
+    # Flat dict keyed by the runtime leaf (e.g. "input_cctf_decoding"). The
+    # field-to-group mapping is derived from the INPUT_IMAGE_FIELDS manifest,
+    # so the binding lives in exactly one place.
+    return {spec.leaf: _read_attr_path(state, spec.path) for spec in INPUT_IMAGE_FIELDS}
+
+
+def special_to_dict(state: SpecialState) -> dict[str, object]:
+    return {spec.leaf: _read_attr_path(state, spec.path) for spec in SPECIAL_FIELDS}
+
+
+def simulation_to_dict(state: SimulationState) -> dict[str, object]:
+    return {spec.leaf: _read_attr_path(state, spec.path) for spec in SIMULATION_FIELDS}
+
+
+def display_to_dict(state: DisplayState) -> dict[str, object]:
+    return {spec.leaf: _read_attr_path(state, spec.path) for spec in DISPLAY_PANEL_FIELDS}
+
+
+_INPUT_IMAGE_LEGACY_ALIASES = {
+    'apply_cctf_decoding': 'input_cctf_decoding',
+    'spectral_upsampling_method': 'rgb_to_raw_method',
+}
+
+
+def normalize_input_image_dict(data: dict[str, Any]) -> dict[str, Any]:
+    if 'io' in data or 'settings' in data:
+        return dict(data)
+    # Legacy / flat dict (keyed by runtime leaf, or a pre-refactor GUI alias)
+    # -> nested {io: {...}, settings: {...}}, derived from the manifest paths.
+    nested: dict[str, dict[str, Any]] = {'io': {}, 'settings': {}}
+    for spec in INPUT_IMAGE_FIELDS:
+        group, _, leaf = spec.path.partition('.')
+        legacy = [old for old, new in _INPUT_IMAGE_LEGACY_ALIASES.items() if new == leaf]
+        for key in (leaf, *legacy):
+            if key in data:
+                nested[group][leaf] = data[key]
+                break
+    return nested
+
+
+def normalize_special_dict(data: dict[str, Any]) -> dict[str, Any]:
+    if 'film_render' in data:
+        return dict(data)
+    return {
+        'film_channel_swap': data.get('film_channel_swap', (0, 1, 2)),
+        'print_channel_swap': data.get('print_channel_swap', (0, 1, 2)),
+        'film_render': {
+            'density_curve_gamma': data.get('film_gamma_factor', PROJECT_DEFAULT_GUI_STATE.special.film_render.density_curve_gamma),
+        },
+    }
+
+
+def normalize_simulation_dict(data: dict[str, Any]) -> dict[str, Any]:
+    if 'enlarger' in data or 'io' in data or 'workflow' in data:
+        return dict(data)
+    return {
+        'selection': {
+            'film_stock': data.get('film_stock', PROJECT_DEFAULT_GUI_STATE.selection.film_stock),
+            'print_paper': data.get('print_paper', PROJECT_DEFAULT_GUI_STATE.selection.print_paper),
+        },
+        'enlarger': {
+            'illuminant': data.get('print_illuminant', PROJECT_DEFAULT_GUI_STATE.simulation.enlarger.illuminant),
+            'print_exposure': data.get('print_exposure', PROJECT_DEFAULT_GUI_STATE.simulation.enlarger.print_exposure),
+            'print_exposure_compensation': data.get('print_exposure_compensation', PROJECT_DEFAULT_GUI_STATE.simulation.enlarger.print_exposure_compensation),
+            'y_filter_shift': data.get('print_y_filter_shift', PROJECT_DEFAULT_GUI_STATE.simulation.enlarger.y_filter_shift),
+            'm_filter_shift': data.get('print_m_filter_shift', PROJECT_DEFAULT_GUI_STATE.simulation.enlarger.m_filter_shift),
+        },
+        'io': {
+            'output_color_space': data.get('output_color_space', PROJECT_DEFAULT_GUI_STATE.simulation.io.output_color_space),
+            'scan_film': data.get('scan_film', PROJECT_DEFAULT_GUI_STATE.simulation.io.scan_film),
+        },
+        'workflow': {
+            'saving_color_space': data.get('saving_color_space', PROJECT_DEFAULT_GUI_STATE.simulation.workflow.saving_color_space),
+            'saving_cctf_encoding': data.get('saving_cctf_encoding', PROJECT_DEFAULT_GUI_STATE.simulation.workflow.saving_cctf_encoding),
+            'auto_preview': data.get('auto_preview', PROJECT_DEFAULT_GUI_STATE.simulation.workflow.auto_preview),
+        },
+    }
+
+
+def normalize_display_dict(data: dict[str, Any]) -> dict[str, Any]:
+    if 'settings' in data:
+        return dict(data)
+    return {
+        'use_display_transform': data.get('use_display_transform', PROJECT_DEFAULT_GUI_STATE.gui_only.display.use_display_transform),
+        'gray_18_canvas': data.get('gray_18_canvas', PROJECT_DEFAULT_GUI_STATE.gui_only.display.gray_18_canvas),
+        'white_padding': data.get('white_padding', PROJECT_DEFAULT_GUI_STATE.gui_only.display.white_padding),
+        'output_interpolation': data.get('output_interpolation', PROJECT_DEFAULT_GUI_STATE.gui_only.display.output_interpolation),
+        'settings': {
+            'preview_max_size': data.get('preview_max_size', PROJECT_DEFAULT_GUI_STATE.gui_only.display.settings.preview_max_size),
+        },
+    }
 
 
 @dataclass(slots=True)
@@ -184,44 +187,84 @@ class DisplayState:
     use_display_transform: bool
     gray_18_canvas: bool
     white_padding: float
-    preview_max_size: int
     output_interpolation: str = 'spline36'
+    settings: SettingsParams = field(default_factory=SettingsParams)
+
+
+@dataclass(slots=True)
+class GuiOnlyState:
+    load_raw: LoadRawState
+    display: DisplayState
 
 
 @dataclass(slots=True)
 class GuiState:
     input_image: InputImageState
-    load_raw: LoadRawState
-    grain: GrainState
-    preflashing: PreflashingState
-    halation: HalationState
-    couplers: CouplersState
-    chemistry: PrintChemistryState
-    glare: GlareState
+    grain: GrainParams
+    preflashing: EnlargerParams
+    halation: HalationParams
+    couplers: DirCouplersParams
+    chemistry: PrintCurvesMorphParams
+    camera: CameraParams
+    enlarger_diffusion: DiffusionFilterParams
+    camera_diffusion: DiffusionFilterParams
+    glare: GlareParams
+    scanner: ScannerParams
+    input_gamut_compress: InputGamutCompressSpec
+    output_gamut_compress: OutputGamutCompressSpec
     special: SpecialState
     simulation: SimulationState
-    display: DisplayState
+    gui_only: GuiOnlyState
+
+    @property
+    def selection(self) -> SelectionState:
+        return self.simulation.selection
 
 
 def clone_state_section(section: StateSection) -> StateSection:
     if not is_dataclass(section):
         raise TypeError('Expected a dataclass instance to clone.')
+    if isinstance(section, InputImageState):
+        return replace(section, io=replace(section.io), settings=replace(section.settings))
+    if isinstance(section, SpecialState):
+        return replace(section, film_render=replace(section.film_render))
+    if isinstance(section, SimulationState):
+        return replace(
+            section,
+            selection=replace(section.selection),
+            enlarger=replace(section.enlarger),
+            io=replace(section.io),
+            workflow=replace(section.workflow),
+        )
+    if isinstance(section, DisplayState):
+        return replace(section, settings=replace(section.settings))
+    if isinstance(section, GuiOnlyState):
+        return replace(
+            section,
+            load_raw=replace(section.load_raw),
+            display=clone_state_section(section.display),
+        )
     return replace(section)
 
 
 def clone_gui_state(state: GuiState) -> GuiState:
     return GuiState(
         input_image=clone_state_section(state.input_image),
-        load_raw=clone_state_section(state.load_raw),
         grain=clone_state_section(state.grain),
         preflashing=clone_state_section(state.preflashing),
         halation=clone_state_section(state.halation),
         couplers=clone_state_section(state.couplers),
         chemistry=clone_state_section(state.chemistry),
+        camera=clone_state_section(state.camera),
+        enlarger_diffusion=clone_state_section(state.enlarger_diffusion),
+        camera_diffusion=clone_state_section(state.camera_diffusion),
         glare=clone_state_section(state.glare),
+        scanner=clone_state_section(state.scanner),
+        input_gamut_compress=clone_state_section(state.input_gamut_compress),
+        output_gamut_compress=clone_state_section(state.output_gamut_compress),
         special=clone_state_section(state.special),
         simulation=clone_state_section(state.simulation),
-        display=clone_state_section(state.display),
+        gui_only=clone_state_section(state.gui_only),
     )
 
 
@@ -231,168 +274,65 @@ def gui_state_from_params(
     film_stock: str,
     print_paper: str,
 ) -> GuiState:
-    workflow = getattr(params.settings, 'color_management_workflow', 'manual')
-    workflow_preset = color_management_workflow_preset(workflow)
-    saving_color_space = workflow_preset.saving_color_space or params.io.output_color_space
-    saving_cctf_encoding = (
-        params.io.output_cctf_encoding
-        if workflow_preset.saving_cctf_encoding is None
-        else workflow_preset.saving_cctf_encoding
-    )
     return GuiState(
         input_image=InputImageState(
-            upscale_factor=params.io.upscale_factor,
-            crop=params.io.crop,
-            crop_center=tuple(params.io.crop_center),
-            crop_size=tuple(params.io.crop_size),
-            input_color_space=params.io.input_color_space,
-            apply_cctf_decoding=params.io.input_cctf_decoding,
-            spectral_upsampling_method=params.settings.rgb_to_raw_method,
-            apply_hanatos2025_adaptation_window=params.settings.apply_hanatos2025_adaptation_window,
-            apply_hanatos2025_adaptation_surface=params.settings.apply_hanatos2025_adaptation_surface,
-            spectral_gaussian_blur=params.settings.spectral_gaussian_blur,
-            filter_uv=tuple(params.camera.filter_uv),
-            filter_ir=tuple(params.camera.filter_ir),
-            input_gamut_compress_algorithm=(
-                params.io.input_gamut_compress.algorithm
-                if params.io.input_gamut_compress.active
-                else 'off'
-            ),
-            input_gamut_compress_knee=tuple(params.io.input_gamut_compress.knee),
+            io=replace(params.io),
+            settings=replace(params.settings),
         ),
-        load_raw=LoadRawState(
-            white_balance='as_shot',
-            temperature=5500.0,
-            tint=1.0,
-            lens_correction=False,
-        ),
-        grain=GrainState(
-            active=params.film_render.grain.active,
-            sublayers_active=params.film_render.grain.sublayers_active,
-            particle_area_um2=params.film_render.grain.agx_particle_area_um2,
-            particle_scale=tuple(params.film_render.grain.agx_particle_scale),
-            particle_scale_layers=tuple(params.film_render.grain.agx_particle_scale_layers),
-            density_min=tuple(params.film_render.grain.density_min),
-            uniformity=tuple(params.film_render.grain.uniformity),
-            blur=params.film_render.grain.blur,
-            blur_dye_clouds_um=params.film_render.grain.blur_dye_clouds_um,
-            micro_structure=tuple(params.film_render.grain.micro_structure),
-        ),
-        preflashing=PreflashingState(
-            exposure=params.enlarger.preflash_exposure,
-            y_filter_shift=params.enlarger.preflash_y_filter_shift,
-            m_filter_shift=params.enlarger.preflash_m_filter_shift,
-        ),
-        halation=HalationState(
-            active=params.film_render.halation.active,
-            scatter_amount=params.film_render.halation.scatter_amount,
-            scatter_spatial_scale=params.film_render.halation.scatter_spatial_scale,
-            halation_amount=params.film_render.halation.halation_amount,
-            halation_spatial_scale=params.film_render.halation.halation_spatial_scale,
-            boost_ev=params.film_render.halation.boost_ev,
-            protect_ev=params.film_render.halation.protect_ev,
-            boost_range=params.film_render.halation.boost_range,
-            scatter_core_um=tuple(params.film_render.halation.scatter_core_um),
-            scatter_tail_um=tuple(params.film_render.halation.scatter_tail_um),
-            scatter_tail_weight=tuple(value * 100.0 for value in params.film_render.halation.scatter_tail_weight),
-            halation_strength=tuple(value * 100.0 for value in params.film_render.halation.halation_strength),
-            halation_first_sigma_um=tuple(params.film_render.halation.halation_first_sigma_um),
-            halation_n_bounces=params.film_render.halation.halation_n_bounces,
-            halation_bounce_decay=params.film_render.halation.halation_bounce_decay,
-            halation_renormalize=params.film_render.halation.halation_renormalize,
-        ),
-        couplers=CouplersState(
-            active=params.film_render.dir_couplers.active,
-            amount=params.film_render.dir_couplers.amount,
-            inhibition_samelayer=params.film_render.dir_couplers.inhibition_samelayer,
-            inhibition_interlayer=params.film_render.dir_couplers.inhibition_interlayer,
-            gamma_samelayer_rgb=tuple(params.film_render.dir_couplers.gamma_samelayer_rgb),
-            gamma_interlayer_r_to_gb=tuple(params.film_render.dir_couplers.gamma_interlayer_r_to_gb),
-            gamma_interlayer_g_to_rb=tuple(params.film_render.dir_couplers.gamma_interlayer_g_to_rb),
-            gamma_interlayer_b_to_rg=tuple(params.film_render.dir_couplers.gamma_interlayer_b_to_rg),
-            diffusion_size_um=params.film_render.dir_couplers.diffusion_size_um,
-        ),
-        chemistry=PrintChemistryState(
-            active=params.print_render.density_curves_morph.active,
-            gamma_factor=params.print_render.density_curves_morph.gamma_factor,
-            gamma_factor_fast=params.print_render.density_curves_morph.gamma_factor_fast,
-            gamma_factor_slow=params.print_render.density_curves_morph.gamma_factor_slow,
-            gamma_factor_red=params.print_render.density_curves_morph.gamma_factor_red,
-            gamma_factor_green=params.print_render.density_curves_morph.gamma_factor_green,
-            gamma_factor_blue=params.print_render.density_curves_morph.gamma_factor_blue,
-            developer_exhaustion=params.print_render.density_curves_morph.developer_exhaustion,
-        ),
-        glare=GlareState(
-            active=params.print_render.glare.active,
-            percent=params.print_render.glare.percent,
-            roughness=params.print_render.glare.roughness,
-            blur=params.print_render.glare.blur,
-        ),
+        grain=replace(params.film_render.grain),
+        preflashing=replace(params.enlarger),
+        halation=replace(params.film_render.halation),
+        couplers=replace(params.film_render.dir_couplers),
+        chemistry=replace(params.print_render.density_curves_morph),
+        camera=replace(params.camera),
+        enlarger_diffusion=replace(params.enlarger.diffusion_filter),
+        camera_diffusion=replace(params.camera.diffusion_filter),
+        glare=replace(params.print_render.glare),
+        scanner=replace(params.scanner),
+        input_gamut_compress=replace(params.io.input_gamut_compress),
+        output_gamut_compress=replace(params.io.output_gamut_compress),
         special=SpecialState(
             film_channel_swap=(0, 1, 2),
-            film_gamma_factor=params.film_render.density_curve_gamma,
             print_channel_swap=(0, 1, 2),
+            film_render=FilmRenderingParams(density_curve_gamma=params.film_render.density_curve_gamma),
         ),
         simulation=SimulationState(
-            film_stock=film_stock,
-            film_format_mm=float(params.camera.film_format_mm),
-            camera_lens_blur_um=params.camera.lens_blur_um,
-            camera_diffusion_filter_active=bool(params.camera.diffusion_filter.active),
-            camera_diffusion_filter_family=params.camera.diffusion_filter.filter_family,
-            camera_diffusion_filter_strength=float(params.camera.diffusion_filter.strength),
-            camera_diffusion_filter_spatial_scale=float(params.camera.diffusion_filter.spatial_scale),
-            camera_diffusion_filter_halo_warmth=float(params.camera.diffusion_filter.halo_warmth),
-            camera_diffusion_filter_core_intensity=float(params.camera.diffusion_filter.core_intensity),
-            camera_diffusion_filter_core_size=float(params.camera.diffusion_filter.core_size),
-            camera_diffusion_filter_halo_intensity=float(params.camera.diffusion_filter.halo_intensity),
-            camera_diffusion_filter_halo_size=float(params.camera.diffusion_filter.halo_size),
-            camera_diffusion_filter_bloom_intensity=float(params.camera.diffusion_filter.bloom_intensity),
-            camera_diffusion_filter_bloom_size=float(params.camera.diffusion_filter.bloom_size),
-            exposure_compensation_ev=params.camera.exposure_compensation_ev,
-            auto_exposure=params.camera.auto_exposure,
-            auto_exposure_method=params.camera.auto_exposure_method,
-            print_paper=print_paper,
-            print_illuminant=params.enlarger.illuminant,
-            print_exposure=params.enlarger.print_exposure,
-            print_exposure_compensation=params.enlarger.print_exposure_compensation,
-            print_y_filter_shift=params.enlarger.y_filter_shift,
-            print_m_filter_shift=params.enlarger.m_filter_shift,
-            diffusion_filter_active=bool(params.enlarger.diffusion_filter.active),
-            diffusion_filter_family=params.enlarger.diffusion_filter.filter_family,
-            diffusion_filter_strength=float(params.enlarger.diffusion_filter.strength),
-            diffusion_filter_spatial_scale=float(params.enlarger.diffusion_filter.spatial_scale),
-            diffusion_filter_halo_warmth=float(params.enlarger.diffusion_filter.halo_warmth),
-            diffusion_filter_core_intensity=float(params.enlarger.diffusion_filter.core_intensity),
-            diffusion_filter_core_size=float(params.enlarger.diffusion_filter.core_size),
-            diffusion_filter_halo_intensity=float(params.enlarger.diffusion_filter.halo_intensity),
-            diffusion_filter_halo_size=float(params.enlarger.diffusion_filter.halo_size),
-            diffusion_filter_bloom_intensity=float(params.enlarger.diffusion_filter.bloom_intensity),
-            diffusion_filter_bloom_size=float(params.enlarger.diffusion_filter.bloom_size),
-            scan_lens_blur=params.scanner.lens_blur,
-            scan_white_correction=params.scanner.white_correction,
-            scan_white_level=params.scanner.white_level,
-            scan_black_correction=params.scanner.black_correction,
-            scan_black_level=params.scanner.black_level,
-            scan_unsharp_mask=tuple(params.scanner.unsharp_mask),
-            color_management_workflow=workflow,
-            output_color_space=params.io.output_color_space,
-            output_cctf_encoding=params.io.output_cctf_encoding,
-            saving_color_space=saving_color_space,
-            saving_cctf_encoding=saving_cctf_encoding,
-            hdr_mapping_mode='generic',
-            output_gamut_compress_algorithm=params.io.output_gamut_compress.algorithm,
-            output_gamut_compress_knee=tuple(params.io.output_gamut_compress.knee),
-            auto_preview=True,
-            scan_film=params.io.scan_film,
-            compute_backend=params.settings.compute_backend,
-            gpu_precision=params.settings.gpu_precision,
+            selection=SelectionState(
+                film_stock=film_stock,
+                print_paper=print_paper,
+            ),
+            enlarger=EnlargerParams(
+                illuminant=params.enlarger.illuminant,
+                print_exposure=params.enlarger.print_exposure,
+                print_exposure_compensation=params.enlarger.print_exposure_compensation,
+                y_filter_shift=params.enlarger.y_filter_shift,
+                m_filter_shift=params.enlarger.m_filter_shift,
+            ),
+            io=IOParams(
+                output_color_space=params.io.output_color_space,
+                output_cctf_encoding=params.io.output_cctf_encoding,
+                scan_film=params.io.scan_film,
+            ),
+            workflow=SimulationWorkflowState(
+                saving_color_space="sRGB",
+                saving_cctf_encoding=params.io.output_cctf_encoding,
+                auto_preview=True,
+            ),
         ),
-        display=DisplayState(
-            use_display_transform=True,
-            gray_18_canvas=True,
-            output_interpolation='spline36',
-            white_padding=0.03,
-            preview_max_size=params.settings.preview_max_size,
+        gui_only=GuiOnlyState(
+            load_raw=LoadRawState(
+                white_balance='as_shot',
+                temperature=5500.0,
+                tint=1.0,
+                lens_correction=False,
+            ),
+            display=DisplayState(
+                use_display_transform=True,
+                gray_18_canvas=True,
+                output_interpolation='spline36',
+                white_padding=0.03,
+                settings=SettingsParams(preview_max_size=params.settings.preview_max_size),
+            ),
         ),
     )
 

@@ -1255,7 +1255,7 @@ class TestBundleSpecStopsAboveGray:
         ("Rec.2020",        4.0),    # encoded_sdr → ENCODED_SDR_DEFAULT_STOPS
         ("sRGB",            4.0),    # encoded_sdr → ENCODED_SDR_DEFAULT_STOPS
         ("ACEScct",         pytest.approx(10.27, abs=0.05)),  # log: encoded 1.0 → 65504 linear
-        ("Panasonic V-Log", pytest.approx(7.99, abs=0.1)),    # log → native ≈8
+        ("Panasonic V-Log", 6.0),                             # curated V-Log default
     ])
     def test_auto_default_resolves_per_kind(self, input_cs, expected):
         spec = BundleSpec(

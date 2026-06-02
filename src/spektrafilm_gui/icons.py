@@ -34,6 +34,8 @@ _SECTION_HEADER_ICONS = {
     'preflash': 'tabler:sparkles',
     'diffusion': 'tabler:artboard',
     'spectral upsampling': 'tabler:prism-light',
+    'input gamut compress': 'tabler:triangle-off',
+    'output gamut compress': 'tabler:triangles',
     'tune': 'tabler:stroke-curved',
     'experimental': 'tabler:flask',
     'gui parameters': 'tabler:adjustments-horizontal',

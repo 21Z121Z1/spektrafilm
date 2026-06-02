@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from dataclasses import fields
 import os
 from types import SimpleNamespace
-from typing import get_origin
+from typing import get_origin, get_type_hints
 
-from spektrafilm_gui import widget_specs as widget_specs_module
+import numpy as np
+
 from spektrafilm_gui import icons as icons_module
+from spektrafilm_gui import param_manifest as param_manifest_module
 from spektrafilm_gui import widget_primitives as primitives_module
 from spektrafilm_gui import widget_sections as widgets_module
 from spektrafilm_gui import widget_editors as widget_editors_module
@@ -127,23 +128,15 @@ class FakeCheckbox:
         self.enabled = value
 
 
-def _make_load_raw_section(monkeypatch):
-    init_extra_widgets = getattr(widgets_module.LoadRawSection, '_init_extra_widgets')
-    reprocess_raw = getattr(widgets_module.LoadRawSection, '_reprocess_raw')
-    created_buttons: list[FakeButton] = []
-    monkeypatch.setattr(widgets_module, 'QLineEdit', FakeLineEdit)
-    monkeypatch.setattr(
-        widgets_module,
-        '_build_button',
-        lambda text, callback, **kwargs: created_buttons.append(FakeButton(text, callback, tooltip=kwargs.get('tooltip'))) or created_buttons[-1],
-    )
-    monkeypatch.setattr(widgets_module, '_build_button_row', lambda *widgets, **kwargs: ('button-row', widgets, kwargs))
-    monkeypatch.setattr(widgets_module, '_build_vertical_container', lambda *items, **kwargs: ('vertical-container', items, kwargs))
-    section = SimpleNamespace(load_requested=FakeSignal())
-    setattr(section, '_choose_file', lambda: None)
-    setattr(section, '_reprocess_raw', lambda: reprocess_raw(section))
-    init_extra_widgets(section)
-    return section, created_buttons
+def _make_load_raw_section():
+    os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+    from qtpy import QtWidgets
+
+    _app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    emitted: list[str] = []
+    section = widgets_module.LoadRawSection()
+    section.load_requested.connect(emitted.append)
+    return section, emitted
 
 
 def _make_filepicker_section(monkeypatch):
@@ -187,26 +180,22 @@ def _make_gui_config_section(monkeypatch):
 
 
 def test_load_raw_section_adds_reprocess_button_after_raw_settings(monkeypatch) -> None:
-    section, created_buttons = _make_load_raw_section(monkeypatch)
-    form = FakeForm()
-    add_extra_rows_before = getattr(widgets_module.LoadRawSection, '_add_extra_rows_before')
-    add_extra_rows_after = getattr(widgets_module.LoadRawSection, '_add_extra_rows_after')
+    del monkeypatch
+    section, _emitted = _make_load_raw_section()
 
-    add_extra_rows_before(section, form)
-    add_extra_rows_after(section, form)
-
-    assert section.file_path.read_only is True
-    assert section.file_path.placeholder_text == 'no raw selected'
-    assert created_buttons[0].text == 'reprocess raw'
-    assert section.reprocess_button.text == 'reprocess raw'
-    assert section.reprocess_button.enabled is False
-    assert created_buttons[1].text == 'Select file'
-    assert created_buttons[1].tooltip == 'Load and process a raw file using rawpy, output colorspace and cctf as defined in current input widget state'
-    assert form.rows[1] == (section.reprocess_button,)
+    assert section.file_path.isReadOnly() is True
+    assert section.file_path.placeholderText() == 'no raw selected'
+    assert section.reprocess_button.text() == 'reprocess raw'
+    assert section.reprocess_button.isEnabled() is False
+    assert hasattr(section, 'white_balance')
+    assert hasattr(section, 'temperature')
+    assert hasattr(section, 'tint')
+    assert hasattr(section, 'lens_correction')
 
 
 def test_load_raw_section_reprocess_button_uses_selected_path(monkeypatch) -> None:
-    section, _created_buttons = _make_load_raw_section(monkeypatch)
+    del monkeypatch
+    section, emitted = _make_load_raw_section()
 
     widgets_module.LoadRawSection.set_path(section, 'C:/tmp/example.nef')
     section.reprocess_button.click()
@@ -214,8 +203,8 @@ def test_load_raw_section_reprocess_button_uses_selected_path(monkeypatch) -> No
     section.reprocess_button.click()
 
     assert section.file_path.text() == ''
-    assert section.load_requested.emitted == [('C:/tmp/example.nef',)]
-    assert section.reprocess_button.enabled is False
+    assert emitted == ['C:/tmp/example.nef']
+    assert section.reprocess_button.isEnabled() is False
 
 
 def test_file_picker_choose_file_updates_path_and_emits_selected_file(monkeypatch) -> None:
@@ -269,64 +258,45 @@ def test_gui_config_buttons_emit_expected_actions(monkeypatch) -> None:
 
 
 def test_input_image_section_does_not_add_auxiliary_rows() -> None:
-    form = FakeForm()
-    add_extra_rows_before = getattr(widgets_module.InputImageSection, '_add_extra_rows_before', None)
-    if add_extra_rows_before is None:
-        return
-    section = SimpleNamespace(_filepicker_section=SimpleNamespace())
-
-    add_extra_rows_before(section, form)
-
-    assert form.rows == []
+    assert not hasattr(widgets_module.InputImageSection, '_add_extra_rows_before')
 
 
 def test_scan_for_print_toggle_applies_and_restores_scanner_and_glare_state() -> None:
     toggle_scan_for_print = getattr(widgets_module.SimulationSection, '_apply_scan_for_print_mode')
     glare_section = SimpleNamespace(active=FakeValueEditor(True))
+    scanner_section = SimpleNamespace(
+        white_correction=FakeValueEditor(False),
+        black_correction=FakeValueEditor(True),
+    )
 
     section = SimpleNamespace(
-        bottom_scan_film=FakeCheckbox(True),
-        scan_white_correction=FakeValueEditor(False),
-        scan_black_correction=FakeValueEditor(True),
         _glare_section=glare_section,
+        _scanner_section=scanner_section,
         _scan_for_print_restore_state=None,
     )
 
     toggle_scan_for_print(section, True)
 
-    assert section.bottom_scan_film.isChecked() is True
-    assert section.bottom_scan_film.enabled is True
-    assert section.scan_white_correction.value is True
-    assert section.scan_black_correction.value is True
+    assert scanner_section.white_correction.value is True
+    assert scanner_section.black_correction.value is True
     assert glare_section.active.value is False
 
     toggle_scan_for_print(section, False)
 
-    assert section.bottom_scan_film.isChecked() is True
-    assert section.scan_white_correction.value is False
-    assert section.scan_black_correction.value is True
+    assert scanner_section.white_correction.value is False
+    assert scanner_section.black_correction.value is True
     assert glare_section.active.value is True
     assert getattr(section, '_scan_for_print_restore_state') is None
 
 
-def test_numeric_widget_specs_define_minimum_and_step() -> None:
+def test_numeric_field_specs_define_minimum_and_step() -> None:
     sections = {
-        'simulation': state_module.SimulationState,
-        'display': state_module.DisplayState,
-        'special': state_module.SpecialState,
-        'glare': state_module.GlareState,
-        'chemistry': state_module.PrintChemistryState,
-        'halation': state_module.HalationState,
-        'couplers': state_module.CouplersState,
-        'grain': state_module.GrainState,
-        'preflashing': state_module.PreflashingState,
-        'input_image': state_module.InputImageState,
         'load_raw': state_module.LoadRawState,
     }
 
     missing: list[str] = []
     for section_name, state_cls in sections.items():
-        section_specs = widget_specs_module.GUI_WIDGET_SPECS.get(section_name, {})
+        section_specs = {spec.leaf: spec for spec in widgets_module.LOAD_RAW_FIELDS}
         for field_info in fields(state_cls):
             annotation = field_info.type
             is_numeric = annotation in (int, float) or get_origin(annotation) is tuple
@@ -336,12 +306,148 @@ def test_numeric_widget_specs_define_minimum_and_step() -> None:
             if spec is None:
                 missing.append(f'{section_name}.{field_info.name}: missing spec')
                 continue
-            if spec.min_value is None:
-                missing.append(f'{section_name}.{field_info.name}: missing min_value')
+            if spec.min is None:
+                missing.append(f'{section_name}.{field_info.name}: missing min')
             if spec.step is None:
                 missing.append(f'{section_name}.{field_info.name}: missing step')
 
+    # input_image is now path-bound: its numeric ranges live on the
+    # INPUT_IMAGE_FIELDS manifest.
+    from spektrafilm.runtime.params_schema import IOParams, SettingsParams
+    from spektrafilm_gui.param_manifest import INPUT_IMAGE_FIELDS
+
+    group_hints = {'io': get_type_hints(IOParams), 'settings': get_type_hints(SettingsParams)}
+    for spec in INPUT_IMAGE_FIELDS:
+        group, _, leaf = spec.path.partition('.')
+        annotation = group_hints[group][leaf]
+        is_numeric = annotation in (int, float) or get_origin(annotation) is tuple
+        if not is_numeric:
+            continue
+        if spec.min is None:
+            missing.append(f'input_image.{spec.leaf}: missing min')
+        if spec.step is None:
+            missing.append(f'input_image.{spec.leaf}: missing step')
+
+    from spektrafilm_gui.param_manifest import DISPLAY_PANEL_FIELDS, SIMULATION_FIELDS, SPECIAL_FIELDS
+
+    display_specs = {spec.leaf: spec for spec in DISPLAY_PANEL_FIELDS}
+    display_field_annotations = {
+        'use_display_transform': bool,
+        'gray_18_canvas': bool,
+        'white_padding': float,
+        'preview_max_size': int,
+        'output_interpolation': str,
+    }
+    for field_name in tuple(spec.leaf for spec in DISPLAY_PANEL_FIELDS):
+        annotation = display_field_annotations[field_name]
+        is_numeric = annotation in (int, float) or get_origin(annotation) is tuple
+        if not is_numeric:
+            continue
+        spec = display_specs.get(field_name)
+        if spec is None:
+            missing.append(f'display.{field_name}: missing spec')
+            continue
+        if spec.min is None:
+            missing.append(f'display.{field_name}: missing min')
+        if spec.step is None:
+            missing.append(f'display.{field_name}: missing step')
+
+    simulation_specs = {spec.leaf: spec for spec in SIMULATION_FIELDS}
+    simulation_field_annotations = {
+        'film_stock': str,
+        'print_paper': str,
+        'print_illuminant': str,
+        'print_exposure': float,
+        'print_exposure_compensation': bool,
+        'print_y_filter_shift': float,
+        'print_m_filter_shift': float,
+        'output_color_space': str,
+        'saving_color_space': str,
+        'saving_cctf_encoding': bool,
+        'auto_preview': bool,
+        'scan_film': bool,
+    }
+    for field_name in tuple(spec.leaf for spec in SIMULATION_FIELDS):
+        annotation = simulation_field_annotations[field_name]
+        is_numeric = annotation in (int, float) or get_origin(annotation) is tuple
+        if not is_numeric:
+            continue
+        spec = simulation_specs.get(field_name)
+        if spec is None:
+            missing.append(f'simulation.{field_name}: missing spec')
+            continue
+        if spec.min is None:
+            missing.append(f'simulation.{field_name}: missing min')
+        if spec.step is None:
+            missing.append(f'simulation.{field_name}: missing step')
+
+    special_specs = {spec.leaf: spec for spec in SPECIAL_FIELDS}
+    for field_name in tuple(spec.leaf for spec in SPECIAL_FIELDS):
+        annotation = float if field_name == 'film_gamma_factor' else tuple[int, int, int]
+        is_numeric = annotation in (int, float) or get_origin(annotation) is tuple
+        if not is_numeric:
+            continue
+        spec = special_specs.get(field_name)
+        if spec is None:
+            missing.append(f'special.{field_name}: missing spec')
+            continue
+        if spec.min is None:
+            missing.append(f'special.{field_name}: missing min')
+        if spec.step is None:
+            missing.append(f'special.{field_name}: missing step')
+
+    from spektrafilm_gui.param_manifest import PREFLASHING_MANIFEST
+
+    for spec in PREFLASHING_MANIFEST.fields:
+        if spec.leaf == 'preflash_exposure' and spec.min is None:
+            missing.append(f'{spec.path}: missing min')
+        if spec.step is None:
+            missing.append(f'{spec.path}: missing step')
+
     assert missing == []
+
+
+def test_params_group_section_mirrors_runtime_values_verbatim() -> None:
+    os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+    from qtpy import QtWidgets
+
+    from spektrafilm.runtime.params_schema import HalationParams
+    from spektrafilm_gui.param_manifest import HALATION_MANIFEST
+
+    _app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    section = widgets_module.ParamsGroupSection(HALATION_MANIFEST)
+
+    # values surface verbatim — no GUI-only transform (the schema stores
+    # 0-1 fractions and that is exactly what the widgets show / return)
+    section.set_state(HalationParams(
+        halation_strength=(0.08, 0.02, 0.0),
+        scatter_tail_weight=(0.78, 0.65, 0.67),
+    ))
+    assert tuple(section.scatter_tail_weight.value) == (0.78, 0.65, 0.67)
+
+    out = section.get_state()
+    assert isinstance(out, HalationParams)
+    np.testing.assert_allclose(out.halation_strength, (0.08, 0.02, 0.0))
+    np.testing.assert_allclose(out.scatter_tail_weight, (0.78, 0.65, 0.67))
+
+
+def test_param_manifests_are_complete_and_well_formed() -> None:
+    from spektrafilm_gui.param_manifest import ALL_MANIFESTS
+
+    for manifest in ALL_MANIFESTS:
+        group_field_names = {field_info.name for field_info in fields(manifest.group_cls)}
+        type_hints = get_type_hints(manifest.group_cls)
+        seen: set[str] = set()
+        for spec in manifest.fields:
+            # every manifest leaf is a real field of the runtime group,
+            # the path is consistent with the group path, and no field is
+            # declared twice
+            assert spec.leaf in group_field_names, f'{spec.path}: not a field of {manifest.group_cls.__name__}'
+            assert spec.path == f'{manifest.group_path}.{spec.leaf}'
+            assert spec.leaf not in seen, f'{spec.path}: declared twice'
+            seen.add(spec.leaf)
+            # the editor type must be inferable from the group's hints
+            assert spec.leaf in type_hints, f'{spec.path}: missing type hint'
 
 
 def test_section_header_icon_returns_empty_icon_without_pyconify(monkeypatch) -> None:
@@ -375,24 +481,22 @@ def test_widget_spec_decimals_configure_float_editors(monkeypatch) -> None:
 
     _app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
 
-    @dataclass
-    class TestState:
-        float_value: float = 0.0
-        float_pair: tuple[float, float] = (0.0, 0.0)
+    del monkeypatch
+    build_editor = getattr(widgets_module, '_editor_from_param_spec')
 
-    monkeypatch.setitem(
-        widget_specs_module.GUI_WIDGET_SPECS,
-        'test',
-        {
-            'float_value': widget_specs_module.WidgetSpec(decimals=4),
-            'float_pair': widget_specs_module.WidgetSpec(decimals=3),
-        },
+    float_editor = build_editor(
+        float,
+        param_manifest_module.ParamSpec('test.float_value', decimals=4),
+        label='test.float_value',
+    )
+    float_pair_editor = build_editor(
+        tuple[float, float],
+        param_manifest_module.ParamSpec('test.float_pair', decimals=3),
+        label='test.float_pair',
     )
 
-    section = widgets_module.DataclassSection(state_cls=TestState, section_name='test', title='Test')
-
-    assert section.float_value.decimals() == 4
-    assert [editor.decimals() for editor in section.float_pair.editors] == [3, 3]
+    assert float_editor.decimals() == 4
+    assert [editor.decimals() for editor in float_pair_editor.editors] == [3, 3]
 
 
 def test_simulation_section_profile_use_badges_follow_selected_profiles() -> None:
