@@ -72,15 +72,6 @@ wheels = [
 ]
 
 [[package]]
-name = "asteval"
-version = "1.0.8"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/8f/d4/c19cac7814b8ec273804ebee3c5d3c69ee2084cb75f25297cb4177a6aa85/asteval-1.0.8.tar.gz", hash = "sha256:7175134331726df0e1569f4ab5fa59266192cf1b365db0ff463c978842075cbb", size = 53989 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/99/31/6cf181011dc738c33bf6ba7aea2e8e1d3c1f71b7dab1942f3054f66f6202/asteval-1.0.8-py3-none-any.whl", hash = "sha256:6c64385c6ff859a474953c124987c7ee8354d781c76509b2c598741c4d1d28e9", size = 22968 },
-]
-
-[[package]]
 name = "asttokens"
 version = "3.0.1"
 source = { registry = "https://pypi.org/simple" }
@@ -443,15 +434,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/43/fa/6d96a0978d19e17b68d634497769987b16c8f4cd0a7a05048bec693caa6b/decorator-5.2.1.tar.gz", hash = "sha256:65f266143752f734b0a7cc83c46f4618af75b8c5911b00ccb61d0ac9b6da0360", size = 56711 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/4e/8c/f3147f5c4b73e7550fe5f9352eaa956ae838d5c51eb58e7a25b9f3e2643b/decorator-5.2.1-py3-none-any.whl", hash = "sha256:d316bb415a2d9e2d2b3abcc4084c6502fc09240e292cd76a76afc106a1c8e04a", size = 9190 },
-]
-
-[[package]]
-name = "dill"
-version = "0.4.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/81/e1/56027a71e31b02ddc53c7d65b01e68edf64dea2932122fe7746a516f75d5/dill-0.4.1.tar.gz", hash = "sha256:423092df4182177d4d8ba8290c8a5b640c66ab35ec7da59ccfa00f6fa3eea5fa", size = 187315 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/1e/77/dc8c558f7593132cf8fefec57c4f60c83b16941c574ac5f619abb3ae7933/dill-0.4.1-py3-none-any.whl", hash = "sha256:1e1ce33e978ae97fcfcff5638477032b801c46c7c65cf717f95fbc2248f79a9d", size = 120019 },
 ]
 
 [[package]]
@@ -924,22 +906,6 @@ wheels = [
 ]
 
 [[package]]
-name = "lmfit"
-version = "1.3.4"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "asteval" },
-    { name = "dill" },
-    { name = "numpy" },
-    { name = "scipy" },
-    { name = "uncertainties" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/5a/e5/a35942aed2de95e228728c34609b51fe3ec9182398eac50d288eef313aa2/lmfit-1.3.4.tar.gz", hash = "sha256:3c22c28c43f717f6c5b4a3bd81e893a2149739c26a592c046f2e33c23cfbe497", size = 630720 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/38/7e/7b91c89a4cf0f543a83be978657afb20c86af6d725253e319589dcc4ce52/lmfit-1.3.4-py3-none-any.whl", hash = "sha256:afce1593b42324d37ae2908249b0c55445e2f4c1a0474ff706a8e2f7b5d949fa", size = 97662 },
-]
-
-[[package]]
 name = "locket"
 version = "1.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -962,6 +928,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ba/9c/0d918ee0a9b31f16e9b76c1b86b81b5d4b7bc491354c76030b87790f0cab/magicgui-0.10.2.tar.gz", hash = "sha256:ae7a4cbb7ef2028b827b1877cf0b06743d756074fe6ef849391d62448ab7b65d", size = 20946219 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/56/bb/5ba264d3ccc13294e74c48c3ef0c2e96b8b13765562628515654012cc47e/magicgui-0.10.2-py3-none-any.whl", hash = "sha256:0f304d4da1a4309ad15d38cb809ef73269cea73a3195ac944f38d7c56d8e0fd5", size = 128254 },
+]
+
+[[package]]
+name = "markdown"
+version = "3.10.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/2b/f4/69fa6ed85ae003c2378ffa8f6d2e3234662abd02c10d216c0ba96081a238/markdown-3.10.2.tar.gz", hash = "sha256:994d51325d25ad8aa7ce4ebaec003febcce822c3f8c911e3b17c52f7f589f950", size = 368805 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/de/1f/77fa3081e4f66ca3576c896ae5d31c3002ac6607f9747d2e3aa49227e464/markdown-3.10.2-py3-none-any.whl", hash = "sha256:e91464b71ae3ee7afd3017d9f358ef0baf158fd9a298db92f1d4761133824c36", size = 108180 },
 ]
 
 [[package]]
@@ -1332,6 +1307,26 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/e9/3c/dfccc9e7dee357fb2aa13c3890d952a370dd0ed071e0f7ed62ed0df567c1/numpydoc-1.10.0.tar.gz", hash = "sha256:3f7970f6eee30912260a6b31ac72bba2432830cd6722569ec17ee8d3ef5ffa01", size = 94027 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/62/5e/3a6a3e90f35cea3853c45e5d5fb9b7192ce4384616f932cf7591298ab6e1/numpydoc-1.10.0-py3-none-any.whl", hash = "sha256:3149da9874af890bcc2a82ef7aae5484e5aa81cb2778f08e3c307ba6d963721b", size = 69255 },
+]
+
+[[package]]
+name = "opencolorio"
+version = "2.5.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/6a/ea/9d930df6740f9b09b0b342f40a5ef165da5050141e496081ef80b302e566/opencolorio-2.5.2.tar.gz", hash = "sha256:fecebd0914089b0c8238c55648f8eb2ccd2702ab4b2eea53856a0e368ded8262", size = 13946157 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9b/20/0c1fef5372e7184bd37eccb240f2ce80347cb8feb15373d721722c082786/opencolorio-2.5.2-cp313-cp313-macosx_10_15_x86_64.whl", hash = "sha256:d1a5ca15950a56bfaa6e061865e5550659522a86c31b4459fe29c6cc4f11eec4", size = 6358789 },
+    { url = "https://files.pythonhosted.org/packages/70/c4/5f0aef0fc6e89cf518eea6fbc0942542d54a80ce0a46a02abdae911bb2bf/opencolorio-2.5.2-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:bdc60c73e35e9fa25ecb777906b68d098fc7845b9ffbeaf6bc67b73e42bee79b", size = 5720294 },
+    { url = "https://files.pythonhosted.org/packages/3d/98/ce372b2eb35079dea3b1f088b514082bf92d9642d425e29227d5efa869c1/opencolorio-2.5.2-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:0a690efa269a5310b5e70c930380be02d56ffdb287a33b13f81bcdbcbfe27566", size = 6251862 },
+    { url = "https://files.pythonhosted.org/packages/14/cd/64994fa3d24bf4f76fbd8517249fd3e5b0983f552a5c784b3a1f42cdf4dc/opencolorio-2.5.2-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:36265c9539ef8317e6b4a7750c155286b6376626f7af67f98c536a5a20273871", size = 6825599 },
+    { url = "https://files.pythonhosted.org/packages/fe/6c/bca59902d1cf151dab890ca75312b85f3a86724230348de2447a1cc93475/opencolorio-2.5.2-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:b7d7494a311bf38bd3311d2bcb37c1409c5a0961559bcb802c90656edf96e379", size = 6941010 },
+    { url = "https://files.pythonhosted.org/packages/46/3b/4ba827c2d740a904cc93376694c5ac735d3e90bb7128783970f8c3807856/opencolorio-2.5.2-cp313-cp313-win_amd64.whl", hash = "sha256:47a68600bb159c2a4a824752c25554ca4f3847089cbc226d05478e284cec17c3", size = 3865124 },
+    { url = "https://files.pythonhosted.org/packages/ec/96/ac466b577fe45334381848ef5cebbcaa1ad7c716a2f225627b53362f0a0d/opencolorio-2.5.2-cp314-cp314-macosx_10_15_x86_64.whl", hash = "sha256:43957589095a3fa5cbfa1faa3d7da39da6c898b9a2d98207adc5ab92734e10b3", size = 6358779 },
+    { url = "https://files.pythonhosted.org/packages/0c/62/22d9fc33dafd72f40f9320db119e68c6ca8e5031702f334ffa8f7814cb0b/opencolorio-2.5.2-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:142eafd6c31aa7da3c97d2af5ce0403ccd2859be1252336ef9a2aea9a5082dce", size = 5713109 },
+    { url = "https://files.pythonhosted.org/packages/d6/3e/d8bff675d02fada4b8b68fb5c2334de11f8829ccc3afd45aa42e75d237a0/opencolorio-2.5.2-cp314-cp314-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:91a831f3ebcb1b3a67320a022f927c6a1811df68bad8d2c9730462b76b113b88", size = 6264662 },
+    { url = "https://files.pythonhosted.org/packages/dc/45/cd3b391843bb4dd2fbe4b8e324472cbbdcb5d198abfda0d81948a83532bb/opencolorio-2.5.2-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:b5f8c408f6dfb8561f6b30471eb0591742921edbc8b9e4caaa2b92cebe580c38", size = 6827981 },
+    { url = "https://files.pythonhosted.org/packages/8e/90/6e8f3a0bba909754112514fce6f2baf9d5ba99fff71cc2bea00e621e6bba/opencolorio-2.5.2-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:e1ede691d5263d3fc3c796bfff29f07042ac724d25675b031dd305ff5461366f", size = 6943716 },
+    { url = "https://files.pythonhosted.org/packages/cd/db/5327b1e96d4bdfd5793976f8626edc9c81497b95f50b67f5a5f8a11ce6f0/opencolorio-2.5.2-cp314-cp314-win_amd64.whl", hash = "sha256:076536f95c02911dcd32a5fd7033e5c3261d88a1aca7e40f4fd6093b99622f4b", size = 4032919 },
 ]
 
 [[package]]
@@ -2289,13 +2284,13 @@ wheels = [
 
 [[package]]
 name = "spektrafilm"
-version = "0.3.2"
+version = "0.3.3"
 source = { editable = "." }
 dependencies = [
     { name = "colour-science" },
     { name = "exiv2" },
     { name = "lensfunpy" },
-    { name = "lmfit" },
+    { name = "markdown" },
     { name = "matplotlib" },
     { name = "napari" },
     { name = "numba" },
@@ -2306,7 +2301,6 @@ dependencies = [
     { name = "pyconify" },
     { name = "pyfftw" },
     { name = "pyside6" },
-    { name = "pyyaml" },
     { name = "qtpy" },
     { name = "rawpy" },
     { name = "scikit-image" },
@@ -2315,6 +2309,7 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
+    { name = "opencolorio" },
     { name = "pytest" },
 ]
 gpu-apple = [
@@ -2338,12 +2333,13 @@ requires-dist = [
     { name = "exiv2", specifier = "~=0.18.1" },
     { name = "halide", marker = "extra == 'halide'", specifier = ">=21,<22" },
     { name = "lensfunpy", specifier = "~=1.18.0" },
-    { name = "lmfit", specifier = "~=1.3.2" },
+    { name = "markdown", specifier = "~=3.7" },
     { name = "matplotlib", specifier = "~=3.10" },
     { name = "mlx", marker = "extra == 'gpu-apple'", specifier = ">=0.31" },
     { name = "napari", specifier = "~=0.6.6" },
     { name = "numba", specifier = "~=0.64" },
     { name = "numpy", specifier = "~=2.4" },
+    { name = "opencolorio", marker = "extra == 'dev'", specifier = "~=2.5" },
     { name = "openimageio", specifier = "~=3.1.11" },
     { name = "opt-einsum", specifier = "~=3.4.0" },
     { name = "pillow", specifier = "~=12.1" },
@@ -2351,7 +2347,6 @@ requires-dist = [
     { name = "pyfftw", specifier = "~=0.15.0" },
     { name = "pyside6", specifier = "~=6.9" },
     { name = "pytest", marker = "extra == 'dev'" },
-    { name = "pyyaml", specifier = "~=6.0" },
     { name = "qtpy", specifier = "~=2.4" },
     { name = "rawpy", specifier = "~=0.26.1" },
     { name = "scikit-image", specifier = "~=0.26" },
@@ -2585,15 +2580,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/ba/19/1b9b0e29f30c6d35cb345486df41110984ea67ae69dddbc0e8a100999493/tzdata-2026.2.tar.gz", hash = "sha256:9173fde7d80d9018e02a662e168e5a2d04f87c41ea174b139fbef642eda62d10", size = 198254 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ce/e4/dccd7f47c4b64213ac01ef921a1337ee6e30e8c6466046018326977efd95/tzdata-2026.2-py2.py3-none-any.whl", hash = "sha256:bbe9af844f658da81a5f95019480da3a89415801f6cc966806612cc7169bffe7", size = 349321 },
-]
-
-[[package]]
-name = "uncertainties"
-version = "3.2.3"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/fe/0c/cb09f33b26955399c675ab378e4063ed7e48422d3d49f96219ab0be5eba9/uncertainties-3.2.3.tar.gz", hash = "sha256:76a5653e686f617a42922d546a239e9efce72e6b35411b7750a1d12dcba03031", size = 160492 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/8f/5e/f1e1dd319e35e962a4e00b33150a8868b6329cc1d19fd533436ba5488f09/uncertainties-3.2.3-py3-none-any.whl", hash = "sha256:313353900d8f88b283c9bad81e7d2b2d3d4bcc330cbace35403faaed7e78890a", size = 60118 },
 ]
 
 [[package]]

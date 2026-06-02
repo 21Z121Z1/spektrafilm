@@ -70,12 +70,14 @@ def _run_simulation_case(
         image_data,
         *,
         output_color_space,
+        output_cctf_encoding=True,
         use_display_transform,
         padding_pixels=0.0,
     ):
         captured['display_args'] = {
             'image_data': image_data.copy(),
             'output_color_space': output_color_space,
+            'output_cctf_encoding': output_cctf_encoding,
             'use_display_transform': use_display_transform,
             'padding_pixels': padding_pixels,
         }
@@ -816,6 +818,33 @@ def test_process_image_with_runtime_reuses_cached_simulator(monkeypatch) -> None
     assert len(captured['processed']) == 2
     np.testing.assert_allclose(first, image_first + 0.1)
     np.testing.assert_allclose(second, image_second + 0.1)
+
+
+def test_process_image_with_runtime_captures_backend_runtime_summary(monkeypatch) -> None:
+    controller = GuiController(viewer=object(), widgets=object())
+    params = object()
+    digested_params = object()
+    image = np.full((2, 2, 3), 0.25, dtype=np.float32)
+
+    class FakeSimulator:
+        def __init__(self, runtime_params) -> None:
+            assert runtime_params is digested_params
+
+        def process(self, runtime_image):
+            return np.asarray(runtime_image) + 0.1
+
+        def backend_runtime_summary(self) -> str:
+            return 'MLX selected; mixed CPU/MLX runtime path with optional GPU kernels'
+
+    monkeypatch.setattr(controller_module, 'digest_params', lambda runtime_params, **_kwargs: digested_params)
+    monkeypatch.setattr(controller_module, 'runtime_simulator', lambda runtime_params: FakeSimulator(runtime_params))
+
+    result = controller._process_image_with_runtime(image, params)
+
+    np.testing.assert_allclose(result, image + 0.1)
+    assert controller._last_runtime_backend_summary == (
+        'MLX selected; mixed CPU/MLX runtime path with optional GPU kernels'
+    )
 
 
 def test_process_image_with_runtime_reapplies_stock_specific_digest_after_profile_change(monkeypatch) -> None:

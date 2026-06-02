@@ -221,7 +221,7 @@ def test_heic_export_passes_scene_luminance_to_hdr_photo_encoder(monkeypatch, tm
     scene_luminance = np.array([[0.8, 4.0]], dtype=np.float32)
     captured: dict[str, object] = {}
 
-    def fake_save_hdr_photo_heic(filename, image_data, *, color_space, scene_luminance=None) -> None:
+    def fake_save_hdr_photo_heic(filename, image_data, *, color_space, scene_luminance=None, **_kwargs) -> None:
         captured["filename"] = filename
         captured["image_data"] = image_data.copy()
         captured["color_space"] = color_space
@@ -427,7 +427,7 @@ def test_heic_hdr_photo_dispatches_to_gain_map_encoder(monkeypatch, tmp_path) ->
     image = np.array([[[0.25, 1.5, 4.0]]], dtype=np.float32)
     path = tmp_path / "hdr.heic"
 
-    def fake_save_hdr_photo_heic(filename, image_data, *, color_space) -> None:
+    def fake_save_hdr_photo_heic(filename, image_data, *, color_space, **_kwargs) -> None:
         captured["filename"] = filename
         captured["image_data"] = image_data.copy()
         captured["color_space"] = color_space
@@ -447,6 +447,37 @@ def test_heic_hdr_photo_dispatches_to_gain_map_encoder(monkeypatch, tmp_path) ->
 
     assert captured["filename"] == str(path)
     assert captured["color_space"] == "Display P3"
+    np.testing.assert_allclose(captured["image_data"], image)
+
+
+def test_heic_hdr_photo_passes_quality_to_gain_map_encoder(monkeypatch, tmp_path) -> None:
+    captured: dict[str, object] = {}
+    image = np.array([[[0.25, 1.5, 4.0]]], dtype=np.float32)
+    path = tmp_path / "hdr-quality.heic"
+
+    def fake_save_hdr_photo_heic(filename, image_data, *, color_space, quality) -> None:
+        captured["filename"] = filename
+        captured["image_data"] = image_data.copy()
+        captured["color_space"] = color_space
+        captured["quality"] = quality
+
+    monkeypatch.setattr("spektrafilm.utils.io.save_hdr_photo_heic", fake_save_hdr_photo_heic)
+
+    save_image_oiio(
+        str(path),
+        image,
+        encoding=ColorEncoding(
+            color_space="Display P3",
+            transfer="linear",
+            role="scene",
+            clip_highlights=False,
+        ),
+        hdr_photo_quality=0.91,
+    )
+
+    assert captured["filename"] == str(path)
+    assert captured["color_space"] == "Display P3"
+    assert captured["quality"] == 0.91
     np.testing.assert_allclose(captured["image_data"], image)
 
 

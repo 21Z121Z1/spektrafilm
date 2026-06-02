@@ -280,6 +280,7 @@ def execute_simulation_request(
     *,
     run_simulation_fn: Callable[[np.ndarray, object], np.ndarray],
     prepare_output_display_image_fn: Callable[..., tuple[np.ndarray, str]],
+    runtime_status_fn: Callable[[], str | None] | None = None,
 ) -> SimulationResult:
     simulation_output = run_simulation_fn(request.image, request.params)
     scan = getattr(simulation_output, 'image', simulation_output)
@@ -290,6 +291,8 @@ def execute_simulation_request(
         output_cctf_encoding=request.output_cctf_encoding,
         use_display_transform=request.use_display_transform,
     )
+    runtime_status = runtime_status_fn() if runtime_status_fn is not None else None
+    status_message = display_status if not runtime_status else f"{display_status} | {runtime_status}"
     return SimulationResult(
         mode_label=request.mode_label,
         display_image=scan_display,
@@ -297,6 +300,6 @@ def execute_simulation_request(
         output_color_space=request.output_color_space,
         output_cctf_encoding=request.output_cctf_encoding,
         use_display_transform=request.use_display_transform,
-        status_message=display_status,
+        status_message=status_message,
         hdr_scene_energy=hdr_scene_energy,
     )

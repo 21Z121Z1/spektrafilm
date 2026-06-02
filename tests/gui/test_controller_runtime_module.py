@@ -40,6 +40,31 @@ def test_execute_simulation_request_uses_runtime_runner_without_padding() -> Non
     assert result.status_message == 'Display transform: active'
 
 
+def test_execute_simulation_request_appends_runtime_backend_status() -> None:
+    request = runtime_module.SimulationRequest(
+        mode_label='Preview',
+        image=np.full((2, 2, 3), 0.25, dtype=np.float32),
+        params=object(),
+        output_color_space='sRGB',
+        use_display_transform=False,
+    )
+
+    result = runtime_module.execute_simulation_request(
+        request,
+        run_simulation_fn=lambda image, params: np.full((4, 4, 3), 0.5, dtype=np.float32),
+        prepare_output_display_image_fn=lambda image, **kwargs: (
+            np.full((4, 4, 3), 127, dtype=np.uint8),
+            'Display transform: disabled',
+        ),
+        runtime_status_fn=lambda: 'MLX selected; mixed CPU/MLX runtime path with optional GPU kernels',
+    )
+
+    assert result.status_message == (
+        'Display transform: disabled | '
+        'MLX selected; mixed CPU/MLX runtime path with optional GPU kernels'
+    )
+
+
 def test_prepare_output_display_image_uses_aces_output_transform_for_linear_scene(monkeypatch) -> None:
     captured: dict[str, object] = {}
 

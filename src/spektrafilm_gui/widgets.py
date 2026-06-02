@@ -10,6 +10,7 @@ from spektrafilm_gui.param_manifest import (
     GLARE_MANIFEST,
     GRAIN_MANIFEST,
     HALATION_MANIFEST,
+    HDR_EXPORT_MANIFEST,
     INPUT_GAMUT_COMPRESS_MANIFEST,
     OUTPUT_GAMUT_COMPRESS_MANIFEST,
     PREFLASHING_MANIFEST,
@@ -59,6 +60,7 @@ class WidgetBundle:
     glare: ParamsGroupSection
     input_gamut_compress: ParamsGroupSection
     output_gamut_compress: ParamsGroupSection
+    hdr: ParamsGroupSection
     compute: ParamsGroupSection
     special: SpecialSection
     simulation: SimulationSection
@@ -98,6 +100,7 @@ def create_widget_bundle() -> WidgetBundle:
         glare=glare,
         input_gamut_compress=ParamsGroupSection(INPUT_GAMUT_COMPRESS_MANIFEST),
         output_gamut_compress=ParamsGroupSection(OUTPUT_GAMUT_COMPRESS_MANIFEST),
+        hdr=ParamsGroupSection(HDR_EXPORT_MANIFEST),
         compute=ParamsGroupSection(COMPUTE_MANIFEST),
         special=special,
         simulation=simulation,

@@ -344,6 +344,7 @@ def test_build_controls_panel_places_gamut_compression_sections_on_advanced_tab(
         scanner='scanner',
         output='output',
         output_gamut_compress='output_gamut_compress',
+        hdr='hdr',
         halation='halation',
         couplers='couplers',
         grain='grain',
@@ -372,3 +373,4 @@ def test_build_controls_panel_places_gamut_compression_sections_on_advanced_tab(
         'tune',
         'special',
     )
+    assert tabs['HDR'] == ('hdr',)

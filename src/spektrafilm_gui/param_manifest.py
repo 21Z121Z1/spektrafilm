@@ -38,12 +38,17 @@ from spektrafilm_gui.options import (
     ComputeBackend,
     DiffusionFilterFamilies,
     GpuPrecision,
+    HDRGainMapModes,
+    HDRHeadroomModes,
+    HDRMappingModes,
+    HDRSceneSources,
     InputGamutCompressAlgorithms,
     NapariInterpolationModes,
     OutputGamutCompressAlgorithms,
     RGBColorSpaces,
     RGBtoRAWMethod,
 )
+from spektrafilm_gui.hdr_settings import HDRExportSettings
 
 
 @dataclass(frozen=True)
@@ -859,6 +864,91 @@ SIMULATION_FIELDS = (
 )
 
 
+# --- HDR export settings ------------------------------------------------------
+
+_HDR = "hdr"
+
+HDR_EXPORT_MANIFEST = GroupManifest(
+    title="HDR Export",
+    group_path=_HDR,
+    group_cls=HDRExportSettings,
+    collapsed_by_default=False,
+    fields=(
+        ParamSpec(
+            f"{_HDR}.hdr_mapping_mode",
+            label="HDR mapping",
+            tier="basic",
+            enum=HDRMappingModes,
+            tooltip="HDR export mapping route used only for explicit HDR HEIC gain-map output.",
+        ),
+        ParamSpec(
+            f"{_HDR}.hdr_heic_gain_map_enabled",
+            label="HEIC gain map",
+            tier="basic",
+            tooltip="Enable explicit HDR gain-map HEIC/HEIF export. Standard PNG/JPEG/TIFF/EXR saves are unaffected.",
+        ),
+        ParamSpec(
+            f"{_HDR}.hdr_scene_source",
+            label="Scene source",
+            tier="basic",
+            enum=HDRSceneSources,
+            tooltip="Scene luminance source for profile-aware HDR export.",
+        ),
+        ParamSpec(
+            f"{_HDR}.hdr_diffuse_white_target",
+            label="Diffuse white target",
+            min=0.1,
+            max=4.0,
+            step=0.05,
+            tooltip="Target diffuse white for HDR mapping.",
+        ),
+        ParamSpec(
+            f"{_HDR}.hdr_peak_headroom",
+            label="Peak headroom",
+            min=1.01,
+            max=16.0,
+            step=0.25,
+            tooltip="Maximum HDR headroom allowed during gain-map rendition generation.",
+        ),
+        ParamSpec(
+            f"{_HDR}.hdr_headroom_mode",
+            label="Headroom mode",
+            enum=HDRHeadroomModes,
+            tooltip="How profile-aware HDR budgets highlight recovery.",
+        ),
+        ParamSpec(
+            f"{_HDR}.headroom_percentile",
+            label="Headroom percentile",
+            min=50.0,
+            max=100.0,
+            step=0.1,
+            decimals=2,
+            tooltip="Content percentile used to estimate output headroom.",
+        ),
+        ParamSpec(
+            f"{_HDR}.preserve_sdr_base",
+            label="Preserve SDR base",
+            tooltip="Keep the authored SDR look as the gain-map base rendition.",
+        ),
+        ParamSpec(
+            f"{_HDR}.gain_map_mode",
+            label="Gain map mode",
+            enum=HDRGainMapModes,
+            tooltip="Encode the HEIC gain map as RGB or luma.",
+        ),
+        ParamSpec(
+            f"{_HDR}.heic_quality",
+            label="HEIC quality",
+            min=0.1,
+            max=1.0,
+            step=0.01,
+            decimals=2,
+            tooltip="CoreImage HEIC encoder quality for explicit HDR gain-map export.",
+        ),
+    ),
+)
+
+
 # --- compute backend: GPU acceleration settings ------------------------------
 
 _COMPUTE = "settings"
@@ -916,5 +1006,6 @@ ALL_MANIFESTS = (
     SCANNER_MANIFEST,
     INPUT_GAMUT_COMPRESS_MANIFEST,
     OUTPUT_GAMUT_COMPRESS_MANIFEST,
+    HDR_EXPORT_MANIFEST,
     COMPUTE_MANIFEST,
 )

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 from qtpy import QtCore, QtWidgets
 
+from spektrafilm.color_management import ColorEncoding
 from spektrafilm_gui import controller_persistence as persistence_actions
 from spektrafilm_gui import controller_profile_sync as profile_sync
 from spektrafilm_gui import controller_runtime as runtime
@@ -33,6 +34,7 @@ OUTPUT_FLOAT_DATA_KEY = 'pipeline_float_output'
 OUTPUT_COLOR_SPACE_KEY = 'pipeline_output_color_space'
 OUTPUT_CCTF_ENCODING_KEY = 'pipeline_output_cctf_encoding'
 OUTPUT_DISPLAY_TRANSFORM_KEY = 'pipeline_use_display_transform'
+OUTPUT_HDR_SCENE_ENERGY_KEY = 'pipeline_hdr_scene_energy'
 PROFILE_SYNC_SECTION_NAMES = profile_sync.PROFILE_SYNC_SECTION_NAMES
 if TYPE_CHECKING:
     import napari
@@ -113,6 +115,14 @@ def save_image_oiio(*args, **kwargs):
     return import_module("spektrafilm.utils.io").save_image_oiio(*args, **kwargs)
 
 
+def sample_runtime_film_scan_curve_profile(*args, **kwargs):
+    module = import_module("spektrafilm.utils.hdr_curve_profiles")
+    sample_or_profile = module.sample_runtime_film_scan_curve_profile(*args, **kwargs)
+    if isinstance(sample_or_profile, dict):
+        return module.curve_profile_from_sample(sample_or_profile)
+    return sample_or_profile
+
+
 def read_image_metadata(*args, **kwargs):
     return import_module("spektrafilm.utils.io").read_image_metadata(*args, **kwargs)
 
@@ -149,6 +159,7 @@ class GuiController:
         self._active_simulation_worker: runtime.SimulationWorker | None = None
         self._active_simulation_label: str | None = None
         self._runtime_simulator = None
+        self._last_runtime_backend_summary: str | None = None
         self._next_runtime_digest_applies_stock_specifics = True
         self._current_input_image: np.ndarray | None = None
         self._current_input_path: str | None = None
@@ -333,7 +344,7 @@ class GuiController:
             dialog_parent(self._viewer),
             'Save output image',
             default_name,
-            'Images (*.jpg *.jpeg *.png *.tif *.tiff *.exr)',
+            'Images (*.jpg *.jpeg *.png *.tif *.tiff *.exr *.heic *.heif)',
         )
         if not filepath:
             return
@@ -374,12 +385,14 @@ class GuiController:
             source_metadata = read_image_metadata(self._current_input_path)
 
         try:
-            save_image_oiio(
+            save_kwargs = self._save_output_kwargs(
                 filepath,
-                image_data,
-                color_space=saving_color_space,
-                cctf_encoding=saving_cctf_encoding,
+                gui_state=gui_state,
+                output_layer=output_layer,
+                saving_color_space=saving_color_space,
+                saving_cctf_encoding=saving_cctf_encoding,
             )
+            save_image_oiio(filepath, image_data, **save_kwargs)
         except (OSError, ValueError) as exc:
             QMessageBox.critical(dialog_parent(self._viewer), 'Save output', f'Failed to save output image.\n\n{exc}')
             return
@@ -402,6 +415,89 @@ class GuiController:
             )
         else:
             set_status(self._viewer, f"Saved output image to {filepath}")
+
+    def _save_output_kwargs(
+        self,
+        filepath: str,
+        *,
+        gui_state,
+        output_layer: NapariImageLayer,
+        saving_color_space: str,
+        saving_cctf_encoding: bool,
+    ) -> dict[str, object]:
+        suffix = Path(filepath).suffix.lower()
+        if suffix not in {'.heic', '.heif'}:
+            return {
+                'color_space': saving_color_space,
+                'cctf_encoding': saving_cctf_encoding,
+            }
+
+        hdr_settings = gui_state.hdr
+        if not hdr_settings.hdr_heic_gain_map_enabled:
+            raise ValueError("Enable HDR HEIC gain map export in the HDR Export panel before saving HEIC/HEIF.")
+
+        scene_energy = output_layer.metadata.get(OUTPUT_HDR_SCENE_ENERGY_KEY)
+        scene_luminance = getattr(scene_energy, 'scene_luminance', None)
+        scene_rgb = getattr(scene_energy, 'scene_rgb', None)
+        mode = str(hdr_settings.hdr_mapping_mode)
+        if mode in {'profile_aware', 'film_scan_aware'} and scene_luminance is None:
+            raise ValueError("HDR scene luminance sidecar is missing; rerun the simulation before HDR HEIC export.")
+
+        save_kwargs: dict[str, object] = {
+            'encoding': ColorEncoding(
+                color_space=saving_color_space,
+                transfer='cctf' if saving_cctf_encoding else 'linear',
+                role='display' if saving_cctf_encoding else 'scene',
+                clip_highlights=bool(saving_cctf_encoding),
+            ),
+            'hdr_mapping_kwargs': self._hdr_mapping_kwargs(gui_state),
+            'hdr_photo_quality': float(hdr_settings.heic_quality),
+        }
+        if scene_luminance is not None:
+            save_kwargs['scene_luminance'] = scene_luminance
+        if scene_rgb is not None:
+            save_kwargs['scene_rgb'] = scene_rgb
+        return save_kwargs
+
+    def _hdr_mapping_kwargs(self, gui_state) -> dict[str, object]:
+        hdr_settings = gui_state.hdr
+        mode = str(hdr_settings.hdr_mapping_mode)
+        mapping_kwargs: dict[str, object] = {
+            'hdr_mapping_mode': mode,
+            'hdr_diffuse_white_target': float(hdr_settings.hdr_diffuse_white_target),
+            'max_headroom': float(hdr_settings.hdr_peak_headroom),
+            'headroom_percentile': float(hdr_settings.headroom_percentile),
+            'preserve_sdr_base': bool(hdr_settings.preserve_sdr_base),
+            'gain_map_mode': str(hdr_settings.gain_map_mode),
+        }
+        if str(hdr_settings.hdr_headroom_mode) == 'modern_recovery_peak_budget':
+            mapping_kwargs['profile_hdr_mode'] = 'modern_recovery_peak_budget'
+
+        if mode == 'generic':
+            return mapping_kwargs
+
+        selection = gui_state.simulation.selection
+        if mode == 'profile_aware':
+            mapping_kwargs.update({
+                'film': selection.film_stock,
+                'paper': selection.print_paper,
+            })
+            return mapping_kwargs
+
+        if mode == 'film_scan_aware':
+            params = digest_params(build_params_from_state(gui_state))
+            curve_profile = sample_runtime_film_scan_curve_profile(
+                params=params,
+                film=selection.film_stock,
+            )
+            mapping_kwargs.update({
+                'film': selection.film_stock,
+                'paper': None,
+                'curve_profile': curve_profile,
+            })
+            return mapping_kwargs
+
+        raise ValueError(f"Unknown HDR mapping mode: {mode!r}")
 
     def save_current_as_default(self) -> None:
         persistence_actions.save_current_as_default(
@@ -466,6 +562,7 @@ class GuiController:
         output_color_space: str,
         output_cctf_encoding: bool,
         use_display_transform: bool,
+        hdr_scene_energy: object | None = None,
     ) -> None:
         self._layers.set_or_add_output_layer(
             image,
@@ -475,6 +572,9 @@ class GuiController:
             use_display_transform=use_display_transform,
             output_interpolation_mode=self._output_interpolation_mode(),
         )
+        output_layer = self._output_layer()
+        if output_layer is not None:
+            output_layer.metadata[OUTPUT_HDR_SCENE_ENERGY_KEY] = hdr_scene_energy
 
     def _set_or_add_input_stack(
         self,
@@ -643,9 +743,13 @@ class GuiController:
             else:
                 self._runtime_simulator.update_params(digested_params)
             self._next_runtime_digest_applies_stock_specifics = False
-            return self._runtime_simulator.process(image_data)
+            result = self._runtime_simulator.process(image_data)
+            summary_fn = getattr(self._runtime_simulator, "backend_runtime_summary", None)
+            self._last_runtime_backend_summary = summary_fn() if callable(summary_fn) else None
+            return result
         except Exception:
             self._runtime_simulator = None
+            self._last_runtime_backend_summary = None
             raise
 
     def _set_display_transform_checked(self, enabled: bool) -> None:
@@ -679,6 +783,7 @@ class GuiController:
             request,
             run_simulation_fn=self._process_image_with_runtime,
             prepare_output_display_image_fn=self._prepare_output_display_image,
+            runtime_status_fn=lambda: self._last_runtime_backend_summary,
         )
 
     @staticmethod
@@ -711,6 +816,7 @@ class GuiController:
             image=image,
             params=params,
             output_color_space=state.simulation.io.output_color_space,
+            output_cctf_encoding=state.simulation.io.output_cctf_encoding,
             use_display_transform=state.gui_only.display.use_display_transform,
         )
 
@@ -735,8 +841,9 @@ class GuiController:
             result.display_image,
             float_image=result.float_image,
             output_color_space=result.output_color_space,
-            output_cctf_encoding=True,
+            output_cctf_encoding=result.output_cctf_encoding,
             use_display_transform=result.use_display_transform,
+            hdr_scene_energy=result.hdr_scene_energy,
         )
         if report_status:
             set_status(self._viewer, f'{result.mode_label} completed. {result.status_message}')
@@ -776,17 +883,21 @@ class GuiController:
         )
 
         image = np.double(image_data)
-        scan = self._process_image_with_runtime(image, params)
+        simulation_output = self._process_image_with_runtime(image, params)
+        scan = getattr(simulation_output, 'image', simulation_output)
+        hdr_scene_energy = getattr(simulation_output, 'hdr_scene_energy', None)
         scan_display, display_status = self._prepare_output_display_image(
             scan,
             output_color_space=state.simulation.io.output_color_space,
+            output_cctf_encoding=state.simulation.io.output_cctf_encoding,
             use_display_transform=state.gui_only.display.use_display_transform,
         )
         self._set_or_add_output_layer(
             scan_display,
             float_image=scan,
             output_color_space=state.simulation.io.output_color_space,
-            output_cctf_encoding=True,
+            output_cctf_encoding=state.simulation.io.output_cctf_encoding,
             use_display_transform=state.gui_only.display.use_display_transform,
+            hdr_scene_energy=hdr_scene_energy,
         )
         set_status(self._viewer, display_status)

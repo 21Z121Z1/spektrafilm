@@ -10,8 +10,10 @@ from qtpy import QtCore
 from spektrafilm_gui.state import (
     GuiState,
     display_to_dict,
+    hdr_to_dict,
     input_image_to_dict,
     normalize_display_dict,
+    normalize_hdr_dict,
     normalize_input_image_dict,
     normalize_simulation_dict,
     normalize_special_dict,
@@ -35,6 +37,7 @@ SECTION_NORMALIZERS = {
     'input_image': normalize_input_image_dict,
     'special': normalize_special_dict,
     'simulation': normalize_simulation_dict,
+    'hdr': normalize_hdr_dict,
 }
 GUI_ONLY_SECTION_NORMALIZERS = {
     'load_raw': _copy_section_dict,
@@ -50,6 +53,7 @@ def gui_state_to_dict(state: GuiState) -> dict[str, Any]:
     data['load_raw'] = asdict(state.gui_only.load_raw)
     data['special'] = special_to_dict(state.special)
     data['simulation'] = simulation_to_dict(state.simulation)
+    data['hdr'] = hdr_to_dict(state.hdr)
     data['display'] = display_to_dict(state.gui_only.display)
     return data
 

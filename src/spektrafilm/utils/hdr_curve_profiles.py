@@ -23,6 +23,18 @@ DEFAULT_CURVE_PROFILE_DIR: Final = (
     Path(__file__).resolve().parents[1] / "data" / "hdr_curve_profiles"
 )
 HDRCurveRoute: TypeAlias = Literal["print_scan", "film_scan"]
+FilmScanProfileKind: TypeAlias = Literal[
+    "print_scan",
+    "raw_negative_scan",
+    "positive_negative_scan",
+    "positive_film_scan",
+]
+FilmScanProfileKindRequest: TypeAlias = Literal[
+    "auto",
+    "raw_negative_scan",
+    "positive_negative_scan",
+    "positive_film_scan",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +66,8 @@ class HDRCurveProfile:
     sdr_luminance_y: np.ndarray
     route: HDRCurveRoute = "print_scan"
     scanner: str | None = None
+    profile_kind: FilmScanProfileKind = "print_scan"
+    negative_scan_render: dict[str, object] | None = None
 
 
 FilmPrintHDRCurveProfile: TypeAlias = HDRCurveProfile
@@ -144,12 +158,133 @@ def _default_hdr_defaults(metrics: dict[str, float | str | bool]) -> HDRCurveDef
     )
 
 
+def _channel_vector_from_metadata(metadata: dict[str, object], key: str, *, minimum: float) -> np.ndarray:
+    values = np.asarray(metadata.get(key), dtype=np.float32).reshape(-1)
+    if values.size != 3 or not np.all(np.isfinite(values)):
+        raise ValueError(f"negative scan render metadata field {key!r} must contain three finite channels.")
+    return np.maximum(values.astype(np.float32), np.float32(minimum))
+
+
+def _build_negative_scan_render_metadata(raw_rgb: np.ndarray, scene_y: np.ndarray) -> dict[str, object]:
+    raw = np.asarray(raw_rgb, dtype=np.float32)
+    if raw.ndim != 2 or raw.shape[1] < 3:
+        raise ValueError("raw_rgb must have shape (sample_count, 3) to build negative scan render metadata.")
+    scene = _clean_array(scene_y).reshape(-1)
+    if scene.shape[0] != raw.shape[0]:
+        raise ValueError("scene_y and raw_rgb must have the same sample count.")
+    if np.any(scene <= 0.0):
+        raise ValueError("scene_y samples must be positive.")
+
+    raw = np.nan_to_num(raw[:, :3], nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32)
+    raw = np.maximum(raw, np.float32(_EPS))
+    order = np.argsort(scene)
+    sorted_raw = raw[order]
+    sample_count = sorted_raw.shape[0]
+    reference_count = max(1, min(sample_count, int(math.ceil(sample_count * 0.20))))
+
+    clear_rgb = np.percentile(sorted_raw[:reference_count], 95.0, axis=0).astype(np.float32)
+    dense_rgb = np.percentile(sorted_raw[-reference_count:], 5.0, axis=0).astype(np.float32)
+    clear_rgb = np.maximum(clear_rgb, np.float32(_EPS))
+    dense_rgb = np.minimum(np.maximum(dense_rgb, np.float32(_EPS)), clear_rgb * np.float32(0.999))
+
+    density = -np.log10(np.maximum(raw, np.float32(_EPS)) / clear_rgb)
+    density = np.maximum(density, np.float32(0.0))
+    high_density = density[order][-reference_count:]
+    density_range_rgb = np.percentile(high_density, 95.0, axis=0).astype(np.float32)
+    density_range_rgb = np.maximum(density_range_rgb, np.float32(0.05))
+
+    return {
+        "model": "density_normalized_positive",
+        "space": "linear_scanner_rgb",
+        "raw_clear_rgb": [float(v) for v in clear_rgb],
+        "raw_dense_rgb": [float(v) for v in dense_rgb],
+        "density_range_rgb": [float(v) for v in density_range_rgb],
+        "toe": 0.015,
+        "shoulder": 0.85,
+    }
+
+
+def render_negative_scan_positive_rgb(
+    raw_rgb: np.ndarray,
+    *,
+    scene_y: np.ndarray | None = None,
+    render_metadata: dict[str, object] | None = None,
+    return_metadata: bool = False,
+) -> np.ndarray | tuple[np.ndarray, dict[str, object]]:
+    """Render a raw negative film scan into a positive film-scan RGB look.
+
+    The transform operates on linear, unclipped scanner RGB. It estimates or
+    consumes film-base / dense-negative references, converts raw transmittance
+    to relative density, normalizes each channel by its density range, then
+    applies a soft positive display shoulder. This is intentionally not a
+    blind inversion of arbitrary display-encoded output.
+    """
+    raw = np.asarray(raw_rgb, dtype=np.float32)
+    if raw.ndim < 2 or raw.shape[-1] < 3:
+        raise ValueError("raw_rgb must have a final RGB channel dimension.")
+    if render_metadata is None:
+        if scene_y is None:
+            raise ValueError("scene_y is required when negative scan render metadata is not provided.")
+        render_metadata = _build_negative_scan_render_metadata(raw.reshape(-1, raw.shape[-1])[:, :3], scene_y)
+
+    clear_rgb = _channel_vector_from_metadata(render_metadata, "raw_clear_rgb", minimum=_EPS)
+    density_range_rgb = _channel_vector_from_metadata(render_metadata, "density_range_rgb", minimum=0.05)
+    toe = float(np.clip(_finite_float(render_metadata.get("toe"), 0.015), 0.0, 0.20))
+    shoulder = max(_finite_float(render_metadata.get("shoulder"), 0.85), 0.05)
+
+    rgb = np.maximum(np.nan_to_num(raw[..., :3], nan=0.0, posinf=0.0, neginf=0.0), np.float32(_EPS))
+    density = -np.log10(rgb / clear_rgb)
+    density = np.maximum(density, np.float32(0.0))
+    density_norm = density / density_range_rgb
+
+    denom = 1.0 - math.exp(-1.0 / shoulder)
+    positive = toe + (1.0 - toe) * (1.0 - np.exp(-density_norm / np.float32(shoulder))) / np.float32(max(denom, _EPS))
+    positive = np.maximum(positive, np.float32(0.0)).astype(np.float32)
+
+    if raw.shape[-1] == 3:
+        rendered = positive
+    else:
+        rendered = raw.copy()
+        rendered[..., :3] = positive
+
+    if return_metadata:
+        return rendered.astype(np.float32, copy=False), dict(render_metadata)
+    return rendered.astype(np.float32, copy=False)
+
+
+def _enforce_profile_sample_luminance_monotonic(scene_y: np.ndarray, output_rgb: np.ndarray) -> np.ndarray:
+    rgb = _clean_array(output_rgb)
+    if rgb.ndim != 2 or rgb.shape[1] < 3:
+        raise ValueError("output_rgb must have shape (sample_count, 3).")
+    scene = _clean_array(scene_y).reshape(-1)
+    if scene.shape[0] != rgb.shape[0]:
+        raise ValueError("scene_y and output_rgb must have the same sample count.")
+
+    y = luminance_y(rgb)
+    order = np.argsort(scene)
+    sorted_y = y[order]
+    monotonic_y = np.maximum.accumulate(sorted_y)
+    scale = np.divide(
+        monotonic_y,
+        np.maximum(sorted_y, np.float32(_EPS)),
+        out=np.ones_like(monotonic_y, dtype=np.float32),
+        where=sorted_y > np.float32(_EPS),
+    )
+    restored_scale = np.empty_like(scale)
+    restored_scale[order] = scale
+    adjusted = rgb.copy()
+    adjusted[:, :3] = adjusted[:, :3] * restored_scale[:, None]
+    return adjusted.astype(np.float32, copy=False)
+
+
 def build_curve_profile_sample(
     *,
     film: str,
     paper: str | None,
     route: HDRCurveRoute = "print_scan",
     scanner: str | None = None,
+    profile_kind: FilmScanProfileKind | None = None,
+    negative_scan_render: dict[str, object] | None = None,
     scene_y: np.ndarray,
     output_rgb: np.ndarray,
 ) -> dict[str, object]:
@@ -157,6 +292,14 @@ def build_curve_profile_sample(
         raise ValueError("route must be 'print_scan' or 'film_scan'.")
     if route == "print_scan" and paper is None:
         raise ValueError("print_scan curve profiles require a paper identifier.")
+    if profile_kind is None:
+        profile_kind = "print_scan" if route == "print_scan" else "positive_film_scan"
+    if route == "print_scan" and profile_kind != "print_scan":
+        raise ValueError("print_scan curve profiles must use profile_kind='print_scan'.")
+    if route == "film_scan" and profile_kind == "print_scan":
+        raise ValueError("film_scan curve profiles must not use profile_kind='print_scan'.")
+    if negative_scan_render is not None and profile_kind != "positive_negative_scan":
+        raise ValueError("negative scan render metadata is only valid for positive_negative_scan profiles.")
 
     scene = _clean_array(scene_y).reshape(-1)
     rgb = _clean_array(output_rgb)
@@ -191,6 +334,8 @@ def build_curve_profile_sample(
         and midtone_slope > 0.0
         and highlight_slope >= -1e-5
     )
+    if profile_kind == "raw_negative_scan":
+        safe = False
 
     metrics: dict[str, float | str | bool] = {
         "polarity": polarity,
@@ -212,9 +357,11 @@ def build_curve_profile_sample(
     return {
         "version": 2,
         "route": route,
+        "profile_kind": profile_kind,
         "film": film,
         "paper": paper,
         "scanner": scanner,
+        **({"negative_scan_render": negative_scan_render} if negative_scan_render is not None else {}),
         "input_domain": {
             "scene_y_anchor": "diffuse_white_is_1.0",
             "ev_relative_to_diffuse_white": [float(v) for v in ev],
@@ -301,6 +448,8 @@ def build_dynamic_curve_profile(
         sdr_luminance_y=y,
         route=fallback_profile.route,
         scanner=fallback_profile.scanner,
+        profile_kind=fallback_profile.profile_kind,
+        negative_scan_render=fallback_profile.negative_scan_render,
     )
 
 def _slug(value: str) -> str:
@@ -314,6 +463,7 @@ def _summary_entry(sample: dict[str, object], sample_path: str) -> dict[str, obj
         raise ValueError("sample must contain metrics and hdr_defaults objects.")
     return {
         "route": str(sample.get("route", "print_scan")),
+        "profile_kind": str(sample.get("profile_kind", "print_scan")),
         "film": sample["film"],
         "paper": sample.get("paper"),
         "scanner": sample.get("scanner"),
@@ -434,6 +584,7 @@ def sample_runtime_film_scan_curve_profile(
     params=None,
     film: str | None = None,
     paper: str | None = None,
+    scan_profile_kind: FilmScanProfileKindRequest = "auto",
     ev_min: float = -10.0,
     ev_max: float = 6.0,
     ev_step: float = 0.5,
@@ -453,6 +604,21 @@ def sample_runtime_film_scan_curve_profile(
         film = None if film is None else str(film)
     if not film or film == "None":
         raise ValueError("film-scan curve sampling requires a film identifier.")
+    if scan_profile_kind not in ("auto", "raw_negative_scan", "positive_negative_scan", "positive_film_scan"):
+        raise ValueError("scan_profile_kind must be 'auto', 'raw_negative_scan', 'positive_negative_scan', or 'positive_film_scan'.")
+
+    is_negative = bool(getattr(getattr(params, "film", None), "is_negative", False))
+    is_positive = bool(getattr(getattr(params, "film", None), "is_positive", False))
+    if scan_profile_kind == "auto":
+        profile_kind: FilmScanProfileKind = "positive_negative_scan" if is_negative else "positive_film_scan"
+    else:
+        profile_kind = scan_profile_kind
+    if profile_kind in ("raw_negative_scan", "positive_negative_scan") and not is_negative:
+        raise ValueError(f"{profile_kind} requires a negative film profile.")
+    if profile_kind == "positive_film_scan" and is_negative:
+        raise ValueError("positive_film_scan requires a positive/reversal film profile.")
+    if not (is_negative or is_positive):
+        raise ValueError("film-scan curve sampling requires a film profile with type 'negative' or 'positive'.")
 
     sampled_params = _prepare_profile_sampling_params(
         params,
@@ -462,12 +628,25 @@ def sample_runtime_film_scan_curve_profile(
 
     scene_y = neutral_scene_y_samples(ev_min=ev_min, ev_max=ev_max, ev_step=ev_step)
     ramp_rgb = np.repeat(scene_y.reshape(1, -1, 1), 3, axis=2).astype(np.float64)
-    output_rgb = np.asarray(Simulator(sampled_params).process(ramp_rgb)[0], dtype=np.float32)
+    raw_output_rgb = np.asarray(Simulator(sampled_params).process(ramp_rgb)[0], dtype=np.float32)
+    negative_scan_render = None
+    if profile_kind == "positive_negative_scan":
+        output_rgb, negative_scan_render = render_negative_scan_positive_rgb(
+            raw_output_rgb,
+            scene_y=scene_y,
+            return_metadata=True,
+        )
+    else:
+        output_rgb = raw_output_rgb
+    if profile_kind in ("positive_negative_scan", "positive_film_scan"):
+        output_rgb = _enforce_profile_sample_luminance_monotonic(scene_y, output_rgb)
     return build_curve_profile_sample(
         film=film,
         paper=None,
         route="film_scan",
         scanner="runtime_current",
+        profile_kind=profile_kind,
+        negative_scan_render=negative_scan_render,
         scene_y=scene_y,
         output_rgb=output_rgb,
     )
@@ -496,9 +675,15 @@ def curve_profile_from_sample(sample: dict[str, object]) -> HDRCurveProfile:
     route = str(sample.get("route", "print_scan"))
     if route not in ("print_scan", "film_scan"):
         raise ValueError("curve profile sample route must be 'print_scan' or 'film_scan'.")
+    profile_kind = str(sample.get("profile_kind", "print_scan" if route == "print_scan" else "positive_film_scan"))
+    if profile_kind not in ("print_scan", "raw_negative_scan", "positive_negative_scan", "positive_film_scan"):
+        raise ValueError("curve profile sample profile_kind is invalid.")
     defaults = sample.get("hdr_defaults", {})
     if not isinstance(defaults, dict):
         defaults = {}
+    negative_scan_render = sample.get("negative_scan_render")
+    if negative_scan_render is not None and not isinstance(negative_scan_render, dict):
+        raise ValueError("negative_scan_render must be an object when present.")
 
     return HDRCurveProfile(
         film=str(sample["film"]),
@@ -516,6 +701,8 @@ def curve_profile_from_sample(sample: dict[str, object]) -> HDRCurveProfile:
         sdr_luminance_y=np.asarray(output["luminance_y"], dtype=np.float32),
         route=route,  # type: ignore[arg-type]
         scanner=None if sample.get("scanner") is None else str(sample["scanner"]),
+        profile_kind=profile_kind,  # type: ignore[arg-type]
+        negative_scan_render=negative_scan_render,
     )
 
 
@@ -530,6 +717,12 @@ def _profile_from_entry(root: Path, entry: dict[str, object]) -> HDRCurveProfile
     route = str(entry.get("route", sample.get("route", "print_scan")))
     if route not in ("print_scan", "film_scan"):
         route = "print_scan"
+    profile_kind = str(entry.get("profile_kind", sample.get("profile_kind", "print_scan" if route == "print_scan" else "positive_film_scan")))
+    if profile_kind not in ("print_scan", "raw_negative_scan", "positive_negative_scan", "positive_film_scan"):
+        profile_kind = "print_scan" if route == "print_scan" else "positive_film_scan"
+    negative_scan_render = sample.get("negative_scan_render")
+    if negative_scan_render is not None and not isinstance(negative_scan_render, dict):
+        negative_scan_render = None
     return HDRCurveProfile(
         film=str(entry["film"]),
         paper=None if entry.get("paper") is None else str(entry["paper"]),
@@ -546,6 +739,8 @@ def _profile_from_entry(root: Path, entry: dict[str, object]) -> HDRCurveProfile
         sdr_luminance_y=sdr_y,
         route=route,  # type: ignore[arg-type]
         scanner=None if entry.get("scanner") is None else str(entry["scanner"]),
+        profile_kind=profile_kind,  # type: ignore[arg-type]
+        negative_scan_render=negative_scan_render,
     )
 
 

@@ -37,6 +37,20 @@ class HDRMappingModes(Enum):
     film_scan_aware = "film_scan_aware"
 
 
+class HDRSceneSources(Enum):
+    output_layer_metadata = "output_layer_metadata"
+
+
+class HDRHeadroomModes(Enum):
+    content_percentile = "content_percentile"
+    modern_recovery_peak_budget = "modern_recovery_peak_budget"
+
+
+class HDRGainMapModes(Enum):
+    rgb = "rgb"
+    luma = "luma"
+
+
 class AutoExposureMethods(Enum):
     center_weighted = "center_weighted"
     matrix = "matrix"

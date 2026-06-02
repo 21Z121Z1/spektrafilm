@@ -1,0 +1,1297 @@
+{
+  "run_id": "20260602-231256",
+  "input": {
+    "path": "/tmp/nonexistent-spektrafilm-benchmark.dng",
+    "full_shape": [
+      48,
+      64,
+      3
+    ],
+    "dtype": "float64",
+    "megapixels": 0.003072
+  },
+  "config": {
+    "size": "64x48",
+    "warmups": 0,
+    "runs": 1,
+    "type_trace": true
+  },
+  "runs": [
+    {
+      "label": "cpu_full_res",
+      "status": "ok",
+      "requested_backend": "cpu",
+      "selected_backend": "cpu",
+      "supports_gpu": false,
+      "requires_serial_runtime": false,
+      "backend_summary": "cpu",
+      "backend_summary_default": "cpu",
+      "image_shape": [
+        48,
+        64,
+        3
+      ],
+      "gpu_precision": "float64",
+      "gpu_validate": false,
+      "preview_max_size": null,
+      "warmup_seconds": [],
+      "timed_seconds": [
+        0.17635212499590125
+      ],
+      "best_seconds": 0.17635212499590125,
+      "avg_seconds": 0.17635212499590125,
+      "outer_wall_seconds": 0.17635212499590125,
+      "total_seconds": 0.17634125000040513,
+      "timings": {
+        "FilmingStage.auto_exposure": 1.0420044418424368e-06,
+        "SpectralLUTService.get_filming_tc_lut": 1.041700306814164e-05,
+        "SpectralLUTService.spectral_compute_enlarger": 0.0033303749951301143,
+        "PrintingStage.expose": 0.004178749994025566,
+        "PrintingStage.develop": 0.0005717079911846668,
+        "SpectralLUTService.spectral_compute_scanner": 0.002922708008554764,
+        "ScanningStage.scan": 0.15728420800587628
+      },
+      "output": {
+        "type": "numpy.ndarray",
+        "backend": "numpy",
+        "shape": [
+          48,
+          64,
+          3
+        ],
+        "dtype": "float64",
+        "bytes": 73728
+      },
+      "conversions": {},
+      "type_trace": [
+        {
+          "stage": "preprocess",
+          "seconds": 2.3792003048583865e-05,
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          }
+        },
+        {
+          "stage": "LUT/spectral compute: filming.tc_lut",
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          }
+        },
+        {
+          "stage": "filming.expose",
+          "seconds": 0.004218749993015081,
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          }
+        },
+        {
+          "stage": "filming.develop",
+          "seconds": 0.002325249995919876,
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          }
+        },
+        {
+          "stage": "LUT/spectral compute: lut.enlarger",
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          }
+        },
+        {
+          "stage": "printing.expose",
+          "seconds": 0.0036046659952262416,
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          }
+        },
+        {
+          "stage": "printing.develop",
+          "seconds": 0.0005821670056320727,
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          }
+        },
+        {
+          "stage": "LUT/spectral compute: lut.scanner",
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          }
+        },
+        {
+          "stage": "scanning",
+          "seconds": 0.0062419169989880174,
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          }
+        },
+        {
+          "stage": "final.to_numpy_float64",
+          "seconds": 1.958003849722445e-06,
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          }
+        }
+      ]
+    },
+    {
+      "label": "mlx_full_res_validate_false",
+      "status": "ok",
+      "requested_backend": "mlx",
+      "selected_backend": "mlx",
+      "supports_gpu": true,
+      "requires_serial_runtime": true,
+      "backend_summary": "MLX selected; mixed CPU/MLX runtime path with optional GPU kernels",
+      "backend_summary_default": "cpu runtime path; mlx validated for optional GPU kernels",
+      "image_shape": [
+        48,
+        64,
+        3
+      ],
+      "gpu_precision": "float32",
+      "gpu_validate": false,
+      "preview_max_size": null,
+      "warmup_seconds": [],
+      "timed_seconds": [
+        0.1671748340013437
+      ],
+      "best_seconds": 0.1671748340013437,
+      "avg_seconds": 0.1671748340013437,
+      "outer_wall_seconds": 0.1671748340013437,
+      "total_seconds": 0.16698470900882967,
+      "timings": {
+        "FilmingStage.auto_exposure": 1.124994014389813e-06,
+        "SpectralLUTService.get_filming_tc_lut": 8.291011909022927e-06,
+        "SpectralLUTService.get_filming_tc_lut_backend": 0.0002562909940024838,
+        "PrintingStage.expose": 0.008430417001363821,
+        "PrintingStage.develop": 0.0013207080046413466,
+        "SpectralLUTService.spectral_compute_scanner": 0.00011808300041593611,
+        "ScanningStage.scan": 0.009119833004660904
+      },
+      "output": {
+        "type": "numpy.ndarray",
+        "backend": "numpy",
+        "shape": [
+          48,
+          64,
+          3
+        ],
+        "dtype": "float64",
+        "bytes": 73728
+      },
+      "conversions": {
+        "backend.asarray.input": {
+          "count": 70,
+          "bytes": 6019668
+        },
+        "backend.asarray.output": {
+          "count": 70,
+          "bytes": 5503388
+        },
+        "backend.to_numpy.input": {
+          "count": 2,
+          "bytes": 24
+        },
+        "backend.to_numpy.output": {
+          "count": 2,
+          "bytes": 24
+        }
+      },
+      "type_trace": [
+        {
+          "stage": "preprocess",
+          "seconds": 0.00010154201299883425,
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          }
+        },
+        {
+          "stage": "LUT/spectral compute: filming.tc_lut",
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          },
+          "output": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          }
+        },
+        {
+          "stage": "filming.expose",
+          "seconds": 0.008555458000046201,
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          },
+          "output": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          }
+        },
+        {
+          "stage": "filming.develop",
+          "seconds": 0.0038237080007093027,
+          "input": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          },
+          "output": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          }
+        },
+        {
+          "stage": "LUT/spectral compute: printing.enlarger",
+          "input": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          },
+          "output": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          }
+        },
+        {
+          "stage": "printing.expose",
+          "seconds": 0.0030765840056119487,
+          "input": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          },
+          "output": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          }
+        },
+        {
+          "stage": "printing.develop",
+          "seconds": 0.0006962499901419505,
+          "input": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          },
+          "output": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          }
+        },
+        {
+          "stage": "LUT/spectral compute: lut.scanner",
+          "input": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          },
+          "output": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          }
+        },
+        {
+          "stage": "scanning",
+          "seconds": 0.004595667007379234,
+          "input": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          },
+          "output": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          }
+        },
+        {
+          "stage": "final.to_numpy_float64",
+          "seconds": 5.16660074936226e-05,
+          "input": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          }
+        }
+      ]
+    },
+    {
+      "label": "mlx_full_res_validate_true",
+      "status": "ok",
+      "requested_backend": "mlx",
+      "selected_backend": "mlx",
+      "supports_gpu": true,
+      "requires_serial_runtime": true,
+      "backend_summary": "MLX selected; mixed CPU/MLX runtime path with optional GPU kernels",
+      "backend_summary_default": "cpu runtime path; mlx validated for optional GPU kernels",
+      "image_shape": [
+        48,
+        64,
+        3
+      ],
+      "gpu_precision": "float32",
+      "gpu_validate": true,
+      "preview_max_size": null,
+      "warmup_seconds": [],
+      "timed_seconds": [
+        0.06214904200169258
+      ],
+      "best_seconds": 0.06214904200169258,
+      "avg_seconds": 0.06214904200169258,
+      "outer_wall_seconds": 0.06214904200169258,
+      "total_seconds": 0.06204633301240392,
+      "timings": {
+        "FilmingStage.auto_exposure": 1.0829971870407462e-06,
+        "SpectralLUTService.get_filming_tc_lut": 8.457995136268437e-06,
+        "SpectralLUTService.get_filming_tc_lut_backend": 0.0001875000016298145,
+        "PrintingStage.expose": 0.0021109590015839785,
+        "PrintingStage.develop": 0.0003577919997042045,
+        "SpectralLUTService.spectral_compute_scanner": 7.125000411178917e-05,
+        "ScanningStage.scan": 0.003737500010174699,
+        "SimulationPipeline.gpu_validate": 0.046282458992209285
+      },
+      "output": {
+        "type": "numpy.ndarray",
+        "backend": "numpy",
+        "shape": [
+          48,
+          64,
+          3
+        ],
+        "dtype": "float64",
+        "bytes": 73728
+      },
+      "conversions": {
+        "backend.asarray.input": {
+          "count": 70,
+          "bytes": 6019668
+        },
+        "backend.asarray.output": {
+          "count": 70,
+          "bytes": 5503388
+        },
+        "backend.to_numpy.input": {
+          "count": 2,
+          "bytes": 24
+        },
+        "backend.to_numpy.output": {
+          "count": 2,
+          "bytes": 24
+        }
+      },
+      "type_trace": [
+        {
+          "stage": "preprocess",
+          "seconds": 9.887501073535532e-05,
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          }
+        },
+        {
+          "stage": "LUT/spectral compute: filming.tc_lut",
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          },
+          "output": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          }
+        },
+        {
+          "stage": "filming.expose",
+          "seconds": 0.007472500001313165,
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          },
+          "output": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          }
+        },
+        {
+          "stage": "filming.develop",
+          "seconds": 0.0025179170042974874,
+          "input": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          },
+          "output": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          }
+        },
+        {
+          "stage": "LUT/spectral compute: printing.enlarger",
+          "input": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          },
+          "output": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          }
+        },
+        {
+          "stage": "printing.expose",
+          "seconds": 0.004065542001626454,
+          "input": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          },
+          "output": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          }
+        },
+        {
+          "stage": "printing.develop",
+          "seconds": 0.0010149589943466708,
+          "input": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          },
+          "output": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          }
+        },
+        {
+          "stage": "LUT/spectral compute: lut.scanner",
+          "input": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          },
+          "output": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          }
+        },
+        {
+          "stage": "scanning",
+          "seconds": 0.004258208005921915,
+          "input": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          },
+          "output": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          }
+        },
+        {
+          "stage": "final.to_numpy_float64",
+          "seconds": 5.091700586490333e-05,
+          "input": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          }
+        }
+      ]
+    },
+    {
+      "label": "preview_640",
+      "status": "ok",
+      "requested_backend": "mlx",
+      "selected_backend": "mlx",
+      "supports_gpu": true,
+      "requires_serial_runtime": true,
+      "backend_summary": "MLX selected; mixed CPU/MLX runtime path with optional GPU kernels",
+      "backend_summary_default": "cpu runtime path; mlx validated for optional GPU kernels",
+      "image_shape": [
+        48,
+        64,
+        3
+      ],
+      "gpu_precision": "float32",
+      "gpu_validate": false,
+      "preview_max_size": 640,
+      "warmup_seconds": [],
+      "timed_seconds": [
+        0.016262666991678998
+      ],
+      "best_seconds": 0.016262666991678998,
+      "avg_seconds": 0.016262666991678998,
+      "outer_wall_seconds": 0.016262666991678998,
+      "total_seconds": 0.016205375010031275,
+      "timings": {
+        "FilmingStage.auto_exposure": 1.167005393654108e-06,
+        "SpectralLUTService.get_filming_tc_lut": 1.0207993909716606e-05,
+        "SpectralLUTService.get_filming_tc_lut_backend": 0.0002000840031541884,
+        "PrintingStage.expose": 0.003274542003055103,
+        "PrintingStage.develop": 0.0005975829990347847,
+        "SpectralLUTService.spectral_compute_scanner": 9.691700688563287e-05,
+        "ScanningStage.scan": 0.003866832994390279
+      },
+      "output": {
+        "type": "numpy.ndarray",
+        "backend": "numpy",
+        "shape": [
+          48,
+          64,
+          3
+        ],
+        "dtype": "float64",
+        "bytes": 73728
+      },
+      "conversions": {
+        "backend.asarray.input": {
+          "count": 65,
+          "bytes": 5835348
+        },
+        "backend.asarray.output": {
+          "count": 65,
+          "bytes": 5319068
+        },
+        "backend.to_numpy.input": {
+          "count": 2,
+          "bytes": 24
+        },
+        "backend.to_numpy.output": {
+          "count": 2,
+          "bytes": 24
+        }
+      },
+      "type_trace": [
+        {
+          "stage": "preprocess",
+          "seconds": 0.00010312499944120646,
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          }
+        },
+        {
+          "stage": "LUT/spectral compute: filming.tc_lut",
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          },
+          "output": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          }
+        },
+        {
+          "stage": "filming.expose",
+          "seconds": 0.0062575420015491545,
+          "input": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          },
+          "output": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          }
+        },
+        {
+          "stage": "filming.develop",
+          "seconds": 0.0007113339961506426,
+          "input": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          },
+          "output": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          }
+        },
+        {
+          "stage": "LUT/spectral compute: printing.enlarger",
+          "input": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          },
+          "output": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          }
+        },
+        {
+          "stage": "printing.expose",
+          "seconds": 0.0037305410078261048,
+          "input": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          },
+          "output": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          }
+        },
+        {
+          "stage": "printing.develop",
+          "seconds": 0.0006396250100806355,
+          "input": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          },
+          "output": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          }
+        },
+        {
+          "stage": "LUT/spectral compute: lut.scanner",
+          "input": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          },
+          "output": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          }
+        },
+        {
+          "stage": "scanning",
+          "seconds": 0.003814666997641325,
+          "input": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          },
+          "output": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          }
+        },
+        {
+          "stage": "final.to_numpy_float64",
+          "seconds": 7.058300252538174e-05,
+          "input": {
+            "type": "mlx.core.array",
+            "backend": "mlx",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "bytes": 36864
+          },
+          "output": {
+            "type": "numpy.ndarray",
+            "backend": "numpy",
+            "shape": [
+              48,
+              64,
+              3
+            ],
+            "dtype": "float64",
+            "bytes": 73728
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
+
+from spektrafilm.gpu.metal_serialization import serialized_metal_runtime
 from spektrafilm.runtime.params_schema import RuntimePhotoParams
 from spektrafilm.runtime.pipeline import HDRSceneEnergyMetadata, SimulationPipeline, SimulationPipelineResult
 from spektrafilm.utils.preview import resize_for_preview
@@ -19,23 +22,38 @@ class Simulator:
     def __init__(self, params: RuntimePhotoParams):
         self._pipeline = SimulationPipeline(params) # should stay private
 
+    def _requires_serial_runtime(self) -> bool:
+        backend = getattr(self._pipeline, "_backend", None)
+        if backend is None:
+            backend = getattr(self._pipeline, "_array_backend", None)
+        return bool(getattr(backend, "requires_serial_runtime", False))
+
+    def _runtime_context(self):
+        if self._requires_serial_runtime():
+            return serialized_metal_runtime()
+        return nullcontext()
+
     def process(self, image):
         """Process the input image through the simulation pipeline and return the final result."""
-        return self._pipeline.process(image)
+        with self._runtime_context():
+            return self._pipeline.process(image)
 
     def process_with_metadata(self, image) -> SimulationPipelineResult:
         """Process the input image and return image output plus HDR scene metadata."""
-        return self._pipeline.process_with_metadata(image)
+        with self._runtime_context():
+            return self._pipeline.process_with_metadata(image)
 
     def update_params(self, params):
         """Update the parameters of the simulation pipeline."""
-        self._pipeline.update(params)
+        with self._runtime_context():
+            self._pipeline.update(params)
 
     def soft_update(self, **kwargs):
         """Soft update parameters by only changing the provided fields, keeping the rest unchanged.
         only selected safe parameters can be updated with this method
         """
-        self._pipeline.soft_update(**kwargs)
+        with self._runtime_context():
+            self._pipeline.soft_update(**kwargs)
 
     def get_timings(self):
         """Get the timings of the different stages of the simulation pipeline."""
@@ -52,6 +70,9 @@ class Simulator:
     def print_timings(self):
         """Print the formatted timings of the last process call."""
         self._pipeline.print_timings()
+
+    def backend_runtime_summary(self) -> str:
+        return self._pipeline.backend_runtime_summary()
 
 
 ######################################################################################

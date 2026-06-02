@@ -24,7 +24,7 @@ def test_lut_resolution_property_matches_constructor_value():
 # ---------------------------------------------------------------------------
 
 def test_clear_releases_all_cached_fields(monkeypatch):
-    def fake_compute_tc_lut(sensitivity, adaptation=None):
+    def fake_compute_tc_lut(sensitivity, adaptation=None, *, gamut_compress=False):
         return np.ones((2, 2, 3), dtype=float)
 
     monkeypatch.setattr(

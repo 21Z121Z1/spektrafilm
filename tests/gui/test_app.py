@@ -401,6 +401,13 @@ def test_connect_auto_preview_signals_covers_hidden_linked_controls_and_footer_t
                 simulation_editors[spec.leaf] = editor
                 setattr(section, spec.leaf, editor)
             section._editors = simulation_editors
+        elif section_name == 'hdr':
+            hdr_editors: dict = {}
+            for spec in param_manifest_module.HDR_EXPORT_MANIFEST.fields:
+                editor = _make_auto_preview_editor(getattr(state_section, spec.leaf))
+                hdr_editors[spec.leaf] = editor
+                setattr(section, spec.leaf, editor)
+            section._editors = hdr_editors
         else:
             group_editors: dict = {}
             for field_name, value in vars(state_section).items():

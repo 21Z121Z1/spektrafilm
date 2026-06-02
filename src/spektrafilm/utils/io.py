@@ -538,6 +538,7 @@ def save_image_oiio(
     scene_luminance: np.ndarray | None = None,
     scene_rgb: np.ndarray | None = None,
     hdr_mapping_kwargs: dict | None = None,
+    hdr_photo_quality: float = 0.95,
     exr_mode: str = "scene_linear_archive",
 ) -> tuple[str, ...]:
     """Save a 3-channel image to disk via OpenImageIO.
@@ -600,6 +601,8 @@ def save_image_oiio(
     hdr_mapping_kwargs : dict, optional
         Keyword arguments used to construct :class:`HDRPhotoMapping` for
         HEIC/HEIF HDR photo export and HDR rendition EXR.
+    hdr_photo_quality : float, default 0.95
+        CoreImage HEIC encoder quality used by HEIC/HEIF HDR photo export.
     exr_mode : str, default "scene_linear_archive"
         EXR save mode. ``"scene_linear_archive"`` writes the provided linear
         pixels unchanged. ``"hdr_rendition"`` first applies the same authored
@@ -652,6 +655,7 @@ def save_image_oiio(
         if mapping is not None:
             heic_kwargs["mapping"] = mapping
             heic_kwargs["gain_map_mode"] = mapping.gain_map_mode
+        heic_kwargs["quality"] = float(hdr_photo_quality)
         if scene_luminance is not None:
             heic_kwargs["scene_luminance"] = scene_luminance
         if scene_rgb is not None:

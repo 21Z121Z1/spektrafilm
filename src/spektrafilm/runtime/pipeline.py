@@ -13,7 +13,7 @@ from spektrafilm.runtime.services import (
     SpectralLUTService,
     ColorReferenceService,
 )
-from spektrafilm.gpu.backend import select_backend
+from spektrafilm.gpu.backend import runtime_backend_summary, select_backend
 from spektrafilm.runtime.stages import FilmingStage, PrintingStage, ScanningStage
 from spektrafilm.runtime.topology import Node, Tap, run_topology
 from spektrafilm.utils.autoexposure import _luminance_y
@@ -299,6 +299,9 @@ class SimulationPipeline:
 
     def print_timings(self):
         print(self.format_timings())
+
+    def backend_runtime_summary(self) -> str:
+        return runtime_backend_summary(self._backend)
 
     def update(self, params):
         """Update params and re-initialize stages that depend on them."""

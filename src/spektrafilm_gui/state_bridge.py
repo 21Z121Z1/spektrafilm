@@ -36,6 +36,7 @@ GUI_STATE_SECTION_NAMES = (
     'scanner',
     'input_gamut_compress',
     'output_gamut_compress',
+    'hdr',
     'special',
     'simulation',
 )
@@ -76,6 +77,7 @@ SECTION_STATE_ACCESSORS = {
     'scanner': _top_level_section_accessor('scanner'),
     'input_gamut_compress': _top_level_section_accessor('input_gamut_compress'),
     'output_gamut_compress': _top_level_section_accessor('output_gamut_compress'),
+    'hdr': _top_level_section_accessor('hdr'),
     'special': _top_level_section_accessor('special'),
     'simulation': _top_level_section_accessor('simulation'),
 }

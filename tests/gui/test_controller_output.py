@@ -248,51 +248,107 @@ def test_save_output_layer_respects_recorded_render_metadata(
     assert saved_kwargs['cctf_encoding'] is saving_cctf_encoding
 
 
-def test_save_output_layer_omits_hdr_mapping_kwargs_for_generic_mode(monkeypatch) -> None:
+def test_set_or_add_output_layer_records_hdr_scene_sidecar(monkeypatch) -> None:
+    controller = GuiController(viewer=object(), widgets=object())
+    output_layer = FakeLayer(np.zeros((1, 1, 3), dtype=np.uint8), name='output')
+    hdr_scene_energy = SimpleNamespace(scene_luminance=np.array([[0.8]], dtype=np.float32))
+
+    monkeypatch.setattr(controller, '_output_layer', lambda: output_layer)
+    controller._layers = SimpleNamespace(set_or_add_output_layer=lambda *args, **kwargs: None)
+
+    controller._set_or_add_output_layer(
+        np.zeros((1, 1, 3), dtype=np.uint8),
+        float_image=np.ones((1, 1, 3), dtype=np.float32),
+        output_color_space='Display P3',
+        output_cctf_encoding=False,
+        use_display_transform=False,
+        hdr_scene_energy=hdr_scene_energy,
+    )
+
+    assert output_layer.metadata[controller_module.OUTPUT_HDR_SCENE_ENERGY_KEY] is hdr_scene_energy
+
+
+def test_save_output_layer_ignores_hdr_settings_for_standard_png(monkeypatch) -> None:
     float_image = np.full((1, 2, 3), 0.8, dtype=np.float32)
     output_layer = _make_output_layer(
         float_image,
         output_color_space='Display P3',
         output_cctf_encoding=False,
     )
+    output_layer.metadata[controller_module.OUTPUT_HDR_SCENE_ENERGY_KEY] = SimpleNamespace(
+        scene_luminance=np.array([[0.8, 4.0]], dtype=np.float32),
+        scene_rgb=np.repeat(float_image, 1, axis=0),
+    )
     controller = GuiController(viewer=object(), widgets=object())
     captured: dict[str, object] = {}
     gui_state = make_test_controller_gui_state()
-    gui_state.simulation.hdr_mapping_mode = 'generic'
-    gui_state.simulation.saving_color_space = 'Display P3'
-    gui_state.simulation.saving_cctf_encoding = False
+    gui_state.hdr.hdr_heic_gain_map_enabled = True
+    gui_state.hdr.hdr_mapping_mode = 'profile_aware'
+    gui_state.simulation.workflow.saving_color_space = 'Display P3'
+    gui_state.simulation.workflow.saving_cctf_encoding = False
 
     _configure_save_output(monkeypatch, controller, output_layer, gui_state, captured)
-    monkeypatch.setattr(
-        controller_module.QFileDialog,
-        'getSaveFileName',
-        staticmethod(lambda *args, **kwargs: ('output.heic', 'Images (*.heic)')),
-    )
     _capture_saved_output(monkeypatch, captured)
 
     controller.save_output_layer()
 
     assert 'hdr_mapping_kwargs' not in captured['saved_kwargs']
+    assert 'scene_luminance' not in captured['saved_kwargs']
+    assert 'scene_rgb' not in captured['saved_kwargs']
 
 
-def test_save_output_layer_passes_print_profile_aware_hdr_kwargs(monkeypatch) -> None:
+def test_save_output_layer_rejects_heic_when_hdr_gain_map_disabled(monkeypatch) -> None:
     float_image = np.full((1, 2, 3), 0.8, dtype=np.float32)
     output_layer = _make_output_layer(
         float_image,
         output_color_space='Display P3',
         output_cctf_encoding=False,
     )
-    output_layer.metadata[controller_module.OUTPUT_HDR_SCENE_ENERGY_KEY] = SimpleNamespace(
-        scene_luminance=np.array([[0.8, 4.0]], dtype=np.float32),
+    controller = GuiController(viewer=object(), widgets=object())
+    captured: dict[str, object] = {}
+    gui_state = make_test_controller_gui_state()
+    gui_state.hdr.hdr_heic_gain_map_enabled = False
+    gui_state.simulation.workflow.saving_color_space = 'Display P3'
+    gui_state.simulation.workflow.saving_cctf_encoding = False
+
+    _configure_save_output(monkeypatch, controller, output_layer, gui_state, captured)
+    monkeypatch.setattr(
+        controller_module.QFileDialog,
+        'getSaveFileName',
+        staticmethod(lambda *args, **kwargs: ('output.heic', 'Images (*.heic)')),
+    )
+    _capture_saved_output(monkeypatch, captured)
+    monkeypatch.setattr(
+        controller_module.QMessageBox,
+        'critical',
+        staticmethod(lambda parent, title, message: captured.setdefault('critical', (title, message))),
+    )
+
+    controller.save_output_layer()
+
+    assert 'saved' not in captured
+    title, message = captured['critical']
+    assert title == 'Save output'
+    assert 'Enable HDR HEIC gain map export' in message
+
+
+def test_save_output_layer_passes_generic_hdr_kwargs_when_heic_gain_map_enabled(monkeypatch) -> None:
+    float_image = np.full((1, 2, 3), 1.4, dtype=np.float32)
+    output_layer = _make_output_layer(
+        float_image,
+        output_color_space='Display P3',
+        output_cctf_encoding=False,
     )
     controller = GuiController(viewer=object(), widgets=object())
     captured: dict[str, object] = {}
     gui_state = make_test_controller_gui_state()
-    gui_state.simulation.hdr_mapping_mode = 'profile_aware'
-    gui_state.simulation.film_stock = 'kodak_portra_400'
-    gui_state.simulation.print_paper = 'kodak_portra_endura'
-    gui_state.simulation.saving_color_space = 'Display P3'
-    gui_state.simulation.saving_cctf_encoding = False
+    gui_state.hdr.hdr_heic_gain_map_enabled = True
+    gui_state.hdr.hdr_mapping_mode = 'generic'
+    gui_state.hdr.hdr_peak_headroom = 5.0
+    gui_state.hdr.gain_map_mode = 'luma'
+    gui_state.hdr.heic_quality = 0.91
+    gui_state.simulation.workflow.saving_color_space = 'Display P3'
+    gui_state.simulation.workflow.saving_cctf_encoding = False
 
     _configure_save_output(monkeypatch, controller, output_layer, gui_state, captured)
     monkeypatch.setattr(
@@ -304,31 +360,89 @@ def test_save_output_layer_passes_print_profile_aware_hdr_kwargs(monkeypatch) ->
 
     controller.save_output_layer()
 
-    hdr_kwargs = captured['saved_kwargs']['hdr_mapping_kwargs']
-    assert hdr_kwargs['hdr_mapping_mode'] == 'profile_aware'
-    assert hdr_kwargs['film'] == 'kodak_portra_400'
-    assert hdr_kwargs['paper'] == 'kodak_portra_endura'
+    saved_kwargs = captured['saved_kwargs']
+    encoding = saved_kwargs['encoding']
+    assert encoding.color_space == 'Display P3'
+    assert encoding.is_linear
+    assert encoding.clip_highlights is False
+    assert saved_kwargs['hdr_photo_quality'] == 0.91
+    hdr_kwargs = saved_kwargs['hdr_mapping_kwargs']
+    assert hdr_kwargs['hdr_mapping_mode'] == 'generic'
+    assert hdr_kwargs['max_headroom'] == 5.0
+    assert hdr_kwargs['gain_map_mode'] == 'luma'
+    assert 'film' not in hdr_kwargs
+    assert 'paper' not in hdr_kwargs
 
 
-def test_save_output_layer_passes_dynamic_film_scan_profile(monkeypatch) -> None:
-    float_image = np.full((1, 2, 3), 0.8, dtype=np.float32)
+def test_save_output_layer_passes_print_profile_aware_hdr_kwargs(monkeypatch) -> None:
+    float_image = np.full((1, 2, 3), 1.4, dtype=np.float32)
+    scene_luminance = np.array([[0.8, 4.0]], dtype=np.float32)
+    scene_rgb = np.array([[[0.5, 0.4, 0.3], [4.0, 3.0, 2.0]]], dtype=np.float32)
     output_layer = _make_output_layer(
         float_image,
         output_color_space='Display P3',
         output_cctf_encoding=False,
     )
     output_layer.metadata[controller_module.OUTPUT_HDR_SCENE_ENERGY_KEY] = SimpleNamespace(
-        scene_luminance=np.array([[0.8, 4.0]], dtype=np.float32),
+        scene_luminance=scene_luminance,
+        scene_rgb=scene_rgb,
     )
     controller = GuiController(viewer=object(), widgets=object())
     captured: dict[str, object] = {}
     gui_state = make_test_controller_gui_state()
-    gui_state.simulation.hdr_mapping_mode = 'film_scan_aware'
-    gui_state.simulation.film_stock = 'kodak_portra_400'
-    gui_state.simulation.print_paper = 'kodak_ultra_endura'
-    gui_state.simulation.scan_film = True
-    gui_state.simulation.saving_color_space = 'Display P3'
-    gui_state.simulation.saving_cctf_encoding = False
+    gui_state.hdr.hdr_heic_gain_map_enabled = True
+    gui_state.hdr.hdr_mapping_mode = 'profile_aware'
+    gui_state.hdr.hdr_diffuse_white_target = 0.9
+    gui_state.hdr.hdr_peak_headroom = 6.0
+    gui_state.hdr.hdr_headroom_mode = 'modern_recovery_peak_budget'
+    gui_state.simulation.selection.film_stock = 'kodak_portra_400'
+    gui_state.simulation.selection.print_paper = 'kodak_portra_endura'
+    gui_state.simulation.workflow.saving_color_space = 'Display P3'
+    gui_state.simulation.workflow.saving_cctf_encoding = False
+
+    _configure_save_output(monkeypatch, controller, output_layer, gui_state, captured)
+    monkeypatch.setattr(
+        controller_module.QFileDialog,
+        'getSaveFileName',
+        staticmethod(lambda *args, **kwargs: ('output.heic', 'Images (*.heic)')),
+    )
+    _capture_saved_output(monkeypatch, captured)
+
+    controller.save_output_layer()
+
+    saved_kwargs = captured['saved_kwargs']
+    np.testing.assert_allclose(saved_kwargs['scene_luminance'], scene_luminance)
+    np.testing.assert_allclose(saved_kwargs['scene_rgb'], scene_rgb)
+    hdr_kwargs = captured['saved_kwargs']['hdr_mapping_kwargs']
+    assert hdr_kwargs['hdr_mapping_mode'] == 'profile_aware'
+    assert hdr_kwargs['film'] == 'kodak_portra_400'
+    assert hdr_kwargs['paper'] == 'kodak_portra_endura'
+    assert hdr_kwargs['hdr_diffuse_white_target'] == 0.9
+    assert hdr_kwargs['max_headroom'] == 6.0
+    assert hdr_kwargs['profile_hdr_mode'] == 'modern_recovery_peak_budget'
+
+
+def test_save_output_layer_passes_dynamic_film_scan_profile(monkeypatch) -> None:
+    float_image = np.full((1, 2, 3), 1.4, dtype=np.float32)
+    scene_luminance = np.array([[0.8, 4.0]], dtype=np.float32)
+    output_layer = _make_output_layer(
+        float_image,
+        output_color_space='Display P3',
+        output_cctf_encoding=False,
+    )
+    output_layer.metadata[controller_module.OUTPUT_HDR_SCENE_ENERGY_KEY] = SimpleNamespace(
+        scene_luminance=scene_luminance,
+    )
+    controller = GuiController(viewer=object(), widgets=object())
+    captured: dict[str, object] = {}
+    gui_state = make_test_controller_gui_state()
+    gui_state.hdr.hdr_heic_gain_map_enabled = True
+    gui_state.hdr.hdr_mapping_mode = 'film_scan_aware'
+    gui_state.simulation.selection.film_stock = 'kodak_portra_400'
+    gui_state.simulation.selection.print_paper = 'kodak_ultra_endura'
+    gui_state.simulation.io.scan_film = True
+    gui_state.simulation.workflow.saving_color_space = 'Display P3'
+    gui_state.simulation.workflow.saving_cctf_encoding = False
     film_scan_profile = SimpleNamespace(route='film_scan', paper=None)
 
     def fake_sample_runtime_film_scan_curve_profile(*, params, film, **_kwargs):
@@ -357,6 +471,43 @@ def test_save_output_layer_passes_dynamic_film_scan_profile(monkeypatch) -> None
     assert hdr_kwargs['paper'] is None
     assert hdr_kwargs['curve_profile'] is film_scan_profile
     assert captured['sample_film'] == 'kodak_portra_400'
+    np.testing.assert_allclose(captured['saved_kwargs']['scene_luminance'], scene_luminance)
+
+
+def test_save_output_layer_rejects_profile_aware_heic_without_scene_sidecar(monkeypatch) -> None:
+    float_image = np.full((1, 2, 3), 1.4, dtype=np.float32)
+    output_layer = _make_output_layer(
+        float_image,
+        output_color_space='Display P3',
+        output_cctf_encoding=False,
+    )
+    controller = GuiController(viewer=object(), widgets=object())
+    captured: dict[str, object] = {}
+    gui_state = make_test_controller_gui_state()
+    gui_state.hdr.hdr_heic_gain_map_enabled = True
+    gui_state.hdr.hdr_mapping_mode = 'profile_aware'
+    gui_state.simulation.workflow.saving_color_space = 'Display P3'
+    gui_state.simulation.workflow.saving_cctf_encoding = False
+
+    _configure_save_output(monkeypatch, controller, output_layer, gui_state, captured)
+    monkeypatch.setattr(
+        controller_module.QFileDialog,
+        'getSaveFileName',
+        staticmethod(lambda *args, **kwargs: ('output.heic', 'Images (*.heic)')),
+    )
+    _capture_saved_output(monkeypatch, captured)
+    monkeypatch.setattr(
+        controller_module.QMessageBox,
+        'critical',
+        staticmethod(lambda parent, title, message: captured.setdefault('critical', (title, message))),
+    )
+
+    controller.save_output_layer()
+
+    assert 'saved' not in captured
+    title, message = captured['critical']
+    assert title == 'Save output'
+    assert 'HDR scene luminance sidecar is missing' in message
 
 
 @pytest.mark.parametrize(

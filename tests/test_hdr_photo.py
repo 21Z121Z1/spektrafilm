@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from spektrafilm.utils import hdr_photo
+from spektrafilm.utils import hdr_curve_profiles, hdr_photo
 from spektrafilm.utils.hdr_curve_profiles import (
     HDRCurveDefaults,
     FilmPrintHDRCurveProfile,
@@ -660,9 +660,12 @@ def _synthetic_safe_hdr_profile() -> FilmPrintHDRCurveProfile:
     )
 
 
-def _synthetic_film_scan_hdr_profile(*, scale: float = 1.0) -> FilmPrintHDRCurveProfile:
+def _synthetic_film_scan_hdr_profile(*, scale: float = 1.0, highlight_scale: float = 1.0) -> FilmPrintHDRCurveProfile:
     base = _synthetic_safe_hdr_profile()
     sdr_y = np.asarray(base.sdr_luminance_y * np.float32(scale), dtype=np.float32)
+    if highlight_scale != 1.0:
+        highlight_w = np.clip((base.scene_y - np.float32(1.0)) / np.float32(15.0), 0.0, 1.0)
+        sdr_y = np.asarray(sdr_y * (np.float32(1.0) + highlight_w * np.float32(highlight_scale - 1.0)), dtype=np.float32)
     return FilmPrintHDRCurveProfile(
         film=base.film,
         paper=None,
@@ -856,7 +859,7 @@ def test_film_scan_aware_ignores_paper_when_resolving_profile(monkeypatch) -> No
 
 def test_film_scan_aware_curve_changes_when_film_scan_profile_changes() -> None:
     profile_a = _synthetic_film_scan_hdr_profile(scale=1.0)
-    profile_b = _synthetic_film_scan_hdr_profile(scale=0.75)
+    profile_b = _synthetic_film_scan_hdr_profile(scale=1.0, highlight_scale=0.65)
     scene_y = profile_a.scene_y
     look_rgb = np.repeat(evaluate_profile_sdr_curve(profile_a, scene_y).reshape(1, -1, 1), 3, axis=2).astype(np.float32)
 
@@ -885,6 +888,77 @@ def test_film_scan_aware_curve_changes_when_film_scan_profile_changes() -> None:
     )
 
     assert not np.allclose(renditions_a.hdr_rgb, renditions_b.hdr_rgb, atol=0.01)
+
+
+def test_film_scan_aware_rejects_raw_negative_scan_diagnostic_profile() -> None:
+    scene_y = np.array([0.125, 0.184, 0.5, 1.0, 2.0, 4.0], dtype=np.float32)
+    raw_y = np.array([0.82, 0.74, 0.52, 0.31, 0.18, 0.09], dtype=np.float32)
+    raw_rgb = np.repeat(raw_y[:, None], 3, axis=1)
+    sample = hdr_curve_profiles.build_curve_profile_sample(
+        film="kodak_gold_200",
+        paper=None,
+        route="film_scan",
+        profile_kind="raw_negative_scan",
+        scene_y=scene_y,
+        output_rgb=raw_rgb,
+    )
+    profile = hdr_curve_profiles.curve_profile_from_sample(sample)
+    mapping = hdr_photo.HDRPhotoMapping(
+        hdr_mapping_mode="film_scan_aware",
+        curve_profile=profile,
+        max_headroom=6.0,
+    )
+
+    with pytest.raises(ValueError, match="safe increasing curve profile"):
+        hdr_photo.prepare_hdr_photo_renditions(
+            raw_rgb.reshape(1, -1, 3),
+            mapping=mapping,
+            scene_luminance=scene_y.reshape(1, -1),
+        )
+
+
+def test_film_scan_aware_negative_profile_renders_raw_scan_to_positive_sdr_base() -> None:
+    scene_y = np.array([0.125, 0.184, 0.5, 1.0, 2.0, 4.0, 8.0], dtype=np.float32)
+    raw_y = np.array([0.82, 0.75, 0.55, 0.34, 0.20, 0.11, 0.06], dtype=np.float32)
+    raw_rgb = np.repeat(raw_y[:, None], 3, axis=1).astype(np.float32)
+    positive_rgb, render_metadata = hdr_curve_profiles.render_negative_scan_positive_rgb(
+        raw_rgb,
+        scene_y=scene_y,
+        return_metadata=True,
+    )
+    sample = hdr_curve_profiles.build_curve_profile_sample(
+        film="kodak_gold_200",
+        paper=None,
+        route="film_scan",
+        profile_kind="positive_negative_scan",
+        negative_scan_render=render_metadata,
+        scene_y=scene_y,
+        output_rgb=positive_rgb,
+    )
+    profile = hdr_curve_profiles.curve_profile_from_sample(sample)
+    mapping = hdr_photo.HDRPhotoMapping(
+        hdr_mapping_mode="film_scan_aware",
+        curve_profile=profile,
+        max_headroom=6.0,
+        headroom_percentile=100.0,
+        profile_hdr_mode="modern_recovery_peak_budget",
+    )
+
+    renditions = hdr_photo.prepare_hdr_photo_renditions(
+        raw_rgb.reshape(1, -1, 3),
+        mapping=mapping,
+        scene_luminance=scene_y.reshape(1, -1),
+    )
+
+    expected_sdr = np.clip(positive_rgb, 0.0, 1.0)
+    sdr_y = hdr_photo.luminance_y(renditions.sdr_rgb[0])
+    hdr_y = hdr_photo.luminance_y(renditions.hdr_rgb[0])
+
+    np.testing.assert_allclose(renditions.sdr_rgb[0], expected_sdr, atol=1e-6)
+    assert np.all(np.diff(sdr_y) >= -1e-6)
+    assert np.all(np.diff(hdr_y) >= -1e-6)
+    assert float(hdr_y[-1]) > float(hdr_y[0])
+    assert float(np.max(hdr_y[scene_y >= 2.0])) > float(np.max(sdr_y[scene_y >= 2.0]))
 
 
 def test_profile_aware_mapping_falls_back_for_unsafe_profile() -> None:

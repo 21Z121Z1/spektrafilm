@@ -66,6 +66,9 @@ def _make_state() -> GuiState:
     state.scanner = replace(state.scanner, white_correction=True, white_level=0.9, lens_blur=0.3)
     state.input_gamut_compress = replace(state.input_gamut_compress, active=False, algorithm='oklch')
     state.output_gamut_compress = replace(state.output_gamut_compress, algorithm='aces_rgc')
+    state.hdr.hdr_mapping_mode = 'profile_aware'
+    state.hdr.hdr_heic_gain_map_enabled = True
+    state.hdr.hdr_peak_headroom = 6.0
     state.simulation.enlarger.print_exposure = 1.3
     state.camera.lens_blur_um = 3.5
     state.camera.exposure_compensation_ev = 0.5
@@ -110,12 +113,14 @@ def _make_widgets(state: GuiState) -> WidgetBundle:
         scanner=StubSection(clone_state_section(state.scanner)),
         input_gamut_compress=StubSection(clone_state_section(state.input_gamut_compress)),
         output_gamut_compress=StubSection(clone_state_section(state.output_gamut_compress)),
+        hdr=StubSection(clone_state_section(state.hdr)),
         special=StubSection(clone_state_section(state.special)),
         simulation=StubSimulationSection(
             clone_state_section(state.simulation),
             auto_preview=state.simulation.workflow.auto_preview,
             scan_film=state.simulation.io.scan_film,
         ),
+        compute=object(),
         preview_crop=object(),
         exposure_control=object(),
         enlarger=object(),
@@ -142,6 +147,7 @@ def test_gui_state_section_names_match_gui_state_fields() -> None:
         'scanner',
         'input_gamut_compress',
         'output_gamut_compress',
+        'hdr',
         'special',
         'simulation',
     )

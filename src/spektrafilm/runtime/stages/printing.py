@@ -11,10 +11,12 @@ from spektrafilm.utils.timings import timeit
 from spektrafilm.gpu.kernels.density import (
     compute_density_spectral as compute_density_spectral_backend,
     density_to_light as density_to_light_backend,
+    interpolate_exposure_to_density_backend,
     light_to_raw as light_to_raw_backend,
     safe_log10_backend,
 )
 from spektrafilm.gpu.kernels.lut import apply_lut_trilinear_3d_backend
+from spektrafilm.utils.morph_curves import apply_print_curves_morph
 
 
 class PrintingStage:
@@ -173,6 +175,20 @@ class PrintingStage:
 
     @timeit("develop")
     def develop(self, log_raw: np.ndarray) -> np.ndarray:
+        if self._backend is not None and getattr(self._backend, "supports_gpu", False):
+            density_curves_morphed = apply_print_curves_morph(
+                self._print.data.log_exposure,
+                self._print.data.density_curves_model,
+                self._print_render.density_curves_morph,
+                profile_type=self._print.info.type,
+            )
+            return interpolate_exposure_to_density_backend(
+                log_raw,
+                self._print.data.log_exposure,
+                density_curves_morphed,
+                1.0,
+                self._backend,
+            )
         return develop_print_morph(
             log_raw,
             self._print.data.log_exposure,

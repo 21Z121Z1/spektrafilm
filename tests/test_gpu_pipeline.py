@@ -103,6 +103,21 @@ def test_printing_non_lut_gpu_path_does_not_materialize_to_numpy(monkeypatch) ->
     assert backend._is_mlx_array(result)
 
 
+def test_printing_develop_keeps_mlx_array_when_available() -> None:
+    _require_mlx_backend()
+    params = make_fast_test_params()
+    params.settings.compute_backend = "mlx"
+    params.settings.gpu_precision = "float32"
+
+    pipeline = SimulationPipeline(params)
+    backend = pipeline._array_backend
+    log_raw = backend.asarray(np.full((4, 4, 3), -0.2, dtype=np.float32))
+
+    density = pipeline._printing_stage.develop(log_raw)
+
+    assert backend._is_mlx_array(density)
+
+
 def test_pipeline_processes_small_image_with_mlx_lut_backend() -> None:
     _require_mlx_backend()
     params = make_fast_test_params()

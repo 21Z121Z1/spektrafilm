@@ -130,6 +130,25 @@ def backend_summary(backend: ArrayBackend, *, runtime_gpu_enabled: bool = False)
     return summary
 
 
+def _display_backend_name(name: str) -> str:
+    return {
+        "cpu": "CPU",
+        "mlx": "MLX",
+        "cupy": "CuPy",
+        "halide": "Halide",
+    }.get(str(name).lower(), str(name))
+
+
+def runtime_backend_summary(backend: ArrayBackend) -> str:
+    """Describe the active runtime path without overstating GPU residency."""
+    summary = backend_summary(backend)
+    if not backend.supports_gpu:
+        return summary
+
+    display_name = _display_backend_name(backend.name)
+    return f"{display_name} selected; mixed CPU/{display_name} runtime path with optional GPU kernels"
+
+
 # ---------------------------------------------------------------------------
 # GPU Tiling for Large Images
 # ---------------------------------------------------------------------------

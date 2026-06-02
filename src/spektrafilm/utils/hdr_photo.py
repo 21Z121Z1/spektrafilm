@@ -27,6 +27,7 @@ from spektrafilm.utils.hdr_curve_profiles import (
     build_dynamic_curve_profile,
     curve_profile_from_sample,
     luminance_y,
+    render_negative_scan_positive_rgb,
     sample_runtime_film_scan_curve_profile,
 )
 from spektrafilm.utils.math_ops import smoothstep as _smoothstep
@@ -577,7 +578,20 @@ def _prepare_curve_profile_renditions(
     if profile.polarity != "increasing" or not profile.safe_for_profile_aware_hdr:
         raise ValueError(f"{mapping.hdr_mapping_mode} requires a safe increasing curve profile, but got unsafe {profile.polarity}.")
 
-    look = np.maximum(np.asarray(image, dtype=np.float32), 0.0)
+    diagnostics_list: list[str] = []
+    look_source = np.maximum(np.asarray(image, dtype=np.float32), 0.0)
+    if mapping.hdr_mapping_mode == "film_scan_aware" and profile.profile_kind == "raw_negative_scan":
+        raise ValueError("film_scan_aware requires a positive film-scan profile, not a raw negative scan diagnostic profile.")
+    if mapping.hdr_mapping_mode == "film_scan_aware" and profile.profile_kind == "positive_negative_scan":
+        if profile.negative_scan_render is None:
+            raise ValueError("positive negative film-scan profiles require negative scan render metadata.")
+        look = render_negative_scan_positive_rgb(
+            look_source,
+            render_metadata=profile.negative_scan_render,
+        )
+        diagnostics_list.append("negative_scan_positive_rendering")
+    else:
+        look = look_source
     scene_y = _prepare_scene_luminance(scene_luminance, shape=look.shape[:2])
     scene_y = scene_y / np.float32(mapping.diffuse_white)
     if mapping.hdr_render_ev != 0.0:
@@ -621,7 +635,6 @@ def _prepare_curve_profile_renditions(
         where=s_profile > _EPS32,
     )
 
-    diagnostics_list: list[str] = []
     safe_max_headroom = float(profile.defaults.safe_max_headroom)
     hdr_rgb = _apply_hdr_color_recovery(
         look=look,

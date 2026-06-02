@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 import copy
+from contextlib import contextmanager
 
 import numpy as np
 import pytest
@@ -64,6 +65,52 @@ class TestRuntimeApi:
         simulator = process_module.Simulator(SimpleNamespace(label='metadata'))
 
         assert simulator.process_with_metadata('frame') is pipeline_result
+
+    def test_process_uses_serialized_runtime_for_serial_backend(self, monkeypatch):
+        events: list[str] = []
+
+        @contextmanager
+        def fake_serialized_runtime():
+            events.append("enter")
+            try:
+                yield
+            finally:
+                events.append("exit")
+
+        class FakeBackend:
+            requires_serial_runtime = True
+
+        class FakePipeline:
+            def __init__(self, params):
+                del params
+                self._backend = FakeBackend()
+
+            def process(self, image):
+                events.append(f"process:{image}")
+                return f"processed:{image}"
+
+        monkeypatch.setattr(process_module, "SimulationPipeline", FakePipeline)
+        monkeypatch.setattr(process_module, "serialized_metal_runtime", fake_serialized_runtime, raising=False)
+
+        simulator = process_module.Simulator(SimpleNamespace(label="serial"))
+
+        assert simulator.process("frame") == "processed:frame"
+        assert events == ["enter", "process:frame", "exit"]
+
+    def test_backend_runtime_summary_delegates_to_pipeline(self, monkeypatch):
+        class FakePipeline:
+            def __init__(self, params):
+                del params
+
+            def backend_runtime_summary(self):
+                return "MLX selected; mixed CPU/MLX runtime path with optional GPU kernels"
+
+        monkeypatch.setattr(process_module, "SimulationPipeline", FakePipeline)
+        simulator = process_module.Simulator(SimpleNamespace(label="summary"))
+
+        assert simulator.backend_runtime_summary() == (
+            "MLX selected; mixed CPU/MLX runtime path with optional GPU kernels"
+        )
 
     def test_soft_update_delegates_to_pipeline(self, monkeypatch):
         captured_kwargs = {}

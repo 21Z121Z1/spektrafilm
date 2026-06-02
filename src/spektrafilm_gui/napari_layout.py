@@ -418,6 +418,7 @@ def build_controls_panel(viewer: napari.Viewer, widgets: WidgetBundle) -> QWidge
         ),
         'MAIN',
     )
+    panel.addTab(_wrap_scrollable(_build_controls_tab(widgets.hdr)), 'HDR')
     panel.addTab(
         _wrap_scrollable(_build_controls_tab(widgets.halation, widgets.couplers, widgets.grain, widgets.camera_diffusion)),
         'FILM',

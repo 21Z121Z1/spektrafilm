@@ -21,6 +21,7 @@ from spektrafilm.runtime.params_schema import (
 )
 from spektrafilm.utils.gamut_compression import InputGamutCompressSpec, OutputGamutCompressSpec
 from spektrafilm.utils.morph_curves import PrintCurvesMorphParams
+from spektrafilm_gui.hdr_settings import HDRExportSettings
 from spektrafilm_gui.param_manifest import DISPLAY_PANEL_FIELDS, INPUT_IMAGE_FIELDS, SIMULATION_FIELDS, SPECIAL_FIELDS
 
 
@@ -107,6 +108,21 @@ def display_to_dict(state: DisplayState) -> dict[str, object]:
     return {spec.leaf: _read_attr_path(state, spec.path) for spec in DISPLAY_PANEL_FIELDS}
 
 
+def hdr_to_dict(state: HDRExportSettings) -> dict[str, object]:
+    return {
+        'hdr_mapping_mode': state.hdr_mapping_mode,
+        'hdr_heic_gain_map_enabled': state.hdr_heic_gain_map_enabled,
+        'hdr_scene_source': state.hdr_scene_source,
+        'hdr_diffuse_white_target': state.hdr_diffuse_white_target,
+        'hdr_peak_headroom': state.hdr_peak_headroom,
+        'hdr_headroom_mode': state.hdr_headroom_mode,
+        'headroom_percentile': state.headroom_percentile,
+        'preserve_sdr_base': state.preserve_sdr_base,
+        'gain_map_mode': state.gain_map_mode,
+        'heic_quality': state.heic_quality,
+    }
+
+
 _INPUT_IMAGE_LEGACY_ALIASES = {
     'apply_cctf_decoding': 'input_cctf_decoding',
     'spectral_upsampling_method': 'rgb_to_raw_method',
@@ -182,6 +198,27 @@ def normalize_display_dict(data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def normalize_hdr_dict(data: dict[str, Any]) -> dict[str, Any]:
+    return {
+        'hdr_mapping_mode': data.get('hdr_mapping_mode', PROJECT_DEFAULT_GUI_STATE.hdr.hdr_mapping_mode),
+        'hdr_heic_gain_map_enabled': data.get(
+            'hdr_heic_gain_map_enabled',
+            PROJECT_DEFAULT_GUI_STATE.hdr.hdr_heic_gain_map_enabled,
+        ),
+        'hdr_scene_source': data.get('hdr_scene_source', PROJECT_DEFAULT_GUI_STATE.hdr.hdr_scene_source),
+        'hdr_diffuse_white_target': data.get(
+            'hdr_diffuse_white_target',
+            PROJECT_DEFAULT_GUI_STATE.hdr.hdr_diffuse_white_target,
+        ),
+        'hdr_peak_headroom': data.get('hdr_peak_headroom', PROJECT_DEFAULT_GUI_STATE.hdr.hdr_peak_headroom),
+        'hdr_headroom_mode': data.get('hdr_headroom_mode', PROJECT_DEFAULT_GUI_STATE.hdr.hdr_headroom_mode),
+        'headroom_percentile': data.get('headroom_percentile', PROJECT_DEFAULT_GUI_STATE.hdr.headroom_percentile),
+        'preserve_sdr_base': data.get('preserve_sdr_base', PROJECT_DEFAULT_GUI_STATE.hdr.preserve_sdr_base),
+        'gain_map_mode': data.get('gain_map_mode', PROJECT_DEFAULT_GUI_STATE.hdr.gain_map_mode),
+        'heic_quality': data.get('heic_quality', PROJECT_DEFAULT_GUI_STATE.hdr.heic_quality),
+    }
+
+
 @dataclass(slots=True)
 class DisplayState:
     use_display_transform: bool
@@ -212,6 +249,7 @@ class GuiState:
     scanner: ScannerParams
     input_gamut_compress: InputGamutCompressSpec
     output_gamut_compress: OutputGamutCompressSpec
+    hdr: HDRExportSettings
     special: SpecialState
     simulation: SimulationState
     gui_only: GuiOnlyState
@@ -262,6 +300,7 @@ def clone_gui_state(state: GuiState) -> GuiState:
         scanner=clone_state_section(state.scanner),
         input_gamut_compress=clone_state_section(state.input_gamut_compress),
         output_gamut_compress=clone_state_section(state.output_gamut_compress),
+        hdr=clone_state_section(state.hdr),
         special=clone_state_section(state.special),
         simulation=clone_state_section(state.simulation),
         gui_only=clone_state_section(state.gui_only),
@@ -291,6 +330,7 @@ def gui_state_from_params(
         scanner=replace(params.scanner),
         input_gamut_compress=replace(params.io.input_gamut_compress),
         output_gamut_compress=replace(params.io.output_gamut_compress),
+        hdr=HDRExportSettings(),
         special=SpecialState(
             film_channel_swap=(0, 1, 2),
             print_channel_swap=(0, 1, 2),

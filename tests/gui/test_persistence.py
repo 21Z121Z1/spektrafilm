@@ -23,12 +23,23 @@ def test_gui_state_round_trip_preserves_tuple_fields() -> None:
     state.grain.agx_particle_scale = (1.1, 1.2, 1.3)
     state.gui_only.display.gray_18_canvas = True
     state.gui_only.display.white_padding = 0.18
+    state.hdr.hdr_mapping_mode = 'film_scan_aware'
+    state.hdr.hdr_heic_gain_map_enabled = True
+    state.hdr.hdr_peak_headroom = 6.0
 
     restored = gui_state_from_dict(gui_state_to_dict(state))
 
     assert restored == state
     assert isinstance(restored.input_image.io.crop_size, tuple)
     assert isinstance(restored.grain.agx_particle_scale, tuple)
+    assert restored.hdr.hdr_mapping_mode == 'film_scan_aware'
+    assert restored.hdr.hdr_heic_gain_map_enabled is True
+    assert restored.hdr.hdr_peak_headroom == 6.0
+
+
+def test_default_hdr_state_is_sdr_safe() -> None:
+    assert PROJECT_DEFAULT_GUI_STATE.hdr.hdr_mapping_mode == 'generic'
+    assert PROJECT_DEFAULT_GUI_STATE.hdr.hdr_heic_gain_map_enabled is False
 
 
 def test_save_and_load_gui_state_file(tmp_path: Path) -> None:
@@ -80,10 +91,12 @@ def test_save_default_and_clear_saved_default(monkeypatch, tmp_path: Path) -> No
 def test_gui_state_from_dict_fills_missing_section_from_defaults() -> None:
     data = gui_state_to_dict(PROJECT_DEFAULT_GUI_STATE)
     del data['simulation']
+    del data['hdr']
 
     restored = gui_state_from_dict(data)
 
     assert restored.simulation == PROJECT_DEFAULT_GUI_STATE.simulation
+    assert restored.hdr == PROJECT_DEFAULT_GUI_STATE.hdr
 
 
 def test_gui_state_from_dict_fills_missing_field_from_defaults() -> None:

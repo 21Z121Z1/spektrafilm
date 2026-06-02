@@ -450,6 +450,25 @@ def test_param_manifests_are_complete_and_well_formed() -> None:
             assert spec.leaf in type_hints, f'{spec.path}: missing type hint'
 
 
+def test_hdr_export_manifest_is_independent_from_compute_settings() -> None:
+    from spektrafilm_gui.param_manifest import ALL_MANIFESTS, COMPUTE_MANIFEST, HDR_EXPORT_MANIFEST
+
+    assert HDR_EXPORT_MANIFEST in ALL_MANIFESTS
+    assert HDR_EXPORT_MANIFEST is not COMPUTE_MANIFEST
+    assert HDR_EXPORT_MANIFEST.title == 'HDR Export'
+    assert HDR_EXPORT_MANIFEST.group_path == 'hdr'
+    assert {spec.leaf for spec in HDR_EXPORT_MANIFEST.fields} >= {
+        'hdr_mapping_mode',
+        'hdr_heic_gain_map_enabled',
+        'hdr_scene_source',
+        'hdr_diffuse_white_target',
+        'hdr_peak_headroom',
+        'hdr_headroom_mode',
+        'gain_map_mode',
+        'heic_quality',
+    }
+
+
 def test_section_header_icon_returns_empty_icon_without_pyconify(monkeypatch) -> None:
     monkeypatch.setattr(icons_module, 'pyconify', None)
     icons_module.section_header_icon.cache_clear()

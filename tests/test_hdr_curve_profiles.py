@@ -166,7 +166,7 @@ def test_film_scan_runtime_sampling_forces_scan_route_and_disables_output_clip(m
             return np.repeat(response.reshape(1, -1, 1), 3, axis=2).astype(np.float32)
 
     monkeypatch.setattr("spektrafilm.runtime.process.Simulator", FakeSimulator)
-    params = init_params(film_profile="kodak_portra_400", print_profile="kodak_portra_endura")
+    params = init_params(film_profile="fujifilm_provia_100f", print_profile="kodak_portra_endura")
     params.io.scan_film = False
     params.io.output_cctf_encoding = True
     params.io.output_clip_min = True
@@ -175,7 +175,7 @@ def test_film_scan_runtime_sampling_forces_scan_route_and_disables_output_clip(m
 
     sample = hdr_curve_profiles.sample_runtime_film_scan_curve_profile(
         params=params,
-        film="kodak_portra_400",
+        film="fujifilm_provia_100f",
         ev_min=0.0,
         ev_max=3.0,
         ev_step=1.0,
@@ -192,6 +192,129 @@ def test_film_scan_runtime_sampling_forces_scan_route_and_disables_output_clip(m
     assert sample["route"] == "film_scan"
     assert sample["paper"] is None
     assert max(sample["output"]["luminance_y"]) > 1.0
+
+
+def test_negative_film_raw_scan_diagnostic_is_decreasing_and_not_hdr_safe() -> None:
+    sample = hdr_curve_profiles.sample_runtime_film_scan_curve_profile(
+        film="kodak_gold_200",
+        scan_profile_kind="raw_negative_scan",
+        ev_min=-2.0,
+        ev_max=3.0,
+        ev_step=1.0,
+    )
+
+    scene_y = np.asarray(sample["input_domain"]["scene_y"], dtype=np.float32)
+    y = np.asarray(sample["output"]["luminance_y"], dtype=np.float32)
+    order = np.argsort(scene_y)
+
+    assert sample["route"] == "film_scan"
+    assert sample["paper"] is None
+    assert sample["profile_kind"] == "raw_negative_scan"
+    assert sample["metrics"]["polarity"] == "decreasing"
+    assert sample["metrics"]["safe_for_profile_aware_hdr"] is False
+    assert float(y[order][-1]) < float(y[order][0])
+
+
+def test_negative_film_scan_defaults_to_positive_hdr_safe_profile() -> None:
+    sample = hdr_curve_profiles.sample_runtime_film_scan_curve_profile(
+        film="kodak_gold_200",
+        ev_min=-2.0,
+        ev_max=3.0,
+        ev_step=1.0,
+    )
+
+    scene_y = np.asarray(sample["input_domain"]["scene_y"], dtype=np.float32)
+    y = np.asarray(sample["output"]["luminance_y"], dtype=np.float32)
+    order = np.argsort(scene_y)
+    sorted_y = y[order]
+    highlight_y = sorted_y[scene_y[order] >= 2.0]
+
+    assert sample["route"] == "film_scan"
+    assert sample["paper"] is None
+    assert sample["profile_kind"] == "positive_negative_scan"
+    assert sample["negative_scan_render"]["model"] == "density_normalized_positive"
+    assert sample["metrics"]["polarity"] == "increasing"
+    assert sample["metrics"]["safe_for_profile_aware_hdr"] is True
+    assert np.all(np.diff(sorted_y) >= -1e-5)
+    assert float(sorted_y[-1]) > float(sorted_y[0])
+    assert float(np.ptp(highlight_y)) > 1e-3
+    assert max(sample["output"]["luminance_y"]) > 1.0
+
+
+def test_positive_reversal_film_scan_is_not_negative_inverted() -> None:
+    sample = hdr_curve_profiles.sample_runtime_film_scan_curve_profile(
+        film="fujifilm_provia_100f",
+        ev_min=-2.0,
+        ev_max=3.0,
+        ev_step=1.0,
+    )
+
+    assert sample["route"] == "film_scan"
+    assert sample["profile_kind"] == "positive_film_scan"
+    assert "negative_scan_render" not in sample
+    assert sample["metrics"]["polarity"] == "increasing"
+    assert sample["metrics"]["safe_for_profile_aware_hdr"] is True
+    scene_y = np.asarray(sample["input_domain"]["scene_y"], dtype=np.float32)
+    y = np.asarray(sample["output"]["luminance_y"], dtype=np.float32)
+    order = np.argsort(scene_y)
+    assert np.all(np.diff(y[order]) >= -1e-5)
+
+    with pytest.raises(ValueError, match="raw_negative_scan"):
+        hdr_curve_profiles.sample_runtime_film_scan_curve_profile(
+            film="fujifilm_provia_100f",
+            scan_profile_kind="raw_negative_scan",
+            ev_min=-2.0,
+            ev_max=2.0,
+            ev_step=1.0,
+        )
+
+
+def test_film_scan_sampling_ignores_print_controls_but_uses_film_and_scanner(monkeypatch) -> None:
+    from spektrafilm.runtime.params_builder import init_params
+
+    class FakeSimulator:
+        def __init__(self, params) -> None:
+            self._params = params
+
+        def process(self, ramp_rgb: np.ndarray) -> np.ndarray:
+            scene = ramp_rgb[0, :, 0].astype(np.float32)
+            film_gamma = np.float32(self._params.film_render.density_curve_gamma)
+            scanner_curve = np.float32(self._params.scanner.white_level)
+            raw = np.float32(0.82) / (np.float32(1.0) + film_gamma * scene)
+            raw = raw - np.float32(0.015) * scanner_curve * np.square(scene / np.max(scene))
+            raw = np.maximum(raw, np.float32(1e-4))
+            return np.repeat(raw.reshape(1, -1, 1), 3, axis=2).astype(np.float32)
+
+    monkeypatch.setattr("spektrafilm.runtime.process.Simulator", FakeSimulator)
+
+    base = init_params(film_profile="kodak_gold_200", print_profile="kodak_portra_endura")
+    changed_print = init_params(film_profile="kodak_gold_200", print_profile="kodak_portra_endura")
+    changed_print.enlarger.print_exposure = 3.0
+    changed_print.enlarger.y_filter_shift = 20.0
+    changed_print.enlarger.m_filter_shift = -15.0
+    changed_print.enlarger.preflash_exposure = 0.5
+    changed_print.print_render.glare.percent = 0.8
+
+    changed_film = init_params(film_profile="kodak_gold_200", print_profile="kodak_portra_endura")
+    changed_film.film_render.density_curve_gamma = 1.4
+
+    changed_scanner = init_params(film_profile="kodak_gold_200", print_profile="kodak_portra_endura")
+    changed_scanner.scanner.white_level = 0.55
+
+    kwargs = {"ev_min": 0.0, "ev_max": 3.0, "ev_step": 1.0}
+    base_sample = hdr_curve_profiles.sample_runtime_film_scan_curve_profile(params=base, film="kodak_gold_200", **kwargs)
+    print_sample = hdr_curve_profiles.sample_runtime_film_scan_curve_profile(params=changed_print, film="kodak_gold_200", **kwargs)
+    film_sample = hdr_curve_profiles.sample_runtime_film_scan_curve_profile(params=changed_film, film="kodak_gold_200", **kwargs)
+    scanner_sample = hdr_curve_profiles.sample_runtime_film_scan_curve_profile(params=changed_scanner, film="kodak_gold_200", **kwargs)
+
+    base_y = np.asarray(base_sample["output"]["luminance_y"], dtype=np.float32)
+    print_y = np.asarray(print_sample["output"]["luminance_y"], dtype=np.float32)
+    film_y = np.asarray(film_sample["output"]["luminance_y"], dtype=np.float32)
+    scanner_y = np.asarray(scanner_sample["output"]["luminance_y"], dtype=np.float32)
+
+    np.testing.assert_allclose(base_y, print_y, atol=1e-6)
+    assert not np.allclose(base_y, film_y, atol=1e-4)
+    assert not np.allclose(base_y, scanner_y, atol=1e-4)
 
 
 def test_print_scan_runtime_sampling_keeps_print_route(monkeypatch) -> None:
