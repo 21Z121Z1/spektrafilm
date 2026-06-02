@@ -254,13 +254,13 @@ Benchmark correctness constraints:
 
 ## TDD Plan
 
-- [ ] Add unit tests for benchmark helper functions: size parsing, array description, stage trace schema, markdown/json payload shape.
-- [ ] Add a failing runtime API test showing `Simulator.process()` enters `serialized_metal_runtime()` for backends with `requires_serial_runtime=True`.
-- [ ] Add a failing backend/status test showing GPU summaries differentiate selected backend from runtime acceleration state.
-- [ ] Add or extend MLX residency tests for the highest-value stage boundary:
+- [x] Add unit tests for benchmark helper functions: size parsing, array description, stage trace schema, markdown/json payload shape.
+- [x] Add a failing runtime API test showing `Simulator.process()` enters `serialized_metal_runtime()` for backends with `requires_serial_runtime=True`.
+- [x] Add a failing backend/status test showing GPU summaries differentiate selected backend from runtime acceleration state.
+- [x] Add or extend MLX residency tests for the highest-value stage boundary:
   - `PrintingStage.develop()` returns an MLX array when backend is MLX.
   - Full manual stage trace has fewer `mlx -> numpy -> mlx` round trips after the fix.
-- [ ] Keep tests skippable when MLX is unavailable.
+- [x] Keep tests skippable when MLX is unavailable.
 
 ## Verification Plan
 
@@ -315,3 +315,186 @@ git diff --check
 ## Initial Root-Cause Hypothesis
 
 The user-observed equal speed is not caused by a failed `select_backend("mlx")`; MLX selection works. The likely root cause is a mixed runtime where enough image-sized work is still CPU-bound or materialized at CPU boundaries to erase the benefit of existing optional MLX kernels, especially when `gpu_validate=True` doubles work with a CPU reference run. The fix is to make status honest, measure with a stable benchmark/type trace, wire missing serialization semantics, and migrate the largest confirmed image-sized CPU interpolation/materialization boundary that can be changed without altering SDR semantics.
+
+---
+
+## Result Report
+
+### Current Checkout Note
+
+The initial audit was performed with live HEAD at `949cf43` and user-referenced `f0ca402` as its parent. During the session the checkout advanced to:
+
+```text
+d721fda (HEAD -> develop, origin/develop) docs: update upstream sync post-commit report
+40e387b chore: finalize upstream sync state
+949cf43 (backup/before-upstream-sync-20260602-2303) fix: handle Optional/float|None union types in GUI editor resolution
+f0ca402 feat: add GPU compute backend section to ADVANCED tab
+```
+
+The MLX runtime changes are present in the current checkout. Existing unrelated untracked documentation files were left alone.
+
+### Backend Selection
+
+MLX selection is correct. The required probe still reports:
+
+```text
+cpu cpu False False cpu
+auto mlx True True cpu runtime path; mlx validated for optional GPU kernels
+mlx mlx True True cpu runtime path; mlx validated for optional GPU kernels
+```
+
+This remains expected for `backend_summary()` because its default `runtime_gpu_enabled=False` still produces the conservative summary. The runtime now exposes a separate pipeline-level status:
+
+```text
+MLX selected; mixed CPU/MLX runtime path with optional GPU kernels
+```
+
+That wording is intentional. It does not claim complete MLX acceleration.
+
+### Implemented Fixes
+
+- Added `runtime_backend_summary()` in `src/spektrafilm/gpu/backend.py` and exposed it through `SimulationPipeline.backend_runtime_summary()`.
+- Updated GUI/controller status plumbing so a completed run can append the runtime backend truth to the user-visible status.
+- Wired `requires_serial_runtime=True` into `Simulator.process()`, `process_with_metadata()`, `update_params()`, and `soft_update()` through `serialized_metal_runtime()`.
+- Migrated `PrintingStage.develop()` to run image-sized print density interpolation through `interpolate_exposure_to_density_backend()` for GPU backends, while keeping the morphed print curves on the CPU side.
+- Added `scripts/benchmark_mlx_runtime_hotpath.py` with CPU full-res, MLX full-res false/true validation, preview 640, stage timings, backend identity, conversion counters, and hot-path type traces.
+- Added tests for runtime serialization, runtime summary propagation, controller status propagation, printing develop MLX residency, and benchmark output schema.
+- Fixed a stale LUT lifecycle test fake so it accepts the production `gamut_compress` keyword argument.
+
+### Benchmark Evidence
+
+Primary completed artifact:
+
+- `docs/dev/benchmark-artifacts/mlx_runtime_hotpath_20260602/benchmark-20260602-233135.json`
+- `docs/dev/benchmark-artifacts/mlx_runtime_hotpath_20260602/benchmark-20260602-233135.md`
+
+Input:
+
+```text
+img/test/portrait_leaves_32bit_linear_prophoto_rgb.tif
+shape=[1000, 667, 3]
+```
+
+Results:
+
+| Case | Backend | Shape | Precision | gpu_validate | Total | Wall | Summary |
+|---|---|---:|---|---:|---:|---:|---|
+| CPU full-res | cpu | 1000x667x3 | float64 | false | 2.3709s | 2.3737s | cpu |
+| MLX full-res | mlx | 1000x667x3 | float32 | false | 0.6141s | 0.6146s | MLX selected; mixed CPU/MLX runtime path with optional GPU kernels |
+| MLX full-res validate | mlx | 1000x667x3 | float32 | true | 2.1299s | 2.1304s | MLX selected; mixed CPU/MLX runtime path with optional GPU kernels |
+| MLX preview 640 | mlx | 640x426x3 | float32 | false | 0.3415s | 0.3549s | MLX selected; mixed CPU/MLX runtime path with optional GPU kernels |
+
+On this bounded full-res TIFF, MLX `float32` without validation is about `3.86x` faster than CPU. With `gpu_validate=True`, the CPU reference pass dominates and the result is close to CPU speed, which matches the user observation when validation or CPU-bound paths are included.
+
+RAW full-res note:
+
+- Attempted real OPPO RAW input: `/Users/retriedstormtrooper/Documents/OPPO 互联/combine dng/IMG20260530191638.dng`.
+- The first full matrix with type trace was terminated after the CPU case exceeded 10 minutes.
+- A second timed-only RAW full-res run was terminated after the CPU case exceeded 5 minutes.
+- No RAW speedup conclusion is claimed from those interrupted runs. The report records only that this RAW CPU path is too slow for the interactive benchmark settings used here.
+
+### Hot-Path Type Trace
+
+For CPU full-res all traced full-image stages stayed as NumPy:
+
+```text
+preprocess: numpy.ndarray -> numpy.ndarray
+filming.expose: numpy.ndarray -> numpy.ndarray
+filming.develop: numpy.ndarray -> numpy.ndarray
+printing.expose: numpy.ndarray -> numpy.ndarray
+printing.develop: numpy.ndarray -> numpy.ndarray
+scanning: numpy.ndarray -> numpy.ndarray
+final.to_numpy_float64: numpy.ndarray -> numpy.ndarray
+```
+
+For MLX full-res `gpu_validate=False`, the current hot path is:
+
+```text
+preprocess: numpy.ndarray -> numpy.ndarray
+filming.expose: numpy.ndarray -> mlx.core.array
+filming.develop: mlx.core.array -> mlx.core.array
+printing.expose: mlx.core.array -> mlx.core.array
+printing.develop: mlx.core.array -> mlx.core.array
+scanning: mlx.core.array -> mlx.core.array
+final.to_numpy_float64: mlx.core.array -> numpy.ndarray
+```
+
+This proves MLX is no longer just a selected label for the measured TIFF path. It also proves the runtime is still mixed, because preprocess begins on NumPy and the public output boundary returns NumPy float64.
+
+Conversion counters still show many `backend.asarray` calls:
+
+```text
+mlx_full_res_validate_false:
+backend.asarray.input count=70 bytes=1113451572
+backend.asarray.output count=70 bytes=1097001020
+backend.to_numpy.input count=2 bytes=24
+backend.to_numpy.output count=2 bytes=24
+```
+
+The tiny `to_numpy` counters reflect non-image scalar/reference conversions, while repeated `asarray` calls show remaining opportunities to cache constants and avoid repeated small conversions.
+
+### Remaining CPU/Mixed Boundaries
+
+- `SimulationPipeline._preprocess_base()` still receives and normalizes input as NumPy before the first backend-resident stage.
+- The public `SimulationPipeline.process()` output still materializes NumPy float64 by design.
+- `gpu_validate=True` runs a CPU reference pipeline and therefore should never be used as a speed benchmark.
+- LUT construction/test callbacks and some reference/profile helpers still use CPU paths.
+- RAW loading and RAW preprocessing remain outside the measured MLX stage residency and can dominate real camera-file runs.
+- Repeated backend conversion of constants and small arrays remains visible in the conversion counters.
+
+### Confidence Check
+
+I am not claiming "full runtime acceleration" with 100% confidence, because the evidence says the runtime is still mixed. I am confident in the narrower facts below:
+
+- MLX backend selection works.
+- `backend_summary()` default wording explains the user's confusing summary.
+- `requires_serial_runtime` now has a runtime effect.
+- The measured TIFF full-res path keeps image-sized arrays on MLX from filming onward until final output.
+- The measured TIFF full-res MLX path shows real acceleration when `gpu_validate=False`.
+- `gpu_validate=True` explains near-CPU timing because it includes a CPU reference rerun.
+
+The next highest-value work is to remove or explicitly classify the remaining NumPy preprocess boundary, reduce repeated `backend.asarray` conversions, and separately benchmark RAW loading/preprocessing so RAW-file latency is not misattributed to MLX compute.
+
+### Verification Completed
+
+Required:
+
+```text
+uv run pytest tests/gui/test_layout.py tests/test_grain.py tests/test_pipeline_lut_lifecycle.py -q
+46 passed in 6.26s
+```
+
+Targeted:
+
+```text
+uv run pytest tests/test_mlx_runtime_hotpath_benchmark.py tests/test_runtime_api.py::TestRuntimeApi::test_process_uses_serialized_runtime_for_serial_backend tests/test_runtime_api.py::TestRuntimeApi::test_backend_runtime_summary_delegates_to_pipeline tests/gui/test_controller_runtime_module.py::test_execute_simulation_request_appends_runtime_backend_status tests/gui/test_controller_flow.py::test_process_image_with_runtime_captures_backend_runtime_summary tests/test_gpu_pipeline.py::test_printing_develop_keeps_mlx_array_when_available -q
+9 passed in 1.05s
+```
+
+Backend/runtime slice:
+
+```text
+uv run pytest tests/test_gpu_backend.py tests/test_gpu_pipeline.py tests/test_runtime_api.py tests/test_gpu_validate.py tests/test_mlx_runtime_hotpath_benchmark.py -q
+41 passed, 2 skipped in 2.41s
+```
+
+Benchmark smoke:
+
+```text
+uv run python scripts/benchmark_mlx_runtime_hotpath.py --input /tmp/nonexistent-spektrafilm-benchmark.dng --generated-size 96x64 --size 64x48 --warmups 0 --runs 1 --out-dir docs/dev/benchmark-artifacts/mlx_runtime_hotpath_20260602_smoke
+```
+
+Benchmark full-res TIFF:
+
+```text
+uv run python scripts/benchmark_mlx_runtime_hotpath.py --input img/test/portrait_leaves_32bit_linear_prophoto_rgb.tif --size full --warmups 0 --runs 1 --out-dir docs/dev/benchmark-artifacts/mlx_runtime_hotpath_20260602
+```
+
+Final hygiene:
+
+```text
+uv run python -m compileall -q src tests scripts
+git diff --check
+```
+
+Both final hygiene commands passed.
