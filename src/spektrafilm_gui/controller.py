@@ -613,12 +613,14 @@ class GuiController:
         image_data: np.ndarray,
         *,
         output_color_space: str,
+        output_cctf_encoding: bool = True,
         use_display_transform: bool,
         padding_pixels: float = 0.0,
     ) -> tuple[np.ndarray, str]:
         return runtime.prepare_output_display_image(
             image_data,
             output_color_space=output_color_space,
+            output_cctf_encoding=output_cctf_encoding,
             use_display_transform=use_display_transform,
             padding_pixels=padding_pixels,
             imagecms_module=ImageCms,
