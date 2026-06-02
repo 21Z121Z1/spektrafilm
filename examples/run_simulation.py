@@ -35,7 +35,7 @@ def run_simulation():
     params.enlarger.diffusion_filter.strength = 0.25
     params.enlarger.diffusion_filter.spatial_scale = 1.0
     params.camera.film_format_mm = 35
-    params.film_render.grain.particle_area_um2 = 1.2
+    params.film_render.grain.agx_particle_area_um2 = 1.2
     params.io.upscale_factor = 0.5
     print_scan = simulate(image, params)
     params.io.scan_film = True
