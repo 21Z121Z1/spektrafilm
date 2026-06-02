@@ -159,13 +159,10 @@ class SimulationPipeline:
         self.timings.clear()
         start = perf_counter()
         try:
-            if self.debug.debug_mode == 'off':
-                if include_metadata:
-                    result = self._pipeline_with_metadata(image)
-                else:
-                    result = SimulationPipelineResult(image=self._pipeline(image))
+            if include_metadata:
+                result = self._pipeline_with_metadata(image)
             else:
-                result = SimulationPipelineResult(image=self._pipeline_debug(image), hdr_scene_energy=None)
+                result = SimulationPipelineResult(image=self._pipeline(image))
             self._run_gpu_validate(image, result.image)
             return result
         finally:
@@ -207,9 +204,6 @@ class SimulationPipeline:
         validate_start = perf_counter()
         try:
             backend_name = getattr(self._array_backend, "name", "unknown")
-            if self.debug.debug_mode != 'off':
-                self.validation_report = {"status": "skipped", "reason": "debug_mode"}
-                return
             if not getattr(self._array_backend, "supports_gpu", False):
                 self.validation_report = {
                     "status": "skipped",
@@ -415,46 +409,6 @@ class SimulationPipeline:
         rgb_scan = self._scanning_stage.scan(cmy_print)
         return rgb_scan
     
-################################################################################
-    
-    # debug_methods
-
-    def _pipeline_debug(self, rgb_image):
-        if self.debug.debug_mode == "output":
-            return self._debug_output_pipeline(rgb_image)
-        elif self.debug.debug_mode == "inject":
-            return self._debug_inject_pipeline(rgb_image)
-    
-    def _debug_output_pipeline(self, rgb_image):
-        """Run the pipeline with additional outputs for debugging."""
-        rgb_image = self._preprocess(rgb_image)
-        log_raw_film = self._filming_stage.expose(rgb_image)
-        if self.debug.output_film_log_raw:
-            return log_raw_film
-        
-        cmy_film = self._filming_stage.develop(log_raw_film)
-        if self.debug.output_film_density_cmy:
-            return cmy_film
-        
-        log_raw_print = self._printing_stage.expose(cmy_film)
-        cmy_print = self._printing_stage.develop(log_raw_print)
-        if self.debug.output_print_density_cmy:
-            return cmy_print
-        
-        rgb_scan = self._scanning_stage.scan(cmy_print)
-        return rgb_scan
-    
-    def _debug_inject_pipeline(self, cmy_film):
-        """Run the pipeline with additional inputs for debugging."""
-        if self.debug.inject_film_density_cmy:
-            log_raw_print = self._printing_stage.expose(cmy_film)
-            cmy_print = self._printing_stage.develop(log_raw_print)
-            rgb_scan = self._scanning_stage.scan(cmy_print)
-            return rgb_scan
-        raise ValueError(
-            "debug_mode is 'inject' but inject_film_density_cmy is False; "
-            "no inject target is enabled."
-        )
 
     def _build_topology(self) -> list[Node]:
         f, p, s = self._filming_stage, self._printing_stage, self._scanning_stage

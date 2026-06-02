@@ -38,7 +38,7 @@ def _stub_validation_pipeline():
     pipeline.timings = {}
     pipeline._last_elapsed_time = None
     pipeline._array_backend = _FakeGpuBackend()
-    pipeline.debug = SimpleNamespace(debug_mode="off")
+    pipeline.debug = SimpleNamespace()
     pipeline.settings = SimpleNamespace(
         compute_backend="mlx",
         gpu_precision="float32",
@@ -51,27 +51,7 @@ def _stub_validation_pipeline():
     return pipeline
 
 
-def test_gpu_validate_skips_in_debug_mode_for_stub_pipeline() -> None:
-    pipeline = object.__new__(SimulationPipeline)
-    pipeline.timings = {}
-    pipeline._last_elapsed_time = None
-    pipeline._runtime_dtype = np.dtype(np.float32)
-    pipeline._array_backend = _FakeGpuBackend()
-    pipeline.debug = SimpleNamespace(debug_mode="inject")
-    pipeline.settings = SimpleNamespace(gpu_validate=True)
 
-    # Avoid touching the real runtime pipeline implementation.
-    pipeline._pipeline_debug = lambda image: image
-
-    image = np.random.rand(4, 4, 3).astype(np.float32)
-    out = pipeline.process(image)
-
-    assert out.shape == image.shape
-    assert pipeline.validation_report == {
-        "status": "skipped",
-        "reason": "debug_mode",
-    }
-    assert "SimulationPipeline.gpu_validate" in pipeline.timings
 
 
 def test_gpu_validate_runs_cpu_reference_and_records_metrics(monkeypatch) -> None:

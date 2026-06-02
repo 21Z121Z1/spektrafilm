@@ -205,3 +205,6 @@ CITATION.cff
 android/local.properties
 android/.gradle/
 android/.kotlin/
+
+# GUI runtime state
+gui_state.json

@@ -31,7 +31,6 @@ def _make_deterministic_params():
     suitable for bit-exact reproducibility checks.
     """
     params = init_params()
-    params.debug.debug_mode = "off"
     params.debug.deactivate_spatial_effects = True
     params.debug.deactivate_stochastic_effects = True
     params.camera.auto_exposure = False
@@ -157,7 +156,6 @@ class TestGoldenReference:
 
     # Golden reference captured with:
     #   params = init_params()
-    #   params.debug.debug_mode = 'off'
     #   params.debug.deactivate_spatial_effects = True
     #   params.debug.deactivate_stochastic_effects = True
     #   params.camera.auto_exposure = False
