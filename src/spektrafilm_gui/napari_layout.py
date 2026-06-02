@@ -426,6 +426,7 @@ def build_controls_panel(viewer: napari.Viewer, widgets: WidgetBundle) -> QWidge
     panel.addTab(
         _wrap_scrollable(
             _build_controls_tab(
+                widgets.compute,
                 widgets.spectral_upsampling,
                 widgets.input_gamut_compress,
                 widgets.output_gamut_compress,

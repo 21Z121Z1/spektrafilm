@@ -4,6 +4,7 @@ from spektrafilm_gui.param_manifest import (
     CAMERA_DIFFUSION_MANIFEST,
     CAMERA_MANIFEST,
     CHEMISTRY_MANIFEST,
+    COMPUTE_MANIFEST,
     DIR_COUPLERS_MANIFEST,
     ENLARGER_DIFFUSION_MANIFEST,
     GLARE_MANIFEST,
@@ -58,6 +59,7 @@ class WidgetBundle:
     glare: ParamsGroupSection
     input_gamut_compress: ParamsGroupSection
     output_gamut_compress: ParamsGroupSection
+    compute: ParamsGroupSection
     special: SpecialSection
     simulation: SimulationSection
     preview_crop: PreviewCropSection
@@ -96,6 +98,7 @@ def create_widget_bundle() -> WidgetBundle:
         glare=glare,
         input_gamut_compress=ParamsGroupSection(INPUT_GAMUT_COMPRESS_MANIFEST),
         output_gamut_compress=ParamsGroupSection(OUTPUT_GAMUT_COMPRESS_MANIFEST),
+        compute=ParamsGroupSection(COMPUTE_MANIFEST),
         special=special,
         simulation=simulation,
         preview_crop=PreviewCropSection(input_image),

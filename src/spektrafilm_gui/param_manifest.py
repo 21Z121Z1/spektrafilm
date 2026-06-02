@@ -26,6 +26,7 @@ from spektrafilm.runtime.params_schema import (
     GrainParams,
     HalationParams,
     ScannerParams,
+    SettingsParams,
 )
 from spektrafilm.runtime.params_schema import CameraParams
 from spektrafilm.model.illuminants import Illuminants
@@ -34,7 +35,9 @@ from spektrafilm.utils.gamut_compression import InputGamutCompressSpec, OutputGa
 from spektrafilm.utils.morph_curves import PrintCurvesMorphParams
 from spektrafilm_gui.options import (
     AutoExposureMethods,
+    ComputeBackend,
     DiffusionFilterFamilies,
+    GpuPrecision,
     InputGamutCompressAlgorithms,
     NapariInterpolationModes,
     OutputGamutCompressAlgorithms,
@@ -856,6 +859,48 @@ SIMULATION_FIELDS = (
 )
 
 
+# --- compute backend: GPU acceleration settings ------------------------------
+
+_COMPUTE = "settings"
+
+COMPUTE_MANIFEST = GroupManifest(
+    title="Compute backend",
+    group_path=_COMPUTE,
+    group_cls=SettingsParams,
+    collapsed_by_default=True,
+    fields=(
+        ParamSpec(
+            f"{_COMPUTE}.compute_backend",
+            label="Backend",
+            tier="basic",
+            enum=ComputeBackend,
+            tooltip="Compute backend for the simulation pipeline. cpu: pure NumPy. mlx: Apple MLX (Apple Silicon). cupy: CuPy (NVIDIA CUDA). halide: Halide JIT. auto: select best available.",
+        ),
+        ParamSpec(
+            f"{_COMPUTE}.gpu_precision",
+            label="Precision",
+            tier="basic",
+            enum=GpuPrecision,
+            tooltip="Numerical precision for GPU backends. float32 is faster; float64 matches CPU reference exactly.",
+        ),
+        ParamSpec(
+            f"{_COMPUTE}.gpu_validate",
+            label="Validate GPU",
+            tier="basic",
+            tooltip="After each GPU pipeline run, re-run on CPU and compare outputs. Raises on mismatch. Useful for debugging GPU precision issues.",
+        ),
+        ParamSpec(
+            f"{_COMPUTE}.gpu_validation_tolerance",
+            label="Validation tolerance",
+            min=0.0,
+            step=1e-6,
+            decimals=8,
+            tooltip="Maximum allowed absolute difference between GPU and CPU outputs. None uses the backend-specific default.",
+        ),
+    ),
+)
+
+
 # Registry of every group migrated to the path-keyed manifest, for tests
 # and future generic wiring.
 ALL_MANIFESTS = (
@@ -871,4 +916,5 @@ ALL_MANIFESTS = (
     SCANNER_MANIFEST,
     INPUT_GAMUT_COMPRESS_MANIFEST,
     OUTPUT_GAMUT_COMPRESS_MANIFEST,
+    COMPUTE_MANIFEST,
 )
