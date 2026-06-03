@@ -159,9 +159,6 @@ class SimulationPipeline:
         self.timings.clear()
         start = perf_counter()
         
-        if getattr(self._backend, "name", "") == "mlx" and hasattr(self._backend, "cleanup"):
-            self._backend.cleanup()
-            
         try:
             if include_metadata:
                 result = self._pipeline_with_metadata(image)
@@ -171,7 +168,11 @@ class SimulationPipeline:
             return result
         finally:
             self._last_elapsed_time = perf_counter() - start
-            if getattr(self._backend, "name", "") == "mlx" and hasattr(self._backend, "cleanup"):
+            if (
+                getattr(self._backend, "name", "") == "mlx" 
+                and hasattr(self._backend, "cleanup")
+                and not getattr(self.settings, "preview_mode", False)
+            ):
                 self._backend.cleanup()
 
     def _process_topology(self, image, *, inject: str | None = None, collect: str | None = None):
@@ -181,9 +182,6 @@ class SimulationPipeline:
         self.timings.clear()
         start = perf_counter()
         
-        if getattr(self._backend, "name", "") == "mlx" and hasattr(self._backend, "cleanup"):
-            self._backend.cleanup()
-            
         try:
             return run_topology(
                 self._topology, inject, collect, image,
@@ -191,7 +189,11 @@ class SimulationPipeline:
             )
         finally:
             self._last_elapsed_time = perf_counter() - start
-            if getattr(self._backend, "name", "") == "mlx" and hasattr(self._backend, "cleanup"):
+            if (
+                getattr(self._backend, "name", "") == "mlx" 
+                and hasattr(self._backend, "cleanup")
+                and not getattr(self.settings, "preview_mode", False)
+            ):
                 self._backend.cleanup()
 
     def _gpu_validation_tolerance(self) -> float:
