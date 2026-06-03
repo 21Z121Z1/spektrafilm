@@ -74,6 +74,8 @@ class MlxBackend:
         self.mx.synchronize()
 
     def cleanup(self) -> None:
+        import gc
+        gc.collect()
         self.synchronize()
         clear_cache = getattr(self.mx, "clear_cache", None)
         if not callable(clear_cache):

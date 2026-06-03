@@ -794,7 +794,7 @@ def test_process_image_with_runtime_reuses_cached_simulator(monkeypatch) -> None
         def update_params(self, params) -> None:
             captured['updated'].append(params)
 
-        def process(self, image):
+        def process_with_metadata(self, image):
             captured['processed'].append(np.array(image, copy=True))
             return np.asarray(image) + 0.1
 
@@ -830,7 +830,7 @@ def test_process_image_with_runtime_captures_backend_runtime_summary(monkeypatch
         def __init__(self, runtime_params) -> None:
             assert runtime_params is digested_params
 
-        def process(self, runtime_image):
+        def process_with_metadata(self, runtime_image):
             return np.asarray(runtime_image) + 0.1
 
         def backend_runtime_summary(self) -> str:
@@ -862,7 +862,7 @@ def test_process_image_with_runtime_reapplies_stock_specific_digest_after_profil
         def update_params(self, runtime_params) -> None:
             captured['updated'].append(runtime_params)
 
-        def process(self, runtime_image):
+        def process_with_metadata(self, runtime_image):
             captured['processed'].append(np.array(runtime_image, copy=True))
             return np.asarray(runtime_image) + 0.2
 
@@ -902,7 +902,7 @@ def test_on_simulation_finished_reports_completed_status(monkeypatch) -> None:
         )
     )
 
-    assert captured['status'] == ('Preview completed. Display transform: disabled', 5000)
+    assert captured['status'] == ('Preview completed. Display transform: disabled', 0)
 
 
 def test_on_simulation_finished_skips_completed_status_for_silent_preview(monkeypatch) -> None:

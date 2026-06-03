@@ -728,7 +728,7 @@ class GuiController:
             pil_image_module=PILImage,
         )
 
-    def _process_image_with_runtime(self, image_data: np.ndarray, params) -> np.ndarray:
+    def _process_image_with_runtime(self, image_data: np.ndarray, params) -> object:
         apply_stocks_specifics = (
             self._runtime_simulator is None
             or self._next_runtime_digest_applies_stock_specifics
@@ -743,7 +743,7 @@ class GuiController:
             else:
                 self._runtime_simulator.update_params(digested_params)
             self._next_runtime_digest_applies_stock_specifics = False
-            result = self._runtime_simulator.process(image_data)
+            result = self._runtime_simulator.process_with_metadata(image_data)
             summary_fn = getattr(self._runtime_simulator, "backend_runtime_summary", None)
             self._last_runtime_backend_summary = summary_fn() if callable(summary_fn) else None
             return result

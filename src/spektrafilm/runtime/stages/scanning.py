@@ -126,12 +126,16 @@ class ScanningStage:
 
     def _return_callable_cmy_to_log_xyz(self):
         if self._io.scan_film:
-            channel_density = self._film.data.channel_density
+            channel_density = np.nan_to_num(self._film.data.channel_density, nan=0.0, posinf=0.0, neginf=0.0)
             base_density = self._film.data.base_density
+            if base_density is not None:
+                base_density = np.nan_to_num(base_density, nan=0.0, posinf=0.0, neginf=0.0)
             scan_illuminant = standard_illuminant(self._film.info.viewing_illuminant)
         else:
-            channel_density = self._print.data.channel_density
+            channel_density = np.nan_to_num(self._print.data.channel_density, nan=0.0, posinf=0.0, neginf=0.0)
             base_density = self._print.data.base_density
+            if base_density is not None:
+                base_density = np.nan_to_num(base_density, nan=0.0, posinf=0.0, neginf=0.0)
             scan_illuminant = standard_illuminant(self._print.info.viewing_illuminant)
 
         cmfs = STANDARD_OBSERVER_CMFS[:]

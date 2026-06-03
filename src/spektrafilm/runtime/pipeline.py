@@ -158,6 +158,10 @@ class SimulationPipeline:
     def _process_result(self, image, *, include_metadata: bool) -> SimulationPipelineResult:
         self.timings.clear()
         start = perf_counter()
+        
+        if getattr(self._backend, "name", "") == "mlx" and hasattr(self._backend, "cleanup"):
+            self._backend.cleanup()
+            
         try:
             if include_metadata:
                 result = self._pipeline_with_metadata(image)
@@ -167,6 +171,8 @@ class SimulationPipeline:
             return result
         finally:
             self._last_elapsed_time = perf_counter() - start
+            if getattr(self._backend, "name", "") == "mlx" and hasattr(self._backend, "cleanup"):
+                self._backend.cleanup()
 
     def _process_topology(self, image, *, inject: str | None = None, collect: str | None = None):
         inject = inject or self.taps.inject or Tap.RGB_IN
@@ -174,6 +180,10 @@ class SimulationPipeline:
 
         self.timings.clear()
         start = perf_counter()
+        
+        if getattr(self._backend, "name", "") == "mlx" and hasattr(self._backend, "cleanup"):
+            self._backend.cleanup()
+            
         try:
             return run_topology(
                 self._topology, inject, collect, image,
@@ -181,6 +191,8 @@ class SimulationPipeline:
             )
         finally:
             self._last_elapsed_time = perf_counter() - start
+            if getattr(self._backend, "name", "") == "mlx" and hasattr(self._backend, "cleanup"):
+                self._backend.cleanup()
 
     def _gpu_validation_tolerance(self) -> float:
         explicit = getattr(self.settings, "gpu_validation_tolerance", None)
@@ -305,6 +317,9 @@ class SimulationPipeline:
 
     def update(self, params):
         """Update params and re-initialize stages that depend on them."""
+        backend = getattr(self, "_backend", None)
+        if backend is not None and getattr(backend, "name", "") == "mlx" and hasattr(backend, "cleanup"):
+            backend.cleanup()
         self.__init__(params, update_params=True)
 
     def soft_update(self,

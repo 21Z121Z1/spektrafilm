@@ -13,6 +13,7 @@ import numpy as np
 
 _INTERP_DENSITY_CURVES_KERNEL = None
 _INTERP_DENSITY_LAYERS_KERNEL = None
+_CMY_TO_LOG_XYZ_KERNEL = None
 
 
 def _backend_supports_gpu(backend) -> bool:
@@ -160,6 +161,61 @@ def _get_interp_density_layers_kernel(mx):
         source=source,
     )
     return _INTERP_DENSITY_LAYERS_KERNEL
+
+
+def _get_cmy_to_log_xyz_kernel(mx):
+    """Return the cached MLX/Metal cmy_to_log_xyz fused kernel."""
+    global _CMY_TO_LOG_XYZ_KERNEL
+    if _CMY_TO_LOG_XYZ_KERNEL is not None:
+        return _CMY_TO_LOG_XYZ_KERNEL
+
+    source = """
+        uint elem = thread_position_in_grid.x;
+        uint total = density_cmy_shape[0] / 3; // total pixels
+        if (elem >= total) {
+            return;
+        }
+
+        uint K = channel_density_shape[0] / 3;
+        float c0 = float(density_cmy[elem * 3 + 0]);
+        float c1 = float(density_cmy[elem * 3 + 1]);
+        float c2 = float(density_cmy[elem * 3 + 2]);
+
+        float xyz[3] = {0.0f, 0.0f, 0.0f};
+
+        for (uint k = 0; k < K; k++) {
+            float cd0 = float(channel_density[k * 3 + 0]);
+            float cd1 = float(channel_density[k * 3 + 1]);
+            float cd2 = float(channel_density[k * 3 + 2]);
+            float bd = float(base_density[k]);
+
+            float d = c0 * cd0 + c1 * cd1 + c2 * cd2 + bd;
+            if (d < -35.0f) {
+                d = -35.0f;
+            }
+            float L = pow(10.0f, -d) * float(scan_illuminant[k]);
+
+            xyz[0] += L * float(cmfs[k * 3 + 0]);
+            xyz[1] += L * float(cmfs[k * 3 + 1]);
+            xyz[2] += L * float(cmfs[k * 3 + 2]);
+        }
+
+        float norm = float(normalization[0]);
+        for (int i = 0; i < 3; i++) {
+            float val = xyz[i] / norm;
+            if (val < 0.0f) {
+                val = 0.0f;
+            }
+            out[elem * 3 + i] = T(log10(val + 1e-10f));
+        }
+    """
+    _CMY_TO_LOG_XYZ_KERNEL = mx.fast.metal_kernel(
+        name="spektrafilm_cmy_to_log_xyz",
+        input_names=["density_cmy", "channel_density", "base_density", "scan_illuminant", "cmfs", "normalization"],
+        output_names=["out"],
+        source=source,
+    )
+    return _CMY_TO_LOG_XYZ_KERNEL
 
 
 def _as_channel_gamma(gamma_factor: Any) -> np.ndarray:
@@ -500,7 +556,7 @@ def cmy_to_log_xyz_backend(
     scan_illuminant: Any,
     cmfs: Any,
     normalization: float,
-    backend,
+    backend: Any,
 ) -> Any:
     """Full CMY → log₁₀(XYZ) chain on the backend.
 
@@ -517,6 +573,51 @@ def cmy_to_log_xyz_backend(
             cmfs,
             normalization,
         )
+
+    if _backend_supports_mlx_custom_kernels(backend):
+        mx = backend.mx
+        density_cmy_mx = backend.asarray(density_cmy)
+        channel_density_mx = backend.asarray(channel_density)
+        scan_illuminant_mx = backend.asarray(scan_illuminant)
+        cmfs_mx = backend.asarray(cmfs)
+
+        K = channel_density_mx.shape[0]
+        if base_density is None:
+            base_density_mx = mx.zeros((K,), dtype=density_cmy_mx.dtype)
+        else:
+            base_density_mx = backend.asarray(base_density)
+
+        normalization_mx = mx.array([normalization], dtype=density_cmy_mx.dtype)
+        kernel = _get_cmy_to_log_xyz_kernel(mx)
+        H = int(density_cmy_mx.shape[0])
+        W = int(density_cmy_mx.shape[1])
+        out_shape = (H, W, 3)
+        
+        # Flatten inputs to handle arbitrary strides safely
+        density_cmy_flat = mx.reshape(density_cmy_mx, (-1,))
+        channel_density_flat = mx.reshape(channel_density_mx, (-1,))
+        base_density_flat = mx.reshape(base_density_mx, (-1,))
+        scan_illuminant_flat = mx.reshape(scan_illuminant_mx, (-1,))
+        cmfs_flat = mx.reshape(cmfs_mx, (-1,))
+        
+        import numpy as np
+        if np.isnan(np.array(density_cmy_flat)).any(): print("NAN in density_cmy")
+        if np.isnan(np.array(channel_density_flat)).any(): print("NAN in channel_density")
+        if np.isnan(np.array(base_density_flat)).any(): print("NAN in base_density")
+        if np.isnan(np.array(scan_illuminant_flat)).any(): print("NAN in scan_illuminant")
+        if np.isnan(np.array(cmfs_flat)).any(): print("NAN in cmfs")
+        if np.isnan(np.array(normalization_mx)).any(): print("NAN in normalization")
+        
+        outputs = kernel(
+            inputs=[density_cmy_flat, channel_density_flat, base_density_flat, scan_illuminant_flat, cmfs_flat, normalization_mx],
+            template=[("T", density_cmy_mx.dtype)],
+            grid=(H * W, 1, 1),
+            threadgroup=(256, 1, 1),
+            output_shapes=[(H * W * 3,)],
+            output_dtypes=[density_cmy_mx.dtype],
+        )
+        if np.isnan(np.array(outputs[0])).any(): print("NAN IN OUTPUTS FROM METAL!")
+        return mx.reshape(outputs[0], out_shape)
 
     density_spectral = compute_density_spectral(
         channel_density, density_cmy, base_density, backend,
