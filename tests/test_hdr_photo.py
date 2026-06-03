@@ -217,7 +217,21 @@ def test_save_hdr_photo_heic_passes_authored_sdr_and_hdr_payloads(monkeypatch, t
     np.testing.assert_allclose(captured["sdr_payload"][..., 3], 1.0)
     np.testing.assert_allclose(captured["hdr_payload"][..., 3], 1.0)
 
+def test_save_hdr_photo_heic_never_falls_back_to_sdr_on_error(tmp_path) -> None:
+    """如果 prepare_hdr_photo_renditions 验证失败（如 film_scan_aware 缺乏所需 sidecar 或 profile），必须主动向上传递错误，绝不允许静默回退到保存普通 HEIF/JPEG。"""
+    look_rgb = np.full((10, 10, 3), 0.5, dtype=np.float32)
+    mapping = hdr_photo.HDRPhotoMapping(
+        hdr_mapping_mode="film_scan_aware",
+        # 强制遗漏 scene_luminance，必定会导致 ValueError
+    )
 
+    with pytest.raises(ValueError, match="scene luminance sidecar"):
+        hdr_photo.save_hdr_photo_heic(
+            tmp_path / "test.heic",
+            look_rgb,
+            mapping=mapping,
+            color_space="sRGB",
+        )
 def test_save_hdr_photo_heic_uses_scene_luminance_sidecar(monkeypatch, tmp_path) -> None:
     image = np.full((1, 2, 3), 0.8, dtype=np.float32)
     scene_luminance = np.array([[0.8, 4.0]], dtype=np.float32)

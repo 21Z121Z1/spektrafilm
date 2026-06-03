@@ -649,7 +649,7 @@ def test_kodak_gold_200_auto_resolves_positive_negative_scan() -> None:
         scan_profile_kind="auto",
         ev_min=-2.0, ev_max=2.0, ev_step=2.0,
     )
-    assert sample["metrics"]["profile_kind"] == "positive_negative_scan"
+    assert sample["profile_kind"] == "positive_negative_scan"
     assert sample["metrics"]["safe_for_profile_aware_hdr"] is True
     assert "negative_scan_render" in sample
 
@@ -659,7 +659,7 @@ def test_fujifilm_provia_100f_auto_resolves_positive_film_scan() -> None:
         scan_profile_kind="auto",
         ev_min=-2.0, ev_max=2.0, ev_step=2.0,
     )
-    assert sample["metrics"]["profile_kind"] == "positive_film_scan"
+    assert sample["profile_kind"] == "positive_film_scan"
     # positive_film_scan generally has no negative_scan_render
     assert "negative_scan_render" not in sample
 
