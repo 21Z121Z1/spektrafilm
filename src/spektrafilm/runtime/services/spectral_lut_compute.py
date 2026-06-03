@@ -160,16 +160,20 @@ class SpectralLUTService:
         def _spectral_calculation_numpy(data):
             return np.asarray(_to_numpy(spectral_calculation(data)), dtype=np.float64)
 
-        test_results = _spectral_calculation_numpy(np.array(self._cmy_test_values))
-
         cached_lut = getattr(self, lut_attr)
         cached_test = getattr(self, test_attr)
         data_out = None
 
+        current_test_key = (
+            hash(np.asarray(data_min).tobytes()),
+            hash(np.asarray(data_max).tobytes()),
+            id(spectral_calculation)
+        )
+
         if (
             cached_lut is not None
             and cached_test is not None
-            and np.array_equal(test_results, cached_test)
+            and current_test_key == cached_test
         ):
             lut = cached_lut
         else:
@@ -188,7 +192,7 @@ class SpectralLUTService:
                                                  xmax=xmax,
                                                  steps=self._lut_resolution)
             setattr(self, lut_attr, lut)
-            setattr(self, test_attr, np.array(test_results, copy=True))
+            setattr(self, test_attr, current_test_key)
             # Invalidate the backend LUT cache when numpy LUT changes
             if _gpu:
                 setattr(self, backend_lut_attr, None)

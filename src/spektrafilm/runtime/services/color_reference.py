@@ -43,6 +43,8 @@ class ColorReferenceService:
     # public methods
 
     def _update_cmy_black_white_references(self, in_print=False):
+        if self._y_black is not None and self._y_white is not None:
+            return
         if not self._black_correction and not self._white_correction:
             return
         elif self._scan_film and self._film.info.type == 'negative':
@@ -62,8 +64,8 @@ class ColorReferenceService:
                 cmy_white = np.zeros((1, 1, 3))
                 log_xyz_black = cmy_to_log_xyz.__call__(cmy_black)
                 log_xyz_white = cmy_to_log_xyz.__call__(cmy_white)
-                self._y_black = (10 ** log_xyz_black)[:, :, 1]
-                self._y_white = (10 ** log_xyz_white)[:, :, 1]
+                self._y_black = self._to_numpy_scalar((10 ** log_xyz_black)[:, :, 1])
+                self._y_white = self._to_numpy_scalar((10 ** log_xyz_white)[:, :, 1])
             elif not self._scan_film and self._print.info.type == 'negative' and in_print:
                 if self.cmy_to_log_xyz is None:
                     raise RuntimeError(
@@ -96,14 +98,19 @@ class ColorReferenceService:
                 )
                 log_xyz_black = cmy_to_log_xyz.__call__(cmy_black)
                 log_xyz_white = cmy_to_log_xyz.__call__(cmy_white)
-                self._y_black = (10 ** log_xyz_black)[:, :, 1]
-                self._y_white = (10 ** log_xyz_white)[:, :, 1]
+                self._y_black = self._to_numpy_scalar((10 ** log_xyz_black)[:, :, 1])
+                self._y_white = self._to_numpy_scalar((10 ** log_xyz_white)[:, :, 1])
             return
     
     def black_white_filming_exposure_correction(self): # in filming and printing
+        if self._black_white_exposure_correction is not None:
+            return self._black_white_exposure_correction
+
         if not self._black_correction and not self._white_correction:
+            self._black_white_exposure_correction = 1.0
             return 1.0
         elif self._film.info.type == 'negative':
+            self._black_white_exposure_correction = 1.0
             return 1.0
         elif self._scan_film and self._film.info.type == 'positive':
             density_midgray = -np.log10(0.184)
@@ -119,12 +126,18 @@ class ColorReferenceService:
             log_exposure_midgray = -np.interp(-(density_midgray-density_min_av),
                                                 -density_curve_av, log_exposure)
             exposure_correction = 10 ** (log_exposure_midgray_corrected - log_exposure_midgray)
-            return 1/exposure_correction
+            self._black_white_exposure_correction = 1/exposure_correction
+            return self._black_white_exposure_correction
         else:
+            self._black_white_exposure_correction = 1.0
             return 1.0
 
     def black_white_printing_exposure_correction(self): # in printing
+        if getattr(self, '_printing_exposure_correction', None) is not None:
+            return self._printing_exposure_correction
+
         if not self._black_correction and not self._white_correction:
+            self._printing_exposure_correction = 1.0
             return 1.0
         elif self._print.info.type == 'negative':
             density_midgray = -np.log10(0.184)
@@ -140,7 +153,11 @@ class ColorReferenceService:
             log_exposure_midgray = np.interp(density_midgray-density_min_av,
                                                 density_curve_av, log_exposure)
             exposure_correction = 10 ** (log_exposure_midgray_corrected - log_exposure_midgray)
+            self._printing_exposure_correction = exposure_correction
             return exposure_correction
+        else:
+            self._printing_exposure_correction = 1.0
+            return 1.0
 
     def black_white_xyz_correction(self, xyz): # in scanning
         """Apply black and white correction to the XYZ values,
