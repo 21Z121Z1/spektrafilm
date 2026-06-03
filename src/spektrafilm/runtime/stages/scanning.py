@@ -17,6 +17,7 @@ from spektrafilm.model.glare import add_glare
 from spektrafilm.model.illuminants import standard_illuminant
 from spektrafilm.utils.conversions import density_to_light
 from spektrafilm.utils.gamut_compression import compress_rgb
+from spektrafilm.gpu.kernels.gamut_compress import compress_rgb_backend
 from spektrafilm.utils.timings import timeit
 
 
@@ -105,11 +106,20 @@ class ScanningStage:
         # roll-off on the perceptual lightness axis (black stays at 0).
         # With both in place the output is in [0, 1] without a
         # downstream clip; see n100 / n110 for the design and b40 for
+        # downstream clip; see n100 / n110 for the design and b40 for
         # the smoothness analysis.
-        rgb = compress_rgb(
-            rgb, self._io.output_gamut_compress,
-            output_color_space=self._io.output_color_space,
-        )
+        if self._backend is not None and self._backend.supports_gpu:
+            rgb = compress_rgb_backend(
+                rgb, self._io.output_gamut_compress,
+                output_color_space=self._io.output_color_space,
+                backend=self._backend,
+            )
+        else:
+            rgb = compress_rgb(
+                rgb, self._io.output_gamut_compress,
+                output_color_space=self._io.output_color_space,
+            )
+
         if self._backend is not None and self._backend.supports_gpu:
             rgb = self._backend.asarray(rgb)
         return rgb
