@@ -846,7 +846,7 @@ class GuiController:
             hdr_scene_energy=result.hdr_scene_energy,
         )
         if report_status:
-            set_status(self._viewer, f'{result.mode_label} completed. {result.status_message}')
+            set_status(self._viewer, f'{result.mode_label} completed. {result.status_message}', timeout_ms=0)
         self._replay_pending_auto_preview()
 
     def _on_simulation_failed(self, message: str) -> None:
