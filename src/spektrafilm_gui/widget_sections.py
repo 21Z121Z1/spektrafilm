@@ -22,6 +22,7 @@ Signal = QtCore.Signal
 
 from spektrafilm_gui.param_manifest import (
     CAMERA_EXPOSURE_BORROWED_FIELDS,
+    COMPUTE_PANEL_FIELDS,
     CROP_PANEL_FIELDS,
     DISPLAY_PANEL_FIELDS,
     GroupManifest,
@@ -358,11 +359,17 @@ class InputImageSection(QWidget):
     def set_state(self, state: InputImageState) -> None:
         self._source = state
         for spec in self._specs.values():
-            self._editors[spec.leaf].value = _read_path(state, spec.path)
+            value = _read_path(state, spec.path)
+            if value is not None:
+                self._editors[spec.leaf].value = value
 
     def get_state(self) -> InputImageState:
         state = clone_state_section(self._source) if self._source is not None else InputImageState()
         for spec in self._specs.values():
+            # Preserve None for Optional fields (e.g. gpu_validation_tolerance)
+            # so we don't silently convert None → 0.0 and change runtime semantics.
+            if self._source is not None and _read_path(self._source, spec.path) is None:
+                continue
             _write_path(state, spec.path, self._editors[spec.leaf].value)
         return state
 
@@ -558,6 +565,14 @@ class SpectralUpsamplingSection(QWidget):
         super().__init__()
         self.setLayout(
             _build_path_panel('Spectral upsampling', SPECTRAL_PANEL_FIELDS, input_image_section._editors, expanded=False),
+        )
+
+
+class ComputeSection(QWidget):
+    def __init__(self, input_image_section: InputImageSection):
+        super().__init__()
+        self.setLayout(
+            _build_path_panel('Compute backend', COMPUTE_PANEL_FIELDS, input_image_section._editors, expanded=False),
         )
 
 

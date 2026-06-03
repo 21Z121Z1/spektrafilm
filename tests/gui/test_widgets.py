@@ -451,10 +451,9 @@ def test_param_manifests_are_complete_and_well_formed() -> None:
 
 
 def test_hdr_export_manifest_is_independent_from_compute_settings() -> None:
-    from spektrafilm_gui.param_manifest import ALL_MANIFESTS, COMPUTE_MANIFEST, HDR_EXPORT_MANIFEST
+    from spektrafilm_gui.param_manifest import ALL_MANIFESTS, COMPUTE_PANEL_FIELDS, HDR_EXPORT_MANIFEST, INPUT_IMAGE_FIELDS
 
     assert HDR_EXPORT_MANIFEST in ALL_MANIFESTS
-    assert HDR_EXPORT_MANIFEST is not COMPUTE_MANIFEST
     assert HDR_EXPORT_MANIFEST.title == 'HDR Export'
     assert HDR_EXPORT_MANIFEST.group_path == 'hdr'
     assert {spec.leaf for spec in HDR_EXPORT_MANIFEST.fields} >= {
@@ -467,6 +466,10 @@ def test_hdr_export_manifest_is_independent_from_compute_settings() -> None:
         'gain_map_mode',
         'heic_quality',
     }
+    # compute backend settings are now path-based fields merged into INPUT_IMAGE_FIELDS
+    compute_leaves = {spec.leaf for spec in COMPUTE_PANEL_FIELDS}
+    input_image_leaves = {spec.leaf for spec in INPUT_IMAGE_FIELDS}
+    assert compute_leaves <= input_image_leaves
 
 
 def test_section_header_icon_returns_empty_icon_without_pyconify(monkeypatch) -> None:

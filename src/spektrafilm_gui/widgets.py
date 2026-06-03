@@ -4,7 +4,6 @@ from spektrafilm_gui.param_manifest import (
     CAMERA_DIFFUSION_MANIFEST,
     CAMERA_MANIFEST,
     CHEMISTRY_MANIFEST,
-    COMPUTE_MANIFEST,
     DIR_COUPLERS_MANIFEST,
     ENLARGER_DIFFUSION_MANIFEST,
     GLARE_MANIFEST,
@@ -18,6 +17,7 @@ from spektrafilm_gui.param_manifest import (
 )
 from spektrafilm_gui.widget_primitives import CollapsibleSection, platform_default_font
 from spektrafilm_gui.widget_sections import (
+    ComputeSection,
     ParamsGroupSection,
     DisplaySection,
     EnlargerSection,
@@ -61,7 +61,7 @@ class WidgetBundle:
     input_gamut_compress: ParamsGroupSection
     output_gamut_compress: ParamsGroupSection
     hdr: ParamsGroupSection
-    compute: ParamsGroupSection
+    compute: ComputeSection
     special: SpecialSection
     simulation: SimulationSection
     preview_crop: PreviewCropSection
@@ -101,7 +101,7 @@ def create_widget_bundle() -> WidgetBundle:
         input_gamut_compress=ParamsGroupSection(INPUT_GAMUT_COMPRESS_MANIFEST),
         output_gamut_compress=ParamsGroupSection(OUTPUT_GAMUT_COMPRESS_MANIFEST),
         hdr=ParamsGroupSection(HDR_EXPORT_MANIFEST),
-        compute=ParamsGroupSection(COMPUTE_MANIFEST),
+        compute=ComputeSection(input_image),
         special=special,
         simulation=simulation,
         preview_crop=PreviewCropSection(input_image),

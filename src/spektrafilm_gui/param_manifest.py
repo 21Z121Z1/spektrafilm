@@ -716,9 +716,45 @@ SPECTRAL_PANEL_FIELDS = (
     ),
 )
 
+# --- compute backend: GPU acceleration settings ------------------------------
+# These live under settings.* on InputImageState, alongside the spectral
+# fields, so they participate in the input_image state round-trip and are
+# collected by GUI_STATE_SECTION_NAMES automatically.
+
+COMPUTE_PANEL_FIELDS = (
+    ParamSpec(
+        "settings.compute_backend",
+        label="Backend",
+        tier="basic",
+        enum=ComputeBackend,
+        tooltip="Compute backend for the simulation pipeline. cpu: pure NumPy. mlx: Apple MLX (Apple Silicon). cupy: CuPy (NVIDIA CUDA). halide: Halide JIT. auto: select best available.",
+    ),
+    ParamSpec(
+        "settings.gpu_precision",
+        label="Precision",
+        tier="basic",
+        enum=GpuPrecision,
+        tooltip="Numerical precision for GPU backends. float32 is faster; float64 matches CPU reference exactly.",
+    ),
+    ParamSpec(
+        "settings.gpu_validate",
+        label="Validate GPU",
+        tier="basic",
+        tooltip="After each GPU pipeline run, re-run on CPU and compare outputs. Raises on mismatch. Useful for debugging GPU precision issues.",
+    ),
+    ParamSpec(
+        "settings.gpu_validation_tolerance",
+        label="Validation tolerance",
+        min=0.0,
+        step=1e-6,
+        decimals=8,
+        tooltip="Maximum allowed absolute difference between GPU and CPU outputs. None uses the backend-specific default.",
+    ),
+)
+
 # All input_image fields in declaration order; the persistence (de)serializer
 # derives its field↔group mapping from these paths, so the binding lives once.
-INPUT_IMAGE_FIELDS = INPUT_PANEL_FIELDS + CROP_PANEL_FIELDS + SPECTRAL_PANEL_FIELDS
+INPUT_IMAGE_FIELDS = INPUT_PANEL_FIELDS + CROP_PANEL_FIELDS + SPECTRAL_PANEL_FIELDS + COMPUTE_PANEL_FIELDS
 
 
 SPECIAL_PANEL_FIELDS = (
@@ -949,46 +985,7 @@ HDR_EXPORT_MANIFEST = GroupManifest(
 )
 
 
-# --- compute backend: GPU acceleration settings ------------------------------
 
-_COMPUTE = "settings"
-
-COMPUTE_MANIFEST = GroupManifest(
-    title="Compute backend",
-    group_path=_COMPUTE,
-    group_cls=SettingsParams,
-    collapsed_by_default=True,
-    fields=(
-        ParamSpec(
-            f"{_COMPUTE}.compute_backend",
-            label="Backend",
-            tier="basic",
-            enum=ComputeBackend,
-            tooltip="Compute backend for the simulation pipeline. cpu: pure NumPy. mlx: Apple MLX (Apple Silicon). cupy: CuPy (NVIDIA CUDA). halide: Halide JIT. auto: select best available.",
-        ),
-        ParamSpec(
-            f"{_COMPUTE}.gpu_precision",
-            label="Precision",
-            tier="basic",
-            enum=GpuPrecision,
-            tooltip="Numerical precision for GPU backends. float32 is faster; float64 matches CPU reference exactly.",
-        ),
-        ParamSpec(
-            f"{_COMPUTE}.gpu_validate",
-            label="Validate GPU",
-            tier="basic",
-            tooltip="After each GPU pipeline run, re-run on CPU and compare outputs. Raises on mismatch. Useful for debugging GPU precision issues.",
-        ),
-        ParamSpec(
-            f"{_COMPUTE}.gpu_validation_tolerance",
-            label="Validation tolerance",
-            min=0.0,
-            step=1e-6,
-            decimals=8,
-            tooltip="Maximum allowed absolute difference between GPU and CPU outputs. None uses the backend-specific default.",
-        ),
-    ),
-)
 
 
 # Registry of every group migrated to the path-keyed manifest, for tests
@@ -1007,5 +1004,5 @@ ALL_MANIFESTS = (
     INPUT_GAMUT_COMPRESS_MANIFEST,
     OUTPUT_GAMUT_COMPRESS_MANIFEST,
     HDR_EXPORT_MANIFEST,
-    COMPUTE_MANIFEST,
+
 )

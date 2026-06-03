@@ -140,13 +140,15 @@ def _display_backend_name(name: str) -> str:
 
 
 def runtime_backend_summary(backend: ArrayBackend) -> str:
-    """Describe the active runtime path without overstating GPU residency."""
-    summary = backend_summary(backend)
+    """Compact description of the active runtime backend for the status bar."""
     if not backend.supports_gpu:
+        summary = backend_summary(backend)
         return summary
 
     display_name = _display_backend_name(backend.name)
-    return f"{display_name} selected; mixed CPU/{display_name} runtime path with optional GPU kernels"
+    precision = getattr(backend, "precision", None)
+    precision_tag = f" {precision}" if precision else ""
+    return f"{display_name}{precision_tag}"
 
 
 # ---------------------------------------------------------------------------
