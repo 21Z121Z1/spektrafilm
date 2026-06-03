@@ -642,3 +642,46 @@ def test_profile_modern_recovery_budget_increases_headroom_over_strict() -> None
     modern_res = build_profile_preserving_hdr_curve(profile, scene_y, diffuse_white=1.0, mapping=modern_mapping, return_diagnostics=True)
 
     assert np.max(modern_res.final_h_ev) > np.max(np.log2(np.maximum(strict_res.h_profile, 1e-8) / strict_res.look_white))
+
+def test_kodak_gold_200_auto_resolves_positive_negative_scan() -> None:
+    sample = hdr_curve_profiles.sample_runtime_film_scan_curve_profile(
+        film="kodak_gold_200",
+        scan_profile_kind="auto",
+        ev_min=-2.0, ev_max=2.0, ev_step=2.0,
+    )
+    assert sample["metrics"]["profile_kind"] == "positive_negative_scan"
+    assert sample["metrics"]["safe_for_profile_aware_hdr"] is True
+    assert "negative_scan_render" in sample
+
+def test_fujifilm_provia_100f_auto_resolves_positive_film_scan() -> None:
+    sample = hdr_curve_profiles.sample_runtime_film_scan_curve_profile(
+        film="fujifilm_provia_100f",
+        scan_profile_kind="auto",
+        ev_min=-2.0, ev_max=2.0, ev_step=2.0,
+    )
+    assert sample["metrics"]["profile_kind"] == "positive_film_scan"
+    # positive_film_scan generally has no negative_scan_render
+    assert "negative_scan_render" not in sample
+
+def test_kodak_2383_auto_raises() -> None:
+    with pytest.raises(ValueError, match="requires a filming film profile"):
+        hdr_curve_profiles.sample_runtime_film_scan_curve_profile(
+            film="kodak_2383", scan_profile_kind="auto", ev_min=-2.0, ev_max=2.0, ev_step=2.0
+        )
+
+def test_kodak_2393_auto_raises() -> None:
+    with pytest.raises(ValueError, match="requires a filming film profile"):
+        hdr_curve_profiles.sample_runtime_film_scan_curve_profile(
+            film="kodak_2393", scan_profile_kind="auto", ev_min=-2.0, ev_max=2.0, ev_step=2.0
+        )
+
+def test_kodak_2383_explicit_kinds_all_raise() -> None:
+    for kind in ("raw_negative_scan", "positive_negative_scan"):
+        with pytest.raises(ValueError, match="requires a negative filming film profile"):
+            hdr_curve_profiles.sample_runtime_film_scan_curve_profile(
+                film="kodak_2383", scan_profile_kind=kind, ev_min=-2.0, ev_max=2.0, ev_step=2.0
+            )
+    with pytest.raises(ValueError, match="requires a positive/reversal filming film profile"):
+        hdr_curve_profiles.sample_runtime_film_scan_curve_profile(
+            film="kodak_2383", scan_profile_kind="positive_film_scan", ev_min=-2.0, ev_max=2.0, ev_step=2.0
+        )

@@ -2112,3 +2112,32 @@ def test_graft_scene_luminance_zero_look_no_inf() -> None:
 
     assert np.all(np.isfinite(renditions.hdr_rgb)), "hdr_rgb contains inf or NaN"
     assert np.all(np.isfinite(renditions.sdr_rgb)), "sdr_rgb contains inf or NaN"
+
+def test_kodak_gold_200_film_scan_aware_diagnostics_contains_positive_rendering() -> None:
+    from spektrafilm.utils.hdr_curve_profiles import sample_runtime_film_scan_curve_profile, curve_profile_from_sample
+
+    sample = sample_runtime_film_scan_curve_profile(
+        film="kodak_gold_200",
+        scan_profile_kind="auto",
+        ev_min=-2.0, ev_max=2.0, ev_step=2.0,
+    )
+    profile = curve_profile_from_sample(sample)
+
+    scene_y = np.array([0.184, 1.0, 4.0], dtype=np.float32)
+    raw_rgb = np.array([[[0.75, 0.75, 0.75], [0.34, 0.34, 0.34], [0.11, 0.11, 0.11]]], dtype=np.float32)
+
+    mapping = hdr_photo.HDRPhotoMapping(
+        hdr_mapping_mode="film_scan_aware",
+        curve_profile=profile,
+        max_headroom=6.0,
+        headroom_percentile=100.0,
+    )
+
+    renditions = hdr_photo.prepare_hdr_photo_renditions(
+        raw_rgb,
+        mapping=mapping,
+        scene_luminance=scene_y.reshape(1, -1),
+    )
+
+    diagnostics_text = " ".join(renditions.diagnostics)
+    assert "negative_scan_positive_rendering" in diagnostics_text

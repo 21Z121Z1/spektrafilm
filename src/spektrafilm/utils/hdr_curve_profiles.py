@@ -607,18 +607,50 @@ def sample_runtime_film_scan_curve_profile(
     if scan_profile_kind not in ("auto", "raw_negative_scan", "positive_negative_scan", "positive_film_scan"):
         raise ValueError("scan_profile_kind must be 'auto', 'raw_negative_scan', 'positive_negative_scan', or 'positive_film_scan'.")
 
-    is_negative = bool(getattr(getattr(params, "film", None), "is_negative", False))
-    is_positive = bool(getattr(getattr(params, "film", None), "is_positive", False))
+    film_info = getattr(getattr(params, "film", None), "info", None)
+    film_stock = getattr(film_info, "stock", "unknown")
+    film_type = getattr(film_info, "type", "unknown")
+    film_support = getattr(film_info, "support", "unknown")
+    film_stage = getattr(film_info, "stage", "unknown")
+
+    is_camera_negative_film = (
+        film_type == "negative"
+        and film_support == "film"
+        and film_stage == "filming"
+    )
+
+    is_camera_positive_film = (
+        film_type == "positive"
+        and film_support == "film"
+        and film_stage == "filming"
+    )
+
     if scan_profile_kind == "auto":
-        profile_kind: FilmScanProfileKind = "positive_negative_scan" if is_negative else "positive_film_scan"
+        if is_camera_negative_film:
+            profile_kind: FilmScanProfileKind = "positive_negative_scan"
+        elif is_camera_positive_film:
+            profile_kind = "positive_film_scan"
+        else:
+            raise ValueError(
+                f"film_scan_aware requires a filming film profile; "
+                f"got film={film_stock!r}, type={film_type!r}, support={film_support!r}, stage={film_stage!r} "
+                f"(requested auto)"
+            )
     else:
         profile_kind = scan_profile_kind
-    if profile_kind in ("raw_negative_scan", "positive_negative_scan") and not is_negative:
-        raise ValueError(f"{profile_kind} requires a negative film profile.")
-    if profile_kind == "positive_film_scan" and is_negative:
-        raise ValueError("positive_film_scan requires a positive/reversal film profile.")
-    if not (is_negative or is_positive):
-        raise ValueError("film-scan curve sampling requires a film profile with type 'negative' or 'positive'.")
+
+    if profile_kind in ("raw_negative_scan", "positive_negative_scan"):
+        if not is_camera_negative_film:
+            raise ValueError(
+                f"{profile_kind} requires a negative filming film profile; "
+                f"got film={film_stock!r}, type={film_type!r}, support={film_support!r}, stage={film_stage!r}"
+            )
+    if profile_kind == "positive_film_scan":
+        if not is_camera_positive_film:
+            raise ValueError(
+                f"{profile_kind} requires a positive/reversal filming film profile; "
+                f"got film={film_stock!r}, type={film_type!r}, support={film_support!r}, stage={film_stage!r}"
+            )
 
     sampled_params = _prepare_profile_sampling_params(
         params,
