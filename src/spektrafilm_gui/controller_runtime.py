@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
 import time
@@ -27,6 +27,7 @@ class SimulationRequest:
     output_color_space: str
     use_display_transform: bool
     output_cctf_encoding: bool = True
+    phase_timings: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -39,6 +40,8 @@ class SimulationResult:
     status_message: str
     output_cctf_encoding: bool = True
     hdr_scene_energy: object | None = None
+    phase_timings: dict[str, float] = field(default_factory=dict)
+    runtime_stage_timings: dict[str, float] = field(default_factory=dict)
 
 
 class SimulationWorkerSignals(QObject):
@@ -276,38 +279,72 @@ def prepare_output_display_image(
         return preview_image, 'Display transform: transform failed, using raw preview'
 
 
+def _format_phase_timing_summary(phase_timings: dict[str, float]) -> str:
+    ordered = (
+        ("process", "runtime.process"),
+        ("display", "gui.display_prepare"),
+        ("materialize", "gui.float_materialize"),
+    )
+    parts = [
+        f"{label}={phase_timings[key]:.2f}s"
+        for label, key in ordered
+        if key in phase_timings
+    ]
+    return ", ".join(parts)
+
+
 def execute_simulation_request(
     request: SimulationRequest,
     *,
     run_simulation_fn: Callable[[np.ndarray, object], np.ndarray],
     prepare_output_display_image_fn: Callable[..., tuple[np.ndarray, str]],
     runtime_status_fn: Callable[[], str | None] | None = None,
+    runtime_timings_fn: Callable[[], dict[str, float] | None] | None = None,
 ) -> SimulationResult:
+    phase_timings = dict(getattr(request, "phase_timings", {}) or {})
     start_time = time.perf_counter()
+
+    process_start = time.perf_counter()
     simulation_output = run_simulation_fn(request.image, request.params)
+    phase_timings["runtime.process"] = time.perf_counter() - process_start
+
     scan = getattr(simulation_output, 'image', simulation_output)
     hdr_scene_energy = getattr(simulation_output, 'hdr_scene_energy', None)
+
+    display_start = time.perf_counter()
     scan_display, display_status = prepare_output_display_image_fn(
         scan,
         output_color_space=request.output_color_space,
         output_cctf_encoding=request.output_cctf_encoding,
         use_display_transform=request.use_display_transform,
     )
+    phase_timings["gui.display_prepare"] = time.perf_counter() - display_start
+
+    materialize_start = time.perf_counter()
+    float_image = np.asarray(scan)
+    phase_timings["gui.float_materialize"] = time.perf_counter() - materialize_start
     elapsed_time = time.perf_counter() - start_time
+    phase_timings["gui.worker_total"] = elapsed_time
     runtime_status = runtime_status_fn() if runtime_status_fn is not None else None
+    runtime_stage_timings = dict(runtime_timings_fn() or {}) if runtime_timings_fn is not None else {}
     
     parts = [display_status]
     if runtime_status:
         parts.append(runtime_status)
     parts.append(f"{elapsed_time:.2f}s")
+    timing_summary = _format_phase_timing_summary(phase_timings)
+    if timing_summary:
+        parts.append(timing_summary)
     status_message = " | ".join(parts)
     return SimulationResult(
         mode_label=request.mode_label,
         display_image=scan_display,
-        float_image=np.asarray(scan),
+        float_image=float_image,
         output_color_space=request.output_color_space,
         output_cctf_encoding=request.output_cctf_encoding,
         use_display_transform=request.use_display_transform,
         status_message=status_message,
         hdr_scene_energy=hdr_scene_energy,
+        phase_timings=phase_timings,
+        runtime_stage_timings=runtime_stage_timings,
     )

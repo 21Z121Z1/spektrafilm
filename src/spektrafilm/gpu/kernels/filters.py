@@ -800,8 +800,6 @@ def fft_convolve_same_backend(image: Any, kernel: Any, backend=None) -> Any:
     image_fft = mx.fft.fft2(image_mx, s=(fft_h, fft_w), axes=(0, 1))
     kernel_fft = mx.fft.fft2(kernel_mx, s=(fft_h, fft_w), axes=(0, 1))
     convolved = mx.real(mx.fft.ifft2(image_fft * kernel_fft, axes=(0, 1)))
-    mx.eval(convolved)
-    mx.metal.clear_cache()
     start_y = (kernel_h - 1) // 2
     start_x = (kernel_w - 1) // 2
     return convolved[start_y:start_y + image_h, start_x:start_x + image_w, :channels]

@@ -737,6 +737,7 @@ def test_start_simulation_sets_preview_mode_before_runtime_digest(
     assert params.film_render.grain.active is True
     assert params.film_render.halation.active is True
     assert captured['request'].params is params
+    assert captured['request'].phase_timings['gui.input_conversion'] >= 0.0
 
 
 def test_execute_simulation_request_routes_through_runtime_simulator_path(monkeypatch) -> None:

@@ -1,6 +1,8 @@
 """Tests for pipeline LUT service lifecycle and SpectralLUTService memory management."""
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
@@ -114,6 +116,88 @@ def test_pipeline_update_reuses_lut_service_when_resolution_unchanged():
     pipeline.update(params_new)
 
     assert pipeline._lut_service is original_service
+
+
+def test_pipeline_update_reuses_mlx_backend_without_cleanup_when_selection_unchanged(monkeypatch):
+    from spektrafilm.runtime.params_builder import init_params, digest_params
+    from spektrafilm.runtime import pipeline as pipeline_module
+
+    class FakeMlxBackend:
+        name = "mlx"
+        supports_gpu = False
+        fallback_reason = None
+        requires_serial_runtime = False
+
+        def __init__(self, precision: str) -> None:
+            self.precision = precision
+            self.cleanup_calls = 0
+
+        def cleanup(self) -> None:
+            self.cleanup_calls += 1
+
+    created: list[FakeMlxBackend] = []
+
+    def fake_select_backend(name, *, precision):
+        assert name == "mlx"
+        backend = FakeMlxBackend(precision)
+        created.append(backend)
+        return backend
+
+    monkeypatch.setattr(pipeline_module, "select_backend", fake_select_backend)
+
+    params = digest_params(init_params())
+    params.settings.compute_backend = "mlx"
+    params.settings.gpu_precision = "float32"
+    pipeline = pipeline_module.SimulationPipeline(params)
+    original_backend = pipeline._backend
+    original_service = pipeline._lut_service
+
+    params_new = digest_params(init_params())
+    params_new.settings.compute_backend = "mlx"
+    params_new.settings.gpu_precision = "float32"
+    pipeline.update(params_new)
+
+    assert created == [original_backend]
+    assert pipeline._backend is original_backend
+    assert pipeline._lut_service is original_service
+    assert pipeline._lut_service._backend is original_backend
+    assert original_backend.cleanup_calls == 0
+
+
+def test_pipeline_mlx_cleanup_triggers_when_cache_threshold_is_exceeded():
+    from spektrafilm.runtime.pipeline import SimulationPipeline
+
+    pipeline = object.__new__(SimulationPipeline)
+    pipeline._backend = SimpleNamespace(
+        name="mlx",
+        cleanup=lambda: None,
+        mx=SimpleNamespace(get_cache_memory=lambda: 9 * 1024 * 1024),
+    )
+    pipeline.settings = SimpleNamespace(
+        gpu_aggressive_cleanup=False,
+        preview_mode=False,
+        gpu_cleanup_cache_threshold_mb=8.0,
+    )
+
+    assert pipeline._should_cleanup_after_process() is True
+
+
+def test_pipeline_mlx_cleanup_skips_when_cache_is_below_threshold():
+    from spektrafilm.runtime.pipeline import SimulationPipeline
+
+    pipeline = object.__new__(SimulationPipeline)
+    pipeline._backend = SimpleNamespace(
+        name="mlx",
+        cleanup=lambda: None,
+        mx=SimpleNamespace(get_cache_memory=lambda: 7 * 1024 * 1024),
+    )
+    pipeline.settings = SimpleNamespace(
+        gpu_aggressive_cleanup=False,
+        preview_mode=False,
+        gpu_cleanup_cache_threshold_mb=8.0,
+    )
+
+    assert pipeline._should_cleanup_after_process() is False
 
 
 def test_pipeline_update_rebuilds_lut_service_when_backend_changes(monkeypatch):

@@ -737,6 +737,31 @@ def test_profile_aware_mapping_reconstructs_paired_sdr_hdr_curve_on_neutral_ramp
     assert float(np.max(np.abs(np.diff(log_gain)))) <= 0.5
 
 
+def test_profile_aware_mapping_respects_mapping_headroom_below_profile_safe_cap() -> None:
+    profile = _synthetic_safe_hdr_profile()
+    scene_y = profile.scene_y
+    s_profile = evaluate_profile_sdr_curve(profile, scene_y)
+    look_rgb = np.repeat(s_profile.reshape(1, -1, 1), 3, axis=2).astype(np.float32)
+    mapping = hdr_photo.HDRPhotoMapping(
+        hdr_mapping_mode="profile_aware",
+        curve_profile=profile,
+        max_headroom=2.0,
+        headroom_percentile=100.0,
+        profile_hdr_peak_ev=4.0,
+        profile_hdr_path_to_white_strength=0.0,
+        hdr_highlight_path_to_white=0.0,
+    )
+
+    renditions = hdr_photo.prepare_hdr_photo_renditions(
+        look_rgb,
+        mapping=mapping,
+        scene_luminance=scene_y.reshape(1, -1),
+    )
+
+    assert renditions.headroom <= mapping.max_headroom + 1e-6
+    assert float(np.max(renditions.hdr_rgb)) <= mapping.max_headroom + 1e-6
+
+
 def test_profile_aware_mapping_preserves_user_look() -> None:
     profile = _synthetic_safe_hdr_profile()
     scene_y = profile.scene_y

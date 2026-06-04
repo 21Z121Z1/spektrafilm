@@ -1,0 +1,100 @@
+{
+  "run_id": "20260603-235505",
+  "input": {
+    "path": "/Users/retriedstormtrooper/Downloads/IMG_4897/IMG_4897.DNG",
+    "full_shape": [
+      3024,
+      4032,
+      3
+    ],
+    "dtype": "float64",
+    "megapixels": 12.192768,
+    "load_seconds": 2.7964497089997167,
+    "resize_seconds": 1.7080019460991025e-06
+  },
+  "config": {
+    "size": "full",
+    "warmups": 1,
+    "runs": 2,
+    "type_trace": false,
+    "only_backend": "mlx",
+    "skip_gpu_validate": true
+  },
+  "runs": [
+    {
+      "label": "mlx_full_res_validate_false",
+      "status": "ok",
+      "requested_backend": "mlx",
+      "selected_backend": "mlx",
+      "supports_gpu": true,
+      "requires_serial_runtime": true,
+      "backend_summary": "MLX float32",
+      "backend_summary_default": "cpu runtime path; mlx validated for optional GPU kernels",
+      "image_shape": [
+        3024,
+        4032,
+        3
+      ],
+      "gpu_precision": "float32",
+      "gpu_validate": false,
+      "preview_max_size": null,
+      "warmup_seconds": [
+        6.3163942499995755
+      ],
+      "timed_seconds": [
+        8.60482945900003,
+        6.6972410829985165
+      ],
+      "best_seconds": 6.6972410829985165,
+      "avg_seconds": 7.651035270999273,
+      "outer_wall_seconds": 6.6972410829985165,
+      "total_seconds": 6.33317529100168,
+      "timings": {
+        "FilmingStage.auto_exposure": 5.459001840790734e-06,
+        "preprocess": 0.16237833299965132,
+        "SpectralLUTService.get_filming_tc_lut": 0.00014920900139259174,
+        "SpectralLUTService.get_filming_tc_lut_backend": 0.00020745900110341609,
+        "filming.expose": 3.8091254160026438,
+        "filming.develop": 0.29010204099904513,
+        "PrintingStage.expose": 0.004957625002134591,
+        "printing.expose": 0.004985499999747844,
+        "PrintingStage.develop": 0.0010248750004393514,
+        "printing.develop": 0.0010315830004401505,
+        "SpectralLUTService.spectral_compute_scanner": 1.3756018329986546,
+        "ScanningStage.scan": 1.3776839170022868,
+        "scanning.scan_print": 1.3776859999998123,
+        "SimulationPipeline.materialize": 0.6877009579984588
+      },
+      "output": {
+        "type": "numpy.ndarray",
+        "backend": "numpy",
+        "shape": [
+          3024,
+          4032,
+          3
+        ],
+        "dtype": "float64",
+        "bytes": 292626432
+      },
+      "conversions": {
+        "backend.asarray.input": {
+          "count": 160,
+          "bytes": 24874019728
+        },
+        "backend.asarray.output": {
+          "count": 160,
+          "bytes": 24581017584
+        },
+        "backend.to_numpy.input": {
+          "count": 4,
+          "bytes": 48
+        },
+        "backend.to_numpy.output": {
+          "count": 4,
+          "bytes": 48
+        }
+      },
+      "type_trace": []
+    }
+  ]
+}

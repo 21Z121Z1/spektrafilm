@@ -35,6 +35,21 @@ def test_benchmark_specs_include_required_cpu_mlx_and_preview_cases() -> None:
     ]
 
 
+def test_benchmark_specs_can_limit_to_mlx_without_gpu_validate() -> None:
+    bench = _load_benchmark_module()
+
+    labels = [
+        spec.label
+        for spec in bench.benchmark_specs(
+            include_preview_640=False,
+            only_backend="mlx",
+            include_gpu_validate=False,
+        )
+    ]
+
+    assert labels == ["mlx_full_res_validate_false"]
+
+
 def test_describe_array_classifies_numpy_arrays() -> None:
     bench = _load_benchmark_module()
     image = np.zeros((2, 3, 3), dtype=np.float32)

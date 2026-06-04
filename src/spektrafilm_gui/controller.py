@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from importlib import import_module
 from pathlib import Path
+import time
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -35,6 +36,7 @@ OUTPUT_COLOR_SPACE_KEY = 'pipeline_output_color_space'
 OUTPUT_CCTF_ENCODING_KEY = 'pipeline_output_cctf_encoding'
 OUTPUT_DISPLAY_TRANSFORM_KEY = 'pipeline_use_display_transform'
 OUTPUT_HDR_SCENE_ENERGY_KEY = 'pipeline_hdr_scene_energy'
+OUTPUT_PHASE_TIMINGS_KEY = 'pipeline_phase_timings'
 PROFILE_SYNC_SECTION_NAMES = profile_sync.PROFILE_SYNC_SECTION_NAMES
 if TYPE_CHECKING:
     import napari
@@ -563,7 +565,7 @@ class GuiController:
         output_cctf_encoding: bool,
         use_display_transform: bool,
         hdr_scene_energy: object | None = None,
-    ) -> None:
+    ) -> NapariImageLayer | None:
         self._layers.set_or_add_output_layer(
             image,
             float_image=float_image,
@@ -575,6 +577,7 @@ class GuiController:
         output_layer = self._output_layer()
         if output_layer is not None:
             output_layer.metadata[OUTPUT_HDR_SCENE_ENERGY_KEY] = hdr_scene_energy
+        return output_layer
 
     def _set_or_add_input_stack(
         self,
@@ -784,6 +787,9 @@ class GuiController:
             run_simulation_fn=self._process_image_with_runtime,
             prepare_output_display_image_fn=self._prepare_output_display_image,
             runtime_status_fn=lambda: self._last_runtime_backend_summary,
+            runtime_timings_fn=lambda: dict(self._runtime_simulator.get_timings())
+            if self._runtime_simulator is not None and hasattr(self._runtime_simulator, "get_timings")
+            else {},
         )
 
     @staticmethod
@@ -810,7 +816,11 @@ class GuiController:
             source_layer_name=source_layer_name,
         )
 
+        conversion_start = time.perf_counter()
         image = np.double(image_data)
+        phase_timings = {
+            'gui.input_conversion': time.perf_counter() - conversion_start,
+        }
         request = SimulationRequest(
             mode_label=mode_label,
             image=image,
@@ -818,6 +828,7 @@ class GuiController:
             output_color_space=state.simulation.io.output_color_space,
             output_cctf_encoding=state.simulation.io.output_cctf_encoding,
             use_display_transform=state.gui_only.display.use_display_transform,
+            phase_timings=phase_timings,
         )
 
         worker = runtime.SimulationWorker(request, execute_request=self._execute_simulation_request)
@@ -837,7 +848,8 @@ class GuiController:
         self._active_simulation_label = None
         self._active_simulation_reports_status = True
         self._set_simulation_controls_enabled(True)
-        self._set_or_add_output_layer(
+        layer_start = time.perf_counter()
+        output_layer = self._set_or_add_output_layer(
             result.display_image,
             float_image=result.float_image,
             output_color_space=result.output_color_space,
@@ -845,6 +857,9 @@ class GuiController:
             use_display_transform=result.use_display_transform,
             hdr_scene_energy=result.hdr_scene_energy,
         )
+        result.phase_timings['gui.layer_update'] = time.perf_counter() - layer_start
+        if output_layer is not None and hasattr(output_layer, "metadata"):
+            output_layer.metadata[OUTPUT_PHASE_TIMINGS_KEY] = dict(result.phase_timings)
         if report_status:
             set_status(self._viewer, f'{result.mode_label} completed. {result.status_message}', timeout_ms=0)
         self._replay_pending_auto_preview()

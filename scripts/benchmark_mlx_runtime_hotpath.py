@@ -46,13 +46,20 @@ def parse_size_spec(value: str) -> tuple[int, int] | None:
     return width, height
 
 
-def benchmark_specs(*, include_preview_640: bool = True) -> list[BenchmarkSpec]:
-    specs = [
-        BenchmarkSpec("cpu_full_res", "cpu", "float64", False),
-        BenchmarkSpec("mlx_full_res_validate_false", "mlx", "float32", False),
-        BenchmarkSpec("mlx_full_res_validate_true", "mlx", "float32", True),
-    ]
-    if include_preview_640:
+def benchmark_specs(
+    *,
+    include_preview_640: bool = True,
+    only_backend: str = "all",
+    include_gpu_validate: bool = True,
+) -> list[BenchmarkSpec]:
+    specs: list[BenchmarkSpec] = []
+    if only_backend in {"all", "cpu"}:
+        specs.append(BenchmarkSpec("cpu_full_res", "cpu", "float64", False))
+    if only_backend in {"all", "mlx"}:
+        specs.append(BenchmarkSpec("mlx_full_res_validate_false", "mlx", "float32", False))
+        if include_gpu_validate:
+            specs.append(BenchmarkSpec("mlx_full_res_validate_true", "mlx", "float32", True))
+    if include_preview_640 and only_backend in {"all", "mlx"}:
         specs.append(BenchmarkSpec("preview_640", "mlx", "float32", False, preview_max_size=640))
     return specs
 
@@ -372,6 +379,8 @@ def format_markdown(payload: dict[str, Any]) -> str:
         f"- Path: `{payload['input']['path']}`",
         f"- Full shape: `{payload['input']['full_shape']}`",
         f"- Dtype: `{payload['input']['dtype']}`",
+        f"- Load/decode: `{payload['input'].get('load_seconds', 0.0):.4f}s`",
+        f"- Resize: `{payload['input'].get('resize_seconds', 0.0):.4f}s`",
         "",
         "## Runs",
         "",
@@ -450,6 +459,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--runs", type=int, default=1)
     parser.add_argument("--no-preview-640", action="store_true")
     parser.add_argument("--no-type-trace", action="store_true")
+    parser.add_argument("--only-backend", choices=("all", "cpu", "mlx"), default="all")
+    parser.add_argument("--skip-gpu-validate", action="store_true")
     parser.add_argument("--out-dir", default=str(DEFAULT_OUT_DIR))
     return parser
 
@@ -460,8 +471,20 @@ def run_matrix(args: argparse.Namespace) -> dict[str, Any]:
     if generated_size is None:
         raise ValueError("--generated-size must be WIDTHxHEIGHT")
 
-    full_image = load_input_image(Path(args.input), fallback_size=generated_size)
+    input_path = Path(args.input)
+    print(f"Loading input: {input_path}", flush=True)
+    load_start = time.perf_counter()
+    full_image = load_input_image(input_path, fallback_size=generated_size)
+    load_seconds = time.perf_counter() - load_start
+
+    resize_start = time.perf_counter()
     full_image = resize_image(full_image, requested_size)
+    resize_seconds = time.perf_counter() - resize_start
+    print(
+        f"Loaded shape={full_image.shape} dtype={full_image.dtype} "
+        f"load={load_seconds:.3f}s resize={resize_seconds:.3f}s",
+        flush=True,
+    )
     payload = {
         "run_id": datetime.now().strftime("%Y%m%d-%H%M%S"),
         "input": {
@@ -469,17 +492,25 @@ def run_matrix(args: argparse.Namespace) -> dict[str, Any]:
             "full_shape": list(full_image.shape),
             "dtype": str(full_image.dtype),
             "megapixels": float(full_image.shape[0] * full_image.shape[1] / 1_000_000.0),
+            "load_seconds": load_seconds,
+            "resize_seconds": resize_seconds,
         },
         "config": {
             "size": args.size,
             "warmups": int(args.warmups),
             "runs": int(args.runs),
             "type_trace": not args.no_type_trace,
+            "only_backend": args.only_backend,
+            "skip_gpu_validate": bool(args.skip_gpu_validate),
         },
         "runs": [],
     }
 
-    for spec in benchmark_specs(include_preview_640=not args.no_preview_640):
+    for spec in benchmark_specs(
+        include_preview_640=not args.no_preview_640,
+        only_backend=args.only_backend,
+        include_gpu_validate=not args.skip_gpu_validate,
+    ):
         print(f"\n=== {spec.label} ({spec.requested_backend}, {spec.gpu_precision}, validate={spec.gpu_validate}) ===", flush=True)
         run = run_benchmark_case(
             full_image,

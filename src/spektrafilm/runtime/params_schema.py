@@ -243,6 +243,8 @@ class SettingsParams:
     gpu_precision: str = "float32"
     gpu_validate: bool = False
     gpu_validation_tolerance: float | None = None
+    gpu_aggressive_cleanup: bool = False
+    gpu_cleanup_cache_threshold_mb: float | None = 8192.0
 
 
 @dataclass

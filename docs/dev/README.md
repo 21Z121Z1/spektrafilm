@@ -19,9 +19,12 @@ This directory contains working reports, research notes, implementation records,
 | Path | Notes |
 | --- | --- |
 | [`2026-05-31-mlx-postprocessing-effects.md`](2026-05-31-mlx-postprocessing-effects.md) | MLX feasibility, implementation notes, and tests for halation, diffusion, grain, and related postprocessing filters. [中文](2026-05-31-mlx-postprocessing-effects_zh.md) |
+| [`2026-06-03-mlx-gui-full-render-hotpath-plan.md`](2026-06-03-mlx-gui-full-render-hotpath-plan.md) | Pre-edit plan for the 12MP DNG GUI MLX full-render timing and synchronization pass. |
+| [`2026-06-03-mlx-gui-full-render-hotpath-report.md`](2026-06-03-mlx-gui-full-render-hotpath-report.md) | Completion report with GUI/runtime timing changes, MLX cleanup policy, DNG benchmark artifacts, validation, and remaining scanner/grain bottlenecks. |
 | [`2026-05-31-mlx-compile-elementwise.md`](2026-05-31-mlx-compile-elementwise.md) | MLX compile optimization notes. [中文](2026-05-31-mlx-compile-elementwise_zh.md) |
 | [`mlx-optimization-report-20260530.md`](mlx-optimization-report-20260530.md) | MLX backend connection and performance optimization report. |
 | [`gpu-benchmark-20260530.md`](gpu-benchmark-20260530.md) | Benchmark configuration, timing tables, and raw benchmark output. [中文](gpu-benchmark-20260530_zh.md) |
+| [`benchmark-artifacts/mlx_gui_full_render_20260603/`](benchmark-artifacts/mlx_gui_full_render_20260603/) | Generated 12MP DNG CPU/MLX hot-path benchmark artifacts from the 2026-06-03 GUI full-render pass. |
 | [`benchmark-artifacts/halide_mlx_parity_20260531/`](benchmark-artifacts/halide_mlx_parity_20260531/) | Generated Halide/MLX parity benchmark artifacts with synced stage timing and precision notes. This directory may grow while benchmark jobs are active. |
 | [`halide-backend-implementation.md`](halide-backend-implementation.md) | Verified Halide backend state. [中文](halide-backend-implementation_zh.md) |
 | [`halide-deep-research.md`](halide-deep-research.md) | Deep research for the Halide Android port. |

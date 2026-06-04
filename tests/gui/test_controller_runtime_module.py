@@ -23,6 +23,7 @@ def test_execute_simulation_request_uses_runtime_runner_without_padding() -> Non
         output_color_space='ACES2065-1',
         output_cctf_encoding=False,
         use_display_transform=True,
+        phase_timings={'gui.input_conversion': 0.125},
     )
     captured: dict[str, object] = {}
 
@@ -37,7 +38,13 @@ def test_execute_simulation_request_uses_runtime_runner_without_padding() -> Non
     np.testing.assert_allclose(result.float_image, np.full((4, 4, 3), 0.5, dtype=np.float32))
     assert result.output_cctf_encoding is False
     assert captured['display_args']['output_cctf_encoding'] is False
-    assert result.status_message == 'Display transform: active'
+    assert result.status_message.startswith('Display transform: active')
+    assert 'process=' in result.status_message
+    assert result.phase_timings['gui.input_conversion'] == 0.125
+    assert result.phase_timings['runtime.process'] >= 0.0
+    assert result.phase_timings['gui.display_prepare'] >= 0.0
+    assert result.phase_timings['gui.float_materialize'] >= 0.0
+    assert result.phase_timings['gui.worker_total'] >= result.phase_timings['runtime.process']
 
 
 def test_execute_simulation_request_appends_runtime_backend_status() -> None:
@@ -56,13 +63,13 @@ def test_execute_simulation_request_appends_runtime_backend_status() -> None:
             np.full((4, 4, 3), 127, dtype=np.uint8),
             'Display transform: disabled',
         ),
-        runtime_status_fn=lambda: 'MLX selected; mixed CPU/MLX runtime path with optional GPU kernels',
+        runtime_status_fn=lambda: 'MLX float32',
+        runtime_timings_fn=lambda: {'preprocess': 0.01, 'filming.develop': 0.02},
     )
 
-    assert result.status_message == (
-        'Display transform: disabled | '
-        'MLX selected; mixed CPU/MLX runtime path with optional GPU kernels'
-    )
+    assert result.status_message.startswith('Display transform: disabled | MLX float32')
+    assert 'process=' in result.status_message
+    assert result.runtime_stage_timings == {'preprocess': 0.01, 'filming.develop': 0.02}
 
 
 def test_prepare_output_display_image_uses_aces_output_transform_for_linear_scene(monkeypatch) -> None:

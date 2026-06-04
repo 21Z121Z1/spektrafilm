@@ -1,0 +1,82 @@
+{
+  "run_id": "20260603-235842",
+  "input": {
+    "path": "/Users/retriedstormtrooper/Downloads/IMG_4897/IMG_4897.DNG",
+    "full_shape": [
+      768,
+      1024,
+      3
+    ],
+    "dtype": "float64",
+    "megapixels": 0.786432,
+    "load_seconds": 3.135312582999177,
+    "resize_seconds": 0.11700154199934332
+  },
+  "config": {
+    "size": "1024x768",
+    "warmups": 1,
+    "runs": 1,
+    "type_trace": false,
+    "only_backend": "cpu",
+    "skip_gpu_validate": true
+  },
+  "runs": [
+    {
+      "label": "cpu_full_res",
+      "status": "ok",
+      "requested_backend": "cpu",
+      "selected_backend": "cpu",
+      "supports_gpu": false,
+      "requires_serial_runtime": false,
+      "backend_summary": "cpu",
+      "backend_summary_default": "cpu",
+      "image_shape": [
+        768,
+        1024,
+        3
+      ],
+      "gpu_precision": "float64",
+      "gpu_validate": false,
+      "preview_max_size": null,
+      "warmup_seconds": [
+        2.599277291999897
+      ],
+      "timed_seconds": [
+        2.6235851670026022
+      ],
+      "best_seconds": 2.6235851670026022,
+      "avg_seconds": 2.6235851670026022,
+      "outer_wall_seconds": 2.6235851670026022,
+      "total_seconds": 2.622736708002776,
+      "timings": {
+        "FilmingStage.auto_exposure": 4.583002009894699e-06,
+        "preprocess": 0.0008214579975174274,
+        "SpectralLUTService.get_filming_tc_lut": 2.4083998141577467e-05,
+        "filming.expose": 0.22940620800000033,
+        "filming.develop": 0.09889133400065475,
+        "SpectralLUTService.spectral_compute_enlarger": 0.7374529580010858,
+        "PrintingStage.expose": 0.7819408750001458,
+        "printing.expose": 0.781954082998709,
+        "PrintingStage.develop": 0.021402250000392087,
+        "printing.develop": 0.021415957999124657,
+        "SpectralLUTService.spectral_compute_scanner": 0.9542894169971987,
+        "ScanningStage.scan": 1.4901940420022584,
+        "scanning.scan_print": 1.490203958001075,
+        "SimulationPipeline.materialize": 4.541998350759968e-06
+      },
+      "output": {
+        "type": "numpy.ndarray",
+        "backend": "numpy",
+        "shape": [
+          768,
+          1024,
+          3
+        ],
+        "dtype": "float64",
+        "bytes": 18874368
+      },
+      "conversions": {},
+      "type_trace": []
+    }
+  ]
+}

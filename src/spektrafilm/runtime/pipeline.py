@@ -46,6 +46,15 @@ def _backend_cache_key(backend):
     )
 
 
+def _backend_selection_key_from_settings(settings):
+    if settings is None:
+        return None
+    return (
+        getattr(settings, "compute_backend", None),
+        getattr(settings, "gpu_precision", None),
+    )
+
+
 class SimulationPipeline:
     """Thin runtime orchestrator that composes stage objects around a
     tap-based topology dispatcher.
@@ -59,6 +68,8 @@ class SimulationPipeline:
     def __init__(self, params, update_params=False):
         previous_lut_service = getattr(self, "_lut_service", None) if update_params else None
         previous_lut_backend = getattr(previous_lut_service, "_backend", None)
+        previous_backend = getattr(self, "_backend", None) if update_params else None
+        previous_backend_selection_key = getattr(self, "_backend_selection_key", None) if update_params else None
 
         self._params = copy.deepcopy(params)
 
@@ -73,10 +84,17 @@ class SimulationPipeline:
         self.debug = self._params.debug
         self.settings = self._params.settings
         self.taps = self._params.taps
-        self._backend = select_backend(
-            self.settings.compute_backend,
-            precision=self.settings.gpu_precision,
-        )
+        self._backend_selection_key = _backend_selection_key_from_settings(self.settings)
+        if (
+            previous_backend is not None
+            and previous_backend_selection_key == self._backend_selection_key
+        ):
+            self._backend = previous_backend
+        else:
+            self._backend = select_backend(
+                self.settings.compute_backend,
+                precision=self.settings.gpu_precision,
+            )
         self._array_backend = self._backend
 
         self.timings = {}
@@ -167,13 +185,11 @@ class SimulationPipeline:
             self._run_gpu_validate(image, result.image)
             return result
         finally:
-            self._last_elapsed_time = perf_counter() - start
-            if (
-                getattr(self._backend, "name", "") == "mlx" 
-                and hasattr(self._backend, "cleanup")
-                and not getattr(self.settings, "preview_mode", False)
-            ):
+            if self._should_cleanup_after_process():
+                cleanup_start = perf_counter()
                 self._backend.cleanup()
+                self.timings["SimulationPipeline.mlx_cleanup"] = perf_counter() - cleanup_start
+            self._last_elapsed_time = perf_counter() - start
 
     def _process_topology(self, image, *, inject: str | None = None, collect: str | None = None):
         inject = inject or self.taps.inject or Tap.RGB_IN
@@ -188,13 +204,11 @@ class SimulationPipeline:
                 on_fire=self._record_node_timing,
             )
         finally:
-            self._last_elapsed_time = perf_counter() - start
-            if (
-                getattr(self._backend, "name", "") == "mlx" 
-                and hasattr(self._backend, "cleanup")
-                and not getattr(self.settings, "preview_mode", False)
-            ):
+            if self._should_cleanup_after_process():
+                cleanup_start = perf_counter()
                 self._backend.cleanup()
+                self.timings["SimulationPipeline.mlx_cleanup"] = perf_counter() - cleanup_start
+            self._last_elapsed_time = perf_counter() - start
 
     def _gpu_validation_tolerance(self) -> float:
         explicit = getattr(self.settings, "gpu_validation_tolerance", None)
@@ -320,9 +334,45 @@ class SimulationPipeline:
     def update(self, params):
         """Update params and re-initialize stages that depend on them."""
         backend = getattr(self, "_backend", None)
-        if backend is not None and getattr(backend, "name", "") == "mlx" and hasattr(backend, "cleanup"):
+        old_selection_key = getattr(self, "_backend_selection_key", None)
+        new_selection_key = _backend_selection_key_from_settings(getattr(params, "settings", None))
+        if (
+            backend is not None
+            and old_selection_key != new_selection_key
+            and getattr(backend, "name", "") == "mlx"
+            and hasattr(backend, "cleanup")
+        ):
             backend.cleanup()
         self.__init__(params, update_params=True)
+
+    def _should_cleanup_after_process(self) -> bool:
+        if (
+            getattr(self._backend, "name", "") != "mlx"
+            or not hasattr(self._backend, "cleanup")
+            or getattr(self.settings, "preview_mode", False)
+        ):
+            return False
+        if bool(getattr(self.settings, "gpu_aggressive_cleanup", False)):
+            return True
+
+        threshold_mb = getattr(self.settings, "gpu_cleanup_cache_threshold_mb", 8192.0)
+        if threshold_mb is None or float(threshold_mb) <= 0.0:
+            return False
+        cache_bytes = self._mlx_cache_memory_bytes()
+        if cache_bytes is None:
+            return False
+        return cache_bytes >= int(float(threshold_mb) * 1024 * 1024)
+
+    def _mlx_cache_memory_bytes(self) -> int | None:
+        mx = getattr(self._backend, "mx", None)
+        for owner in (mx, getattr(mx, "metal", None)):
+            getter = getattr(owner, "get_cache_memory", None)
+            if callable(getter):
+                try:
+                    return int(getter())
+                except (OSError, RuntimeError, TypeError, ValueError):
+                    return None
+        return None
 
     def soft_update(self,
                     exposure_compensation_ev=None,
@@ -358,21 +408,25 @@ class SimulationPipeline:
     # private methods
 
     def _pipeline(self, image):
-        image = self._preprocess(image)
+        image = self._record_stage_timing("preprocess", self._preprocess, image)
         if self.io.scan_film: # replace with route switch
             rgb_scan = self._pipeline_scan_film(image)
         else:
             rgb_scan = self._pipeline_print(image)
-        return np.asarray(rgb_scan, dtype=np.float64)
+        return self._materialize_output(rgb_scan)
 
     def _pipeline_with_metadata(self, image) -> SimulationPipelineResult:
-        image, hdr_scene_energy = self._preprocess_with_metadata(image)
+        image, hdr_scene_energy = self._record_stage_timing(
+            "preprocess",
+            self._preprocess_with_metadata,
+            image,
+        )
         if self.io.scan_film: # replace with route switch
             rgb_scan = self._pipeline_scan_film(image)
         else:
             rgb_scan = self._pipeline_print(image)
         return SimulationPipelineResult(
-            image=np.asarray(rgb_scan, dtype=np.float64),
+            image=self._materialize_output(rgb_scan),
             hdr_scene_energy=hdr_scene_energy,
         )
     
@@ -416,17 +470,49 @@ class SimulationPipeline:
         return np.asarray(np.maximum(luminance, 0.0), dtype=np.float32)
     
     def _pipeline_scan_film(self, rgb_image):
-        log_raw_film = self._filming_stage.expose(rgb_image)
-        cmy_film = self._filming_stage.develop(log_raw_film)
-        rgb_scan = self._scanning_stage.scan(cmy_film)
+        log_raw_film = self._record_stage_timing(
+            "filming.expose",
+            self._filming_stage.expose,
+            rgb_image,
+        )
+        cmy_film = self._record_stage_timing(
+            "filming.develop",
+            self._filming_stage.develop,
+            log_raw_film,
+        )
+        rgb_scan = self._record_stage_timing(
+            "scanning.scan_film",
+            self._scanning_stage.scan,
+            cmy_film,
+        )
         return rgb_scan
     
     def _pipeline_print(self, rgb_image):
-        log_raw_film = self._filming_stage.expose(rgb_image)
-        cmy_film = self._filming_stage.develop(log_raw_film)
-        log_raw_print = self._printing_stage.expose(cmy_film)
-        cmy_print = self._printing_stage.develop(log_raw_print)
-        rgb_scan = self._scanning_stage.scan(cmy_print)
+        log_raw_film = self._record_stage_timing(
+            "filming.expose",
+            self._filming_stage.expose,
+            rgb_image,
+        )
+        cmy_film = self._record_stage_timing(
+            "filming.develop",
+            self._filming_stage.develop,
+            log_raw_film,
+        )
+        log_raw_print = self._record_stage_timing(
+            "printing.expose",
+            self._printing_stage.expose,
+            cmy_film,
+        )
+        cmy_print = self._record_stage_timing(
+            "printing.develop",
+            self._printing_stage.develop,
+            log_raw_print,
+        )
+        rgb_scan = self._record_stage_timing(
+            "scanning.scan_print",
+            self._scanning_stage.scan,
+            cmy_print,
+        )
         return rgb_scan
     
 
@@ -449,3 +535,17 @@ class SimulationPipeline:
 
     def _record_node_timing(self, node: Node, elapsed: float) -> None:
         self.timings[node.label] = self.timings.get(node.label, 0.0) + elapsed
+
+    def _record_stage_timing(self, label: str, func, *args):
+        start = perf_counter()
+        try:
+            return func(*args)
+        finally:
+            self.timings[label] = self.timings.get(label, 0.0) + (perf_counter() - start)
+
+    def _materialize_output(self, image) -> np.ndarray:
+        return self._record_stage_timing(
+            "SimulationPipeline.materialize",
+            lambda value: np.asarray(value, dtype=np.float64),
+            image,
+        )

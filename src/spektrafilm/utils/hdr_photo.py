@@ -635,7 +635,7 @@ def _prepare_curve_profile_renditions(
         where=s_profile > _EPS32,
     )
 
-    safe_max_headroom = float(profile.defaults.safe_max_headroom)
+    effective_max_headroom = min(float(mapping.max_headroom), float(profile.defaults.safe_max_headroom))
     hdr_rgb = _apply_hdr_color_recovery(
         look=look,
         h_profile=h_profile,
@@ -645,14 +645,14 @@ def _prepare_curve_profile_renditions(
         scene_rgb=scene_rgb,
         mapping=mapping,
         diagnostics=diagnostics_list,
-        max_headroom=safe_max_headroom,
+        max_headroom=effective_max_headroom,
         look_white=look_white,
     )
 
-    hdr_rgb = np.clip(hdr_rgb, 0.0, safe_max_headroom).astype(np.float32, copy=False)
+    hdr_rgb = np.clip(hdr_rgb, 0.0, effective_max_headroom).astype(np.float32, copy=False)
     content_headroom = _content_headroom(hdr_rgb, percentile=mapping.headroom_percentile)
     profile_gain_headroom = _content_headroom(hdr_gain[..., None], percentile=mapping.headroom_percentile)
-    headroom = min(max(content_headroom, profile_gain_headroom), safe_max_headroom)
+    headroom = min(max(content_headroom, profile_gain_headroom), effective_max_headroom)
     if headroom < MIN_HDR_PHOTO_HEADROOM:
         raise ValueError("HEIC HDR photo export requires linear image values above SDR white (1.0).")
 

@@ -107,6 +107,26 @@ def test_fft_convolve_same_backend_cpu_fallback_matches_scipy_per_channel() -> N
     np.testing.assert_allclose(actual, expected, rtol=1e-12, atol=1e-12)
 
 
+def test_fft_convolve_same_mlx_does_not_force_mid_pipeline_sync_or_cache_clear_when_available(monkeypatch) -> None:
+    backend = _mlx_backend_or_skip()
+    image = backend.asarray(np.ones((6, 7, 3), dtype=np.float32))
+    kernel = np.zeros((3, 3, 3), dtype=np.float32)
+    kernel[1, 1, :] = 1.0
+    eval_calls: list[int] = []
+    clear_cache_calls: list[str] = []
+
+    monkeypatch.setattr(backend.mx, "eval", lambda *values: eval_calls.append(len(values)), raising=False)
+    metal = getattr(backend.mx, "metal", None)
+    if metal is not None and hasattr(metal, "clear_cache"):
+        monkeypatch.setattr(metal, "clear_cache", lambda: clear_cache_calls.append("clear"), raising=False)
+
+    actual = fft_convolve_same_backend(image, kernel, backend)
+
+    assert backend._is_mlx_array(actual)
+    assert eval_calls == []
+    assert clear_cache_calls == []
+
+
 def test_gaussian_filter_small_mlx_matches_cpu_reference_when_available() -> None:
     backend = _mlx_backend_or_skip()
     image = _sample_image().astype(np.float32)
