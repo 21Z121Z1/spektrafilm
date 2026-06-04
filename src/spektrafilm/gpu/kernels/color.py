@@ -120,6 +120,115 @@ def xyz_to_rgb(xyz: Any, matrix_3x3: Any, backend) -> Any:
     return backend.matmul(backend.asarray(xyz), backend.asarray(M_T))
 
 
+def _backend_float32_dtype(backend):
+    if getattr(backend, "precision", "float32") != "float32":
+        raise NotImplementedError(
+            "rgb_to_tc_b_backend currently supports backend float32 only; "
+            "set gpu_precision='float32' or use the CPU reference path."
+        )
+    dtype = getattr(backend, "default_dtype", None)
+    if dtype is not None:
+        return dtype
+    mx = getattr(backend, "mx", None)
+    if mx is not None:
+        return mx.float32
+    cp = getattr(backend, "cp", None)
+    if cp is not None:
+        return cp.float32
+    return np.float32
+
+
+def _stack_last_dim_backend(x, y, backend):
+    mx = getattr(backend, "mx", None)
+    if mx is not None:
+        return mx.stack((x, y), axis=-1)
+    cp = getattr(backend, "cp", None)
+    if cp is not None:
+        return cp.stack((x, y), axis=-1)
+    return np.stack((x, y), axis=-1)
+
+
+def _fmax_scalar_backend(x, floor: float, backend):
+    fmax = getattr(backend, "fmax", None)
+    if callable(fmax):
+        return fmax(x, floor)
+    return backend.maximum(x, floor)
+
+
+def _tri2quad_backend(xy: Any, backend) -> Any:
+    xy = backend.asarray(xy, dtype=_backend_float32_dtype(backend))
+    tx = xy[..., 0]
+    ty = xy[..., 1]
+    y = ty / _fmax_scalar_backend(1.0 - tx, 1e-10, backend)
+    x = (1.0 - tx) * (1.0 - tx)
+    x = backend.clip(x, 0.0, 1.0)
+    y = backend.clip(y, 0.0, 1.0)
+    return _stack_last_dim_backend(x, y, backend)
+
+
+def _illuminant_to_xy(illuminant_label: str) -> np.ndarray:
+    from spektrafilm.config import STANDARD_OBSERVER_CMFS
+    from spektrafilm.model.illuminants import standard_illuminant
+
+    illuminant = standard_illuminant(illuminant_label)
+    xyz = np.zeros((3,), dtype=np.float64)
+    for i in range(3):
+        xyz[i] = np.sum(illuminant * STANDARD_OBSERVER_CMFS[:, i])
+    return xyz[0:2] / np.sum(xyz)
+
+
+@lru_cache(maxsize=32)
+def _cached_rgb_to_xyz_matrix(
+    color_space: str,
+    reference_illuminant: str,
+    cat: str = "CAT16",
+) -> np.ndarray:
+    illuminant_xy = _illuminant_to_xy(reference_illuminant)
+    return np.asarray(
+        precompute_rgb_to_xyz_matrix(
+            color_space,
+            illuminant_xy=illuminant_xy,
+            cat=cat,
+        ),
+        dtype=np.float32,
+    )
+
+
+def rgb_to_tc_b_backend(
+    rgb: Any,
+    *,
+    color_space: str = "ITU-R BT.2020",
+    apply_cctf_decoding: bool = False,
+    reference_illuminant: str = "D55",
+    backend,
+) -> tuple[Any, Any]:
+    """Backend-resident Hanatos RGB -> triangular coordinates and brightness.
+
+    This mirrors ``utils.spectral_upsampling._rgb_to_tc_b`` with CAT16
+    adaptation, but keeps the per-pixel path on the supplied float32 backend.
+    Unsupported backend transfer functions raise from
+    ``cctf_decoding_transfer_backend`` instead of silently materializing the
+    full image through the CPU reference helper.
+    """
+    if backend is None:
+        raise ValueError("rgb_to_tc_b_backend requires an array backend")
+
+    dtype = _backend_float32_dtype(backend)
+    rgb_backend = backend.asarray(rgb, dtype=dtype)
+    if apply_cctf_decoding:
+        rgb_backend = cctf_decoding_transfer_backend(rgb_backend, color_space, backend)
+
+    matrix = backend.asarray(
+        _cached_rgb_to_xyz_matrix(color_space, reference_illuminant, "CAT16"),
+        dtype=dtype,
+    )
+    xyz = rgb_to_xyz(rgb_backend, matrix, backend)
+    b = xyz[..., 0] + xyz[..., 1] + xyz[..., 2]
+    xy = xyz[..., 0:2] / _fmax_scalar_backend(b[..., None], 1e-10, backend)
+    tc = _tri2quad_backend(xy, backend)
+    return tc, backend.nan_to_num(b)
+
+
 # ---------------------------------------------------------------------------
 # CCTF encoding
 # ---------------------------------------------------------------------------

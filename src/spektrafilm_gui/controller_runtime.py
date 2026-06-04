@@ -28,6 +28,8 @@ class SimulationRequest:
     use_display_transform: bool
     output_cctf_encoding: bool = True
     phase_timings: dict[str, float] = field(default_factory=dict)
+    memory_estimates: dict[str, int] = field(default_factory=dict)
+    require_hdr_metadata: bool = False
 
 
 @dataclass(slots=True)
@@ -42,6 +44,7 @@ class SimulationResult:
     hdr_scene_energy: object | None = None
     phase_timings: dict[str, float] = field(default_factory=dict)
     runtime_stage_timings: dict[str, float] = field(default_factory=dict)
+    memory_estimates: dict[str, int] = field(default_factory=dict)
 
 
 class SimulationWorkerSignals(QObject):
@@ -76,6 +79,28 @@ def normalized_image_data(image: np.ndarray, *, preserve_highlights: bool = Fals
             return image.astype(np.float32)
         return image.astype(np.float32) / max_value
     return image.astype(np.float32)
+
+
+def array_nbytes(value: object | None) -> int:
+    if value is None:
+        return 0
+    nbytes = getattr(value, "nbytes", None)
+    if nbytes is not None:
+        return int(nbytes)
+    shape = getattr(value, "shape", None)
+    dtype = getattr(value, "dtype", None)
+    if shape is None or dtype is None:
+        return 0
+    try:
+        return int(np.prod(tuple(int(dim) for dim in shape)) * np.dtype(dtype).itemsize)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _record_phase_timing(phase_timings: dict[str, float] | None, key: str, elapsed: float) -> None:
+    if phase_timings is None:
+        return
+    phase_timings[key] = phase_timings.get(key, 0.0) + float(elapsed)
 
 
 def apply_white_padding(image_data: np.ndarray, padding_pixels: float) -> np.ndarray:
@@ -256,15 +281,19 @@ def prepare_output_display_image(
     imagecms_module: Any,
     colour_module: Any,
     pil_image_module: Any,
+    phase_timings: dict[str, float] | None = None,
 ) -> tuple[np.ndarray, str]:
     del padding_pixels
     source_image = np.asarray(image_data)[..., :3]
+    uint8_start = time.perf_counter()
     preview_image = np.uint8(np.clip(normalized_image_data(source_image), 0.0, 1.0) * 255)
+    _record_phase_timing(phase_timings, "gui.display_uint8", time.perf_counter() - uint8_start)
     if not use_display_transform:
         return preview_image, display_transform_status_message(False, imagecms_module=imagecms_module)
     preserve_scene_highlights = is_aces_scene_linear_space(output_color_space) or not output_cctf_encoding
     transform_image = normalized_image_data(source_image, preserve_highlights=preserve_scene_highlights)
     pycms_error = getattr(imagecms_module, 'PyCMSError', RuntimeError)
+    transform_start = time.perf_counter()
     try:
         transformed_image, status = apply_display_transform(
             transform_image,
@@ -277,6 +306,8 @@ def prepare_output_display_image(
         return transformed_image, status
     except (AttributeError, LookupError, OSError, RuntimeError, ValueError, TypeError, pycms_error):
         return preview_image, 'Display transform: transform failed, using raw preview'
+    finally:
+        _record_phase_timing(phase_timings, "gui.display_transform", time.perf_counter() - transform_start)
 
 
 def _format_phase_timing_summary(phase_timings: dict[str, float]) -> str:
@@ -296,33 +327,53 @@ def _format_phase_timing_summary(phase_timings: dict[str, float]) -> str:
 def execute_simulation_request(
     request: SimulationRequest,
     *,
-    run_simulation_fn: Callable[[np.ndarray, object], np.ndarray],
+    run_simulation_fn: Callable[..., np.ndarray],
     prepare_output_display_image_fn: Callable[..., tuple[np.ndarray, str]],
     runtime_status_fn: Callable[[], str | None] | None = None,
     runtime_timings_fn: Callable[[], dict[str, float] | None] | None = None,
 ) -> SimulationResult:
     phase_timings = dict(getattr(request, "phase_timings", {}) or {})
+    memory_estimates = dict(getattr(request, "memory_estimates", {}) or {})
     start_time = time.perf_counter()
 
     process_start = time.perf_counter()
-    simulation_output = run_simulation_fn(request.image, request.params)
+    if request.require_hdr_metadata:
+        simulation_output = run_simulation_fn(
+            request.image,
+            request.params,
+            require_hdr_metadata=True,
+        )
+    else:
+        simulation_output = run_simulation_fn(request.image, request.params)
     phase_timings["runtime.process"] = time.perf_counter() - process_start
 
     scan = getattr(simulation_output, 'image', simulation_output)
     hdr_scene_energy = getattr(simulation_output, 'hdr_scene_energy', None)
 
+    materialize_start = time.perf_counter()
+    scan_array = np.asarray(scan)
+    phase_timings["gui.float_materialize"] = time.perf_counter() - materialize_start
+    if isinstance(scan, np.ndarray) and np.shares_memory(scan_array, scan):
+        memory_estimates["gui.float_materialize_copy_nbytes"] = 0
+    else:
+        memory_estimates["gui.float_materialize_copy_nbytes"] = array_nbytes(scan_array)
+    memory_estimates["gui.float_image_nbytes"] = array_nbytes(scan_array)
+
     display_start = time.perf_counter()
     scan_display, display_status = prepare_output_display_image_fn(
-        scan,
+        scan_array,
         output_color_space=request.output_color_space,
         output_cctf_encoding=request.output_cctf_encoding,
         use_display_transform=request.use_display_transform,
+        phase_timings=phase_timings,
     )
     phase_timings["gui.display_prepare"] = time.perf_counter() - display_start
+    memory_estimates["gui.display_image_nbytes"] = array_nbytes(scan_display)
+    scene_luminance = getattr(hdr_scene_energy, "scene_luminance", None)
+    scene_rgb = getattr(hdr_scene_energy, "scene_rgb", None)
+    memory_estimates["gui.hdr_scene_luminance_nbytes"] = array_nbytes(scene_luminance)
+    memory_estimates["gui.hdr_scene_rgb_nbytes"] = array_nbytes(scene_rgb)
 
-    materialize_start = time.perf_counter()
-    float_image = np.asarray(scan)
-    phase_timings["gui.float_materialize"] = time.perf_counter() - materialize_start
     elapsed_time = time.perf_counter() - start_time
     phase_timings["gui.worker_total"] = elapsed_time
     runtime_status = runtime_status_fn() if runtime_status_fn is not None else None
@@ -339,7 +390,7 @@ def execute_simulation_request(
     return SimulationResult(
         mode_label=request.mode_label,
         display_image=scan_display,
-        float_image=float_image,
+        float_image=scan_array,
         output_color_space=request.output_color_space,
         output_cctf_encoding=request.output_cctf_encoding,
         use_display_transform=request.use_display_transform,
@@ -347,4 +398,5 @@ def execute_simulation_request(
         hdr_scene_energy=hdr_scene_energy,
         phase_timings=phase_timings,
         runtime_stage_timings=runtime_stage_timings,
+        memory_estimates=memory_estimates,
     )

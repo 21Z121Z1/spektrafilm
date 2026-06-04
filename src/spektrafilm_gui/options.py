@@ -91,6 +91,12 @@ class GpuPrecision(Enum):
     float32 = "float32"
 
 
+class MaterializePolicy(Enum):
+    numpy_float64 = "numpy_float64"
+    numpy_float32 = "numpy_float32"
+    backend = "backend"
+
+
 class InputGamutCompressAlgorithms(Enum):
     xy = "xy"
     oklch = "oklch"

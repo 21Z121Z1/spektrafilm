@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import inspect
+
 import numpy as np
 import pytest
 from opt_einsum import contract
@@ -55,6 +57,25 @@ def _cupy_backend_or_skip():
         return select_backend("cupy")
     except BackendUnavailableError as exc:
         pytest.skip(str(exc))
+
+
+def test_mlx_custom_cmy_kernel_has_no_default_nan_debug_readbacks() -> None:
+    """Default MLX custom-kernel path must not read full arrays back for debug prints."""
+    from spektrafilm.gpu.kernels import density as density_module
+
+    source = inspect.getsource(density_module.cmy_to_log_xyz_backend)
+    forbidden = (
+        "np.array(density_cmy_flat)",
+        "np.array(channel_density_flat)",
+        "np.array(base_density_flat)",
+        "np.array(scan_illuminant_flat)",
+        "np.array(cmfs_flat)",
+        "np.array(normalization_mx)",
+        "np.array(outputs[0])",
+    )
+
+    for needle in forbidden:
+        assert needle not in source
 
 
 def test_density_spectral_backend_matches_cpu_reference() -> None:

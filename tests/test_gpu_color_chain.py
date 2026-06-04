@@ -10,6 +10,7 @@ from opt_einsum import contract
 
 from spektrafilm.color_management import ColorEncoding
 from spektrafilm.gpu.backend import BackendUnavailableError, select_backend
+from spektrafilm.gpu.kernels import color as color_kernel_module
 from spektrafilm.gpu.kernels.color import (
     cctf_decoding_backend,
     cctf_encoding_backend,
@@ -20,6 +21,7 @@ from spektrafilm.gpu.kernels.color import (
 )
 from spektrafilm.gpu.numpy_backend import NumpyBackend
 from spektrafilm.runtime.stages import scanning as scanning_module
+from spektrafilm.utils import spectral_upsampling as spectral_upsampling_module
 
 
 pytestmark = pytest.mark.unit
@@ -190,6 +192,39 @@ def test_backend_cctf_decoding_matches_colour_reference(color_space: str) -> Non
     assert backend.to_numpy_calls == 0
 
 
+@pytest.mark.parametrize("color_space", ["sRGB", "Display P3", "ITU-R BT.2020"])
+@pytest.mark.parametrize("apply_cctf_decoding", [False, True])
+def test_rgb_to_tc_b_backend_matches_cpu_reference(
+    color_space: str,
+    apply_cctf_decoding: bool,
+) -> None:
+    from spektrafilm.gpu.kernels.color import rgb_to_tc_b_backend
+    from spektrafilm.utils.spectral_upsampling import _rgb_to_tc_b
+
+    backend = RecordingNumpyGpuBackend(name="mlx")
+    backend.precision = "float32"
+    rng = np.random.default_rng(20260604)
+    rgb = rng.random((5, 7, 3), dtype=np.float32)
+
+    actual_tc, actual_b = rgb_to_tc_b_backend(
+        rgb,
+        color_space=color_space,
+        apply_cctf_decoding=apply_cctf_decoding,
+        reference_illuminant="D55",
+        backend=backend,
+    )
+    expected_tc, expected_b = _rgb_to_tc_b(
+        rgb,
+        color_space=color_space,
+        apply_cctf_decoding=apply_cctf_decoding,
+        reference_illuminant="D55",
+    )
+
+    np.testing.assert_allclose(actual_tc, expected_tc, rtol=3e-5, atol=3e-5)
+    np.testing.assert_allclose(actual_b, expected_b, rtol=3e-5, atol=3e-5)
+    assert backend.to_numpy_calls == 0
+
+
 def test_scanning_stage_cctf_encoding_does_not_call_colour_rgb_to_rgb(monkeypatch) -> None:
     def fail_rgb_to_rgb(*_args, **_kwargs):
         raise AssertionError("GPU CCTF path should use spektrafilm.gpu.kernels.color")
@@ -240,6 +275,35 @@ def test_rgb_to_xyz_backend_matrix_matches_colour_science_reference() -> None:
     )
 
     np.testing.assert_allclose(actual, expected, rtol=1e-12, atol=1e-12)
+
+
+def test_color_kernel_rgb_to_tc_b_backend_does_not_delegate_to_spectral_helper(monkeypatch) -> None:
+    backend = RecordingNumpyGpuBackend(name="mlx")
+    backend.precision = "float32"
+    rgb = np.full((1, 1, 3), 0.184, dtype=np.float32)
+
+    def fail_spectral_helper(*_args, **_kwargs):
+        raise AssertionError("color.rgb_to_tc_b_backend must not delegate to spectral_upsampling")
+
+    monkeypatch.setattr(
+        spectral_upsampling_module,
+        "_rgb_to_tc_b_backend",
+        fail_spectral_helper,
+    )
+
+    actual_tc, actual_b = color_kernel_module.rgb_to_tc_b_backend(
+        rgb,
+        color_space="Display P3",
+        apply_cctf_decoding=True,
+        reference_illuminant="D55",
+        backend=backend,
+    )
+
+    assert actual_tc.shape == (1, 1, 2)
+    assert actual_b.shape == (1, 1)
+    assert np.all(np.isfinite(actual_tc))
+    assert np.all(np.isfinite(actual_b))
+    assert backend.to_numpy_calls == 0
 
 
 # ---------------------------------------------------------------------------

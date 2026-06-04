@@ -221,6 +221,26 @@ def test_set_or_add_output_layer_matches_existing_input_world_geometry() -> None
     assert output_layer.scale == (0.125, 0.125)
 
 
+def test_set_or_add_output_layer_reuses_float32_metadata_array_without_copy() -> None:
+    viewer = FakeViewer()
+    service = _make_service(viewer)
+    float_image = np.full((4, 4, 3), 0.5, dtype=np.float32)
+
+    service.set_or_add_output_layer(
+        np.full((4, 4, 3), 127, dtype=np.uint8),
+        float_image=float_image,
+        output_color_space='sRGB',
+        output_cctf_encoding=True,
+        use_display_transform=False,
+    )
+
+    output_layer = service.output_layer()
+    assert output_layer is not None
+    metadata_float = output_layer.metadata[OUTPUT_FLOAT_DATA_KEY]
+    assert metadata_float.dtype == np.float32
+    assert np.shares_memory(metadata_float, float_image)
+
+
 def test_set_or_add_output_layer_applies_requested_interpolation_mode() -> None:
     viewer = FakeViewer()
     service = _make_service(viewer)

@@ -72,6 +72,68 @@ def test_execute_simulation_request_appends_runtime_backend_status() -> None:
     assert result.runtime_stage_timings == {'preprocess': 0.01, 'filming.develop': 0.02}
 
 
+def test_execute_simulation_request_materializes_scan_once_before_display() -> None:
+    class ArrayLikeScan:
+        def __init__(self) -> None:
+            self.array_calls = 0
+
+        def __array__(self, dtype=None):
+            self.array_calls += 1
+            array = np.full((2, 2, 3), 0.5, dtype=np.float32)
+            if dtype is not None:
+                return np.asarray(array, dtype=dtype)
+            return array
+
+    scan = ArrayLikeScan()
+    captured: dict[str, object] = {}
+    request = runtime_module.SimulationRequest(
+        mode_label='Scan',
+        image=np.full((2, 2, 3), 0.25, dtype=np.float32),
+        params=object(),
+        output_color_space='sRGB',
+        use_display_transform=False,
+    )
+
+    def fake_prepare_display(image, **_kwargs):
+        captured['display_image_input'] = image
+        assert isinstance(image, np.ndarray)
+        return np.full((2, 2, 3), 127, dtype=np.uint8), 'Display transform: disabled'
+
+    result = runtime_module.execute_simulation_request(
+        request,
+        run_simulation_fn=lambda image, params: SimpleNamespace(image=scan),
+        prepare_output_display_image_fn=fake_prepare_display,
+    )
+
+    assert scan.array_calls == 1
+    assert result.float_image is captured['display_image_input']
+    assert result.memory_estimates['gui.float_image_nbytes'] == result.float_image.nbytes
+    assert result.memory_estimates['gui.display_image_nbytes'] == result.display_image.nbytes
+
+
+def test_prepare_output_display_image_records_split_timings() -> None:
+    timings: dict[str, float] = {}
+
+    preview, status = runtime_module.prepare_output_display_image(
+        np.full((2, 2, 3), 0.5, dtype=np.float32),
+        output_color_space='sRGB',
+        output_cctf_encoding=True,
+        use_display_transform=False,
+        colour_module=SimpleNamespace(),
+        imagecms_module=SimpleNamespace(
+            PyCMSError=RuntimeError,
+            get_display_profile=lambda: None,
+        ),
+        pil_image_module=SimpleNamespace(),
+        phase_timings=timings,
+    )
+
+    assert preview.dtype == np.uint8
+    assert status == 'Display transform: disabled'
+    assert timings['gui.display_uint8'] >= 0.0
+    assert 'gui.display_transform' not in timings
+
+
 def test_prepare_output_display_image_uses_aces_output_transform_for_linear_scene(monkeypatch) -> None:
     captured: dict[str, object] = {}
 

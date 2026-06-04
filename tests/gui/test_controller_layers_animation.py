@@ -267,3 +267,38 @@ def test_large_output_skips_polaroid_animation(monkeypatch) -> None:
     assert len(_FakeTimer.created) == 0
     assert output_layer.data_history == []
     np.testing.assert_array_equal(output_layer.data, output_image)
+
+
+def test_large_visible_output_update_skips_crossfade_copy(monkeypatch) -> None:
+    _FakeTimer.created.clear()
+    monkeypatch.setattr(controller_layers_module, 'QTimer', _FakeTimer)
+    monkeypatch.setattr(controller_layers_module, 'OUTPUT_LAYER_ANIMATION_MAX_PIXELS', 4)
+    service = _make_service()
+    service.set_or_add_input_preview_layer(np.full((2, 1, 3), 0.75, dtype=np.float32), white_padding=0.1)
+    first_image = np.full((3, 2, 3), 77, dtype=np.uint8)
+    second_image = np.full((3, 2, 3), 88, dtype=np.uint8)
+
+    service.set_or_add_output_layer(
+        first_image,
+        float_image=np.full((3, 2, 3), 0.5, dtype=np.float32),
+        output_color_space='ACES2065-1',
+        output_cctf_encoding=True,
+        use_display_transform=False,
+    )
+    output_layer = service.output_layer()
+    assert output_layer is not None
+    initial_history_length = len(output_layer.data_history)
+
+    service.set_or_add_output_layer(
+        second_image,
+        float_image=np.full((3, 2, 3), 0.6, dtype=np.float32),
+        output_color_space='ACES2065-1',
+        output_cctf_encoding=True,
+        use_display_transform=False,
+    )
+
+    assert len(_FakeTimer.created) == 0
+    new_frames = output_layer.data_history[initial_history_length:]
+    assert len(new_frames) == 1
+    np.testing.assert_array_equal(new_frames[0], second_image)
+    np.testing.assert_array_equal(output_layer.data, second_image)

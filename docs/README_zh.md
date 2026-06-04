@@ -44,6 +44,7 @@ spectral_film_simulations.md（英文）和 spectral_film_simulations_zh.md（�
 | [`film-scan-aware-negative-positive-plan.md`](film-scan-aware-negative-positive-plan.md) | 负片原始数据与正片扫描 HDR 路由分离的实施计划。 |
 | [`hdr-film-scan-aware.md`](hdr-film-scan-aware.md) | 指向规范胶片扫描感知 HDR 文档的兼容性入口。 [中文](hdr-film-scan-aware_zh.md) |
 | [`hdr_exr_output_plan.md`](hdr_exr_output_plan.md) | 用于未裁剪 HDR 存档的场景线性 EXR 导出计划。 [英文](hdr_exr_output_plan.en.md) |
+| [`dev/2026-06-03-natural-hdr-film-simulation-research.md`](dev/2026-06-03-natural-hdr-film-simulation-research.md) | 当前自然 HDR 胶片模拟研究、术语定义、模式分类、架构和最小原型验证。 |
 | [`dev/2026-05-31-mlx-postprocessing-effects.md`](dev/2026-05-31-mlx-postprocessing-effects.md) | MLX 可行性、实施说明以及光晕、扩散、颗粒和相关后处理滤镜的测试。 [中文](dev/2026-05-31-mlx-postprocessing-effects_zh.md) |
 | [`dev/mlx-optimization-report-20260530.md`](dev/mlx-optimization-report-20260530.md) | MLX 后端性能优化报告。 |
 | [`dev/gpu-benchmark-20260530.md`](dev/gpu-benchmark-20260530.md) | GPU 后端基准测试和原始计时附录。 [中文](dev/gpu-benchmark-20260530_zh.md) |

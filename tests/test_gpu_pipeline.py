@@ -9,6 +9,7 @@ from tests.conftest import make_fast_test_params
 
 from spektrafilm.gpu.backend import BackendUnavailableError, select_backend
 from spektrafilm.runtime.pipeline import SimulationPipeline
+from spektrafilm.runtime.stages import filming as filming_module
 
 
 pytestmark = pytest.mark.integration
@@ -69,6 +70,36 @@ def test_pipeline_processes_small_image_with_mlx_backend() -> None:
     )
 
 
+def test_pipeline_gpu_validate_hanatos2025_mlx_float32_records_report() -> None:
+    _require_mlx_backend()
+    params = make_fast_test_params()
+    params.settings.compute_backend = "mlx"
+    params.settings.gpu_precision = "float32"
+    params.settings.gpu_validate = True
+
+    image = np.array(
+        [
+            [[0.02, 0.02, 0.02], [0.184, 0.184, 0.184], [0.9, 0.2, 0.1], [1.2, 1.1, 0.9]],
+            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            [[0.4, 0.6, 0.8], [0.8, 0.6, 0.4], [1.0, 0.5, 0.25], [0.25, 0.5, 1.0]],
+            [[0.1, 0.3, 0.7], [0.7, 0.3, 0.1], [1.4, 0.1, 0.2], [0.2, 1.4, 0.1]],
+        ],
+        dtype=np.float64,
+    )
+
+    pipeline = SimulationPipeline(params)
+    result = pipeline.process(image)
+    report = pipeline.validation_report
+
+    assert pipeline._array_backend.name == "mlx"
+    assert result.shape == image.shape
+    assert report["status"] == "ok"
+    assert report["backend"] == "mlx"
+    assert report["reference_backend"] == "cpu"
+    assert report["precision"] == "float32"
+    assert report["max_abs_diff"] <= report["tolerance"]
+
+
 def test_filming_rgb_to_raw_keeps_mlx_array_after_lut_when_available() -> None:
     _require_mlx_backend()
     params = make_fast_test_params()
@@ -81,6 +112,109 @@ def test_filming_rgb_to_raw_keeps_mlx_array_after_lut_when_available() -> None:
     raw = pipeline._filming_stage._rgb_to_film_raw(image)
 
     assert pipeline._array_backend._is_mlx_array(raw)
+
+
+def test_filming_gpu_rgb_to_raw_does_not_call_cpu_rgb_to_tc_b(monkeypatch) -> None:
+    _require_mlx_backend()
+    params = make_fast_test_params()
+    params.settings.compute_backend = "mlx"
+    params.settings.gpu_precision = "float32"
+
+    pipeline = SimulationPipeline(params)
+    image = np.ones((4, 4, 3), dtype=np.float32) * 0.184
+
+    def fail_cpu_rgb_to_tc_b(*_args, **_kwargs):
+        raise AssertionError("GPU filming path must use backend-resident rgb_to_tc_b_backend")
+
+    monkeypatch.setattr(filming_module, "_rgb_to_tc_b", fail_cpu_rgb_to_tc_b)
+
+    raw = pipeline._filming_stage._rgb_to_film_raw(image)
+
+    assert pipeline._array_backend._is_mlx_array(raw)
+
+
+def test_mlx_preprocess_without_resize_keeps_backend_array() -> None:
+    _require_mlx_backend()
+    params = make_fast_test_params()
+    params.settings.compute_backend = "mlx"
+    params.settings.gpu_precision = "float32"
+    params.io.crop = False
+    params.io.upscale_factor = 1.0
+    params.camera.auto_exposure = False
+
+    pipeline = SimulationPipeline(params)
+    image = np.ones((8, 10, 4), dtype=np.float64) * 0.184
+
+    preprocessed, auto_ev = pipeline._preprocess_base(image)
+
+    assert auto_ev is None
+    assert pipeline._array_backend._is_mlx_array(preprocessed)
+    assert tuple(preprocessed.shape) == (8, 10, 3)
+
+
+def test_mlx_preprocess_resize_fallback_rewraps_backend_array() -> None:
+    _require_mlx_backend()
+    params = make_fast_test_params()
+    params.settings.compute_backend = "mlx"
+    params.settings.gpu_precision = "float32"
+    params.io.crop = False
+    params.io.upscale_factor = 0.5
+    params.camera.auto_exposure = False
+
+    pipeline = SimulationPipeline(params)
+    image = np.ones((8, 10, 3), dtype=np.float64) * 0.184
+
+    preprocessed, auto_ev = pipeline._preprocess_base(image)
+
+    assert auto_ev is None
+    assert pipeline._array_backend._is_mlx_array(preprocessed)
+    assert tuple(preprocessed.shape[:2]) == (4, 5)
+    assert "SimulationPipeline.preprocess.resize_cpu_fallback" in pipeline.timings
+
+
+def test_process_default_materializes_numpy_float64(default_params) -> None:
+    default_params.settings.compute_backend = "cpu"
+    image = np.ones((4, 4, 3), dtype=np.float32) * 0.184
+
+    result = SimulationPipeline(default_params).process(image)
+
+    assert isinstance(result, np.ndarray)
+    assert result.dtype == np.float64
+
+
+def test_process_numpy_float32_materialize_policy(default_params) -> None:
+    default_params.settings.compute_backend = "cpu"
+    default_params.settings.materialize_policy = "numpy_float32"
+    image = np.ones((4, 4, 3), dtype=np.float32) * 0.184
+
+    result = SimulationPipeline(default_params).process(image)
+
+    assert isinstance(result, np.ndarray)
+    assert result.dtype == np.float32
+
+
+def test_process_backend_materialize_policy_returns_mlx_array() -> None:
+    _require_mlx_backend()
+    params = make_fast_test_params()
+    params.settings.compute_backend = "mlx"
+    params.settings.gpu_precision = "float32"
+    params.settings.materialize_policy = "backend"
+    image = np.ones((4, 4, 3), dtype=np.float32) * 0.184
+
+    pipeline = SimulationPipeline(params)
+    result = pipeline.process(image)
+
+    assert pipeline._array_backend._is_mlx_array(result)
+
+
+def test_cpu_backend_materialize_policy_returns_numpy(default_params) -> None:
+    default_params.settings.compute_backend = "cpu"
+    default_params.settings.materialize_policy = "backend"
+    image = np.ones((4, 4, 3), dtype=np.float32) * 0.184
+
+    result = SimulationPipeline(default_params).process(image)
+
+    assert isinstance(result, np.ndarray)
 
 
 def test_printing_non_lut_gpu_path_does_not_materialize_to_numpy(monkeypatch) -> None:

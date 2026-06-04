@@ -1,8 +1,8 @@
 # Natural HDR Film Simulation Research
 
-Date: 2026-06-03
+Date: 2026-06-04
 
-Scope: current `develop` worktree for `https://github.com/21Z121Z1/spektrafilm`, plus external HDR / gain-map / ACES / film-sensitometry references. This is a research, audit, architecture, and minimal-prototype document. It does not rewrite production HDR behavior.
+Scope: current `develop` worktree for `https://github.com/21Z121Z1/spektrafilm`, plus external HDR / gain-map / ACES / film-sensitometry references. This is a research, audit, architecture, and minimal-prototype document. It does not rewrite production HDR behavior. This 2026-06-04 refresh updates the prior 2026-06-03 draft against current `HEAD=d9e31d2`.
 
 ## External Best-Practice Baseline
 
@@ -10,7 +10,7 @@ The strongest common thread across current references is that scene content, out
 
 - Apple EDR/HDR APIs use an EDR scale where reference white is `1.0` and values above that are display headroom. WWDC23 also distinguishes ISO HDR default reference white / diffuse white metadata from display peak and says ISO HDR defaults reference white to 203 cd/m2 with values above that as headroom. Sources: [WWDC23 Support HDR images in your app](https://developer.apple.com/videos/play/wwdc2023/10181/), [ImageIO HDR gain-map auxiliary data](https://developer.apple.com/documentation/imageio/kcgimageauxiliarydatatypehdrgainmap), [Core Image applyingGainMap](<https://developer.apple.com/documentation/coreimage/ciimage/applyinggainmap(_:)>).
 - Apple Adaptive HDR is explicitly a dual-rendition / gain-map approach: a backward-compatible SDR baseline plus per-pixel gain-map information that relates SDR and HDR. Apple recommends saving an Adaptive HDR file from edited SDR and HDR images, with Core Image calculating the gain map; ImageIO can also save an SDR CGImage plus ISO gain-map auxiliary data. Source: [WWDC24 Use HDR for dynamic image experiences in your app](https://developer.apple.com/videos/play/wwdc2024/10177/).
-- ISO 21496-1:2025 defines gain-map metadata for dynamic-range conversion between two image representations. This makes gain map a conversion/encoding mechanism, not the source of physical scene energy. Source: [ISO 21496-1:2025](https://www.iso.org/standard/86775.html).
+- ISO 21496-1:2025 is now published and defines gain-map metadata for dynamic-range conversion between two image representations. This makes gain map a conversion/encoding mechanism, not the source of physical scene energy. Source: [ISO 21496-1:2025](https://www.iso.org/standard/86775.html).
 - Android Ultra HDR v1.1 stores a primary image plus a secondary gain-map image with GContainer XMP. Its gain-map metadata defines how to interpret and apply the map to produce the HDR representation; Android recommends supporting both Ultra HDR v1 and ISO 21496-1 metadata for compatibility. Source: [Android Ultra HDR Image Format](https://developer.android.com/media/platform/hdr-image-format).
 - OpenEXR is the cleanest reference for scene-linear archive semantics: OpenEXR images are intended to be scene-referred and linear-light; a pixel value of `1000` means one thousand times the represented light of value `1`. Tone mapping is required before display. Sources: [OpenEXR Scene-Linear Image Representation](https://openexr.com/en/latest/SceneLinear.html), [OpenEXR Standard Attributes](https://openexr.com/en/latest/StandardAttributes.html).
 - ACES Output Transforms convert scene-linear ACES to output-referred images encoded for a specific display. The output transform includes tone scale, chroma compression, gamut compression, and display encoding. Source: [ACES Output Transforms](https://docs.acescentral.com/system-components/output-transforms/).
@@ -44,7 +44,7 @@ The strongest common thread across current references is that scene content, out
 
 ## Current Repository Snapshot
 
-Required commands were run on 2026-06-03:
+Required commands were run on 2026-06-04:
 
 ```bash
 git status -sb
@@ -54,10 +54,10 @@ git grep -nE "hdr|HDR|scene_luminance|scene_energy|hdr_scene_energy|diffuse_whit
 
 Observed state:
 
-- Branch: `develop...origin/develop [ahead 1]`.
-- Pre-existing untracked local files: `debug_mlx.py`, `debug_pipeline.py`, `docs.zip`, `dump_metal.py`, `scratch_mlx_perf.py`, `test_emulsion_nan.py`, `test_kernel_math.py`, `test_mlx_reshape.py`, `test_pipeline_mlx.py`.
-- `HEAD`: `fa1c771 Fix profile_kind assertions and add strict HDR export fallback guardrail test`.
-- The required `git grep` returned about 29k lines; the relevant current surfaces are `src/spektrafilm/runtime/pipeline.py`, `src/spektrafilm/utils/hdr_photo.py`, `src/spektrafilm/utils/hdr_curve_profiles.py`, `src/spektrafilm/utils/io.py`, `src/spektrafilm/color_management.py`, GUI HDR state/controller files, and the HDR tests/docs listed below.
+- Branch: `develop...origin/develop`.
+- Pre-existing untracked local files at the start of this refresh: `debug_mlx.py`, `debug_pipeline.py`, `docs.zip`, `dump_metal.py`, `grep_results.txt`, `scratch_mlx_perf.py`, `test_emulsion_nan.py`, `test_kernel_math.py`, `test_mlx_reshape.py`, `test_pipeline_mlx.py`, and `tools/research_natural_hdr_film_sim.py`.
+- `HEAD`: `d9e31d2 Optimize MLX computing backend, avoid redundant evaluate/cache clear, and add architecture documentation`.
+- The required `git grep` returned 8770 lines in the current tree; the relevant current surfaces are `src/spektrafilm/runtime/pipeline.py`, `src/spektrafilm/utils/hdr_photo.py`, `src/spektrafilm/utils/hdr_curve_profiles.py`, `src/spektrafilm/utils/io.py`, `src/spektrafilm/color_management.py`, GUI HDR state/controller files, and the HDR tests/docs listed below.
 
 Current pipeline facts from source:
 
@@ -279,11 +279,13 @@ Definition:
 
 ## 8. Minimal Prototype And Experiments
 
-Added non-production script:
+Available non-production script:
 
 ```bash
 tools/research_natural_hdr_film_sim.py
 ```
+
+This script was already present as an untracked working-tree file at the start of the 2026-06-04 refresh. It was inspected and used as the minimal prototype harness rather than rewritten.
 
 Run:
 
@@ -402,35 +404,26 @@ Recommended implementation issues:
 
 ## 14. Verification Results
 
-Commands run in this pass:
+Commands run in this 2026-06-04 refresh:
 
 ```bash
 .venv/bin/python -m py_compile tools/research_natural_hdr_film_sim.py
-.venv/bin/python tools/research_natural_hdr_film_sim.py --format json
 .venv/bin/python tools/research_natural_hdr_film_sim.py --format markdown
 .venv/bin/python -m pytest tests/test_hdr_photo.py -q
 .venv/bin/python -m pytest tests/test_hdr_curve_profiles.py -q
 .venv/bin/python -m pytest tests/test_image_io_color_metadata.py -q
-.venv/bin/python -m pytest tests/gui/test_controller_output.py -q
-.venv/bin/python -m pytest tests/gui -q
-.venv/bin/python -m compileall -q src tests tools scripts
-git diff --check -- docs/dev/2026-06-03-natural-hdr-film-simulation-research.md tools/research_natural_hdr_film_sim.py
-git diff --no-index --check /dev/null docs/dev/2026-06-03-natural-hdr-film-simulation-research.md
-git diff --no-index --check /dev/null tools/research_natural_hdr_film_sim.py
+QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/gui/test_controller_output.py -q
 ```
 
 Results:
 
 - Prototype compile: passed.
-- Prototype JSON and Markdown runs: passed.
-- `tests/test_hdr_photo.py`: 145 passed.
+- Prototype Markdown run: passed and produced experiments A-G.
+- `tests/test_hdr_photo.py`: 146 passed.
 - `tests/test_hdr_curve_profiles.py`: 35 passed.
 - `tests/test_image_io_color_metadata.py`: 26 passed.
 - `tests/gui/test_controller_output.py`: 21 passed.
-- `tests/gui -q`: 167 passed, 2 failed. Both failures are in `tests/gui/test_controller_runtime_module.py`; current code appends a runtime duration like `| 0.00s`, while those tests still expect the older status string without duration. This was not caused by the new research doc or prototype.
-- `compileall`: passed.
-- `git diff --check`: passed for tracked diff state.
-- `git diff --no-index --check` and trailing-whitespace scans on the two untracked research files: passed.
+- Full non-GUI or full GUI suites were not rerun in this refresh because this task intentionally changed no production HDR implementation. The focused HDR/export slices above cover the audited paths.
 
 ## 15. Remaining Uncertainty
 

@@ -164,12 +164,16 @@ def tiled_processing(
     *,
     overlap: int = 0,
 ) -> Any:
-    """Process a large image in tiles to fit within GPU memory.
+    """Process a large image in CPU tiles.
 
-    Splits the image into overlapping tiles, processes each tile through
-    ``process_fn`` on the GPU, and reassembles the result.  The overlap
-    region is discarded to avoid seam artifacts from filter kernels that
-    extend beyond tile boundaries.
+    Splits the image into overlapping NumPy tiles, processes each tile, and
+    reassembles the result. The overlap region is discarded to avoid seam
+    artifacts from filter kernels that extend beyond tile boundaries.
+
+    This helper is intentionally a CPU fallback. GPU callers must not use it:
+    the historical implementation silently copied the full image and every
+    processed tile through CPU materialization, which was not GPU-resident
+    tiling.
 
     Parameters
     ----------
@@ -196,7 +200,13 @@ def tiled_processing(
 
     import numpy as np
 
-    np_image = backend.to_numpy(image) if backend.supports_gpu else np.asarray(image)
+    if getattr(backend, "supports_gpu", False):
+        raise RuntimeError(
+            "tiled_processing is a CPU fallback; GPU backends must use whole-frame "
+            "backend kernels or a dedicated backend_tiled_processing implementation."
+        )
+
+    np_image = np.asarray(image)
     h, w = np_image.shape[:2]
     stride = tile_size - 2 * overlap
     if stride <= 0:
@@ -213,7 +223,7 @@ def tiled_processing(
             x2 = min(w, x1 + tile_size)
 
             tile = backend.asarray(np_image[y1:y2, x1:x2])
-            processed = backend.to_numpy(process_fn(tile))
+            processed = np.asarray(process_fn(tile))
 
             # Compute the valid (non-overlap) region in output coordinates.
             oy1 = y

@@ -32,6 +32,7 @@
 | [`research-gpu-color-management.md`](research-gpu-color-management.md) | GPU 加速和色彩管理研究。[中文](research-gpu-color-management_zh.md) |
 | [`gain-map-HDR分析报告.md`](gain-map-HDR分析报告.md) | ISO 21496-1 增益图 HDR 集成分析。[English](gain-map-HDR-analysis-report.en.md) |
 | [`modern_recovery_peak_budget_plan.md`](modern_recovery_peak_budget_plan.md) | 保持配置文件的 HDR 恢复峰值预算计划。[中文](modern_recovery_peak_budget_plan_zh.md) |
+| [`2026-06-04-dng-natural-hdr-luminance-research.md`](2026-06-04-dng-natural-hdr-luminance-research.md) | DNG/RAW Natural HDR 漫反射白、headroom、置信度、降级和 provenance 研究，包含已测试的估计器。 |
 
 ## Android 移植
 

@@ -6,6 +6,7 @@ so the same code runs on NumPy, MLX, and CuPy where the operation is portable.
 """
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import numpy as np
@@ -39,6 +40,23 @@ def _run_compiled_elementwise(backend, name: str, function, *args):
     if callable(compiled_elementwise):
         return compiled_elementwise(name, function, *args)(*args)
     return function(*args)
+
+
+def _debug_mlx_kernel_nan_readback_enabled() -> bool:
+    return os.environ.get("SPEKTRAFILM_MLX_KERNEL_DEBUG_NAN", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _debug_mlx_kernel_nan_check(label: str, value: Any, backend: Any) -> None:
+    if not _debug_mlx_kernel_nan_readback_enabled():
+        return
+    arr = backend.to_numpy(value) if hasattr(backend, "to_numpy") else np.asarray(value)
+    if np.isnan(arr).any():
+        print(f"NAN in {label}")
 
 
 def _get_interp_density_curves_kernel(mx):
@@ -600,13 +618,12 @@ def cmy_to_log_xyz_backend(
         scan_illuminant_flat = mx.reshape(scan_illuminant_mx, (-1,))
         cmfs_flat = mx.reshape(cmfs_mx, (-1,))
         
-        import numpy as np
-        if np.isnan(np.array(density_cmy_flat)).any(): print("NAN in density_cmy")
-        if np.isnan(np.array(channel_density_flat)).any(): print("NAN in channel_density")
-        if np.isnan(np.array(base_density_flat)).any(): print("NAN in base_density")
-        if np.isnan(np.array(scan_illuminant_flat)).any(): print("NAN in scan_illuminant")
-        if np.isnan(np.array(cmfs_flat)).any(): print("NAN in cmfs")
-        if np.isnan(np.array(normalization_mx)).any(): print("NAN in normalization")
+        _debug_mlx_kernel_nan_check("density_cmy", density_cmy_flat, backend)
+        _debug_mlx_kernel_nan_check("channel_density", channel_density_flat, backend)
+        _debug_mlx_kernel_nan_check("base_density", base_density_flat, backend)
+        _debug_mlx_kernel_nan_check("scan_illuminant", scan_illuminant_flat, backend)
+        _debug_mlx_kernel_nan_check("cmfs", cmfs_flat, backend)
+        _debug_mlx_kernel_nan_check("normalization", normalization_mx, backend)
         
         outputs = kernel(
             inputs=[density_cmy_flat, channel_density_flat, base_density_flat, scan_illuminant_flat, cmfs_flat, normalization_mx],
@@ -616,7 +633,7 @@ def cmy_to_log_xyz_backend(
             output_shapes=[(H * W * 3,)],
             output_dtypes=[density_cmy_mx.dtype],
         )
-        if np.isnan(np.array(outputs[0])).any(): print("NAN IN OUTPUTS FROM METAL!")
+        _debug_mlx_kernel_nan_check("outputs_from_metal", outputs[0], backend)
         return mx.reshape(outputs[0], out_shape)
 
     density_spectral = compute_density_spectral(

@@ -43,6 +43,7 @@ from spektrafilm_gui.options import (
     HDRMappingModes,
     HDRSceneSources,
     InputGamutCompressAlgorithms,
+    MaterializePolicy,
     NapariInterpolationModes,
     OutputGamutCompressAlgorithms,
     RGBColorSpaces,
@@ -735,6 +736,13 @@ COMPUTE_PANEL_FIELDS = (
         tier="basic",
         enum=GpuPrecision,
         tooltip="Numerical precision for GPU backends. float32 is faster; float64 matches CPU reference exactly.",
+    ),
+    ParamSpec(
+        "settings.materialize_policy",
+        label="Output policy",
+        tier="basic",
+        enum=MaterializePolicy,
+        tooltip="Final pipeline output type. numpy_float64 keeps legacy API compatibility; numpy_float32 materializes smaller CPU arrays; backend keeps GPU arrays resident for preview and benchmarks.",
     ),
     ParamSpec(
         "settings.gpu_validate",

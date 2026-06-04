@@ -241,6 +241,7 @@ class SettingsParams:
     neutral_print_filters_from_database: bool = True
     compute_backend: str = "cpu"
     gpu_precision: str = "float32"
+    materialize_policy: str = "numpy_float64"
     gpu_validate: bool = False
     gpu_validation_tolerance: float | None = None
     gpu_aggressive_cleanup: bool = False
@@ -277,4 +278,8 @@ class RuntimePhotoParams:
         if self.settings.lut_resolution < 2:
             raise ValueError(
                 f"lut_resolution must be >= 2, got {self.settings.lut_resolution}"
+            )
+        if self.settings.materialize_policy not in {"numpy_float64", "numpy_float32", "backend"}:
+            raise ValueError(
+                "materialize_policy must be one of: 'numpy_float64', 'numpy_float32', 'backend'"
             )

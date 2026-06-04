@@ -141,6 +141,51 @@ def resize_for_preview(*args, **kwargs):
     return import_module('spektrafilm.utils.preview').resize_for_preview(*args, **kwargs)
 
 
+def _uses_mlx_float32(params) -> bool:
+    settings = getattr(params, "settings", None)
+    return (
+        str(getattr(settings, "compute_backend", "")).lower() == "mlx"
+        and str(getattr(settings, "gpu_precision", "")).lower() == "float32"
+    )
+
+
+def _prepare_simulation_input_image(
+    image_data: np.ndarray,
+    params,
+) -> tuple[np.ndarray, dict[str, float], dict[str, int]]:
+    prepare_start = time.perf_counter()
+    source_array = np.asarray(image_data)
+    dtype_start = time.perf_counter()
+    if _uses_mlx_float32(params):
+        source_for_request = source_array[..., :3]
+        image = np.asarray(source_for_request, dtype=np.float32)
+    else:
+        source_for_request = source_array
+        image = np.double(image_data)
+    dtype_elapsed = time.perf_counter() - dtype_start
+    shares_input_memory = (
+        isinstance(image, np.ndarray)
+        and isinstance(source_for_request, np.ndarray)
+        and np.shares_memory(image, source_for_request)
+    )
+    phase_timings = {
+        'gui.input_prepare': time.perf_counter() - prepare_start,
+        'gui.input_dtype_convert': dtype_elapsed,
+        'gui.input_copy': 0.0 if shares_input_memory else dtype_elapsed,
+    }
+    memory_estimates = {
+        'gui.input_source_nbytes': runtime.array_nbytes(source_for_request),
+        'gui.input_request_nbytes': runtime.array_nbytes(image),
+        'gui.input_copy_nbytes': 0 if shares_input_memory else runtime.array_nbytes(image),
+    }
+    return image, phase_timings, memory_estimates
+
+
+def _requires_hdr_metadata_for_state(state) -> bool:
+    hdr_state = getattr(state, "hdr", None)
+    return bool(getattr(hdr_state, "hdr_heic_gain_map_enabled", False))
+
+
 colour = _LazyModuleProxy(_import_colour_module)
 PILImage = _LazyModuleProxy(_import_pil_image_module)
 ImageCms = _LazyModuleProxy(_import_imagecms_module)
@@ -719,6 +764,7 @@ class GuiController:
         output_cctf_encoding: bool = True,
         use_display_transform: bool,
         padding_pixels: float = 0.0,
+        phase_timings: dict[str, float] | None = None,
     ) -> tuple[np.ndarray, str]:
         return runtime.prepare_output_display_image(
             image_data,
@@ -729,9 +775,16 @@ class GuiController:
             imagecms_module=ImageCms,
             colour_module=colour,
             pil_image_module=PILImage,
+            phase_timings=phase_timings,
         )
 
-    def _process_image_with_runtime(self, image_data: np.ndarray, params) -> object:
+    def _process_image_with_runtime(
+        self,
+        image_data: np.ndarray,
+        params,
+        *,
+        require_hdr_metadata: bool = False,
+    ) -> object:
         apply_stocks_specifics = (
             self._runtime_simulator is None
             or self._next_runtime_digest_applies_stock_specifics
@@ -746,7 +799,10 @@ class GuiController:
             else:
                 self._runtime_simulator.update_params(digested_params)
             self._next_runtime_digest_applies_stock_specifics = False
-            result = self._runtime_simulator.process_with_metadata(image_data)
+            if require_hdr_metadata:
+                result = self._runtime_simulator.process_with_metadata(image_data)
+            else:
+                result = self._runtime_simulator.process(image_data)
             summary_fn = getattr(self._runtime_simulator, "backend_runtime_summary", None)
             self._last_runtime_backend_summary = summary_fn() if callable(summary_fn) else None
             return result
@@ -816,11 +872,8 @@ class GuiController:
             source_layer_name=source_layer_name,
         )
 
-        conversion_start = time.perf_counter()
-        image = np.double(image_data)
-        phase_timings = {
-            'gui.input_conversion': time.perf_counter() - conversion_start,
-        }
+        image, phase_timings, memory_estimates = _prepare_simulation_input_image(image_data, params)
+        phase_timings['gui.input_conversion'] = phase_timings['gui.input_prepare']
         request = SimulationRequest(
             mode_label=mode_label,
             image=image,
@@ -829,6 +882,8 @@ class GuiController:
             output_cctf_encoding=state.simulation.io.output_cctf_encoding,
             use_display_transform=state.gui_only.display.use_display_transform,
             phase_timings=phase_timings,
+            memory_estimates=memory_estimates,
+            require_hdr_metadata=_requires_hdr_metadata_for_state(state),
         )
 
         worker = runtime.SimulationWorker(request, execute_request=self._execute_simulation_request)
@@ -897,8 +952,15 @@ class GuiController:
             source_layer_name=source_layer_name,
         )
 
-        image = np.double(image_data)
-        simulation_output = self._process_image_with_runtime(image, params)
+        image, _phase_timings, _memory_estimates = _prepare_simulation_input_image(image_data, params)
+        if _requires_hdr_metadata_for_state(state):
+            simulation_output = self._process_image_with_runtime(
+                image,
+                params,
+                require_hdr_metadata=True,
+            )
+        else:
+            simulation_output = self._process_image_with_runtime(image, params)
         scan = getattr(simulation_output, 'image', simulation_output)
         hdr_scene_energy = getattr(simulation_output, 'hdr_scene_energy', None)
         scan_display, display_status = self._prepare_output_display_image(

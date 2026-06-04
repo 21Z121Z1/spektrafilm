@@ -232,6 +232,19 @@ def test_select_backend_cupy_aliases_are_strict_when_requested(backend_name: str
 # ---------------------------------------------------------------------------
 
 
+class ToNumpyTrapGpuBackend:
+    name = "trap-gpu"
+    supports_gpu = True
+    fallback_reason = None
+    requires_serial_runtime = False
+
+    def asarray(self, value, dtype=None):
+        return np.asarray(value, dtype=dtype)
+
+    def to_numpy(self, _value):
+        raise AssertionError("GPU tiling must not materialize through to_numpy")
+
+
 def test_tiled_processing_identity_element_wise() -> None:
     """Element-wise processing with tiling must produce identical results to no tiling."""
     backend = NumpyBackend()
@@ -278,3 +291,11 @@ def test_tiled_processing_rejects_invalid_tile_size() -> None:
 
     with pytest.raises(ValueError, match="tile_size"):
         tiled_processing(image, tile_size=4, process_fn=lambda x: x, backend=backend, overlap=3)
+
+
+def test_tiled_processing_rejects_gpu_backend_before_to_numpy() -> None:
+    backend = ToNumpyTrapGpuBackend()
+    image = np.ones((10, 10, 3), dtype=np.float32)
+
+    with pytest.raises(RuntimeError, match="CPU fallback"):
+        tiled_processing(image, tile_size=4, process_fn=lambda x: x, backend=backend)

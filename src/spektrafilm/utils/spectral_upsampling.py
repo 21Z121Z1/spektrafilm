@@ -1,5 +1,7 @@
-import numpy as np
 import struct
+from functools import lru_cache
+
+import numpy as np
 import colour
 import scipy
 import importlib.resources
@@ -8,6 +10,11 @@ import scipy.interpolate
 import scipy.special
 
 from spektrafilm.profiles.io import Hanatos2025SensitivityAdaptation
+from spektrafilm.gpu.kernels.color import (
+    cctf_decoding_transfer_backend,
+    precompute_rgb_to_xyz_matrix,
+    rgb_to_xyz,
+)
 from spektrafilm.utils.fast_interp_lut import apply_lut_cubic_2d
 from spektrafilm.config import SPECTRAL_SHAPE, STANDARD_OBSERVER_CMFS
 from spektrafilm.model.illuminants import standard_illuminant
@@ -51,6 +58,52 @@ def _tri2quad(tc):
     x = np.clip(x, 0, 1)
     y = np.clip(y, 0, 1)
     return np.stack((x,y), axis=-1)
+
+
+def _backend_float32_dtype(backend):
+    mx = getattr(backend, "mx", None)
+    if mx is not None:
+        return mx.float32
+    cp = getattr(backend, "cp", None)
+    if cp is not None:
+        return cp.float32
+    return np.float32
+
+
+def _stack_last_dim_backend(x, y, backend):
+    mx = getattr(backend, "mx", None)
+    if mx is not None:
+        return mx.stack((x, y), axis=-1)
+    cp = getattr(backend, "cp", None)
+    if cp is not None:
+        return cp.stack((x, y), axis=-1)
+    return np.stack((x, y), axis=-1)
+
+
+def _fmax_scalar_backend(x, floor: float, backend):
+    mx = getattr(backend, "mx", None)
+    if mx is not None:
+        y = mx.maximum(x, floor)
+        return mx.where(mx.isnan(y), floor, y)
+    cp = getattr(backend, "cp", None)
+    if cp is not None:
+        return cp.fmax(x, floor)
+    fmax = getattr(backend, "fmax", None)
+    if callable(fmax):
+        return fmax(x, floor)
+    return backend.maximum(x, floor)
+
+
+def _tri2quad_backend(tc, backend):
+    """Backend version of `_tri2quad` for the MLX float32 spectral hot path."""
+    tc = backend.asarray(tc, dtype=_backend_float32_dtype(backend))
+    tx = tc[..., 0]
+    ty = tc[..., 1]
+    y = ty / _fmax_scalar_backend(1.0 - tx, 1e-10, backend)
+    x = (1.0 - tx) * (1.0 - tx)
+    x = backend.clip(x, 0.0, 1.0)
+    y = backend.clip(y, 0.0, 1.0)
+    return _stack_last_dim_backend(x, y, backend)
 
 def _quad2tri(xy):
     # converts square coordinates into triangular coordinates
@@ -116,6 +169,28 @@ def _illuminant_to_xy(illuminant_label):
     xy = xyz[0:2] / np.sum(xyz)
     return xy
 
+
+def _rgb_to_tc_b_backend_available(backend) -> bool:
+    return (
+        backend is not None
+        and getattr(backend, "name", None) == "mlx"
+        and bool(getattr(backend, "supports_gpu", False))
+        and getattr(backend, "precision", None) == "float32"
+    )
+
+
+@lru_cache(maxsize=32)
+def _cached_rgb_to_xyz_matrix(color_space: str, reference_illuminant: str, cat: str = "CAT16") -> np.ndarray:
+    illuminant_xy = _illuminant_to_xy(reference_illuminant)
+    return np.asarray(
+        precompute_rgb_to_xyz_matrix(
+            color_space,
+            illuminant_xy=illuminant_xy,
+            cat=cat,
+        ),
+        dtype=np.float32,
+    )
+
 def _rgb_to_tc_b(rgb, color_space='ITU-R BT.2020', apply_cctf_decoding=False, reference_illuminant='D55'):
     # source_cs = colour.RGB_COLOURSPACES[color_space]
     # target_cs = source_cs.copy()
@@ -145,6 +220,45 @@ def _rgb_to_tc_b(rgb, color_space='ITU-R BT.2020', apply_cctf_decoding=False, re
     # coordinates remain in-bounds.
     tc = _tri2quad(xy)
     b = np.nan_to_num(b)
+    return tc, b
+
+
+def _rgb_to_tc_b_backend(
+    rgb,
+    color_space='ITU-R BT.2020',
+    apply_cctf_decoding=False,
+    reference_illuminant='D55',
+    backend=None,
+):
+    """MLX float32 implementation of `_rgb_to_tc_b`.
+
+    Non-MLX-float32 callers deliberately fall back to the CPU reference.  The
+    production filming path gates before calling this helper, so fp16 and other
+    GPU backends keep the previous behavior.
+    """
+    if not _rgb_to_tc_b_backend_available(backend):
+        rgb_cpu = backend.to_numpy(rgb) if backend is not None and getattr(backend, "supports_gpu", False) else rgb
+        return _rgb_to_tc_b(
+            rgb_cpu,
+            color_space=color_space,
+            apply_cctf_decoding=apply_cctf_decoding,
+            reference_illuminant=reference_illuminant,
+        )
+
+    dtype = _backend_float32_dtype(backend)
+    rgb_backend = backend.asarray(rgb, dtype=dtype)
+    if apply_cctf_decoding:
+        rgb_backend = cctf_decoding_transfer_backend(rgb_backend, color_space, backend)
+
+    matrix = backend.asarray(
+        _cached_rgb_to_xyz_matrix(color_space, reference_illuminant, "CAT16"),
+        dtype=dtype,
+    )
+    xyz = rgb_to_xyz(rgb_backend, matrix, backend)
+    b = xyz[..., 0] + xyz[..., 1] + xyz[..., 2]
+    xy = xyz[..., 0:2] / _fmax_scalar_backend(b[..., None], 1e-10, backend)
+    tc = _tri2quad_backend(xy, backend)
+    b = backend.nan_to_num(b)
     return tc, b
 
 ################################################################################

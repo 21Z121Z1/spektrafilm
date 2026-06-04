@@ -176,14 +176,20 @@ def test_spectral_compute_gpu_lut_path_returns_backend_result_without_numpy_tran
         lut_resolution=5,
         backend=FakeGpuBackend(),
     )
+    data_min = np.zeros(3)
+    data_max = np.ones(3)
     service.scanner_lut_memory = np.zeros((5, 5, 5, 3), dtype=float)
-    service._scanner_test_results_memory = spectral_calculation(service._cmy_test_values)
+    service._scanner_test_results_memory = (
+        hash(np.asarray(data_min).tobytes()),
+        hash(np.asarray(data_max).tobytes()),
+        id(spectral_calculation),
+    )
 
     result = service.spectral_compute_scanner(
         np.full((2, 2, 3), 0.25, dtype=np.float32),
         spectral_calculation=spectral_calculation,
-        data_min=np.zeros(3),
-        data_max=np.ones(3),
+        data_min=data_min,
+        data_max=data_max,
         use_lut=True,
     )
 

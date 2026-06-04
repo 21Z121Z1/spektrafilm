@@ -6,10 +6,14 @@ from spektrafilm.model.illuminants import standard_illuminant
 from spektrafilm.model.color_filters import compute_band_pass_filter
 from spektrafilm.model.diffusion import apply_diffusion_filter_um, apply_gaussian_blur_um, apply_halation_um, boost_highlights
 from spektrafilm.model.develop import compute_density_spectral, develop, develop_simple
-from spektrafilm.gpu.kernels.color import boost_highlights_backend
+from spektrafilm.gpu.kernels.color import boost_highlights_backend, rgb_to_tc_b_backend
 from spektrafilm.gpu.kernels.density import safe_log10_backend
 from spektrafilm.utils.autoexposure import measure_autoexposure_ev
-from spektrafilm.utils.spectral_upsampling import rgb_to_raw_hanatos2025, rgb_to_raw_mallett2019, _rgb_to_tc_b
+from spektrafilm.utils.spectral_upsampling import (
+    rgb_to_raw_hanatos2025,
+    rgb_to_raw_mallett2019,
+    _rgb_to_tc_b,
+)
 from spektrafilm.utils.timings import timeit
 
 
@@ -141,18 +145,19 @@ class FilmingStage:
             if _gpu:
                 # Use GPU-accelerated 2D LUT with cached backend tc_lut
                 from spektrafilm.gpu.kernels.lut import apply_lut_cubic_2d_backend
-                tc_raw, b = _rgb_to_tc_b(
+                tc_raw_backend, b_backend = rgb_to_tc_b_backend(
                     rgb,
                     color_space=color_space,
                     apply_cctf_decoding=apply_cctf_decoding,
                     reference_illuminant=self._film.info.reference_illuminant,
+                    backend=_backend,
                 )
                 backend_tc_lut = self._lut_service.get_filming_tc_lut_backend(sensitivity)
                 raw_backend = apply_lut_cubic_2d_backend(
-                    tc_lut, _backend.asarray(tc_raw), _backend,
+                    tc_lut, tc_raw_backend, _backend,
                     prepared_lut=backend_tc_lut,
                 )
-                raw = raw_backend * _backend.asarray(b[..., None])
+                raw = raw_backend * b_backend[..., None]
             else:
                 raw = rgb_to_raw_hanatos2025(
                     rgb,

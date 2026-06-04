@@ -13,10 +13,12 @@
 ## Live Baseline
 
 - Branch: `develop`, tracking `origin/develop`.
-- Current HEAD: `fa1c771 Fix profile_kind assertions and add strict HDR export fallback guardrail test`.
-- Upstream baseline: `origin/develop` at `391d907 Fix negative scan positive rendering trigger logic and add tests`.
-- Pre-existing untracked files observed before this audit: `debug_mlx.py`, `debug_pipeline.py`, `docs.zip`, `dump_metal.py`, `scratch_mlx_perf.py`, `test_emulsion_nan.py`, `test_kernel_math.py`, `test_mlx_reshape.py`, `test_pipeline_mlx.py`.
-- These pre-existing untracked files are out of scope and must not be modified.
+- Current HEAD for the 2026-06-04 revalidation pass: `d9e31d2 Optimize MLX computing backend, avoid redundant evaluate/cache clear, and add architecture documentation`.
+- `origin/develop` points at the same commit in this checkout.
+- The older 2026-06-03 audit pass recorded `fa1c771 Fix profile_kind assertions and add strict HDR export fallback guardrail test`; this document must be treated as revalidated only where the 2026-06-04 source and tests confirm it.
+- Pre-existing untracked files observed before this revalidation pass: `debug_mlx.py`, `debug_pipeline.py`, `docs.zip`, `dump_metal.py`, `grep_results.txt`, `scratch_mlx_perf.py`, `test_emulsion_nan.py`, `test_kernel_math.py`, `test_mlx_reshape.py`, `test_pipeline_mlx.py`, `tools/research_natural_hdr_film_sim.py`.
+- During the revalidation pass, the worktree also contained unrelated modified source/test/docs files and additional untracked research/test files not created by this HDR audit. Treat those as current workspace context, not audit-owned edits.
+- These pre-existing or unrelated dirty files are out of scope and must not be reverted or mixed into any HDR audit fix.
 
 ## File Map
 
@@ -459,3 +461,43 @@ git status -sb
 
 Also rerun any test command affected by a production fix.
 
+## Task 11: 2026-06-04 Revalidation Checkpoint
+
+**Files:**
+- Update: `docs/dev/2026-06-03-hdr-system-audit-report.md`
+- Update: `docs/dev/2026-06-03-hdr-system-audit-plan.md`
+
+- [x] **Step 1: Re-run baseline commands on current HEAD**
+
+Run `git status -sb`, `git log --oneline --decorate -n 50`, and the requested HDR grep against the current `d9e31d2` tree. Record any changed baseline in the report rather than relying on the older June 3 text.
+
+- [x] **Step 2: Re-run required test gates**
+
+Run the requested targeted HDR, I/O, controller, GUI state/widget, and full GUI pytest commands on the current tree. Treat failures as current evidence, even if a previous report classified them differently.
+
+- [x] **Step 3: Re-run RAW and HEIC smoke checks where the environment allows**
+
+Use the local RAW directory specified by the user and generate a current synthetic HEIC smoke output. If the host can expose only file markers but not rendered HDR headroom, classify that explicitly as an environment/device limit.
+
+- [x] **Step 4: Update final confidence loop**
+
+End the report with the current answer to "Do I have factual 100% confidence in the current conclusions?" and keep only device/display limitations as residual uncertainty.
+
+### 2026-06-04 Revalidation Results
+
+- Required targeted pytest gates passed:
+  - `tests/test_hdr_photo.py`: 146 passed.
+  - `tests/test_hdr_curve_profiles.py`: 35 passed.
+  - `tests/test_image_io_color_metadata.py`: 26 passed.
+  - `tests/gui/test_controller_output.py`: 21 passed.
+  - `tests/gui/test_layout.py tests/gui/test_persistence.py tests/gui/test_state_bridge.py tests/gui/test_widgets.py`: 45 passed.
+  - `tests/gui`: 176 passed after current workspace changes settled.
+- Real RAW validation:
+  - User-provided `RAW_DNG_历史批量归档` path failed on `IMG_4865.DNG` because the selected sample had no valid above-SDR HDR headroom; production correctly rejected fake HDR.
+  - Adjacent `RAW_DNG_JPEG_批量导出` path completed and wrote `docs/dev/2026-06-03-hdr-system-raw-validation.md` plus `.json` with 4 selected DNGs.
+- HEIC smoke:
+  - Created synthetic and RAW-derived HEIC files under `/tmp/spektrafilm-hdr-system-smoke-20260604`.
+  - `file`, `sips`, `strings`, `exiftool`, `heif-info`, `heif-convert`, and Swift/ImageIO probes were run.
+  - File markers and ImageIO headroom properties were present; rendered HDR activation remains device/app-limited.
+- Production fix gate:
+  - No new blocking production HDR bug was proven in this pass, so no new production source fix was made by the audit.

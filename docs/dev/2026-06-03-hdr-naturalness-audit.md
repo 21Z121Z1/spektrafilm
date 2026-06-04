@@ -1,6 +1,7 @@
 # HDR Naturalness Audit
 
 Date: 2026-06-03
+Refreshed: 2026-06-04
 
 Scope: current `develop` checkout of `spektrafilm-main`, focused on whether HDR export paths are content-derived or authored/synthetic. This audit intentionally does not change production behavior.
 
@@ -19,18 +20,13 @@ Recommendation: keep the authored modes, but rename and group them honestly. Add
 
 ## Reference Baseline
 
-Primary references consulted:
+Primary references consulted and classification implications:
 
-- Apple ImageIO gain-map API: <https://developer.apple.com/documentation/imageio/kcgimageauxiliarydatatypehdrgainmap>
-- Apple HDR photo guidance: <https://developer.apple.com/documentation/appkit/applying-apple-hdr-effect-to-your-photos>
-- Apple Core Image HDR expansion option: <https://developer.apple.com/documentation/coreimage/ciimageoption/4351404-expandtohdr>
-- Android Ultra HDR image format: <https://developer.android.com/media/platform/hdr-image-format>
-- ISO 21496-1 public standard page: <https://www.iso.org/standard/86775.html>
-- OpenEXR scene-linear guidance: <https://openexr.com/en/latest/SceneLinear.html>
-- OpenEXR technical introduction: <https://openexr.com/en/latest/TechnicalIntroduction.html>
-- OpenEXR standard attributes: <https://openexr.com/en/latest/StandardAttributes.html>
-- ACES Output Transforms: <https://docs.acescentral.com/system-components/output-transforms/>
-- ACEScg encoding: <https://docs.acescentral.com/encodings/acescg/>
+- Apple HDR app guidance and APIs: <https://developer.apple.com/documentation/uikit/supporting-hdr-images-in-your-app>, <https://developer.apple.com/documentation/imageio/kcgimageauxiliarydatatypehdrgainmap>, <https://developer.apple.com/documentation/coreimage/ciimageoption/expandtohdr>, <https://developer.apple.com/documentation/coreimage/ciimage/applyinggainmap(_:)> and <https://developer.apple.com/documentation/coreimage/kciimagerepresentationhdrgainmapimage>. Apple documents HDR gain maps as auxiliary HDR information that can be expanded/applied/read/written; that makes gain-map plumbing a carrier of an SDR/HDR pair, not proof that the HDR rendition is content-natural.
+- Android Ultra HDR image format: <https://developer.android.com/media/platform/hdr-image-format>. Android describes JPEG gain-map signaling, metadata handling, SDR fallback when metadata is invalid, and rendering on SDR or HDR displays; this supports separating content/rendition provenance from compatibility encoding.
+- ISO 21496-1:2025 public standard page: <https://www.iso.org/standard/86775.html>. ISO frames the topic as gain map metadata for image conversion and dynamic range conversion; it is format metadata, not a license to synthesize scene energy.
+- OpenEXR scene-linear guidance and overview: <https://openexr.com/en/latest/SceneLinear.html> and <https://openexr.com/en/latest/index.html>. OpenEXR distinguishes scene-referred scene-linear storage from display-ready JPEG-like imagery; scene-linear archive EXR is the cleanest current path for preserving real HDR values.
+- ACES Input/Output Transform docs: <https://docs.acescentral.com/system-components/input-transforms/> and <https://docs.acescentral.com/system-components/output-transforms/>. ACES separates camera/input transforms into scene-referred relative exposure values from output transforms that render those values for display; this is the benchmark for not confusing scene energy with display/authored rendering.
 
 Working definitions for this audit:
 
@@ -45,22 +41,25 @@ Required repository snapshot:
 
 ```text
 $ git status -sb
-## develop...origin/develop [ahead 1]
+## develop...origin/develop
 ?? debug_mlx.py
 ?? debug_pipeline.py
 ?? docs.zip
 ?? dump_metal.py
+?? grep_results.txt
 ?? scratch_mlx_perf.py
 ?? test_emulsion_nan.py
 ?? test_kernel_math.py
 ?? test_mlx_reshape.py
 ?? test_pipeline_mlx.py
+?? tools/research_natural_hdr_film_sim.py
 ```
 
 ```text
 $ git log --oneline --decorate -n 50
-fa1c771 (HEAD -> develop) Fix profile_kind assertions and add strict HDR export fallback guardrail test
-391d907 (origin/develop) Fix negative scan positive rendering trigger logic and add tests
+d9e31d2 (HEAD -> develop, origin/develop) Optimize MLX computing backend, avoid redundant evaluate/cache clear, and add architecture documentation
+fa1c771 Fix profile_kind assertions and add strict HDR export fallback guardrail test
+391d907 Fix negative scan positive rendering trigger logic and add tests
 38ffa49 fix(mlx): remove pre-scan cleanup and disable cleanup during GUI preview
 52e9fc3 fix: handle NaN values, ensure MLX memory cleanup, and update GUI process_with_metadata
 e5feb5d perf: remove MLX hard sync points in LUT compute and color reference to enable asynchronous dispatch
@@ -106,18 +105,16 @@ e9022e6 docs: comprehensive documentation update - audit, status headers, new fi
 7cb4f87 Merge sync/upstream-merge-20260529 into develop
 6696c52 Merge remote-tracking branch 'upstream/main' into sync/upstream-merge-20260529
 eac6b85 feat: optimize i/o gamut compress and use CAT16
-a227823 chore: history cleanup 140MB -> 45MB >>reclone!<<
-efa9fcb tests: fix stale and streamline suite
 ```
 
 Required grep:
 
 ```text
 $ git grep -nE "...requested HDR expression..." src tests docs tools scripts macos
-Total output lines: 7432
+Total output lines: 7714
 
 $ git grep -lE "...requested HDR expression..." src tests docs tools scripts macos | wc -l
-443
+449
 ```
 
 The full raw grep output is too large to reproduce usefully here. I used it to locate the current hot paths, then grounded the classifications below in current source and tests rather than archived documents.
@@ -306,35 +303,49 @@ Decision:
 
 ## Natural HDR Experiments
 
-Python imports were unstable through `uv run` in this shell, so I used a dependency-free temporary Node probe that mirrors the inspected formulas: smoothstep, profile log-log slope, strict profile-preserving gain, modern budget gain, and generic paper graft. It was not committed.
+The repo now contains an untracked research-only Python probe, `tools/research_natural_hdr_film_sim.py`. I did not add it to git. It builds tiny scene-linear arrays and compares a strict "emit HDR only where scene luminance exceeds diffuse white" model with profile-shaped proxies for current `profile_aware` and `modern_recovery_peak_budget` equations.
 
 Command:
 
 ```text
-node - <<'JS'
-...temporary formula probe matching inspected source...
-JS
+.venv/bin/python tools/research_natural_hdr_film_sim.py --format markdown
 ```
 
 Output:
 
 ```text
-A_no_highlights {"profile_hdr_max":0.4976,"profile_gain_max":1,"profile_headroom":1,"generic_hdr_max":0.6558}
-B_real_highlights {"scene":[0.25,0.5,1,2,4,8],"profile_gain":[1,1,1,1.087,1.261,1.327],"profile_hdr":[0.212,0.335,0.498,0.733,1.021,1.153],"generic_hdr":[0.212,0.352,0.593,1.08,2.047,2.773],"max_gain_at_scene":8}
-C_look_exposure_scale {"same_scene":true,"gain_ratio_unchanged":1.3269,"hdr_max_look_0p7":0.8073,"hdr_max_look_1p3":1.4993,"ratio":1.8571}
-D_fixed_profile_different_content {"low_headroom":1,"low_max_gain":1,"high_headroom":2.1371,"high_max_gain":2.14,"high_budget_scale":1,"high_actual_peak_ev":1.8996}
-E_fixed_content_different_profile {"soft_look_white":0.4976,"hard_look_white":0.7002,"soft_max_gain":2.14,"hard_max_gain":2.6148,"soft_hdr_max":1.86,"hard_hdr_max":2.1421}
-F_real_raw_existing_validation {"source":"docs/hdr_profile_aware_raw_validation.md","samples":4,"headroom_range":"1.094..1.379","android_iso_exr_metadata_checks":true,"limitation":"statistical curve conformance; no device display proof"}
+| Experiment | Natural headroom | Current/probe headroom | Alignment | Verdict | Notes |
+| --- | ---: | ---: | ---: | --- | --- |
+| A_no_true_hdr_content | 1.0000 | n/a | 1.0000 | pass | Natural path keeps headroom at 1.0 when scene_luminance <= diffuse white. Any mode that emits >1.0 here should be labeled authored/synthetic. |
+| B_real_highlight_content | 7.6695 | 1.3730 | 1.0000 | pass | Natural HDR energy is spatially aligned with scene values above diffuse white. |
+| C_same_content_different_profiles | 7.6695 | 0.0000 | 1.0000 | authored_if_large_delta | profile-shaped headroom delta=0.0 Natural HDR distribution should be primarily content driven; profile changes may alter film rendering, not invent highlight locations. |
+| D_same_profile_different_content | 7.6695 | 2.7508 | 1.0000 | inspect_budget_cap | modern low-dynamic headroom=None modern high-dynamic headroom=2.75080943107605 If different scenes collapse toward the same target EV, the mode is budgeted creative recovery. |
+| E_exposure_print_exposure_adjustment | 7.8066 | 7.6695 | 1.0000 | diffuse_anchor_unchanged | Changing exposure/render intent changes the rendition but does not redefine physical diffuse white. Current hdr_render_ev should be treated as creative rendering, not as scene energy. |
+| F_colored_highlights | 4.4951 | n/a | 0.9944 | separate_content_from_output_rendering | Scene chromaticity, film dye response, path-to-white, and gamut compression are separate decisions. source_chroma and bounded_look_chroma should be documented as output/rendering controls unless scene_rgb is validated. |
+| G_diffuse_white_anchor | 3.8166 | 7.6695 | 1.0000 | anchor_changes_headroom | headroom diffuse_white=1.0: 7.6695 headroom diffuse_white=2.0: 3.8166 The anchor must be explicit or tagged heuristic; DNG WhiteLevel is not this anchor. |
 ```
 
 Experiment interpretation:
 
-- **A. No highlight content**: strict profile path did not create >1.0 HDR; profile gain stayed 1.0. This is good, but it only proves the specific low-scene case is not inflated.
-- **B. Real highlight content**: generic sidecar mapping produced HDR where scene highlights exist. Profile-aware mapping produced a gentler, profile-shaped gain, with max gain at the highest scene sample.
-- **C. Exposure/look scaling**: same scene and same profile gain can produce different absolute HDR pixels when the authored look is scaled. That is a strong authored-look dependency.
-- **D. Fixed profile, different content**: low dynamic content stays headroom 1.0; high dynamic content creates recovery. This supports content gating, but the recovery shape is still authored.
-- **E. Fixed content, different profile**: changing only the profile materially changes max gain and HDR max. That is not content-natural; it is profile-authored.
-- **F. Real RAW validation**: existing current docs show four DNG samples passed sidecar, Android/ISO metadata, JPEG probe, and EXR attribute checks. That validates metadata plumbing and statistical profile conformance, but does not prove physical/natural HDR rendering or device display behavior.
+- **A. No highlight content**: the research natural rule emits no HDR above SDR white. Current production `generic` and `profile_aware` should be considered synthetic/authored if they emit >1.0 in this case.
+- **B. Real highlight content**: the natural model puts all HDR energy in real highlight regions. The profile-aware proxy is much lower headroom and profile-shaped, which supports "profile-authored recovery" rather than "natural scene HDR."
+- **C. Same content, different profiles**: this simplified proxy showed no headroom delta for the chosen soft/hard synthetic profiles, so it is not proof of profile-driven inflation. The source-level evidence remains stronger: production `h_profile` is built from the selected curve profile and authored parameters.
+- **D. Same profile, different content**: low dynamic content does not emit modern-budget headroom; high dynamic content does. That is useful content gating, but the target EV, ratio, slope windows, percentile, and hard cap still make it authored/budgeted.
+- **E. Exposure / print exposure adjustment**: changing display/render intent changes rendition headroom without redefining physical scene energy. `hdr_render_ev` and look exposure belong in creative rendering, not natural provenance.
+- **F. Colored highlights**: natural luminance provenance, scene chroma, path-to-white, and gamut compression are separate decisions. `source_chroma` and `bounded_look_chroma` are color rendering controls unless tied to validated scene RGB.
+- **G. Diffuse white anchor**: changing diffuse white changes headroom. A natural HDR mode must record whether diffuse white is real metadata, a scene estimate, or a user-authored anchor.
+
+RAW/DNG validation:
+
+- The user-provided historical DNG archive exists and contains hundreds of DNG files. A bounded command against that folder was attempted:
+
+```text
+.venv/bin/python tools/validate_profile_aware_hdr_raw_samples.py --sample-dir /Users/retriedstormtrooper/Downloads/03_图片素材/RAW_DNG照片/RAW_DNG_历史批量归档 --max-samples 2 --output /tmp/spektrafilm_hdr_profile_aware_raw_validation_history.md --diagnostic-scan-limit 8
+```
+
+It was stopped after roughly three minutes because it had only reached `Scanning RAW sensor stats 1/375` and had not written a partial report. I do not count that as validation evidence.
+
+- Existing tracked current-doc evidence remains `docs/hdr_profile_aware_raw_validation.md`: four DNG samples passed sidecar finite/nonnegative checks, SDR preservation, Android/ISO metadata roundtrip, JPEG probe metadata/gain-map checks, and EXR metadata checks. The headroom range was `1.094..1.379`. This validates metadata plumbing and statistical profile conformance, but not physical/natural HDR or device display behavior.
 
 ## Recommended Architecture
 
@@ -398,63 +409,22 @@ Requested commands:
 
 ```text
 $ uv run --extra dev pytest tests/test_hdr_photo.py -q
-Result: timed out via 90s wrapper with no output.
+146 passed in 0.70s
 
 $ uv run --extra dev pytest tests/test_hdr_curve_profiles.py -q
-Result: timed out via 45s wrapper with no output.
+35 passed in 1.15s
 
 $ uv run --extra dev pytest tests/test_image_io_color_metadata.py -q
-Result: timed out via 45s wrapper with no output.
-
-$ uv run --extra dev pytest tests/gui/test_controller_output.py -q
-Result: timed out via 45s wrapper with no output.
-
-$ uv run --extra dev pytest tests/gui -q
-Result: timed out via 45s wrapper with no output.
-```
-
-Fallback evidence after classifying raw `uv run` as unstable:
-
-```text
-$ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --extra dev pytest tests/test_hdr_photo.py -q
-..... 
-Result: exit 143 after about 26s.
-
-$ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --extra dev pytest tests/test_hdr_curve_profiles.py -q
-..
-Result: exit 143 after about 26s.
-```
-
-Direct `.venv` pytest with plugin autoload disabled:
-
-```text
-$ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/pytest tests/test_hdr_photo.py -q
-145 passed in 1.11s
-
-$ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/pytest tests/test_hdr_curve_profiles.py -q
-35 passed in 1.66s
-
-$ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/pytest tests/test_image_io_color_metadata.py -q
 26 passed in 0.22s
 
-$ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/pytest tests/gui/test_controller_output.py -q
-21 passed in 1.47s
+$ uv run --extra dev pytest tests/gui/test_controller_output.py -q
+21 passed in 1.17s
 
-$ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/pytest tests/gui -q
-167 passed, 2 failed in 9.23s
+$ uv run --extra dev pytest tests/gui -q
+176 passed in 3.74s
 ```
 
-The two GUI failures are unrelated to HDR naturalness. Both assert old status strings without the current elapsed-time suffix:
-
-```text
-FAILED tests/gui/test_controller_runtime_module.py::test_execute_simulation_request_uses_runtime_runner_without_padding
-Expected: Display transform: active
-Actual:   Display transform: active | 0.00s
-
-FAILED tests/gui/test_controller_runtime_module.py::test_execute_simulation_request_appends_runtime_backend_status
-Expected suffix: GPU kernels
-Actual suffix:   GPU kernels | 0.00s
-```
+Note: an earlier invalid run executed `uv run --extra dev pytest tests/gui -q` concurrently with `.venv/bin/python -m compileall -q src tests` and produced transient controller-flow failures inconsistent with the checked-in source. Representative failing tests passed in isolation, and the standalone full GUI rerun passed. I therefore use the standalone result above.
 
 Other requested gates:
 

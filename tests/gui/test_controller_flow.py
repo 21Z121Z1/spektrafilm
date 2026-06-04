@@ -40,6 +40,7 @@ def _run_simulation_case(
     preview_source_image=None,
     source_layer_name: str = INPUT_PREVIEW_LAYER_NAME,
     gui_state=None,
+    runtime_params=None,
     simulated_image=None,
     preview_image=None,
     preview_status: str = 'Display transform: disabled',
@@ -54,13 +55,14 @@ def _run_simulation_case(
     )
     simulated_image = np.full((4, 4, 3), 0.5, dtype=np.float32) if simulated_image is None else simulated_image
     preview_image = np.full((4, 4, 3), 99, dtype=np.uint8) if preview_image is None else preview_image
+    runtime_params = object() if runtime_params is None else runtime_params
     captured: dict[str, object] = {}
 
     controller._current_input_image = np.asarray(input_image)
     controller._current_preview_image = np.asarray(preview_source_image)
     monkeypatch.setattr(controller, '_sync_white_border', lambda *, white_padding: captured.setdefault('white_padding', white_padding))
     monkeypatch.setattr(controller_module, 'collect_gui_state', lambda *, widgets: gui_state)
-    monkeypatch.setattr(controller_module, 'build_params_from_state', lambda state: object())
+    monkeypatch.setattr(controller_module, 'build_params_from_state', lambda state: runtime_params)
 
     def fake_process_image_with_runtime(image, _params):
         captured['processing_input'] = image.copy()
@@ -567,6 +569,56 @@ def test_start_simulation_skips_computing_status_for_silent_preview(monkeypatch)
     np.testing.assert_allclose(captured['worker']._request.image, np.double(preview_image))
 
 
+def test_start_simulation_preserves_mlx_float32_input_before_worker(monkeypatch) -> None:
+    simulation_section = SimpleNamespace(preview_button=None, scan_button=None, save_button=None)
+    widgets = SimpleNamespace(simulation=simulation_section)
+    controller = GuiController(viewer=object(), widgets=widgets)
+    gui_state = make_test_controller_gui_state()
+    params = SimpleNamespace(settings=SimpleNamespace(
+        compute_backend='mlx',
+        gpu_precision='float32',
+        preview_mode=False,
+    ))
+    preview_image = np.full((2, 2, 4), 0.25, dtype=np.float32)
+    captured: dict[str, object] = {}
+
+    controller._current_preview_image = preview_image
+    monkeypatch.setattr(controller, '_sync_white_border', lambda *, white_padding: None)
+    monkeypatch.setattr(controller_module, 'collect_gui_state', lambda *, widgets: gui_state)
+    monkeypatch.setattr(controller_module, 'build_params_from_state', lambda state: params)
+    monkeypatch.setattr(controller_module, 'set_status', lambda *args, **kwargs: None)
+    monkeypatch.setattr(controller._thread_pool, 'start', lambda worker: captured.setdefault('request', worker._request))
+
+    controller._start_simulation(source_layer_name=INPUT_PREVIEW_LAYER_NAME, mode_label='Preview')
+
+    request_image = captured['request'].image
+    assert request_image.dtype == np.float32
+    assert request_image.shape == (2, 2, 3)
+    np.testing.assert_allclose(request_image, preview_image[..., :3])
+    assert captured['request'].phase_timings['gui.input_prepare'] >= 0.0
+    assert captured['request'].phase_timings['gui.input_dtype_convert'] >= 0.0
+    assert captured['request'].phase_timings['gui.input_copy'] == 0.0
+
+
+def test_run_simulation_preserves_mlx_float32_input_on_sync_path(monkeypatch) -> None:
+    gui_state = make_test_controller_gui_state()
+    params = SimpleNamespace(settings=SimpleNamespace(
+        compute_backend='mlx',
+        gpu_precision='float32',
+        preview_mode=False,
+    ))
+    captured = _run_simulation_case(
+        monkeypatch,
+        preview_source_image=np.full((2, 2, 4), 0.25, dtype=np.float32),
+        gui_state=gui_state,
+        runtime_params=params,
+        simulated_image=np.full((2, 2, 3), 0.5, dtype=np.float32),
+    )
+
+    assert captured['processing_input'].dtype == np.float32
+    assert captured['processing_input'].shape == (2, 2, 3)
+
+
 def test_request_auto_preview_schedules_once_and_runs_preview(monkeypatch) -> None:
     simulation_section = SimpleNamespace(auto_preview_value=lambda: True)
     controller = GuiController(viewer=object(), widgets=SimpleNamespace(simulation=simulation_section))
@@ -738,6 +790,30 @@ def test_start_simulation_sets_preview_mode_before_runtime_digest(
     assert params.film_render.halation.active is True
     assert captured['request'].params is params
     assert captured['request'].phase_timings['gui.input_conversion'] >= 0.0
+    assert captured['request'].require_hdr_metadata is False
+
+
+def test_start_simulation_requests_hdr_metadata_when_heic_gain_map_enabled(monkeypatch) -> None:
+    simulation_section = SimpleNamespace(preview_button=None, scan_button=None, save_button=None)
+    widgets = SimpleNamespace(simulation=simulation_section)
+    controller = GuiController(viewer=object(), widgets=widgets)
+    gui_state = make_test_controller_gui_state()
+    gui_state.hdr.hdr_heic_gain_map_enabled = True
+    image_data = np.full((2, 2, 3), 0.25, dtype=np.float32)
+    params = SimpleNamespace(settings=SimpleNamespace(preview_mode=False))
+    captured: dict[str, object] = {}
+
+    controller._current_input_image = image_data
+    controller._current_preview_image = image_data
+    monkeypatch.setattr(controller, '_sync_white_border', lambda *, white_padding: None)
+    monkeypatch.setattr(controller_module, 'collect_gui_state', lambda *, widgets: gui_state)
+    monkeypatch.setattr(controller_module, 'build_params_from_state', lambda state: params)
+    monkeypatch.setattr(controller_module, 'set_status', lambda *args, **kwargs: None)
+    monkeypatch.setattr(controller._thread_pool, 'start', lambda worker: captured.setdefault('request', worker._request))
+
+    controller._start_simulation(source_layer_name=INPUT_LAYER_NAME, mode_label='Scan')
+
+    assert captured['request'].require_hdr_metadata is True
 
 
 def test_execute_simulation_request_routes_through_runtime_simulator_path(monkeypatch) -> None:
@@ -795,9 +871,12 @@ def test_process_image_with_runtime_reuses_cached_simulator(monkeypatch) -> None
         def update_params(self, params) -> None:
             captured['updated'].append(params)
 
-        def process_with_metadata(self, image):
+        def process(self, image):
             captured['processed'].append(np.array(image, copy=True))
             return np.asarray(image) + 0.1
+
+        def process_with_metadata(self, image):
+            raise AssertionError('ordinary SDR runtime calls must not collect HDR metadata')
 
     def fake_digest_params(params, *, apply_stocks_specifics=True):
         captured['digest_flags'].append(apply_stocks_specifics)
@@ -831,8 +910,11 @@ def test_process_image_with_runtime_captures_backend_runtime_summary(monkeypatch
         def __init__(self, runtime_params) -> None:
             assert runtime_params is digested_params
 
-        def process_with_metadata(self, runtime_image):
+        def process(self, runtime_image):
             return np.asarray(runtime_image) + 0.1
+
+        def process_with_metadata(self, runtime_image):
+            raise AssertionError('ordinary SDR runtime calls must not collect HDR metadata')
 
         def backend_runtime_summary(self) -> str:
             return 'MLX selected; mixed CPU/MLX runtime path with optional GPU kernels'
@@ -863,9 +945,12 @@ def test_process_image_with_runtime_reapplies_stock_specific_digest_after_profil
         def update_params(self, runtime_params) -> None:
             captured['updated'].append(runtime_params)
 
-        def process_with_metadata(self, runtime_image):
+        def process(self, runtime_image):
             captured['processed'].append(np.array(runtime_image, copy=True))
             return np.asarray(runtime_image) + 0.2
+
+        def process_with_metadata(self, runtime_image):
+            raise AssertionError('ordinary SDR runtime calls must not collect HDR metadata')
 
     def fake_digest_params(runtime_params, *, apply_stocks_specifics=True):
         captured['digest_flags'].append(apply_stocks_specifics)
@@ -882,6 +967,40 @@ def test_process_image_with_runtime_reapplies_stock_specific_digest_after_profil
     assert captured['updated'] == [digested_params]
     assert controller._next_runtime_digest_applies_stock_specifics is False
     np.testing.assert_allclose(result, image + 0.2)
+
+
+def test_process_image_with_runtime_collects_metadata_when_requested(monkeypatch) -> None:
+    controller = GuiController(viewer=object(), widgets=object())
+    params = object()
+    digested_params = object()
+    image = np.full((2, 2, 3), 0.25, dtype=np.float32)
+    hdr_scene_energy = SimpleNamespace(scene_luminance=np.full((2, 2), 0.8, dtype=np.float32))
+    captured: dict[str, object] = {'process_calls': 0, 'metadata_calls': 0}
+
+    class FakeSimulator:
+        def __init__(self, runtime_params) -> None:
+            assert runtime_params is digested_params
+
+        def process(self, runtime_image):
+            captured['process_calls'] += 1
+            raise AssertionError('HDR metadata request must use process_with_metadata')
+
+        def process_with_metadata(self, runtime_image):
+            captured['metadata_calls'] += 1
+            return SimpleNamespace(
+                image=np.asarray(runtime_image) + 0.1,
+                hdr_scene_energy=hdr_scene_energy,
+            )
+
+    monkeypatch.setattr(controller_module, 'digest_params', lambda runtime_params, **_kwargs: digested_params)
+    monkeypatch.setattr(controller_module, 'runtime_simulator', lambda runtime_params: FakeSimulator(runtime_params))
+
+    result = controller._process_image_with_runtime(image, params, require_hdr_metadata=True)
+
+    assert captured['process_calls'] == 0
+    assert captured['metadata_calls'] == 1
+    np.testing.assert_allclose(result.image, image + 0.1)
+    assert result.hdr_scene_energy is hdr_scene_energy
 
 
 def test_on_simulation_finished_reports_completed_status(monkeypatch) -> None:

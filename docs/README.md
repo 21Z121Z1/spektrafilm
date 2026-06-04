@@ -42,6 +42,7 @@ The spectral_film_simulations.md (English) and spectral_film_simulations_zh.md (
 | [`film-scan-aware-negative-positive-plan.md`](film-scan-aware-negative-positive-plan.md) | Implementation plan for negative-film raw-vs-positive film-scan HDR route separation. |
 | [`hdr-film-scan-aware.md`](hdr-film-scan-aware.md) | Compatibility entry point that links to the canonical film-scan-aware HDR document. [中文](hdr-film-scan-aware_zh.md) |
 | [`hdr_exr_output_plan.md`](hdr_exr_output_plan.md) | Scene-linear EXR export plan for unclipped HDR archives. [English](hdr_exr_output_plan.en.md) |
+| [`dev/2026-06-03-natural-hdr-film-simulation-research.md`](dev/2026-06-03-natural-hdr-film-simulation-research.md) | Current natural HDR film-simulation research, terminology, mode classification, architecture, and minimal prototype validation. |
 | [`dev/2026-05-31-mlx-postprocessing-effects.md`](dev/2026-05-31-mlx-postprocessing-effects.md) | MLX feasibility, implementation notes, and tests for halation, diffusion, grain, and related postprocessing filters. [中文](dev/2026-05-31-mlx-postprocessing-effects_zh.md) |
 | [`dev/mlx-optimization-report-20260530.md`](dev/mlx-optimization-report-20260530.md) | MLX backend performance optimization report. |
 | [`dev/gpu-benchmark-20260530.md`](dev/gpu-benchmark-20260530.md) | GPU backend benchmark and raw timing appendix. [中文](dev/gpu-benchmark-20260530_zh.md) |

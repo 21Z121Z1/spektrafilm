@@ -3,8 +3,10 @@ from __future__ import annotations
 import copy
 from dataclasses import dataclass
 from time import perf_counter
+from typing import Any
 
 import numpy as np
+from skimage.transform import rescale
 
 from spektrafilm.color_management import is_aces_scene_linear_space
 from spektrafilm.runtime.services import (
@@ -16,7 +18,7 @@ from spektrafilm.runtime.services import (
 from spektrafilm.gpu.backend import runtime_backend_summary, select_backend
 from spektrafilm.runtime.stages import FilmingStage, PrintingStage, ScanningStage
 from spektrafilm.runtime.topology import Node, Tap, run_topology
-from spektrafilm.utils.autoexposure import _luminance_y
+from spektrafilm.utils.autoexposure import _luminance_y, measure_autoexposure_ev
 from spektrafilm.utils.timings import format_timings
 
 
@@ -30,7 +32,7 @@ class HDRSceneEnergyMetadata:
 
 @dataclass(slots=True)
 class SimulationPipelineResult:
-    image: np.ndarray
+    image: Any
     hdr_scene_energy: HDRSceneEnergyMetadata | None = None
 
 
@@ -445,10 +447,113 @@ class SimulationPipeline:
         return image, hdr_scene_energy
 
     def _preprocess_base(self, image):
+        if self._should_use_backend_preprocess():
+            return self._preprocess_base_backend(image)
+
         image = np.double(np.array(image)[:, :, 0:3])
         image, auto_exposure_ev = self._filming_stage.auto_exposure_with_ev(image) # autoexposure service?
         image = self._resize_service.crop_and_rescale(image)
         return image, auto_exposure_ev
+
+    def _should_use_backend_preprocess(self) -> bool:
+        return (
+            getattr(self._backend, "supports_gpu", False)
+            and str(getattr(self.settings, "gpu_precision", "float32")) == "float32"
+        )
+
+    def _backend_rgb_input(self, image):
+        try:
+            rgb = image[..., :3]
+        except (TypeError, IndexError):
+            rgb = np.asarray(image)[..., :3]
+        dtype = getattr(self._backend, "default_dtype", np.float32)
+        return self._backend.asarray(rgb, dtype=dtype)
+
+    @staticmethod
+    def _crop_slices(
+        shape: tuple[int, int],
+        *,
+        center: tuple[float, float],
+        size: tuple[float, float],
+    ) -> tuple[slice, slice]:
+        center_yx = np.flip(center)
+        shape_arr = np.asarray(shape, dtype=np.float64)
+        center_px = np.round(shape_arr * np.asarray(center_yx, dtype=np.float64))
+        crop_size = np.round(np.double(np.max(shape_arr)) * np.flip(np.asarray(size, dtype=np.float64)))
+        crop_size = np.minimum(crop_size, shape_arr).astype(np.int64)
+        origin = np.round(center_px - crop_size / 2.0).astype(np.int64)
+        origin[origin < 0] = 0
+        if origin[0] + crop_size[0] > shape[0]:
+            origin[0] = shape[0] - crop_size[0]
+        if origin[1] + crop_size[1] > shape[1]:
+            origin[1] = shape[1] - crop_size[1]
+        return (
+            slice(int(origin[0]), int(origin[0] + crop_size[0])),
+            slice(int(origin[1]), int(origin[1] + crop_size[1])),
+        )
+
+    def _preprocess_base_backend(self, image):
+        image = self._backend_rgb_input(image)
+        image, auto_exposure_ev = self._backend_auto_exposure_with_ev(image)
+        image = self._backend_crop_and_rescale(image)
+        return image, auto_exposure_ev
+
+    def _backend_auto_exposure_with_ev(self, image):
+        if not self.camera.auto_exposure:
+            return image, None
+
+        preview_start = perf_counter()
+        preview = self._backend_auto_exposure_preview(image)
+        self.timings["SimulationPipeline.preprocess.auto_exposure_preview"] = (
+            self.timings.get("SimulationPipeline.preprocess.auto_exposure_preview", 0.0)
+            + (perf_counter() - preview_start)
+        )
+        autoexposure_ev = measure_autoexposure_ev(
+            preview,
+            self.io.input_color_space,
+            self.io.input_cctf_decoding,
+            method=self.camera.auto_exposure_method,
+        )
+        return image * (2 ** autoexposure_ev), float(autoexposure_ev)
+
+    def _backend_auto_exposure_preview(self, image, *, max_size: int = 256) -> np.ndarray:
+        h, w = (int(dim) for dim in image.shape[:2])
+        max_dim = max(h, w)
+        if max_dim <= max_size:
+            return self._backend.to_numpy(image)
+        step = int(np.ceil(max_dim / max_size))
+        preview_backend = image[::step, ::step, :]
+        return self._backend.to_numpy(preview_backend)
+
+    def _backend_crop_and_rescale(self, image):
+        h, w = (int(dim) for dim in image.shape[:2])
+        self._resize_service.pixel_size_um = self.camera.film_format_mm * 1000 / max(h, w)
+
+        if self.io.crop:
+            y_slice, x_slice = self._crop_slices(
+                (h, w),
+                center=self.io.crop_center,
+                size=self.io.crop_size,
+            )
+            image = image[y_slice, x_slice, :]
+
+        if self.io.upscale_factor != 1.0:
+            fallback_start = perf_counter()
+            self._resize_service.pixel_size_um /= self.io.upscale_factor
+            image_np = self._backend.to_numpy(image)
+            image_np = rescale(
+                image_np,
+                self.io.upscale_factor,
+                channel_axis=2,
+                order=3,
+            )
+            dtype = getattr(self._backend, "default_dtype", np.float32)
+            image = self._backend.asarray(image_np, dtype=dtype)
+            self.timings["SimulationPipeline.preprocess.resize_cpu_fallback"] = (
+                self.timings.get("SimulationPipeline.preprocess.resize_cpu_fallback", 0.0)
+                + (perf_counter() - fallback_start)
+            )
+        return image
 
     def _scene_luminance(self, image: np.ndarray) -> np.ndarray:
         apply_cctf_decoding = bool(self.io.input_cctf_decoding)
@@ -543,9 +648,23 @@ class SimulationPipeline:
         finally:
             self.timings[label] = self.timings.get(label, 0.0) + (perf_counter() - start)
 
-    def _materialize_output(self, image) -> np.ndarray:
+    def _materialize_output(self, image):
         return self._record_stage_timing(
             "SimulationPipeline.materialize",
-            lambda value: np.asarray(value, dtype=np.float64),
+            self._materialize_output_value,
             image,
+        )
+
+    def _materialize_output_value(self, value):
+        policy = getattr(self.settings, "materialize_policy", "numpy_float64")
+        if policy == "backend":
+            if getattr(self._backend, "supports_gpu", False):
+                return value
+            return np.asarray(value)
+        if policy == "numpy_float32":
+            return np.asarray(value, dtype=np.float32)
+        if policy == "numpy_float64":
+            return np.asarray(value, dtype=np.float64)
+        raise ValueError(
+            "materialize_policy must be one of: 'numpy_float64', 'numpy_float32', 'backend'"
         )
