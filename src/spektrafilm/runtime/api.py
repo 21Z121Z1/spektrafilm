@@ -5,9 +5,11 @@ from __future__ import annotations
 from spektrafilm.runtime.params_builder import digest_params, init_params
 from spektrafilm.runtime.process import (
     HDRSceneEnergyMetadata,
+    RouteMaster,
     SimulationPipelineResult,
     Simulator,
     simulate,
+    simulate_master,
     simulate_with_metadata,
     simulate_preview,
 )
@@ -17,7 +19,9 @@ __all__ = [
     "Simulator",
     "HDRSceneEnergyMetadata",
     "SimulationPipelineResult",
+    "RouteMaster",
     "simulate",
+    "simulate_master",
     "simulate_with_metadata",
     "simulate_preview",
     "RuntimePhotoParams",

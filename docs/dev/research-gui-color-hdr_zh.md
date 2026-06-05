@@ -86,19 +86,19 @@ def apply_display_transform(
 
 ### 1.4 显示配置文件检测
 
-当前方法 (`controller_runtime.py:117-124`):
+当前方法 (`controller_runtime.py`):
 ```python
 def display_profile_details(*, imagecms_module):
-    display_profile = imagecms_module.get_display_profile()
+    display_profile = _resolve_display_profile(imagecms_module=imagecms_module)
     # Returns (profile_object, profile_name_string)
 ```
 
 `PIL.ImageCms.get_display_profile()` 行为：
 - **Windows**：从设备上下文 (DC) 读取 ICC 配置文件
-- **macOS**：从 ColorSync 读取
+- **macOS**：即使 CoreGraphics 仍可提供主显示器 ICC 配置文件，也可能返回 `None`
 - **Linux**：返回 `None`（无标准 API）
 
-当未检测到配置文件时，GUI 禁用显示变换开关 (`controller.py:424-431`)。
+在 macOS 上，Spektrafilm 现在会通过 Python 标准库 `ctypes` 调用 CoreGraphics/CoreFoundation fallback，使用 `CGMainDisplayID()` 和 `CGColorSpaceCopyICCData()` 取得 ICC bytes 并构造 Pillow `ImageCmsProfile`。只有 Pillow 和 macOS fallback 都无法提供配置文件时，GUI 才会禁用显示变换开关。该 fallback 基于主显示器，不感知当前窗口所在显示器。
 
 ---
 

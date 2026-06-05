@@ -39,6 +39,9 @@ class NumpyBackend:
     def maximum(self, x: Any, y: Any) -> np.ndarray:
         return np.maximum(x, y)
 
+    def max_array(self, x: Any) -> np.ndarray:
+        return np.max(x)
+
     def max(self, x: Any) -> float:
         return float(np.max(x))
 

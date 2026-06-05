@@ -444,8 +444,49 @@ def boost_highlights_backend(
         return x
 
     # Ensure x is in the backend's native array type (e.g. MLX rejects raw
-    # numpy arrays in backend.max()).
+    # numpy arrays in reductions).
     x = backend.asarray(x)
+
+    use_backend_max_array = (
+        x_max is None
+        and getattr(backend, "supports_gpu", False)
+        and callable(getattr(backend, "max_array", None))
+    )
+    if use_backend_max_array:
+        x_max_arr = backend.max_array(x)
+        raw_x0 = backend.clip(
+            backend.asarray(midgray * (2.0 ** protect_ev)),
+            0.0,
+            x_max_arr,
+        )
+        a = 28.0 ** (1.0 - boost_range)
+        a_arr = backend.asarray(a)
+        safe_x_max = backend.where(x_max_arr > 0.0, x_max_arr, 1.0)
+        x0_norm = raw_x0 / safe_x_max
+        span = 1.0 - x0_norm
+        denom = backend.exp(a_arr * span) - a_arr * span - 1.0
+        active = (x_max_arr > 0.0) & (raw_x0 < x_max_arr) & (denom > 0.0)
+        denom_safe = backend.where(denom > 0.0, denom, 1.0)
+        boost_scale = backend.asarray(2.0 ** boost_ev - 1.0) * x_max_arr / denom_safe
+        inv_max_raw = 1.0 / safe_x_max
+
+        def _chain(values, raw_x0_v, a_v, boost_scale_v, inv_max_raw_v, active_v):
+            dx = backend.fmax(values - raw_x0_v, 0.0) * inv_max_raw_v
+            adx = dx * a_v
+            b = boost_scale_v * (backend.exp(adx) - adx - 1.0)
+            return backend.where(active_v, values + b, values)
+
+        return _run_compiled_elementwise(
+            backend,
+            "boost_highlights",
+            _chain,
+            x,
+            raw_x0,
+            a_arr,
+            boost_scale,
+            inv_max_raw,
+            active,
+        )
 
     # Scalar synchronization only; the image itself remains resident. Tiled
     # callers can pass a precomputed full-frame maximum to preserve parity.

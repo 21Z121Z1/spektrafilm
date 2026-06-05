@@ -18,6 +18,7 @@ from spektrafilm.model.illuminants import standard_illuminant
 from spektrafilm.utils.conversions import density_to_light
 from spektrafilm.utils.gamut_compression import compress_rgb
 from spektrafilm.gpu.kernels.gamut_compress import compress_rgb_backend
+from spektrafilm.runtime.route_master import ScanMasterResult
 from spektrafilm.utils.timings import timeit
 
 
@@ -55,13 +56,20 @@ class ScanningStage:
 
     @timeit("scan")
     def scan(self, density_channels: np.ndarray) -> np.ndarray:
-        rgb = self._density_to_rgb(density_channels, use_lut=self._settings.use_scanner_lut)
+        scan_master = self.scan_master(density_channels)
+        return self.project_sdr_legacy(scan_master)
+
+    def scan_master(self, density_channels: np.ndarray) -> ScanMasterResult:
+        return self._density_to_master(density_channels, use_lut=self._settings.use_scanner_lut)
+
+    def project_sdr_legacy(self, scan_master: ScanMasterResult) -> np.ndarray:
+        rgb = self._apply_output_gamut_compression(scan_master.route_linear_rgb)
         rgb = self._apply_blur_and_unsharp(rgb)
         return self._apply_cctf_encoding_and_clip(rgb)
 
     # private methods
 
-    def _density_to_rgb(self, density_channels: np.ndarray, *, use_lut: bool) -> np.ndarray:
+    def _density_to_master(self, density_channels: np.ndarray, *, use_lut: bool) -> ScanMasterResult:
         if self._io.scan_film:
             glare = None
             density_min = -np.array(self._film_render.grain.density_min)
@@ -86,6 +94,7 @@ class ScanningStage:
         xyz = self._color_reference_service.black_white_xyz_correction(xyz)
         illuminant_xyz = contract("k,kl->l", scan_illuminant, STANDARD_OBSERVER_CMFS[:]) / normalization
         xyz = add_glare(xyz, illuminant_xyz, glare, backend=self._backend)
+        route_luminance_y = xyz[:, :, 1]
 
         if self._backend is not None and self._backend.supports_gpu:
             rgb = xyz_to_rgb_backend(xyz, self._xyz_to_rgb_matrix, self._backend)
@@ -98,6 +107,23 @@ class ScanningStage:
                 illuminant=illuminant_xy,
             )
 
+        if self._backend is not None and self._backend.supports_gpu:
+            rgb = self._backend.asarray(rgb)
+            xyz = self._backend.asarray(xyz)
+            route_luminance_y = self._backend.asarray(route_luminance_y)
+            density_channels = self._backend.asarray(density_channels)
+        return ScanMasterResult(
+            route_linear_rgb=rgb,
+            route_linear_xyz=xyz,
+            route_luminance_y=route_luminance_y,
+            density_cmy=density_channels,
+            diagnostics={
+                "scan_film": bool(self._io.scan_film),
+                "output_gamut_compression_in_projection": True,
+            },
+        )
+
+    def _apply_output_gamut_compression(self, rgb: np.ndarray) -> np.ndarray:
         # Output gamut compression. Compresses chromaticities the
         # simulation reached that fall outside the output primaries
         # cube; for perceptual algorithms (oklch / oklrab / jzazbz /
@@ -123,6 +149,11 @@ class ScanningStage:
         if self._backend is not None and self._backend.supports_gpu:
             rgb = self._backend.asarray(rgb)
         return rgb
+
+    def _density_to_rgb(self, density_channels: np.ndarray, *, use_lut: bool) -> np.ndarray:
+        return self._apply_output_gamut_compression(
+            self._density_to_master(density_channels, use_lut=use_lut).route_linear_rgb
+        )
 
     def _return_callable_cmy_to_log_xyz(self):
         if self._io.scan_film:
@@ -207,4 +238,3 @@ class ScanningStage:
         if self._backend is not None and self._backend.supports_gpu:
             return self._backend.clip(rgb, a_min, a_max)
         return np.clip(rgb, a_min=a_min, a_max=a_max)
-

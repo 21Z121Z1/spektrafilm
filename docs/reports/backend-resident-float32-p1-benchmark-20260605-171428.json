@@ -1,0 +1,404 @@
+{
+  "image_dtype": "float32",
+  "image_shape": [
+    384,
+    512,
+    3
+  ],
+  "image_source": "generated",
+  "run_id": "20260605-171428",
+  "runs": [
+    {
+      "backend_selected": "cpu",
+      "case": {
+        "compute_backend": "cpu",
+        "gpu_precision": "float32",
+        "label": "cpu_default",
+        "materialize_policy": "numpy_float64"
+      },
+      "label": "cpu_default",
+      "requires_serial_runtime": false,
+      "runs": [
+        {
+          "explicit_numpy_seconds": 3.0000010156072676e-06,
+          "finite_after_explicit_conversion": true,
+          "max_abs_diff_vs_cpu": 0.0,
+          "numpy_dtype_after_explicit_conversion": "float64",
+          "output": {
+            "backend": "numpy",
+            "dtype": "float64",
+            "nbytes": 4718592,
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "type": "numpy.ndarray"
+          },
+          "pipeline_total_seconds": 0.5445130000007339,
+          "sync_seconds": 3.1250001484295353e-06,
+          "timings": {
+            "FilmingStage.auto_exposure": 2.3329994291998446e-06,
+            "PrintingStage.develop": 0.0038353340005414793,
+            "PrintingStage.expose": 0.17164299999967625,
+            "ScanningStage.scan": 0.3217000420008844,
+            "SimulationPipeline.materialize": 4.7080011427169666e-06,
+            "SpectralLUTService.get_filming_tc_lut": 1.9167000573361292e-05,
+            "SpectralLUTService.spectral_compute_enlarger": 0.1620903749990248,
+            "SpectralLUTService.spectral_compute_scanner": 0.2055761249994248,
+            "filming.develop": 0.008984416999737732,
+            "filming.expose": 0.03805241699956241,
+            "preprocess": 0.00024237500110757537,
+            "printing.develop": 0.0038420410000981065,
+            "printing.expose": 0.17165483300050255,
+            "scanning.scan_print": 0.3217085410014988
+          },
+          "wall_seconds": 0.5445245419996354
+        },
+        {
+          "explicit_numpy_seconds": 1.6659996617818251e-06,
+          "finite_after_explicit_conversion": true,
+          "max_abs_diff_vs_cpu": 0.0,
+          "numpy_dtype_after_explicit_conversion": "float64",
+          "output": {
+            "backend": "numpy",
+            "dtype": "float64",
+            "nbytes": 4718592,
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "type": "numpy.ndarray"
+          },
+          "pipeline_total_seconds": 0.5681366249991697,
+          "sync_seconds": 1.875001544249244e-06,
+          "timings": {
+            "FilmingStage.auto_exposure": 3.4589993447298184e-06,
+            "PrintingStage.develop": 0.0039230830006999895,
+            "PrintingStage.expose": 0.17105187499873864,
+            "ScanningStage.scan": 0.3404496669991204,
+            "SimulationPipeline.materialize": 3.0829996831016615e-06,
+            "SpectralLUTService.get_filming_tc_lut": 2.112500078510493e-05,
+            "SpectralLUTService.spectral_compute_enlarger": 0.16192895799940743,
+            "SpectralLUTService.spectral_compute_scanner": 0.2056387079992419,
+            "filming.develop": 0.012934666001456208,
+            "filming.expose": 0.03944108300129301,
+            "preprocess": 0.00027483300073072314,
+            "printing.develop": 0.003931792000003043,
+            "printing.expose": 0.17106733299988264,
+            "scanning.scan_print": 0.3404572920007922
+          },
+          "wall_seconds": 0.5681458749986632
+        }
+      ],
+      "status": "ok",
+      "summary": {
+        "max_wall_seconds": 0.5681458749986632,
+        "median_explicit_numpy_seconds": 2.3330003386945464e-06,
+        "median_materialize_seconds": 3.895500412909314e-06,
+        "median_sync_seconds": 2.5000008463393897e-06,
+        "median_wall_seconds": 0.5563352084991493,
+        "min_wall_seconds": 0.5445245419996354,
+        "speedup_vs_cpu_default": 1.0
+      },
+      "supports_gpu": false,
+      "warmup_seconds": [
+        0.5236652090006828
+      ]
+    },
+    {
+      "backend_selected": "mlx",
+      "case": {
+        "compute_backend": "mlx",
+        "gpu_precision": "float32",
+        "label": "mlx_numpy_float64",
+        "materialize_policy": "numpy_float64"
+      },
+      "label": "mlx_numpy_float64",
+      "requires_serial_runtime": true,
+      "runs": [
+        {
+          "explicit_numpy_seconds": 3.3750002330634743e-06,
+          "finite_after_explicit_conversion": true,
+          "max_abs_diff_vs_cpu": 2.236107197517434e-06,
+          "numpy_dtype_after_explicit_conversion": "float64",
+          "output": {
+            "backend": "numpy",
+            "dtype": "float64",
+            "nbytes": 4718592,
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "type": "numpy.ndarray"
+          },
+          "pipeline_total_seconds": 0.0232363750001241,
+          "sync_seconds": 9.649999992689118e-05,
+          "timings": {
+            "PrintingStage.develop": 0.0004419999986566836,
+            "PrintingStage.expose": 0.003946582999560633,
+            "ScanningStage.scan": 0.0008824579999782145,
+            "SimulationPipeline.materialize": 0.016085332999864477,
+            "SpectralLUTService.get_filming_tc_lut": 1.9334000171511434e-05,
+            "SpectralLUTService.get_filming_tc_lut_backend": 3.691700112540275e-05,
+            "SpectralLUTService.spectral_compute_scanner": 6.03340013185516e-05,
+            "filming.develop": 0.00043208299939578865,
+            "filming.expose": 0.0007480830008717021,
+            "preprocess": 0.000613792000876856,
+            "printing.develop": 0.0004447920000529848,
+            "printing.expose": 0.00395224999920174,
+            "scanning.scan_print": 0.000885833000211278
+          },
+          "wall_seconds": 0.023357749998467625
+        },
+        {
+          "explicit_numpy_seconds": 2.4169985408661887e-06,
+          "finite_after_explicit_conversion": true,
+          "max_abs_diff_vs_cpu": 2.236107197517434e-06,
+          "numpy_dtype_after_explicit_conversion": "float64",
+          "output": {
+            "backend": "numpy",
+            "dtype": "float64",
+            "nbytes": 4718592,
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "type": "numpy.ndarray"
+          },
+          "pipeline_total_seconds": 0.017623290999836172,
+          "sync_seconds": 5.400000009103678e-05,
+          "timings": {
+            "PrintingStage.develop": 0.0003551659992808709,
+            "PrintingStage.expose": 0.0034424170007696375,
+            "ScanningStage.scan": 0.0008210420000978047,
+            "SimulationPipeline.materialize": 0.011829999999463325,
+            "SpectralLUTService.get_filming_tc_lut": 1.0166999345528893e-05,
+            "SpectralLUTService.get_filming_tc_lut_backend": 1.2000000424450263e-05,
+            "SpectralLUTService.spectral_compute_scanner": 0.000137249999170308,
+            "filming.develop": 0.0004456669994397089,
+            "filming.expose": 0.00045408299956761766,
+            "preprocess": 0.00023833399973227642,
+            "printing.develop": 0.0003566659997886745,
+            "printing.expose": 0.0034454590004315833,
+            "scanning.scan_print": 0.0008234590004576603
+          },
+          "wall_seconds": 0.017683707999822218
+        }
+      ],
+      "status": "ok",
+      "summary": {
+        "max_wall_seconds": 0.023357749998467625,
+        "median_explicit_numpy_seconds": 2.8959993869648315e-06,
+        "median_materialize_seconds": 0.013957666499663901,
+        "median_sync_seconds": 7.525000000896398e-05,
+        "median_wall_seconds": 0.02052072899914492,
+        "min_wall_seconds": 0.017683707999822218,
+        "speedup_vs_cpu_default": 27.110889117162028
+      },
+      "supports_gpu": true,
+      "warmup_seconds": [
+        0.5132332499997574
+      ]
+    },
+    {
+      "backend_selected": "mlx",
+      "case": {
+        "compute_backend": "mlx",
+        "gpu_precision": "float32",
+        "label": "mlx_numpy_float32",
+        "materialize_policy": "numpy_float32"
+      },
+      "label": "mlx_numpy_float32",
+      "requires_serial_runtime": true,
+      "runs": [
+        {
+          "explicit_numpy_seconds": 2.0420011423993856e-06,
+          "finite_after_explicit_conversion": true,
+          "max_abs_diff_vs_cpu": 2.236107197517434e-06,
+          "numpy_dtype_after_explicit_conversion": "float32",
+          "output": {
+            "backend": "numpy",
+            "dtype": "float32",
+            "nbytes": 2359296,
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "type": "numpy.ndarray"
+          },
+          "pipeline_total_seconds": 0.01819575000081386,
+          "sync_seconds": 5.529199916054495e-05,
+          "timings": {
+            "PrintingStage.develop": 0.00045850000060454477,
+            "PrintingStage.expose": 0.002002500001253793,
+            "ScanningStage.scan": 0.0007607079987792531,
+            "SimulationPipeline.materialize": 0.013962582999738515,
+            "SpectralLUTService.get_filming_tc_lut": 1.237499964190647e-05,
+            "SpectralLUTService.get_filming_tc_lut_backend": 2.5208999431924894e-05,
+            "SpectralLUTService.spectral_compute_scanner": 4.037500002596062e-05,
+            "filming.develop": 0.00034012499963864684,
+            "filming.expose": 0.0003781670002354076,
+            "preprocess": 0.00023841700021876022,
+            "printing.develop": 0.0004604169989761431,
+            "printing.expose": 0.002005500000450411,
+            "scanning.scan_print": 0.0007630419986526249
+          },
+          "wall_seconds": 0.018256958999700146
+        },
+        {
+          "explicit_numpy_seconds": 1.791999238776043e-06,
+          "finite_after_explicit_conversion": true,
+          "max_abs_diff_vs_cpu": 2.236107197517434e-06,
+          "numpy_dtype_after_explicit_conversion": "float32",
+          "output": {
+            "backend": "numpy",
+            "dtype": "float32",
+            "nbytes": 2359296,
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "type": "numpy.ndarray"
+          },
+          "pipeline_total_seconds": 0.016655167000863003,
+          "sync_seconds": 7.695800013607368e-05,
+          "timings": {
+            "PrintingStage.develop": 0.0003460419993643882,
+            "PrintingStage.expose": 0.002702083000258426,
+            "ScanningStage.scan": 0.0006214999993972015,
+            "SimulationPipeline.materialize": 0.012055125000188127,
+            "SpectralLUTService.get_filming_tc_lut": 1.06250008684583e-05,
+            "SpectralLUTService.get_filming_tc_lut_backend": 1.279199932469055e-05,
+            "SpectralLUTService.spectral_compute_scanner": 3.499999911582563e-05,
+            "filming.develop": 0.00033849999999802094,
+            "filming.expose": 0.00033641700065345503,
+            "preprocess": 0.0002185829998779809,
+            "printing.develop": 0.00034729199978755787,
+            "printing.expose": 0.0027050410008087056,
+            "scanning.scan_print": 0.0006233340009202948
+          },
+          "wall_seconds": 0.016737125000872766
+        }
+      ],
+      "status": "ok",
+      "summary": {
+        "max_wall_seconds": 0.018256958999700146,
+        "median_explicit_numpy_seconds": 1.9170001905877143e-06,
+        "median_materialize_seconds": 0.013008853999963321,
+        "median_sync_seconds": 6.612499964830931e-05,
+        "median_wall_seconds": 0.017497042000286456,
+        "min_wall_seconds": 0.016737125000872766,
+        "speedup_vs_cpu_default": 31.79595776760673
+      },
+      "supports_gpu": true,
+      "warmup_seconds": [
+        0.023268124999958673
+      ]
+    },
+    {
+      "backend_selected": "mlx",
+      "case": {
+        "compute_backend": "mlx",
+        "gpu_precision": "float32",
+        "label": "mlx_backend",
+        "materialize_policy": "backend"
+      },
+      "label": "mlx_backend",
+      "requires_serial_runtime": true,
+      "runs": [
+        {
+          "explicit_numpy_seconds": 1.687500116531737e-05,
+          "finite_after_explicit_conversion": true,
+          "max_abs_diff_vs_cpu": 2.236107197517434e-06,
+          "numpy_dtype_after_explicit_conversion": "float32",
+          "output": {
+            "backend": "mlx",
+            "dtype": "mlx.core.float32",
+            "nbytes": 2359296,
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "type": "mlx.core.array"
+          },
+          "pipeline_total_seconds": 0.005355040999347693,
+          "sync_seconds": 0.015018374999272055,
+          "timings": {
+            "PrintingStage.develop": 0.0004664169991883682,
+            "PrintingStage.expose": 0.0024952920011855895,
+            "ScanningStage.scan": 0.0007562500013591489,
+            "SimulationPipeline.materialize": 1.45800004247576e-06,
+            "SpectralLUTService.get_filming_tc_lut": 1.1124999218736775e-05,
+            "SpectralLUTService.get_filming_tc_lut_backend": 1.3708000551559962e-05,
+            "SpectralLUTService.spectral_compute_scanner": 3.537500015227124e-05,
+            "filming.develop": 0.0002929580005002208,
+            "filming.expose": 0.000775582999267499,
+            "preprocess": 0.0005314999998518033,
+            "printing.develop": 0.00046800000018265564,
+            "printing.expose": 0.002497958001185907,
+            "scanning.scan_print": 0.0007585410003230209
+          },
+          "wall_seconds": 0.02038229199933994
+        },
+        {
+          "explicit_numpy_seconds": 1.758399957907386e-05,
+          "finite_after_explicit_conversion": true,
+          "max_abs_diff_vs_cpu": 2.236107197517434e-06,
+          "numpy_dtype_after_explicit_conversion": "float32",
+          "output": {
+            "backend": "mlx",
+            "dtype": "mlx.core.float32",
+            "nbytes": 2359296,
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "type": "mlx.core.array"
+          },
+          "pipeline_total_seconds": 0.0037062920000607846,
+          "sync_seconds": 0.015226207999148755,
+          "timings": {
+            "PrintingStage.develop": 0.000455000001238659,
+            "PrintingStage.expose": 0.0018126249997294508,
+            "ScanningStage.scan": 0.0006594159985979786,
+            "SimulationPipeline.materialize": 8.340011845575646e-07,
+            "SpectralLUTService.get_filming_tc_lut": 1.195900040329434e-05,
+            "SpectralLUTService.get_filming_tc_lut_backend": 1.3999999282532372e-05,
+            "SpectralLUTService.spectral_compute_scanner": 3.2790998375276104e-05,
+            "filming.develop": 0.00032066600033431314,
+            "filming.expose": 0.00033312500090687536,
+            "preprocess": 9.962500007532071e-05,
+            "printing.develop": 0.00045649999992747325,
+            "printing.expose": 0.0018153330001950962,
+            "scanning.scan_print": 0.0006614169997192221
+          },
+          "wall_seconds": 0.018938625000373577
+        }
+      ],
+      "status": "ok",
+      "summary": {
+        "max_wall_seconds": 0.02038229199933994,
+        "median_explicit_numpy_seconds": 1.7229500372195616e-05,
+        "median_materialize_seconds": 1.1460006135166623e-06,
+        "median_sync_seconds": 0.015122291499210405,
+        "median_wall_seconds": 0.01966045849985676,
+        "min_wall_seconds": 0.018938625000373577,
+        "speedup_vs_cpu_default": 28.297163492051958
+      },
+      "supports_gpu": true,
+      "warmup_seconds": [
+        0.01638529199954064
+      ]
+    }
+  ],
+  "runs_per_case": 2,
+  "warmups": 1
+}

@@ -7,10 +7,12 @@ _EXPORTS = {
     "digest_params": ("spektrafilm.runtime.params_builder", "digest_params"),
     "RuntimePhotoParams": ("spektrafilm.runtime.params_schema", "RuntimePhotoParams"),
     "Simulator": ("spektrafilm.runtime.process", "Simulator"),
+    "RouteMaster": ("spektrafilm.runtime.route_master", "RouteMaster"),
     "init_params": ("spektrafilm.runtime.params_builder", "init_params"),
     "load_profile": ("spektrafilm.profiles.io", "load_profile"),
     "save_profile": ("spektrafilm.profiles.io", "save_profile"),
     "simulate": ("spektrafilm.runtime.process", "simulate"),
+    "simulate_master": ("spektrafilm.runtime.process", "simulate_master"),
     "simulate_with_metadata": ("spektrafilm.runtime.process", "simulate_with_metadata"),
 }
 

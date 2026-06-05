@@ -81,6 +81,9 @@ class CupyBackend:
     def maximum(self, x: Any, y: Any):
         return self.cp.maximum(x, y)
 
+    def max_array(self, x: Any):
+        return self.cp.max(x)
+
     def max(self, x: Any) -> float:
         value = self.cp.max(x)
         self.synchronize()

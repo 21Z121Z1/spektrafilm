@@ -16,9 +16,11 @@ from spektrafilm.runtime.services import (
     ColorReferenceService,
 )
 from spektrafilm.gpu.backend import runtime_backend_summary, select_backend
+from spektrafilm.runtime.route_master import HDRMode, RouteMaster, ScanMasterResult
 from spektrafilm.runtime.stages import FilmingStage, PrintingStage, ScanningStage
 from spektrafilm.runtime.topology import Node, Tap, run_topology
 from spektrafilm.utils.autoexposure import _luminance_y, measure_autoexposure_ev
+from spektrafilm.utils.hdr_curve_profiles import luminance_y, render_negative_scan_positive_rgb
 from spektrafilm.utils.timings import format_timings
 
 
@@ -175,6 +177,22 @@ class SimulationPipeline:
         """Process an image and return the final image plus optional HDR scene metadata."""
         return self._process_result(image, include_metadata=True)
 
+    def process_master(self, image, *, hdr_mode: HDRMode) -> RouteMaster:
+        """Process one full-resolution route into a RouteMaster."""
+        if hdr_mode not in ("light_table", "paper"):
+            raise ValueError("hdr_mode must be 'light_table' or 'paper'.")
+        desired_scan_film = hdr_mode == "light_table"
+        if bool(self.io.scan_film) != desired_scan_film:
+            route_params = copy.deepcopy(self._params)
+            route_params.io.scan_film = desired_scan_film
+            route_pipeline = SimulationPipeline(route_params)
+            master = route_pipeline.process_master(image, hdr_mode=hdr_mode)
+            self.timings.clear()
+            self.timings.update(route_pipeline.timings)
+            self._last_elapsed_time = route_pipeline.get_total_elapsed_time()
+            return master
+        return self._process_master_result(image, hdr_mode=hdr_mode)
+
     def _process_result(self, image, *, include_metadata: bool) -> SimulationPipelineResult:
         self.timings.clear()
         start = perf_counter()
@@ -186,6 +204,19 @@ class SimulationPipeline:
                 result = SimulationPipelineResult(image=self._pipeline(image))
             self._run_gpu_validate(image, result.image)
             return result
+        finally:
+            if self._should_cleanup_after_process():
+                cleanup_start = perf_counter()
+                self._backend.cleanup()
+                self.timings["SimulationPipeline.mlx_cleanup"] = perf_counter() - cleanup_start
+            self._last_elapsed_time = perf_counter() - start
+
+    def _process_master_result(self, image, *, hdr_mode: HDRMode) -> RouteMaster:
+        self.timings.clear()
+        start = perf_counter()
+
+        try:
+            return self._pipeline_master(image, hdr_mode=hdr_mode)
         finally:
             if self._should_cleanup_after_process():
                 cleanup_start = perf_counter()
@@ -431,6 +462,81 @@ class SimulationPipeline:
             image=self._materialize_output(rgb_scan),
             hdr_scene_energy=hdr_scene_energy,
         )
+
+    def _pipeline_master(self, image, *, hdr_mode: HDRMode) -> RouteMaster:
+        image = self._record_stage_timing("preprocess", self._preprocess, image)
+        exposure = self._record_stage_timing(
+            "filming.expose",
+            self._filming_stage.expose_with_metadata,
+            image,
+        )
+        cmy_film = self._record_stage_timing(
+            "filming.develop",
+            self._filming_stage.develop,
+            exposure.log_raw,
+        )
+        diagnostics = dict(exposure.diagnostics)
+
+        if hdr_mode == "light_table":
+            scan_master = self._record_stage_timing(
+                "scanning.scan_film_master",
+                self._scanning_stage.scan_master,
+                cmy_film,
+            )
+            sdr_legacy_rgb = self._record_stage_timing(
+                "scanning.project_sdr_legacy",
+                self._scanning_stage.project_sdr_legacy,
+                scan_master,
+            )
+            diagnostics.update(scan_master.diagnostics)
+            diagnostics["profile_kind"] = "positive_film_scan"
+            if getattr(self.film, "is_negative", False):
+                scan_master, sdr_legacy_rgb, render_diagnostics = self._positive_render_negative_scan_master(
+                    scan_master,
+                    exposure.scene_y_raw,
+                )
+                diagnostics.update(render_diagnostics)
+            return self._build_route_master(
+                hdr_mode=hdr_mode,
+                route_kind="film_scan",
+                scan_master=scan_master,
+                sdr_legacy_rgb=sdr_legacy_rgb,
+                scene_y_raw=exposure.scene_y_raw,
+                post_halation_y=exposure.post_halation_y,
+                diagnostics=diagnostics,
+            )
+
+        log_raw_print = self._record_stage_timing(
+            "printing.expose",
+            self._printing_stage.expose,
+            cmy_film,
+        )
+        cmy_print = self._record_stage_timing(
+            "printing.develop",
+            self._printing_stage.develop,
+            log_raw_print,
+        )
+        scan_master = self._record_stage_timing(
+            "scanning.scan_print_master",
+            self._scanning_stage.scan_master,
+            cmy_print,
+        )
+        sdr_legacy_rgb = self._record_stage_timing(
+            "scanning.project_sdr_legacy",
+            self._scanning_stage.project_sdr_legacy,
+            scan_master,
+        )
+        diagnostics.update(scan_master.diagnostics)
+        diagnostics["profile_kind"] = "print_scan"
+        return self._build_route_master(
+            hdr_mode=hdr_mode,
+            route_kind="print_scan",
+            scan_master=scan_master,
+            sdr_legacy_rgb=sdr_legacy_rgb,
+            scene_y_raw=exposure.scene_y_raw,
+            post_halation_y=exposure.post_halation_y,
+            diagnostics=diagnostics,
+        )
     
     def _preprocess(self, image):
         image, _auto_exposure_ev = self._preprocess_base(image)
@@ -591,6 +697,92 @@ class SimulationPipeline:
             cmy_film,
         )
         return rgb_scan
+
+    def _positive_render_negative_scan_master(
+        self,
+        scan_master: ScanMasterResult,
+        scene_y_raw,
+    ) -> tuple[ScanMasterResult, np.ndarray, dict[str, object]]:
+        raw_rgb = np.asarray(self._materialize_output_value(scan_master.route_linear_rgb), dtype=np.float32)
+        scene_y = np.asarray(self._materialize_output_value(scene_y_raw), dtype=np.float32)
+        positive_rgb, render_metadata = render_negative_scan_positive_rgb(
+            raw_rgb,
+            scene_y=scene_y.reshape(-1),
+            return_metadata=True,
+        )
+        positive_y = luminance_y(positive_rgb)
+        rendered_master = ScanMasterResult(
+            route_linear_rgb=positive_rgb,
+            route_linear_xyz=positive_rgb,
+            route_luminance_y=positive_y,
+            density_cmy=scan_master.density_cmy,
+            diagnostics={**scan_master.diagnostics, "negative_scan_positive_rendering": True},
+        )
+        diagnostics = {
+            "profile_kind": "positive_negative_scan",
+            "negative_scan_render": render_metadata,
+            "negative_scan_positive_rendering": True,
+        }
+        return rendered_master, np.clip(positive_rgb, 0.0, 1.0).astype(np.float32, copy=False), diagnostics
+
+    def _build_route_master(
+        self,
+        *,
+        hdr_mode: HDRMode,
+        route_kind: str,
+        scan_master: ScanMasterResult,
+        sdr_legacy_rgb,
+        scene_y_raw,
+        post_halation_y,
+        diagnostics: dict[str, Any],
+    ) -> RouteMaster:
+        route_rgb = np.asarray(self._materialize_output_value(scan_master.route_linear_rgb))
+        route_xyz = np.asarray(self._materialize_output_value(scan_master.route_linear_xyz))
+        route_y = np.asarray(self._materialize_output_value(scan_master.route_luminance_y))
+        sdr_rgb = np.asarray(self._materialize_output_value(sdr_legacy_rgb))
+        scene_y = np.asarray(self._materialize_output_value(scene_y_raw), dtype=np.float32)
+        post_y = np.asarray(self._materialize_output_value(post_halation_y), dtype=np.float32)
+        density_cmy = np.asarray(self._materialize_output_value(scan_master.density_cmy))
+        route_look_chroma = self._route_look_chroma(route_rgb)
+        material_detail_y = self._material_detail_y(route_y)
+        diagnostics = dict(diagnostics)
+        diagnostics.setdefault("route_render_count", 1)
+        diagnostics.setdefault("route_kind", route_kind)
+        return RouteMaster(
+            mode=hdr_mode,
+            route_kind=route_kind,  # type: ignore[arg-type]
+            route_linear_rgb=route_rgb,
+            route_linear_xyz=route_xyz,
+            route_luminance_y=route_y,
+            sdr_legacy_rgb=sdr_rgb,
+            scene_y_raw=scene_y,
+            post_halation_y=post_y,
+            density_cmy=density_cmy,
+            route_look_chroma=route_look_chroma,
+            material_detail_y=material_detail_y,
+            diagnostics=diagnostics,
+        )
+
+    @staticmethod
+    def _route_look_chroma(route_rgb: np.ndarray) -> np.ndarray:
+        route_rgb = np.asarray(route_rgb, dtype=np.float32)
+        route_y = luminance_y(route_rgb)
+        return np.divide(
+            route_rgb,
+            np.maximum(route_y[..., None], np.float32(1e-8)),
+            out=np.zeros_like(route_rgb, dtype=np.float32),
+            where=route_y[..., None] > np.float32(1e-8),
+        )
+
+    @staticmethod
+    def _material_detail_y(route_y: np.ndarray) -> np.ndarray:
+        y = np.asarray(route_y, dtype=np.float32)
+        finite = y[np.isfinite(y) & (y > 0.0)]
+        if finite.size == 0:
+            return np.ones_like(y, dtype=np.float32)
+        anchor = float(np.median(finite))
+        detail = y / np.float32(max(anchor, 1e-8))
+        return np.clip(detail, 0.5, 2.0).astype(np.float32)
     
     def _pipeline_print(self, rgb_image):
         log_raw_film = self._record_stage_timing(

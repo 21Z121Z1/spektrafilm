@@ -84,19 +84,19 @@ def apply_display_transform(
 
 ### 1.4 Display Profile Detection
 
-Current method (`controller_runtime.py:117-124`):
+Current method (`controller_runtime.py`):
 ```python
 def display_profile_details(*, imagecms_module):
-    display_profile = imagecms_module.get_display_profile()
+    display_profile = _resolve_display_profile(imagecms_module=imagecms_module)
     # Returns (profile_object, profile_name_string)
 ```
 
 `PIL.ImageCms.get_display_profile()` behavior:
 - **Windows**: Reads ICC profile from device context (DC)
-- **macOS**: Reads from ColorSync
+- **macOS**: Can return `None` even when CoreGraphics can provide the main display ICC profile
 - **Linux**: Returns `None` (no standard API)
 
-The GUI disables the display transform toggle when no profile is detected (`controller.py:424-431`).
+On macOS, Spektrafilm now falls back to Python standard-library `ctypes` calls into CoreGraphics/CoreFoundation, using `CGMainDisplayID()` and `CGColorSpaceCopyICCData()` to build a Pillow `ImageCmsProfile` from ICC bytes. The GUI disables the display transform toggle only when both Pillow and the macOS fallback fail to provide a profile. This fallback is main-display based, not current-window-display aware.
 
 ---
 

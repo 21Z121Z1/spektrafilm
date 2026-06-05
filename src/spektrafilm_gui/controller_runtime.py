@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import ctypes
 from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
+import sys
 import time
 from typing import Any, Callable
 
@@ -128,10 +130,18 @@ def padding_pixels_for_image(image_data: np.ndarray, padding_fraction: float) ->
     return int(np.floor(long_edge * padding_fraction))
 
 
+def _imagecms_error_type(imagecms_module: Any) -> type[BaseException]:
+    pycms_error = getattr(imagecms_module, 'PyCMSError', RuntimeError)
+    if isinstance(pycms_error, type) and issubclass(pycms_error, BaseException):
+        return pycms_error
+    return RuntimeError
+
+
 def display_profile_name(display_profile: object, *, imagecms_module: Any) -> str:
+    pycms_error = _imagecms_error_type(imagecms_module)
     try:
         profile_name = imagecms_module.getProfileName(display_profile)
-    except (AttributeError, OSError, ValueError, TypeError, imagecms_module.PyCMSError):
+    except (AttributeError, OSError, ValueError, TypeError, pycms_error):
         profile_name = None
 
     if isinstance(profile_name, str):
@@ -146,21 +156,115 @@ def display_profile_name(display_profile: object, *, imagecms_module: Any) -> st
     return type(display_profile).__name__
 
 
-def display_profile_details(*, imagecms_module: Any) -> tuple[object | None, str | None]:
+def _running_under_pytest() -> bool:
+    return "pytest" in sys.modules
+
+
+def _mac_display_profile_fallback_enabled() -> bool:
+    return sys.platform == "darwin" and not _running_under_pytest()
+
+
+def _configure_coregraphics_display_profile_functions(core_foundation: Any, core_graphics: Any) -> None:
+    core_graphics.CGMainDisplayID.restype = ctypes.c_uint32
+
+    core_graphics.CGDisplayCopyColorSpace.argtypes = [ctypes.c_uint32]
+    core_graphics.CGDisplayCopyColorSpace.restype = ctypes.c_void_p
+
+    core_graphics.CGColorSpaceCopyICCData.argtypes = [ctypes.c_void_p]
+    core_graphics.CGColorSpaceCopyICCData.restype = ctypes.c_void_p
+
+    core_foundation.CFDataGetLength.argtypes = [ctypes.c_void_p]
+    core_foundation.CFDataGetLength.restype = ctypes.c_long
+
+    core_foundation.CFDataGetBytePtr.argtypes = [ctypes.c_void_p]
+    core_foundation.CFDataGetBytePtr.restype = ctypes.c_void_p
+
+    core_foundation.CFRelease.argtypes = [ctypes.c_void_p]
+    core_foundation.CFRelease.restype = None
+
+
+def _release_core_foundation_object(core_foundation: Any | None, ref: object | None) -> None:
+    if core_foundation is None or not ref:
+        return
+    try:
+        core_foundation.CFRelease(ref)
+    except Exception:
+        return
+
+
+def _get_mac_display_profile_bytes() -> bytes | None:
+    if sys.platform != "darwin":
+        return None
+
+    core_foundation = None
+    color_space = None
+    icc_data = None
+    try:
+        core_foundation = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+        core_graphics = ctypes.CDLL("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+        _configure_coregraphics_display_profile_functions(core_foundation, core_graphics)
+
+        display_id = core_graphics.CGMainDisplayID()
+        if not display_id:
+            return None
+
+        color_space = core_graphics.CGDisplayCopyColorSpace(display_id)
+        if not color_space:
+            return None
+
+        icc_data = core_graphics.CGColorSpaceCopyICCData(color_space)
+        if not icc_data:
+            return None
+
+        length = core_foundation.CFDataGetLength(icc_data)
+        if length <= 0:
+            return None
+
+        ptr = core_foundation.CFDataGetBytePtr(icc_data)
+        if not ptr:
+            return None
+
+        return ctypes.string_at(ptr, int(length))
+    except Exception:
+        return None
+    finally:
+        _release_core_foundation_object(core_foundation, icc_data)
+        _release_core_foundation_object(core_foundation, color_space)
+
+
+def _display_profile_from_fallback(*, imagecms_module: Any) -> object | None:
+    if not _mac_display_profile_fallback_enabled():
+        return None
+    icc_bytes = _get_mac_display_profile_bytes()
+    if not icc_bytes:
+        return None
+    pycms_error = _imagecms_error_type(imagecms_module)
+    try:
+        return imagecms_module.ImageCmsProfile(BytesIO(icc_bytes))
+    except (AttributeError, OSError, ValueError, TypeError, pycms_error):
+        return None
+
+
+def _resolve_display_profile(*, imagecms_module: Any) -> object | None:
+    pycms_error = _imagecms_error_type(imagecms_module)
     try:
         display_profile = imagecms_module.get_display_profile()
-    except (OSError, ValueError, TypeError, imagecms_module.PyCMSError):
-        return None, None
+    except (AttributeError, OSError, ValueError, TypeError, pycms_error):
+        display_profile = None
+    if display_profile is not None:
+        return display_profile
+    return _display_profile_from_fallback(imagecms_module=imagecms_module)
+
+
+def display_profile_details(*, imagecms_module: Any) -> tuple[object | None, str | None]:
+    display_profile = _resolve_display_profile(imagecms_module=imagecms_module)
     if display_profile is None:
         return None, None
     return display_profile, display_profile_name(display_profile, imagecms_module=imagecms_module)
 
 
 def display_profile_available(*, imagecms_module: Any) -> bool:
-    try:
-        return imagecms_module.get_display_profile() is not None
-    except (OSError, ValueError, TypeError, imagecms_module.PyCMSError):
-        return False
+    return _resolve_display_profile(imagecms_module=imagecms_module) is not None
 
 
 def display_transform_status_message(enabled: bool, *, imagecms_module: Any) -> str:

@@ -47,6 +47,8 @@ MIN_HDR_PHOTO_HEADROOM: Final = 1.01
 HDR_REFERENCE_WHITE_LUMINANCE_NITS: Final = 203.0
 
 _ROLLOFF_MODES: Final = {"logistic", "logarithmic"}
+# Legacy HDR recovery/profile modes kept for compatibility. New public HDR
+# export should use RouteMaster modes: light_table and paper.
 _HDR_MAPPING_MODES: Final = {"generic", "profile_aware", "film_scan_aware"}
 _EPS32: Final = np.float32(1e-8)
 _GAIN_MAP_SDR_LUMA_FLOOR: Final = np.float32(1e-3)
@@ -341,6 +343,95 @@ def save_hdr_photo_heic(
         raise HDRPhotoExportError(message)
 
     return renditions.diagnostics
+
+
+def save_hdr_photo_heic_from_pair(
+    filename: str | Path,
+    sdr_rgb: np.ndarray,
+    hdr_rgb: np.ndarray,
+    *,
+    color_space: str,
+    headroom: float | None = None,
+    quality: float = 0.95,
+    metadata: dict | None = None,
+    gain_map_mode: Literal["luma", "rgb"] = "rgb",
+) -> tuple[str, ...]:
+    """Save a pre-rendered SDR/HDR pair as a gain-map HEIC/HEIF.
+
+    This RouteMaster export entry point is encode-only. It does not prepare
+    HDR renditions, sample runtime profiles, call Simulator, or perform HDR
+    recovery.
+    """
+
+    del metadata
+    if platform.system() != "Darwin":
+        raise HDRPhotoExportError("HEIC HDR photo export currently requires macOS CoreImage.")
+
+    output_path = Path(filename)
+    if output_path.suffix.lower() not in SUPPORTED_HDR_PHOTO_EXTENSIONS:
+        raise ValueError(f"HDR photo export requires a HEIC/HEIF extension, got {output_path.suffix!r}.")
+    _validate_hdr_photo_output_path(output_path)
+
+    if gain_map_mode not in ("luma", "rgb"):
+        raise ValueError("gain_map_mode must be either 'luma' or 'rgb'.")
+
+    sdr = _prepare_hdr_rgb(sdr_rgb)
+    hdr = _prepare_hdr_rgb(hdr_rgb)
+    if sdr.shape != hdr.shape:
+        raise ValueError(f"SDR and HDR renditions must have identical shape, got {sdr.shape} and {hdr.shape}.")
+    sdr = np.clip(sdr, 0.0, 1.0).astype(np.float32, copy=False)
+    if headroom is None:
+        headroom = float(np.max(hdr))
+    headroom = float(headroom)
+    if not math.isfinite(headroom) or headroom <= 1.0:
+        raise ValueError("Pre-rendered HDR pair export requires headroom greater than 1.0.")
+    hdr = np.clip(hdr, 0.0, headroom).astype(np.float32, copy=False)
+    color_space = hdr_photo_color_space(color_space)
+    sdr_payload = _rgba_float_payload(sdr, headroom=1.0)
+    hdr_payload = _rgba_float_payload(hdr, headroom=headroom)
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="spektrafilm-hdr-heif-") as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            sdr_raw_path = tmp_path / "sdr-rgba-f32.raw"
+            hdr_raw_path = tmp_path / "hdr-rgba-f32.raw"
+            sdr_payload.tofile(sdr_raw_path)
+            hdr_payload.tofile(hdr_raw_path)
+            del sdr_payload, hdr_payload
+
+            command = [
+                *_swift_command(),
+                str(_encoder_script_path()),
+                str(sdr_raw_path),
+                str(hdr_raw_path),
+                str(output_path),
+                str(hdr.shape[1]),
+                str(hdr.shape[0]),
+                color_space,
+                f"{headroom:.8g}",
+                f"{float(quality):.6g}",
+                gain_map_mode,
+            ]
+            result = subprocess.run(
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+    except FileNotFoundError as exc:
+        raise HDRPhotoExportError("Swift toolchain not found; install Xcode Command Line Tools to export HDR HEIC.") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise HDRPhotoExportError("CoreImage HDR HEIC export timed out.") from exc
+
+    if result.returncode != 0:
+        details = (result.stderr or result.stdout or "").strip()
+        message = "CoreImage HDR HEIC export failed"
+        if details:
+            message = f"{message}: {details}"
+        raise HDRPhotoExportError(message)
+
+    return ()
 
 
 def _prepare_hdr_rgb(image_data: np.ndarray) -> np.ndarray:

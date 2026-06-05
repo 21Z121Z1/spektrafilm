@@ -21,6 +21,7 @@ def test_numpy_backend_exposes_required_array_ops() -> None:
 
     np.testing.assert_allclose(backend.abs(values), np.abs(values))
     assert backend.max(values) == np.max(values)
+    np.testing.assert_allclose(backend.max_array(values), np.max(values))
     np.testing.assert_allclose(backend.pow(np.abs(values), 0.5), np.sqrt(np.abs(values)))
     np.testing.assert_allclose(backend.power(10.0, values), np.power(10.0, values))
     np.testing.assert_allclose(
@@ -84,6 +85,7 @@ def test_halide_backend_exposes_required_array_ops() -> None:
 
     np.testing.assert_allclose(backend.abs(values), np.abs(values))
     assert backend.max(values) == float(np.max(values))
+    np.testing.assert_allclose(backend.max_array(values), np.max(values))
     np.testing.assert_allclose(backend.pow(np.abs(values), 0.5), np.sqrt(np.abs(values)), atol=1e-6)
     np.testing.assert_allclose(backend.power(10.0, values), np.power(10.0, values), atol=1e-6)
     np.testing.assert_allclose(
@@ -102,6 +104,23 @@ def test_select_backend_mlx_is_strict_when_requested() -> None:
 
     assert backend.name == "mlx"
     assert backend.supports_gpu
+
+
+def test_mlx_max_array_does_not_eval_when_available(monkeypatch) -> None:
+    try:
+        backend = select_backend("mlx")
+    except BackendUnavailableError as exc:
+        pytest.skip(str(exc))
+
+    def fail_eval(*_args, **_kwargs):
+        raise AssertionError("max_array must not force MLX evaluation")
+
+    monkeypatch.setattr(backend, "eval", fail_eval)
+    values = backend.asarray(np.array([1.0, 2.0, 3.0], dtype=np.float32))
+
+    result = backend.max_array(values)
+
+    assert backend._is_mlx_array(result)
 
 
 def test_mlx_compiled_elementwise_cache_reuses_stable_shape_dtype(monkeypatch) -> None:

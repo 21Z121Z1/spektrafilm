@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from io import BytesIO
+import sys
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from spektrafilm_gui import controller_runtime as runtime_module
 
@@ -169,6 +172,29 @@ def test_prepare_output_display_image_uses_aces_output_transform_for_linear_scen
     assert captured['aces_call']['color_space'] == 'ACEScg'
     assert captured['aces_call']['colour_module'] is colour_module
     np.testing.assert_allclose(captured['aces_call']['image'], [[[0.0, 1.25, 2.0]]])
+
+
+def test_get_mac_display_profile_bytes_returns_none_when_framework_load_fails(monkeypatch) -> None:
+    monkeypatch.setattr(runtime_module.sys, 'platform', 'darwin')
+
+    def raise_os_error(_path):
+        raise OSError('framework unavailable')
+
+    monkeypatch.setattr(runtime_module.ctypes, 'CDLL', raise_os_error)
+
+    assert runtime_module._get_mac_display_profile_bytes() is None
+
+
+@pytest.mark.skipif(sys.platform != 'darwin', reason='macOS display profile smoke test')
+def test_get_mac_display_profile_bytes_macos_smoke() -> None:
+    from PIL import ImageCms
+
+    icc_bytes = runtime_module._get_mac_display_profile_bytes()
+    if icc_bytes is None:
+        pytest.skip('No main display ICC profile available through CoreGraphics')
+
+    assert len(icc_bytes) > 0
+    ImageCms.ImageCmsProfile(BytesIO(icc_bytes))
 
 
 def test_simulation_worker_emits_failure_message() -> None:

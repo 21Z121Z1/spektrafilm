@@ -7,6 +7,7 @@ from contextlib import nullcontext
 from spektrafilm.gpu.metal_serialization import serialized_metal_runtime
 from spektrafilm.runtime.params_schema import RuntimePhotoParams
 from spektrafilm.runtime.pipeline import HDRSceneEnergyMetadata, SimulationPipeline, SimulationPipelineResult
+from spektrafilm.runtime.route_master import HDRMode, RouteMaster
 from spektrafilm.utils.preview import resize_for_preview
 from spektrafilm.runtime.params_builder import (
     digest_params,
@@ -42,6 +43,11 @@ class Simulator:
         """Process the input image and return image output plus HDR scene metadata."""
         with self._runtime_context():
             return self._pipeline.process_with_metadata(image)
+
+    def process_master(self, image, *, hdr_mode: HDRMode = "paper") -> RouteMaster:
+        """Process the input image once into a RouteMaster for SDR/HDR projection."""
+        with self._runtime_context():
+            return self._pipeline.process_master(image, hdr_mode=hdr_mode)
 
     def update_params(self, params):
         """Update the parameters of the simulation pipeline."""
@@ -107,6 +113,20 @@ def simulate_with_metadata(image, params: RuntimePhotoParams,
     return result
 
 
+def simulate_master(image, params: RuntimePhotoParams, *,
+                    hdr_mode: HDRMode = "paper",
+                    digest_params_first: bool = True,
+                    print_timings: bool = False) -> RouteMaster:
+    """Run the simulation once and return the photographic RouteMaster."""
+    if digest_params_first:
+        params = digest_params(params)
+    simulator = Simulator(params)
+    result = simulator.process_master(image, hdr_mode=hdr_mode)
+    if print_timings:
+        simulator.print_timings()
+    return result
+
+
 def simulate_preview(image, params: RuntimePhotoParams,
                      digest_params_first: bool = True,
                      print_timings: bool = False):
@@ -147,8 +167,10 @@ __all__ = [
     "HDRSceneEnergyMetadata",
     "SimulationPipelineResult",
     "Simulator",
+    "RouteMaster",
     "simulate",
     "simulate_with_metadata",
+    "simulate_master",
     "simulate_preview",
     "AgXPhoto", # legacy for ART
     "photo_params", # legacy for ART

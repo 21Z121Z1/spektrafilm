@@ -14,6 +14,7 @@ from spektrafilm.utils.spectral_upsampling import (
     rgb_to_raw_mallett2019,
     _rgb_to_tc_b,
 )
+from spektrafilm.runtime.route_master import FilmingExposureResult
 from spektrafilm.utils.timings import timeit
 
 
@@ -63,12 +64,16 @@ class FilmingStage:
         return image, None
 
     def expose(self, image: np.ndarray) -> np.ndarray:
+        return self.expose_with_metadata(image).log_raw
+
+    def expose_with_metadata(self, image: np.ndarray) -> FilmingExposureResult:
         raw = self._rgb_to_film_raw(
             image,
             color_space=self._io.input_color_space,
             apply_cctf_decoding=self._io.input_cctf_decoding,
         )
         raw *= 2 ** self._camera.exposure_compensation_ev
+        scene_y_raw = self._raw_luminance_y(raw)
         if self._backend is not None and self._backend.supports_gpu:
             raw = boost_highlights_backend(
                 raw, self._film_render.halation.boost_ev,
@@ -92,11 +97,17 @@ class FilmingStage:
                                 self._resize_service.pixel_size_um,
                                 backend=self._backend)
         raw *= self._color_reference_service.black_white_filming_exposure_correction()
+        post_halation_y = self._raw_luminance_y(raw)
         if self._backend is not None and self._backend.supports_gpu:
             log_raw = safe_log10_backend(raw, self._backend)
         else:
             log_raw = np.log10(np.fmax(raw, 0.0) + 1e-10)
-        return log_raw
+        return FilmingExposureResult(
+            log_raw=log_raw,
+            scene_y_raw=scene_y_raw,
+            post_halation_y=post_halation_y,
+            diagnostics={"post_halation_y_source": "filming_raw_after_halation"},
+        )
 
     def develop(self, log_raw: np.ndarray) -> np.ndarray:
         return develop(
@@ -114,6 +125,13 @@ class FilmingStage:
         )
 
     # private methods
+
+    def _raw_luminance_y(self, raw: np.ndarray) -> np.ndarray:
+        coeffs = np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
+        if self._backend is not None and self._backend.supports_gpu:
+            values = self._backend.fmax(raw, 0.0)
+            return self._backend.einsum("ijk,k->ij", values, self._backend.asarray(coeffs))
+        return np.einsum("ijk,k->ij", np.fmax(raw, 0.0), coeffs)
 
     def _rgb_to_film_raw(
         self,

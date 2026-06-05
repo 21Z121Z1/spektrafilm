@@ -1,0 +1,113 @@
+{
+  "image_dtype": "float32",
+  "image_shape": [
+    384,
+    512,
+    3
+  ],
+  "image_source": "generated",
+  "run_id": "20260605-171413",
+  "runs": [
+    {
+      "backend_selected": "cpu",
+      "case": {
+        "compute_backend": "cpu",
+        "gpu_precision": "float32",
+        "label": "cpu_default",
+        "materialize_policy": "numpy_float64"
+      },
+      "label": "cpu_default",
+      "requires_serial_runtime": false,
+      "runs": [
+        {
+          "explicit_numpy_seconds": 1.0830008250195533e-06,
+          "finite_after_explicit_conversion": true,
+          "max_abs_diff_vs_cpu": 0.0,
+          "numpy_dtype_after_explicit_conversion": "float64",
+          "output": {
+            "backend": "numpy",
+            "dtype": "float64",
+            "nbytes": 4718592,
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "type": "numpy.ndarray"
+          },
+          "pipeline_total_seconds": 0.5071392909994756,
+          "sync_seconds": 2.0420011423993856e-06,
+          "timings": {
+            "FilmingStage.auto_exposure": 3.0840001272736117e-06,
+            "PrintingStage.develop": 0.005252083001323626,
+            "PrintingStage.expose": 0.17836758399971586,
+            "ScanningStage.scan": 0.28336816699993506,
+            "SimulationPipeline.materialize": 1.7920010577654466e-06,
+            "SpectralLUTService.get_filming_tc_lut": 1.9832999896607362e-05,
+            "SpectralLUTService.spectral_compute_enlarger": 0.1696004579989676,
+            "SpectralLUTService.spectral_compute_scanner": 0.17150854200008325,
+            "filming.develop": 0.009537166999507463,
+            "filming.expose": 0.030315333999169525,
+            "preprocess": 0.00024087500059977174,
+            "printing.develop": 0.005261624999548076,
+            "printing.expose": 0.1783850829997391,
+            "scanning.scan_print": 0.2833739159996185
+          },
+          "wall_seconds": 0.5071467910001957
+        },
+        {
+          "explicit_numpy_seconds": 1.708000127109699e-06,
+          "finite_after_explicit_conversion": true,
+          "max_abs_diff_vs_cpu": 0.0,
+          "numpy_dtype_after_explicit_conversion": "float64",
+          "output": {
+            "backend": "numpy",
+            "dtype": "float64",
+            "nbytes": 4718592,
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "type": "numpy.ndarray"
+          },
+          "pipeline_total_seconds": 0.6622176250002667,
+          "sync_seconds": 2.0829993445659056e-06,
+          "timings": {
+            "FilmingStage.auto_exposure": 5.500000042957254e-06,
+            "PrintingStage.develop": 0.004482041000301251,
+            "PrintingStage.expose": 0.20674516699909873,
+            "ScanningStage.scan": 0.40935308400003123,
+            "SimulationPipeline.materialize": 3.875000402331352e-06,
+            "SpectralLUTService.get_filming_tc_lut": 2.0166999092907645e-05,
+            "SpectralLUTService.spectral_compute_enlarger": 0.19641320899972925,
+            "SpectralLUTService.spectral_compute_scanner": 0.24955845800104726,
+            "filming.develop": 0.010142874998564366,
+            "filming.expose": 0.03108629199959978,
+            "preprocess": 0.00033483299921499565,
+            "printing.develop": 0.004497249999985797,
+            "printing.expose": 0.2067609169989737,
+            "scanning.scan_print": 0.4093607089998841
+          },
+          "wall_seconds": 0.662225916999887
+        }
+      ],
+      "status": "ok",
+      "summary": {
+        "max_wall_seconds": 0.662225916999887,
+        "median_explicit_numpy_seconds": 1.3955004760646261e-06,
+        "median_materialize_seconds": 2.8335007300483994e-06,
+        "median_sync_seconds": 2.0625002434826456e-06,
+        "median_wall_seconds": 0.5846863540000413,
+        "min_wall_seconds": 0.5071467910001957,
+        "speedup_vs_cpu_default": 1.0
+      },
+      "supports_gpu": false,
+      "warmup_seconds": [
+        0.504490833998716
+      ]
+    }
+  ],
+  "runs_per_case": 2,
+  "warmups": 1
+}

@@ -124,6 +124,9 @@ class MlxBackend:
     def maximum(self, x: Any, y: Any):
         return self.mx.maximum(x, y)
 
+    def max_array(self, x: Any):
+        return self.mx.max(x)
+
     def max(self, x: Any) -> float:
         value = self.mx.max(x)
         self.eval(value)

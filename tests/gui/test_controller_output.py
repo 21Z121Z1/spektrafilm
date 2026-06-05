@@ -617,6 +617,97 @@ def test_prepare_output_display_image_reports_missing_display_profile(monkeypatc
     _assert_fallback_preview(preview, status, expected_status='Display transform: no display profile, using raw preview')
 
 
+def test_display_profile_helpers_use_explicit_macos_fallback(monkeypatch) -> None:
+    icc_bytes = controller_module.ImageCms.ImageCmsProfile(
+        controller_module.ImageCms.createProfile('sRGB')
+    ).tobytes()
+
+    monkeypatch.setattr(controller_module.ImageCms, 'get_display_profile', lambda: None)
+    monkeypatch.setattr(controller_module.runtime, '_mac_display_profile_fallback_enabled', lambda: True)
+    monkeypatch.setattr(controller_module.runtime, '_get_mac_display_profile_bytes', lambda: icc_bytes)
+
+    assert controller_module.runtime.display_profile_available(imagecms_module=controller_module.ImageCms) is True
+    profile, profile_name = controller_module.runtime.display_profile_details(imagecms_module=controller_module.ImageCms)
+
+    assert profile is not None
+    assert profile_name is not None
+    assert profile_name.strip()
+
+
+def test_prepare_output_display_image_uses_explicit_macos_fallback_profile(monkeypatch) -> None:
+    controller = GuiController(viewer=object(), widgets=object())
+    image_data = np.array([[[0.2, 0.4, 0.6]]], dtype=np.float32)
+    captured: dict[str, object] = {}
+    icc_bytes = controller_module.ImageCms.ImageCmsProfile(
+        controller_module.ImageCms.createProfile('sRGB')
+    ).tobytes()
+
+    class FakePILImage:
+        def __init__(self, array: np.ndarray):
+            self.array = array
+
+    monkeypatch.setattr(controller_module.ImageCms, 'get_display_profile', lambda: None)
+    monkeypatch.setattr(controller_module.runtime, '_mac_display_profile_fallback_enabled', lambda: True)
+    monkeypatch.setattr(controller_module.runtime, '_get_mac_display_profile_bytes', lambda: icc_bytes)
+    monkeypatch.setattr(controller_module.colour, 'RGB_to_RGB', lambda *args, **kwargs: np.full((1, 1, 3), 0.5, dtype=np.float32))
+    monkeypatch.setattr(controller_module.ImageCms, 'createProfile', lambda name: f'profile:{name}')
+    monkeypatch.setattr(
+        controller_module.PILImage,
+        'fromarray',
+        lambda array, mode='RGB': captured.setdefault('source_image', FakePILImage(array.copy())),
+    )
+
+    def fake_profile_to_profile(source_image, source_profile, display_profile, outputMode='RGB'):
+        captured['profile_to_profile'] = {
+            'source_profile': source_profile,
+            'display_profile': display_profile,
+            'output_mode': outputMode,
+            'image_data': source_image.array.copy(),
+        }
+        return np.full((1, 1, 3), 64, dtype=np.uint8)
+
+    monkeypatch.setattr(controller_module.ImageCms, 'profileToProfile', fake_profile_to_profile)
+
+    preview, status = controller._prepare_output_display_image(
+        image_data,
+        output_color_space='Display P3',
+        use_display_transform=True,
+    )
+
+    np.testing.assert_array_equal(preview, np.full((1, 1, 3), 64, dtype=np.uint8))
+    assert status.startswith('Display transform: active (')
+    assert captured['profile_to_profile']['display_profile'] is not None
+    assert captured['profile_to_profile']['output_mode'] == 'RGB'
+
+
+def test_display_profile_fallback_missing_bytes_preserves_missing_profile(monkeypatch) -> None:
+    controller = GuiController(viewer=object(), widgets=object())
+    image_data = np.array([[[0.2, 0.4, 0.6]]], dtype=np.float32)
+
+    monkeypatch.setattr(controller_module.ImageCms, 'get_display_profile', lambda: None)
+    monkeypatch.setattr(controller_module.runtime, '_mac_display_profile_fallback_enabled', lambda: True)
+    monkeypatch.setattr(controller_module.runtime, '_get_mac_display_profile_bytes', lambda: None)
+
+    assert controller_module.runtime.display_profile_available(imagecms_module=controller_module.ImageCms) is False
+
+    preview, status = controller._prepare_output_display_image(
+        image_data,
+        output_color_space='Display P3',
+        use_display_transform=True,
+    )
+
+    _assert_fallback_preview(preview, status, expected_status='Display transform: no display profile, using raw preview')
+
+
+def test_display_profile_fallback_bad_icc_bytes_preserves_missing_profile(monkeypatch) -> None:
+    monkeypatch.setattr(controller_module.ImageCms, 'get_display_profile', lambda: None)
+    monkeypatch.setattr(controller_module.runtime, '_mac_display_profile_fallback_enabled', lambda: True)
+    monkeypatch.setattr(controller_module.runtime, '_get_mac_display_profile_bytes', lambda: b'not an icc profile')
+
+    assert controller_module.runtime.display_profile_available(imagecms_module=controller_module.ImageCms) is False
+    assert controller_module.runtime.display_profile_details(imagecms_module=controller_module.ImageCms) == (None, None)
+
+
 def test_prepare_output_display_image_reports_transform_failure(monkeypatch) -> None:
     controller = GuiController(viewer=object(), widgets=object())
     image_data = np.array([[[0.2, 0.4, 0.6]]], dtype=np.float32)
