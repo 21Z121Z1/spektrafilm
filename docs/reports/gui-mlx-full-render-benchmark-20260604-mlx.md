@@ -1,4 +1,4 @@
-# GUI MLX Full Render Benchmark - 20260604-143312
+# GUI MLX Full Render Benchmark - 20260605-134640
 
 - Status: `ok`
 - Backend: `mlx`
@@ -11,40 +11,40 @@
 
 | Metric | Seconds |
 |---|---:|
-| median | 0.076036 |
-| min | 0.059970 |
-| max | 0.085732 |
+| median | 0.191702 |
+| min | 0.186486 |
+| max | 0.197510 |
 
 ## GUI Phase Timings
 
 | Phase | Median | Min | Max |
 |---|---:|---:|---:|
-| gui.display_prepare | 0.001209 | 0.001205 | 0.001316 |
-| gui.display_uint8 | 0.001194 | 0.001189 | 0.001299 |
-| gui.float_materialize | 0.000002 | 0.000002 | 0.000002 |
+| gui.display_prepare | 0.001207 | 0.001143 | 0.001435 |
+| gui.display_uint8 | 0.001195 | 0.001133 | 0.001422 |
+| gui.float_materialize | 0.000001 | 0.000001 | 0.000001 |
 | gui.input_copy | 0.000000 | 0.000000 | 0.000000 |
-| gui.input_dtype_convert | 0.000003 | 0.000003 | 0.000004 |
-| gui.input_prepare | 0.000008 | 0.000008 | 0.000009 |
-| gui.worker_total | 0.076009 | 0.059931 | 0.085705 |
-| runtime.process | 0.074786 | 0.058710 | 0.084375 |
+| gui.input_dtype_convert | 0.000003 | 0.000003 | 0.000003 |
+| gui.input_prepare | 0.000007 | 0.000007 | 0.000010 |
+| gui.worker_total | 0.191672 | 0.186463 | 0.197486 |
+| runtime.process | 0.190225 | 0.185243 | 0.196330 |
 
 ## Last Run Runtime Stages
 
 | Stage | Seconds |
 |---|---:|
-| preprocess | 0.000238 |
-| SpectralLUTService.get_filming_tc_lut | 0.000010 |
-| SpectralLUTService.get_filming_tc_lut_backend | 0.000331 |
-| filming.expose | 0.034977 |
-| filming.develop | 0.013626 |
-| PrintingStage.expose | 0.013397 |
-| printing.expose | 0.013403 |
-| PrintingStage.develop | 0.000440 |
-| printing.develop | 0.000442 |
-| SpectralLUTService.spectral_compute_scanner | 0.001124 |
-| ScanningStage.scan | 0.002484 |
-| scanning.scan_print | 0.002505 |
-| SimulationPipeline.materialize | 0.019137 |
+| preprocess | 0.000253 |
+| SpectralLUTService.get_filming_tc_lut | 0.000019 |
+| SpectralLUTService.get_filming_tc_lut_backend | 0.000347 |
+| filming.expose | 0.165500 |
+| filming.develop | 0.012485 |
+| PrintingStage.expose | 0.004169 |
+| printing.expose | 0.004172 |
+| PrintingStage.develop | 0.000373 |
+| printing.develop | 0.000374 |
+| SpectralLUTService.spectral_compute_scanner | 0.000731 |
+| ScanningStage.scan | 0.001664 |
+| scanning.scan_print | 0.001667 |
+| SimulationPipeline.materialize | 0.011842 |
 
 ## Last Run Memory Estimates
 

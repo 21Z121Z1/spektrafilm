@@ -1,5 +1,5 @@
 {
-  "run_id": "20260604-143312",
+  "run_id": "20260605-134640",
   "status": "ok",
   "backend": "mlx",
   "precision": "float32",
@@ -16,31 +16,31 @@
   "warmups": [
     {
       "status": "ok",
-      "wall_seconds": 0.48706400000082795,
+      "wall_seconds": 1.3854627500002152,
       "phase_timings": {
-        "gui.input_prepare": 1.0457995813339949e-05,
-        "gui.input_dtype_convert": 4.9579975893720984e-06,
+        "gui.input_prepare": 7.332999985010247e-06,
+        "gui.input_dtype_convert": 3.45799981005257e-06,
         "gui.input_copy": 0.0,
-        "runtime.process": 0.48562783301167656,
-        "gui.float_materialize": 2.0000006770715117e-06,
-        "gui.display_uint8": 0.0012862500007031485,
-        "gui.display_prepare": 0.0013279159902594984,
-        "gui.worker_total": 0.48699541699897964
+        "runtime.process": 1.383965083000021,
+        "gui.float_materialize": 1.2500001957960194e-06,
+        "gui.display_uint8": 0.001416749999862077,
+        "gui.display_prepare": 0.001432541999975001,
+        "gui.worker_total": 1.3854142500001672
       },
       "runtime_stage_timings": {
-        "preprocess": 0.019404207996558398,
-        "SpectralLUTService.get_filming_tc_lut": 5.524999869521707e-05,
-        "SpectralLUTService.get_filming_tc_lut_backend": 0.0004014590085716918,
-        "filming.expose": 0.22073470801115036,
-        "filming.develop": 0.024848500004736707,
-        "PrintingStage.expose": 0.018276415998116136,
-        "printing.expose": 0.01828129201021511,
-        "PrintingStage.develop": 0.0005621250020340085,
-        "printing.develop": 0.0005639589944621548,
-        "SpectralLUTService.spectral_compute_scanner": 0.0045807919959770516,
-        "ScanningStage.scan": 0.18418675000430085,
-        "scanning.scan_print": 0.18419133299903478,
-        "SimulationPipeline.materialize": 0.0175287910096813
+        "preprocess": 0.0002280419998896832,
+        "SpectralLUTService.get_filming_tc_lut": 1.3915999943492352e-05,
+        "SpectralLUTService.get_filming_tc_lut_backend": 0.0002714170000217564,
+        "filming.expose": 0.38385458299990205,
+        "filming.develop": 0.17340766699999222,
+        "PrintingStage.expose": 0.35925574999987475,
+        "printing.expose": 0.35925945899998624,
+        "PrintingStage.develop": 0.000413499999922351,
+        "printing.develop": 0.00041504100022393686,
+        "SpectralLUTService.spectral_compute_scanner": 0.0373301250001532,
+        "ScanningStage.scan": 0.16496441599997524,
+        "scanning.scan_print": 0.16496779099998093,
+        "SimulationPipeline.materialize": 0.3017735000000812
       },
       "memory_estimates": {
         "gui.input_source_nbytes": 2359296,
@@ -64,37 +64,37 @@
         3
       ],
       "float_dtype": "float64",
-      "status_message": "Display transform: disabled | MLX float32 | 0.49s | process=0.49s, display=0.00s, materialize=0.00s"
+      "status_message": "Display transform: disabled | MLX float32 | 1.39s | process=1.38s, display=0.00s, materialize=0.00s"
     }
   ],
   "runs": [
     {
       "status": "ok",
-      "wall_seconds": 0.05997049999132287,
+      "wall_seconds": 0.19170199999985016,
       "phase_timings": {
-        "gui.input_prepare": 8.792005246505141e-06,
-        "gui.input_dtype_convert": 4.417001036927104e-06,
+        "gui.input_prepare": 6.708000000799075e-06,
+        "gui.input_dtype_convert": 3.000000106112566e-06,
         "gui.input_copy": 0.0,
-        "runtime.process": 0.05870991699339356,
-        "gui.float_materialize": 1.5420082490891218e-06,
-        "gui.display_uint8": 0.0011891249887412414,
-        "gui.display_prepare": 0.001204790998599492,
-        "gui.worker_total": 0.05993054200371262
+        "runtime.process": 0.19022516599989103,
+        "gui.float_materialize": 9.99999883788405e-07,
+        "gui.display_uint8": 0.001421583999899667,
+        "gui.display_prepare": 0.0014347080000334245,
+        "gui.worker_total": 0.1916718340000898
       },
       "runtime_stage_timings": {
-        "preprocess": 8.120799611788243e-05,
-        "SpectralLUTService.get_filming_tc_lut": 1.0082992957904935e-05,
-        "SpectralLUTService.get_filming_tc_lut_backend": 0.00024537500576116145,
-        "filming.expose": 0.024902874996769242,
-        "filming.develop": 0.009146999989752658,
-        "PrintingStage.expose": 0.007107540994184092,
-        "printing.expose": 0.007112084000254981,
-        "PrintingStage.develop": 0.0010369590017944574,
-        "printing.develop": 0.001039665992720984,
-        "SpectralLUTService.spectral_compute_scanner": 0.001574124995386228,
-        "ScanningStage.scan": 0.0026573340001050383,
-        "scanning.scan_print": 0.002661207996425219,
-        "SimulationPipeline.materialize": 0.013706375000765547
+        "preprocess": 0.00015525000003435707,
+        "SpectralLUTService.get_filming_tc_lut": 7.790999916323926e-06,
+        "SpectralLUTService.get_filming_tc_lut_backend": 0.00022983400003795396,
+        "filming.expose": 0.16581266699995467,
+        "filming.develop": 0.01069583399998919,
+        "PrintingStage.expose": 0.0035662499999489228,
+        "printing.expose": 0.003568916000176614,
+        "PrintingStage.develop": 0.00033125000004474714,
+        "printing.develop": 0.0003325000000131695,
+        "SpectralLUTService.spectral_compute_scanner": 0.000539249999974345,
+        "ScanningStage.scan": 0.0012648750000607833,
+        "scanning.scan_print": 0.001266374999886466,
+        "SimulationPipeline.materialize": 0.008353166999995665
       },
       "memory_estimates": {
         "gui.input_source_nbytes": 2359296,
@@ -118,35 +118,35 @@
         3
       ],
       "float_dtype": "float64",
-      "status_message": "Display transform: disabled | MLX float32 | 0.06s | process=0.06s, display=0.00s, materialize=0.00s"
+      "status_message": "Display transform: disabled | MLX float32 | 0.19s | process=0.19s, display=0.00s, materialize=0.00s"
     },
     {
       "status": "ok",
-      "wall_seconds": 0.07603558299888391,
+      "wall_seconds": 0.18648637500018594,
       "phase_timings": {
-        "gui.input_prepare": 7.708003977313638e-06,
-        "gui.input_dtype_convert": 3.292007022537291e-06,
+        "gui.input_prepare": 1.0290999853168614e-05,
+        "gui.input_dtype_convert": 2.58300019595481e-06,
         "gui.input_copy": 0.0,
-        "runtime.process": 0.07478604100469965,
-        "gui.float_materialize": 1.624997821636498e-06,
-        "gui.display_uint8": 0.0011940420081373304,
-        "gui.display_prepare": 0.0012085420021321625,
-        "gui.worker_total": 0.0760085420042742
+        "runtime.process": 0.18524329199999556,
+        "gui.float_materialize": 1.041999894368928e-06,
+        "gui.display_uint8": 0.0011946250001528824,
+        "gui.display_prepare": 0.0012066670001331659,
+        "gui.worker_total": 0.18646287499996106
       },
       "runtime_stage_timings": {
-        "preprocess": 0.00017737499729264528,
-        "SpectralLUTService.get_filming_tc_lut": 1.2999997125007212e-05,
-        "SpectralLUTService.get_filming_tc_lut_backend": 0.00022899999748915434,
-        "filming.expose": 0.03390287500224076,
-        "filming.develop": 0.013332375005120412,
-        "PrintingStage.expose": 0.007249916001455858,
-        "printing.expose": 0.007273499999428168,
-        "PrintingStage.develop": 0.00040587500552646816,
-        "printing.develop": 0.0004075420001754537,
-        "SpectralLUTService.spectral_compute_scanner": 0.0008827079873299226,
-        "ScanningStage.scan": 0.001826833002269268,
-        "scanning.scan_print": 0.0018303749966435134,
-        "SimulationPipeline.materialize": 0.017814624996390194
+        "preprocess": 6.912500020916923e-05,
+        "SpectralLUTService.get_filming_tc_lut": 7.458000027327216e-06,
+        "SpectralLUTService.get_filming_tc_lut_backend": 0.00015533400005551812,
+        "filming.expose": 0.1638053750000381,
+        "filming.develop": 0.007245416999921872,
+        "PrintingStage.expose": 0.004076416999851062,
+        "printing.expose": 0.0040801659999942785,
+        "PrintingStage.develop": 0.0003717919998962316,
+        "printing.develop": 0.00037324999993870733,
+        "SpectralLUTService.spectral_compute_scanner": 0.0005904590000227472,
+        "ScanningStage.scan": 0.0014309159998902032,
+        "scanning.scan_print": 0.0014371659999596886,
+        "SimulationPipeline.materialize": 0.008201916000189158
       },
       "memory_estimates": {
         "gui.input_source_nbytes": 2359296,
@@ -170,35 +170,35 @@
         3
       ],
       "float_dtype": "float64",
-      "status_message": "Display transform: disabled | MLX float32 | 0.08s | process=0.07s, display=0.00s, materialize=0.00s"
+      "status_message": "Display transform: disabled | MLX float32 | 0.19s | process=0.19s, display=0.00s, materialize=0.00s"
     },
     {
       "status": "ok",
-      "wall_seconds": 0.08573158300714567,
+      "wall_seconds": 0.19750987500015071,
       "phase_timings": {
-        "gui.input_prepare": 7.6669966802001e-06,
-        "gui.input_dtype_convert": 3.4580007195472717e-06,
+        "gui.input_prepare": 7.416000016746693e-06,
+        "gui.input_dtype_convert": 3.0839998998999363e-06,
         "gui.input_copy": 0.0,
-        "runtime.process": 0.08437458299158607,
-        "gui.float_materialize": 1.7909915186464787e-06,
-        "gui.display_uint8": 0.0012990420073037967,
-        "gui.display_prepare": 0.0013159170048311353,
-        "gui.worker_total": 0.0857046249875566
+        "runtime.process": 0.1963297079998938,
+        "gui.float_materialize": 1.1669999366858974e-06,
+        "gui.display_uint8": 0.0011327080001137801,
+        "gui.display_prepare": 0.0011434580001150607,
+        "gui.worker_total": 0.1974857919999522
       },
       "runtime_stage_timings": {
-        "preprocess": 0.00023841700749471784,
-        "SpectralLUTService.get_filming_tc_lut": 9.750001481734216e-06,
-        "SpectralLUTService.get_filming_tc_lut_backend": 0.00033141700259875506,
-        "filming.expose": 0.03497687500203028,
-        "filming.develop": 0.013626291998662055,
-        "PrintingStage.expose": 0.013397166010690853,
-        "printing.expose": 0.013402541997493245,
-        "PrintingStage.develop": 0.00044008399709127843,
-        "printing.develop": 0.00044216700189281255,
-        "SpectralLUTService.spectral_compute_scanner": 0.0011241660104133189,
-        "ScanningStage.scan": 0.0024837500095600262,
-        "scanning.scan_print": 0.0025045830116141587,
-        "SimulationPipeline.materialize": 0.019136583010549657
+        "preprocess": 0.00025308299996140704,
+        "SpectralLUTService.get_filming_tc_lut": 1.8500000123822247e-05,
+        "SpectralLUTService.get_filming_tc_lut_backend": 0.000347375000046668,
+        "filming.expose": 0.16550041599998622,
+        "filming.develop": 0.01248504199998024,
+        "PrintingStage.expose": 0.004168582999909631,
+        "printing.expose": 0.004172082999957638,
+        "PrintingStage.develop": 0.0003728330000285496,
+        "printing.develop": 0.0003742500000498694,
+        "SpectralLUTService.spectral_compute_scanner": 0.0007307920000130252,
+        "ScanningStage.scan": 0.0016643749997911073,
+        "scanning.scan_print": 0.0016674999999395368,
+        "SimulationPipeline.materialize": 0.011841999999887776
       },
       "memory_estimates": {
         "gui.input_source_nbytes": 2359296,
@@ -222,29 +222,29 @@
         3
       ],
       "float_dtype": "float64",
-      "status_message": "Display transform: disabled | MLX float32 | 0.09s | process=0.08s, display=0.00s, materialize=0.00s"
+      "status_message": "Display transform: disabled | MLX float32 | 0.20s | process=0.20s, display=0.00s, materialize=0.00s"
     }
   ],
   "wall_seconds": {
-    "median": 0.07603558299888391,
-    "min": 0.05997049999132287,
-    "max": 0.08573158300714567
+    "median": 0.19170199999985016,
+    "min": 0.18648637500018594,
+    "max": 0.19750987500015071
   },
   "phase_summary": {
     "gui.display_prepare": {
-      "median": 0.0012085420021321625,
-      "min": 0.001204790998599492,
-      "max": 0.0013159170048311353
+      "median": 0.0012066670001331659,
+      "min": 0.0011434580001150607,
+      "max": 0.0014347080000334245
     },
     "gui.display_uint8": {
-      "median": 0.0011940420081373304,
-      "min": 0.0011891249887412414,
-      "max": 0.0012990420073037967
+      "median": 0.0011946250001528824,
+      "min": 0.0011327080001137801,
+      "max": 0.001421583999899667
     },
     "gui.float_materialize": {
-      "median": 1.624997821636498e-06,
-      "min": 1.5420082490891218e-06,
-      "max": 1.7909915186464787e-06
+      "median": 1.041999894368928e-06,
+      "min": 9.99999883788405e-07,
+      "max": 1.1669999366858974e-06
     },
     "gui.input_copy": {
       "median": 0.0,
@@ -252,24 +252,24 @@
       "max": 0.0
     },
     "gui.input_dtype_convert": {
-      "median": 3.4580007195472717e-06,
-      "min": 3.292007022537291e-06,
-      "max": 4.417001036927104e-06
+      "median": 3.000000106112566e-06,
+      "min": 2.58300019595481e-06,
+      "max": 3.0839998998999363e-06
     },
     "gui.input_prepare": {
-      "median": 7.708003977313638e-06,
-      "min": 7.6669966802001e-06,
-      "max": 8.792005246505141e-06
+      "median": 7.416000016746693e-06,
+      "min": 6.708000000799075e-06,
+      "max": 1.0290999853168614e-05
     },
     "gui.worker_total": {
-      "median": 0.0760085420042742,
-      "min": 0.05993054200371262,
-      "max": 0.0857046249875566
+      "median": 0.1916718340000898,
+      "min": 0.18646287499996106,
+      "max": 0.1974857919999522
     },
     "runtime.process": {
-      "median": 0.07478604100469965,
-      "min": 0.05870991699339356,
-      "max": 0.08437458299158607
+      "median": 0.19022516599989103,
+      "min": 0.18524329199999556,
+      "max": 0.1963297079998938
     }
   }
 }
