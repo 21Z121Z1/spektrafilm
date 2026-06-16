@@ -242,13 +242,17 @@ class TestInputExposureGain:
         np.testing.assert_allclose(gain, 1.0, rtol=1e-3)
 
     def test_vlog_six_stops_attenuates(self):
-        """V-Log native ≈8 stops above gray. Setting stops_above_midgray = 6
-        is a *reduction*, so gain < 1."""
+        """V-Log native ≈8 stops above gray. Explicitly setting
+        stops_above_midgray = 6 is a *reduction*, so gain < 1 (and would
+        drift midgray down ~2 stops — which is why it is not the default)."""
         gain = cs.input_exposure_gain("Panasonic V-Log", 6.0)
         assert gain < 1.0
 
-    def test_vlog_auto_default_is_curated_to_six_stops(self):
-        assert cs.native_stops_above_midgray("Panasonic V-Log") == 6.0
+    def test_vlog_auto_default_is_native_identity(self):
+        """V-Log carries no curated override: ``"auto"`` resolves to the
+        curve's native headroom (≈8 stops), so the gain is identity and
+        a properly-exposed V-Log midgray maps to the film's 0.18."""
+        assert cs.native_stops_above_midgray("Panasonic V-Log") == pytest.approx(8.0, abs=0.01)
 
     def test_unknown_input_color_space_raises(self):
         with pytest.raises(KeyError, match="Unknown color space"):

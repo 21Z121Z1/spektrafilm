@@ -106,12 +106,6 @@ class ColorSpaceEntry:
     diffuse-white ceiling. The simple linear gain drifts midgray upward
     by ~3.5 stops as a side effect — see the
     ``stops_above_midgray`` docstring on :class:`BundleSpec`."""
-    auto_stops_above_midgray: float | None = None
-    """Optional curated ``stops_above_midgray="auto"`` resolution.
-
-    Use when published camera guidance or product behavior should win over
-    the literal ``decode_cctf(1.0)`` headroom math. ``None`` means the
-    entry falls back to the usual kind-based logic / native computation."""
 
 
 _REGISTRY: dict[str, ColorSpaceEntry] = {}
@@ -359,13 +353,7 @@ register(ColorSpaceEntry("Sony S-Log3 (S-Gamut3.Cine)", "S-Gamut3.Cine",   "S-Lo
 register(ColorSpaceEntry("Panasonic V-Log",          "V-Gamut",            "V-Log",
                          "log", ("input",),
                          short_tag="vlog",
-                         ocio_alias="Panasonic V-Log - V-Gamut",
-                         auto_stops_above_midgray=6.0,
-                         notes=(
-                             "Auto stops default is curated to +6 above middle gray "
-                             "to match Panasonic V-Log exposure guidance rather than "
-                             "the raw decode_cctf(1.0) headroom."
-                         )))
+                         ocio_alias="Panasonic V-Log - V-Gamut"))
 register(ColorSpaceEntry("Fujifilm F-Log",           "F-Gamut",            "F-Log",
                          "log", ("input",),
                          short_tag="flog"))
@@ -610,27 +598,19 @@ def native_stops_above_midgray(input_color_space: str) -> float:
       :data:`SCENE_REFERRED_DEFAULT_STOPS` (6.0) so the LUT's [0, 1]
       input domain carries highlight headroom past diffuse white
       rather than clipping scene values at +2.47.
-        - **Curated overrides** (entries with
-            :attr:`ColorSpaceEntry.auto_stops_above_midgray` set): returns that
-            explicit value. Panasonic V-Log uses ``6.0`` here so bundle defaults
-            follow Panasonic's exposure guidance instead of the raw encoded-1.0
-            decode headroom.
 
-        Everything else — camera log (S-Log3 ≈ 7.6, ACEScct ≈ 8, ...),
+    Everything else — camera log (V-Log ≈ 8, S-Log3 ≈ 7.6, ACEScct ≈ 10.3, ...),
     HDR PQ (≈6.64 for Rec.2100 PQ under the 100-nit midgray convention),
     plain linear entries with no scene-referred flag — gets the
     physical headroom from the registry math.
 
     Used as the ``stops_above_midgray`` resolved value when the spec is
     constructed with ``stops_above_midgray="auto"``. For log inputs the
-    resulting gain is usually 1.0 (identity) unless an entry provides a
-    curated override; for SDR / scene-linear the gain drifts midgray
-    upward as documented on :class:`BundleSpec`; for HDR PQ it lands the
-    convention's midgray on the film's 0.18.
+    resulting gain is 1.0 (identity); for SDR / scene-linear the gain
+    drifts midgray upward as documented on :class:`BundleSpec`; for HDR
+    PQ it lands the convention's midgray on the film's 0.18.
     """
     entry = get(input_color_space)
-    if entry.auto_stops_above_midgray is not None:
-        return float(entry.auto_stops_above_midgray)
     if entry.scene_referred_input:
         return SCENE_REFERRED_DEFAULT_STOPS
     if entry.kind == "encoded_sdr":

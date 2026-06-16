@@ -820,7 +820,6 @@ DISPLAY_PANEL_FIELDS = (
         label="Preview max size",
         tooltip="max size of the long edge of the preview image in pixels",
         min=128,
-        max=1024,
         step=128,
     ),
     ParamSpec(

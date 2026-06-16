@@ -13,6 +13,7 @@ An exploration of how to make good use of spectroscopic data from manufacturer d
 
 Here are some useful links and spin-off projects:
 - Discussion about the project is happeing at [discuss.pixls.us](https://discuss.pixls.us/c/software/spektrafilm/).
+- Join us at the official [subreddit](https://www.reddit.com/r/spektrafilm/).
 - A [high-level writeup](https://discuss.pixls.us/t/spectral-film-simulations-from-scratch/) is available as a gentle entrypoint to the spectral framework.
 - Vote [your next stock](https://discuss.pixls.us/t/2026-q2-data-sheets-digitization-campaign/58032) you would like to see in spektrafilm.
 - A blazing fast Vulkan implementation is available in [vkdt](https://jo.dreggn.org/vkdt/src/pipe/modules/filmsim/readme.html) by [hanatos](https://github.com/hanatos).
