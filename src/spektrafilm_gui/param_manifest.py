@@ -920,10 +920,10 @@ HDR_EXPORT_MANIFEST = GroupManifest(
     fields=(
         ParamSpec(
             f"{_HDR}.hdr_mapping_mode",
-            label="HDR mapping",
+            label="HDR mode",
             tier="basic",
             enum=HDRMappingModes,
-            tooltip="HDR export mapping route used only for explicit HDR HEIC gain-map output.",
+            tooltip="RouteMaster HDR projection mode used only for explicit HDR HEIC gain-map output.",
         ),
         ParamSpec(
             f"{_HDR}.hdr_heic_gain_map_enabled",
@@ -936,15 +936,15 @@ HDR_EXPORT_MANIFEST = GroupManifest(
             label="Scene source",
             tier="basic",
             enum=HDRSceneSources,
-            tooltip="Scene luminance source for profile-aware HDR export.",
+            tooltip="Compatibility field. RouteMaster HDR export derives scene authority from the film simulation pipeline.",
         ),
         ParamSpec(
             f"{_HDR}.hdr_diffuse_white_target",
-            label="Diffuse white target",
+            label="Diffuse white anchor",
             min=0.1,
             max=4.0,
             step=0.05,
-            tooltip="Target diffuse white for HDR mapping.",
+            tooltip="Scene-energy diffuse white anchor used to separate authored SDR base from HDR highlight headroom.",
         ),
         ParamSpec(
             f"{_HDR}.hdr_peak_headroom",
@@ -958,7 +958,7 @@ HDR_EXPORT_MANIFEST = GroupManifest(
             f"{_HDR}.hdr_headroom_mode",
             label="Headroom mode",
             enum=HDRHeadroomModes,
-            tooltip="How profile-aware HDR budgets highlight recovery.",
+            tooltip="RouteMaster HDR currently supports content percentile headroom budgeting.",
         ),
         ParamSpec(
             f"{_HDR}.headroom_percentile",

@@ -21,7 +21,7 @@ from spektrafilm.runtime.params_schema import (
 )
 from spektrafilm.utils.gamut_compression import InputGamutCompressSpec, OutputGamutCompressSpec
 from spektrafilm.utils.morph_curves import PrintCurvesMorphParams
-from spektrafilm_gui.hdr_settings import HDRExportSettings
+from spektrafilm_gui.hdr_settings import HDRExportSettings, normalize_hdr_mapping_mode
 from spektrafilm_gui.param_manifest import DISPLAY_PANEL_FIELDS, INPUT_IMAGE_FIELDS, SIMULATION_FIELDS, SPECIAL_FIELDS
 
 
@@ -110,7 +110,7 @@ def display_to_dict(state: DisplayState) -> dict[str, object]:
 
 def hdr_to_dict(state: HDRExportSettings) -> dict[str, object]:
     return {
-        'hdr_mapping_mode': state.hdr_mapping_mode,
+        'hdr_mapping_mode': normalize_hdr_mapping_mode(state.hdr_mapping_mode),
         'hdr_heic_gain_map_enabled': state.hdr_heic_gain_map_enabled,
         'hdr_scene_source': state.hdr_scene_source,
         'hdr_diffuse_white_target': state.hdr_diffuse_white_target,
@@ -200,7 +200,9 @@ def normalize_display_dict(data: dict[str, Any]) -> dict[str, Any]:
 
 def normalize_hdr_dict(data: dict[str, Any]) -> dict[str, Any]:
     return {
-        'hdr_mapping_mode': data.get('hdr_mapping_mode', PROJECT_DEFAULT_GUI_STATE.hdr.hdr_mapping_mode),
+        'hdr_mapping_mode': normalize_hdr_mapping_mode(
+            data.get('hdr_mapping_mode', PROJECT_DEFAULT_GUI_STATE.hdr.hdr_mapping_mode)
+        ),
         'hdr_heic_gain_map_enabled': data.get(
             'hdr_heic_gain_map_enabled',
             PROJECT_DEFAULT_GUI_STATE.hdr.hdr_heic_gain_map_enabled,

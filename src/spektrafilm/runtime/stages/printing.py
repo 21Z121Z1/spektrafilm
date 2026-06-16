@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+from time import perf_counter
 from opt_einsum import contract
 
 from spektrafilm.model.diffusion import apply_diffusion_filter_um
@@ -15,7 +16,6 @@ from spektrafilm.gpu.kernels.density import (
     light_to_raw as light_to_raw_backend,
     safe_log10_backend,
 )
-from spektrafilm.gpu.kernels.lut import apply_lut_trilinear_3d_backend
 from spektrafilm.utils.morph_curves import apply_print_curves_morph
 
 
@@ -54,6 +54,10 @@ class PrintingStage:
         """Pre-convert static spectral arrays to backend arrays once."""
         _gpu = self._backend is not None and getattr(self._backend, "supports_gpu", False)
         if not _gpu:
+            self._backend_channel_density = None
+            self._backend_base_density = None
+            self._backend_print_illuminant = None
+            self._backend_sensitivity = None
             return
 
         sensitivity = 10 ** self._print.data.log_sensitivity
@@ -72,6 +76,10 @@ class PrintingStage:
         self._backend_sensitivity = self._backend.asarray(sensitivity)
 
     # public methods
+
+    def refresh_backend_spectral_tables(self) -> None:
+        """Refresh backend-cached spectral tables after mutable inputs change."""
+        self._precompute_spectral_tables()
 
     @timeit("expose")
     def expose(self, cmy_film_density: np.ndarray) -> np.ndarray:
@@ -118,60 +126,22 @@ class PrintingStage:
         Computes the same result as _film_cmy_to_print_log_raw but avoids
         the numpy round-trip by performing the full chain on the backend.
         """
-        data_min = -np.array(self._film_render.grain.density_min)
-        data_max = np.nanmax(self._film.data.density_curves, axis=0)
         use_lut = self._settings.use_enlarger_lut
 
         if not use_lut:
             return self._film_cmy_to_print_log_raw(cmy_film_density, return_backend=True)
 
-        # Check LUT cache validity
-        test_results = self._film_cmy_to_print_log_raw(
-            np.array(self._lut_service._cmy_test_values)
-        )
-        cached_lut = self._lut_service.enlarger_lut_memory
-        cached_test = self._lut_service._enlarger_test_results_memory
-
-        if (
-            cached_lut is not None
-            and cached_test is not None
-            and np.array_equal(test_results, cached_test)
-        ):
-            lut = cached_lut
-        else:
-            # Build LUT via the spectral_calculation callback
-            from spektrafilm.utils.lut import _create_lut_3d
-
-            lut = _create_lut_3d(
-                self._film_cmy_to_print_log_raw,
-                xmin=data_min,
-                xmax=data_max,
-                steps=self._lut_service.lut_resolution,
-            )
-            self._lut_service.enlarger_lut_memory = lut
-            self._lut_service._enlarger_test_results_memory = np.array(test_results, copy=True)
-            self._lut_service._enlarger_lut_backend = None  # invalidate backend cache
-
-        # Apply LUT on backend — use cached backend LUT if available
-        from spektrafilm.utils.lut import _as_channel_bounds
-        xmin = _as_channel_bounds(data_min)
-        xmax = _as_channel_bounds(data_max)
-        data_normalized = (
-            self._backend.asarray(cmy_film_density)
-            - self._backend.asarray(xmin)
-        ) / self._backend.asarray(xmax - xmin)
-
-        backend_lut = self._lut_service._enlarger_lut_backend
-        if backend_lut is None:
-            backend_lut = self._backend.asarray(lut)
-            self._lut_service._enlarger_lut_backend = backend_lut
-
-        return apply_lut_trilinear_3d_backend(
-            lut,
-            data_normalized,
-            self._backend,
-            prepared_lut=backend_lut,
-        )
+        # CPU LUT application uses the project PCHIP LUT path. The current
+        # backend 3D LUT kernel is trilinear, so use exact backend spectral
+        # calculation rather than accepting an approximate GPU LUT result.
+        fallback_start = perf_counter()
+        try:
+            return self._film_cmy_to_print_log_raw(cmy_film_density, return_backend=True)
+        finally:
+            self.timings["PrintingStage.gpu_lut_direct_fallback"] = (
+                self.timings.get("PrintingStage.gpu_lut_direct_fallback", 0.0)
+                    + (perf_counter() - fallback_start)
+                )
 
     @timeit("develop")
     def develop(self, log_raw: np.ndarray) -> np.ndarray:

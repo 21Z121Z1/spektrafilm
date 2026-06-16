@@ -1,8 +1,12 @@
 # HDR Modes
 
-Date: 2026-06-05
+Date: 2026-06-08
 
 Spektrafilm exposes two RouteMaster HDR modes.
+
+The GUI HDR export selector exposes only these public ids. Older project files
+or scripted callers that still contain legacy mode strings are normalized at
+load/export boundaries.
 
 ## HDR Light Table
 
@@ -38,7 +42,7 @@ Does not respond to:
 - paper profile
 - paper density curve
 - paper shoulder
-- paper white
+- paper diffuse-white anchor
 - preflash
 - enlarger filters
 - paper glare
@@ -47,7 +51,9 @@ Does not respond to:
 Positive and reversal film can be routed directly. Negative film cannot be
 exported as a raw negative HDR scan; it must first become a positive film-scan
 look. The current RouteMaster path uses positive negative-scan rendering and
-rejects diagnostic raw negative masters in `project_hdr_light_table()`.
+rejects diagnostic raw negative masters in `project_hdr_light_table()`. The
+positive negative-scan route stores a derived XYZ sidecar instead of reusing
+RGB as fake XYZ.
 
 ## Idealized HDR Paper
 
@@ -64,9 +70,17 @@ Route kind: `print_scan`
 Real photographic paper is a reflective medium and cannot physically carry HDR
 display headroom. Idealized HDR Paper is a counterfactual digital medium:
 
-- below paper white, it follows the real photographic print/SDR look;
-- above paper white, it uses scene/material-derived energy to extend highlights
-  into HDR display headroom.
+- at or below the diffuse-white scene anchor, it follows the real photographic
+  print/SDR look;
+- above the diffuse-white scene anchor, it uses scene/material-derived energy to
+  extend highlights into HDR display headroom.
+
+Internally, the paper projection first tries `paper_rolloff_strategy="chemical_print"`.
+That strategy uses the exact sampled film+paper print-scan curve when the
+profile is increasing, marked safe, has valid RGB samples, and the scene has
+headroom above diffuse white. Missing, unsafe, non-print-scan, or SDR-only
+inputs fall back to the generic scene-extension path with diagnostics rather
+than claiming natural chemical rolloff.
 
 Responds to:
 
@@ -75,7 +89,7 @@ Responds to:
 - film stock
 - paper profile
 - paper tone/density curve and shoulder
-- paper white anchor
+- diffuse-white scene anchor
 - halation
 - film grain and dye-cloud-like density structure
 - paper-side diffusion
@@ -86,13 +100,23 @@ Responds to:
 ## Legacy Compatibility
 
 The old mapping names remain compatibility aliases in
-`spektrafilm.hdr.routemaster_export.normalize_hdr_mode()`:
+`spektrafilm.hdr.routemaster_export.normalize_hdr_mode()` and GUI state
+normalization:
 
 - `film_scan_aware` -> `light_table`
 - `profile_aware` -> `paper`
 - `generic` -> legacy/internal fallback mapped to `paper` with a warning
 
 These aliases are not the public RouteMaster HDR modes.
+
+## GUI Export Boundary
+
+GUI HEIC export builds `HDRProjectionConfig` from `HDRExportSettings` at the
+RouteMaster export boundary. The public GUI settings always preserve the
+authored SDR base. Compatibility fields that are not meaningful for RouteMaster
+projection fail closed instead of being silently ignored: `preserve_sdr_base`
+must stay true, `hdr_scene_source` must stay `output_layer_metadata`, and
+`hdr_headroom_mode` must stay `content_percentile`.
 
 ## Color Policy
 
@@ -105,4 +129,3 @@ hdr_rgb = route_chroma * hdr_luminance_y
 
 This prevents the HDR projection from silently restoring RAW/source chroma that
 the film, scan, or print route intentionally changed.
-

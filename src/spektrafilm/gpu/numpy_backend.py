@@ -6,6 +6,8 @@ from typing import Any
 import numpy as np
 from opt_einsum import contract
 
+from spektrafilm.gpu.residency import record_conversion
+
 
 @dataclass(slots=True)
 class NumpyBackend:
@@ -16,10 +18,14 @@ class NumpyBackend:
     requires_serial_runtime: bool = False
 
     def asarray(self, value: Any, dtype: Any | None = None) -> np.ndarray:
-        return np.asarray(value, dtype=dtype)
+        result = np.asarray(value, dtype=dtype)
+        record_conversion("asarray", self.name, value, result)
+        return result
 
     def to_numpy(self, value: Any) -> np.ndarray:
-        return np.asarray(value)
+        result = np.asarray(value)
+        record_conversion("to_numpy", self.name, value, result)
+        return result
 
     def eval(self, *values: Any) -> None:
         return None

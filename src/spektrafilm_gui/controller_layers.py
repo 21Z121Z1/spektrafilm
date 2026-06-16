@@ -219,7 +219,7 @@ def _layer_world_size(layer: NapariImageLayer) -> tuple[float, float]:
 def set_output_layer_metadata(
     layer: NapariImageLayer,
     *,
-    float_image: np.ndarray,
+    float_image: object | None,
     output_color_space: str,
     output_cctf_encoding: bool,
     use_display_transform: bool,
@@ -228,7 +228,10 @@ def set_output_layer_metadata(
     output_cctf_encoding_key: str,
     output_display_transform_key: str,
 ) -> None:
-    layer.metadata[output_float_data_key] = np.asarray(float_image, dtype=np.float32)
+    if float_image is None:
+        layer.metadata.pop(output_float_data_key, None)
+    else:
+        layer.metadata[output_float_data_key] = float_image
     layer.metadata[output_color_space_key] = output_color_space
     layer.metadata[output_cctf_encoding_key] = output_cctf_encoding
     layer.metadata[output_display_transform_key] = use_display_transform
@@ -359,7 +362,7 @@ class ViewerLayerService:
         self,
         image: np.ndarray,
         *,
-        float_image: np.ndarray,
+        float_image: object | None,
         output_color_space: str,
         output_cctf_encoding: bool,
         use_display_transform: bool,
@@ -619,14 +622,14 @@ class ViewerLayerService:
         if restore_final:
             _set_layer_data(layer, np.array(handle.final_image, copy=True))
 
-    def output_layer_float_data(self) -> np.ndarray | None:
+    def output_layer_float_data(self) -> object | None:
         output_layer = self.output_layer()
         if output_layer is None:
             return None
         float_data = output_layer.metadata.get(self.output_float_data_key)
         if float_data is None:
             return None
-        return np.asarray(float_data)
+        return float_data
 
     def output_layer_render_settings(
         self,

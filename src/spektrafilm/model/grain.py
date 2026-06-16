@@ -56,6 +56,7 @@ def layer_particle_model(density,
                 seed=seed,
                 blur_particle=blur_particle,
                 method=method,
+                use_fast_stats=use_fast_stats,
                 backend=backend,
             )
         density = backend.to_numpy(density) if hasattr(backend, "to_numpy") else np.asarray(density)
@@ -118,6 +119,7 @@ def _layer_particle_model_gpu(density,
                               seed=None,
                               blur_particle=0.0,
                               method='poisson_binomial',
+                              use_fast_stats=False,
                               backend=None,
                               ):
     """GPU-accelerated particle model using backend-aware stochastic samplers."""
@@ -139,16 +141,16 @@ def _layer_particle_model_gpu(density,
         )
 
         # Binomial(seeds[i,j], p[i,j]) for variable n per pixel.
-        # For large n: normal approximation  Binom(n,p) ~ N(n*p, n*p*(1-p))
-        # The normal approximation stays entirely on MLX; clamping by `seeds`
-        # keeps the result valid even if a pixel samples zero particles.
+        # For large n: normal approximation  Binom(n,p) ~ N(n*p, n*p*(1-p)).
+        # The approximation stays entirely on MLX; clamping by sampled seeds
+        # keeps each pixel in the valid binomial range.
         binom_key = mx.random.key((seed + 10000) if seed is not None else 0)
         seeds_f = seeds.astype(mx.float32)
         binom_mean = seeds_f * probability_of_development
         binom_var = binom_mean * (1.0 - probability_of_development)
         binom_std = mx.sqrt(mx.maximum(binom_var, mx.array(1e-8, dtype=mx.float32)))
 
-        binom_key, norm_key = mx.random.split(binom_key)
+        _, norm_key = mx.random.split(binom_key)
         normal_samples = binom_mean + binom_std * mx.random.normal(
             density_mx.shape, key=norm_key, dtype=mx.float32,
         )
@@ -156,7 +158,11 @@ def _layer_particle_model_gpu(density,
         binom_result = mx.maximum(binom_result, mx.zeros_like(binom_result))
         binom_result = mx.minimum(binom_result, seeds.astype(mx.int32))
 
-        grain = binom_result.astype(mx.float32) * mx.array(od_particle, dtype=mx.float32) * saturation
+        grain = (
+            binom_result.astype(mx.float32)
+            * mx.array(od_particle, dtype=mx.float32)
+            * saturation
+        )
 
     if blur_particle > 0:
         sigma = blur_particle * float(np.sqrt(od_particle))

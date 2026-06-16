@@ -54,6 +54,15 @@ def render_hdr_pair_from_master(
     return project_hdr_ideal_paper(master, config)
 
 
+def render_hdr_film_pair_from_master(
+    master: RouteMaster,
+    *,
+    hdr_mode: HDRMode | LegacyHDRMode | None = None,
+    config: HDRProjectionConfig | None = None,
+) -> HDRProjectionResult:
+    return render_hdr_pair_from_master(master, hdr_mode=hdr_mode, config=config)
+
+
 def export_hdr_heic_from_simulator(
     simulator,
     image,
@@ -76,12 +85,12 @@ def export_hdr_heic_from_simulator(
         headroom=result.headroom,
         quality=quality,
         gain_map_mode=gain_map_mode,
-        metadata={"hdr_mode": mode, "route_kind": master.route_kind},
     )
 
 
 __all__ = [
     "export_hdr_heic_from_simulator",
     "normalize_hdr_mode",
+    "render_hdr_film_pair_from_master",
     "render_hdr_pair_from_master",
 ]

@@ -4,6 +4,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+import colour
 import numpy as np
 
 from spektrafilm.runtime.route_master import RouteMaster
@@ -17,7 +18,9 @@ _EPS32 = np.float32(1e-8)
 class HDRProjectionConfig:
     max_headroom: float = 4.0
     headroom_percentile: float = 99.9
-    paper_white: float = 1.0
+    diffuse_white_scene_anchor: float | None = None
+    output_diffuse_white: float = 1.0
+    paper_white: float | None = None
     light_table_extension_strength: float = 0.75
     paper_extension_strength: float = 0.55
     min_detail: float = 0.75
@@ -31,10 +34,22 @@ class HDRProjectionConfig:
             raise ValueError("max_headroom must be a finite value greater than 1.0.")
         if not math.isfinite(self.headroom_percentile) or not (0.0 < self.headroom_percentile <= 100.0):
             raise ValueError("headroom_percentile must be in (0, 100].")
-        if not math.isfinite(self.paper_white) or self.paper_white <= 0.0:
-            raise ValueError("paper_white must be a finite positive value.")
+        scene_anchor = self.diffuse_white_scene_anchor
+        if scene_anchor is None:
+            scene_anchor = 1.0 if self.paper_white is None else self.paper_white
+        elif self.paper_white is not None and not math.isclose(float(scene_anchor), float(self.paper_white), rel_tol=1e-6, abs_tol=1e-6):
+            raise ValueError("diffuse_white_scene_anchor and paper_white must match when both are provided.")
+        if not math.isfinite(float(scene_anchor)) or float(scene_anchor) <= 0.0:
+            raise ValueError("diffuse_white_scene_anchor must be a finite positive value.")
+        if not math.isfinite(self.output_diffuse_white) or self.output_diffuse_white <= 0.0:
+            raise ValueError("output_diffuse_white must be a finite positive value.")
         if self.gain_map_mode not in ("luma", "rgb"):
             raise ValueError("gain_map_mode must be 'luma' or 'rgb'.")
+        object.__setattr__(self, "diffuse_white_scene_anchor", float(scene_anchor))
+        # Backward-compatible alias for older tests/callers. New code should use
+        # diffuse_white_scene_anchor so the scene anchor is not mistaken for an
+        # output diffuse-white target.
+        object.__setattr__(self, "paper_white", float(scene_anchor))
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,7 +83,20 @@ def _as_y(image: np.ndarray, *, field: str, shape: tuple[int, int]) -> np.ndarra
 
 
 def _sdr_rgb(master: RouteMaster) -> np.ndarray:
-    return np.clip(_as_rgb(master.sdr_legacy_rgb, field="sdr_legacy_rgb"), 0.0, 1.0)
+    sdr_val = np.clip(_as_rgb(master.sdr_legacy_rgb, field="sdr_legacy_rgb"), 0.0, 1.0)
+    if not bool(master.diagnostics.get("output_cctf_encoding", True)):
+        return sdr_val.astype(np.float32, copy=False)
+    color_space = master.diagnostics.get("output_color_space", "Display P3")
+    return np.asarray(
+        colour.RGB_to_RGB(
+            sdr_val,
+            color_space,
+            color_space,
+            apply_cctf_decoding=True,
+            apply_cctf_encoding=False,
+        ),
+        dtype=np.float32,
+    )
 
 
 def _route_luminance(master: RouteMaster, shape: tuple[int, int]) -> np.ndarray:
@@ -126,12 +154,13 @@ def _extension_gain(
     ratio: np.ndarray,
     *,
     max_headroom: float,
+    headroom_percentile: float,
     strength: float,
 ) -> np.ndarray:
     ratio = np.maximum(np.asarray(ratio, dtype=np.float32), 0.0)
     if not np.any(ratio > 1.0):
         return np.ones_like(ratio, dtype=np.float32)
-    peak = float(np.nanpercentile(ratio, 99.9))
+    peak = float(np.nanpercentile(ratio, headroom_percentile))
     span_end = max(1.25, min(float(max_headroom), peak))
     progress = _smoothstep(1.0, span_end, ratio)
     excess = np.clip((ratio - np.float32(1.0)) / np.float32(max(span_end - 1.0, 1e-8)), 0.0, 1.0)
@@ -146,6 +175,14 @@ def _apply_path_to_white(rgb: np.ndarray, hdr_y: np.ndarray, strength: float, ma
     blend = np.clip(progress * np.float32(strength), 0.0, 1.0)[..., None]
     white = np.repeat(hdr_y[..., None], 3, axis=2)
     return rgb * (np.float32(1.0) - blend) + white * blend
+
+
+def _apply_output_diffuse_white(rgb: np.ndarray, sdr: np.ndarray, config: HDRProjectionConfig) -> np.ndarray:
+    target = np.float32(config.output_diffuse_white)
+    if np.isclose(target, np.float32(1.0), rtol=0.0, atol=np.float32(1e-7)):
+        return rgb
+    delta = np.asarray(rgb, dtype=np.float32) - np.asarray(sdr, dtype=np.float32)
+    return np.maximum(sdr + delta * target, 0.0).astype(np.float32, copy=False)
 
 
 def _headroom(hdr_rgb: np.ndarray, config: HDRProjectionConfig) -> float:
@@ -172,9 +209,13 @@ def _build_result(
     shape = sdr.shape[:2]
     chroma = _route_chroma(master, shape)
     hdr_rgb = np.maximum(chroma * np.maximum(hdr_y, 0.0)[..., None], 0.0)
-    initial_headroom = _headroom(hdr_rgb, config)
+    if mode == "paper":
+        scene_y = _scene_authority(master, shape)
+        mask = (scene_y <= np.float32(config.diffuse_white_scene_anchor))[..., None]
+        hdr_rgb = np.where(mask, sdr, hdr_rgb)
     hdr_rgb = _apply_path_to_white(hdr_rgb, hdr_y, path_to_white_strength, config.max_headroom)
-    headroom = max(initial_headroom, _headroom(hdr_rgb, config))
+    hdr_rgb = _apply_output_diffuse_white(hdr_rgb, sdr, config)
+    headroom = _headroom(hdr_rgb, config)
     hdr_rgb = _clip_hdr(hdr_rgb, headroom)
     hdr_luma = luminance_y(hdr_rgb)
     gain_map = hdr_photo.encode_gain_map_log2(sdr, hdr_rgb, headroom=headroom)
@@ -191,6 +232,10 @@ def _build_result(
         "route_kind": master.route_kind,
         "route_render_count": master.diagnostics.get("route_render_count"),
         "source_chroma_default": "route_look_chroma",
+        "diffuse_white_scene_anchor": float(config.diffuse_white_scene_anchor),
+        "output_diffuse_white": float(config.output_diffuse_white),
+        "output_diffuse_white_effect": "hdr_delta_from_sdr",
+        "preserve_sdr_base": True,
     }
     return HDRProjectionResult(
         mode=mode,
@@ -216,7 +261,12 @@ def build_hdr_y_from_route(
     shape = sdr.shape[:2]
     base_y = np.maximum(luminance_y(sdr), _EPS32)
     ratio = _authority_ratio(authority_y, white=white)
-    gain = _extension_gain(ratio, max_headroom=config.max_headroom, strength=strength)
+    gain = _extension_gain(
+        ratio,
+        max_headroom=config.max_headroom,
+        headroom_percentile=config.headroom_percentile,
+        strength=strength,
+    )
     detail = _material_detail(master, shape, config)
     low_frequency_gain = gain / np.maximum(detail, _EPS32)
     return np.maximum(base_y * low_frequency_gain * detail, base_y).astype(np.float32, copy=False)

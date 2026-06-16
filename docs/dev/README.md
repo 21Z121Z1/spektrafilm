@@ -35,6 +35,7 @@ This directory contains working reports, research notes, implementation records,
 | [`modern_recovery_peak_budget_plan.md`](modern_recovery_peak_budget_plan.md) | Profile-preserving HDR recovery peak-budget plan. [中文](modern_recovery_peak_budget_plan_zh.md) |
 | [`2026-06-03-natural-hdr-film-simulation-research.md`](2026-06-03-natural-hdr-film-simulation-research.md) | Natural HDR film-simulation research, current HDR mode audit, recommended architecture, and minimal prototype validation. |
 | [`2026-06-04-dng-natural-hdr-luminance-research.md`](2026-06-04-dng-natural-hdr-luminance-research.md) | DNG/RAW Natural HDR diffuse-white, headroom, confidence, downgrade, and provenance research with a tested estimator. |
+| [`2026-06-08-chemical-highlight-rolloff-hdr.md`](2026-06-08-chemical-highlight-rolloff-hdr.md) | Chemical film+print HDR highlight rolloff research and RouteMaster `paper` projection implementation handoff. |
 
 ## Android Port
 

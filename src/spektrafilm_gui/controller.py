@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 import numpy as np
 from qtpy import QtCore, QtWidgets
 
-from spektrafilm.color_management import ColorEncoding
 from spektrafilm_gui import controller_persistence as persistence_actions
 from spektrafilm_gui import controller_profile_sync as profile_sync
 from spektrafilm_gui import controller_runtime as runtime
@@ -17,6 +16,7 @@ from spektrafilm_gui.controller_layers import (
     INPUT_PREVIEW_LAYER_NAME,
     ViewerLayerService,
 )
+from spektrafilm_gui.hdr_settings import hdr_projection_config_from_settings, normalize_hdr_mapping_mode
 from spektrafilm_gui.persistence import (
     clear_saved_default_gui_state,
     load_dialog_dir,
@@ -147,6 +147,14 @@ def _uses_mlx_float32(params) -> bool:
         str(getattr(settings, "compute_backend", "")).lower() == "mlx"
         and str(getattr(settings, "gpu_precision", "")).lower() == "float32"
     )
+
+
+def _set_backend_materialize_policy_for_mlx_float32(params) -> None:
+    settings = getattr(params, "settings", None)
+    if settings is None or not _uses_mlx_float32(params):
+        return
+    if hasattr(settings, "materialize_policy"):
+        settings.materialize_policy = "backend"
 
 
 def _prepare_simulation_input_image(
@@ -397,18 +405,86 @@ class GuiController:
             return
 
         gui_state = collect_gui_state(widgets=self._widgets)
+        saving_color_space = gui_state.simulation.workflow.saving_color_space
+        saving_cctf_encoding = gui_state.simulation.workflow.saving_cctf_encoding
+
+        suffix = Path(filepath).suffix.lower()
+        if suffix in {'.heic', '.heif'}:
+            hdr_settings = gui_state.hdr
+            if not hdr_settings.hdr_heic_gain_map_enabled:
+                QMessageBox.warning(
+                    dialog_parent(self._viewer),
+                    'Save output',
+                    'Enable HDR HEIC gain map export in the HDR Export panel before saving HEIC/HEIF.'
+                )
+                return
+
+            if self._current_input_image is None:
+                QMessageBox.warning(
+                    dialog_parent(self._viewer),
+                    'Save output',
+                    'No input image available for HDR HEIC export. Please load an image first.'
+                )
+                return
+
+            try:
+                from spektrafilm.hdr.routemaster_export import export_hdr_heic_from_simulator
+
+                params = build_params_from_state(gui_state)
+                apply_stocks_specifics = (
+                    self._runtime_simulator is None
+                    or self._next_runtime_digest_applies_stock_specifics
+                )
+                digested_params = digest_params(
+                    params,
+                    apply_stocks_specifics=apply_stocks_specifics,
+                )
+                if self._runtime_simulator is None:
+                    self._runtime_simulator = runtime_simulator(digested_params)
+                else:
+                    self._runtime_simulator.update_params(digested_params)
+                self._next_runtime_digest_applies_stock_specifics = False
+
+                config = hdr_projection_config_from_settings(hdr_settings)
+
+                export_hdr_heic_from_simulator(
+                    self._runtime_simulator,
+                    self._current_input_image,
+                    filepath,
+                    hdr_mode=normalize_hdr_mapping_mode(hdr_settings.hdr_mapping_mode),
+                    config=config,
+                    color_space=saving_color_space,
+                    quality=float(hdr_settings.heic_quality),
+                    gain_map_mode=hdr_settings.gain_map_mode,
+                )
+            except Exception as exc:
+                QMessageBox.critical(
+                    dialog_parent(self._viewer),
+                    'Save output',
+                    f'Failed to save HDR HEIC output image.\n\n{exc}'
+                )
+                return
+
+            set_status(
+                self._viewer,
+                f"Saved output image to {filepath}; HEIC/HEIF source metadata copy is not supported.",
+            )
+            return
+
         float_image_data = self._output_layer_float_data()
         if float_image_data is None:
             image_data = runtime.normalized_image_data(np.asarray(output_layer.data)[..., :3])
         else:
-            image_data = np.asarray(float_image_data)[..., :3]
+            phase_timings = output_layer.metadata.get(OUTPUT_PHASE_TIMINGS_KEY)
+            image_data = runtime.materialize_export_image(
+                float_image_data,
+                phase_timings=phase_timings if isinstance(phase_timings, dict) else None,
+            )
 
         source_color_space, source_cctf_encoding = self._output_layer_render_settings(
             default_color_space=gui_state.simulation.io.output_color_space,
             default_cctf_encoding=True,
         )
-        saving_color_space = gui_state.simulation.workflow.saving_color_space
-        saving_cctf_encoding = gui_state.simulation.workflow.saving_cctf_encoding
         if source_color_space != saving_color_space:
             image_data = colour.RGB_to_RGB(
                 image_data,
@@ -472,79 +548,10 @@ class GuiController:
         saving_color_space: str,
         saving_cctf_encoding: bool,
     ) -> dict[str, object]:
-        suffix = Path(filepath).suffix.lower()
-        if suffix not in {'.heic', '.heif'}:
-            return {
-                'color_space': saving_color_space,
-                'cctf_encoding': saving_cctf_encoding,
-            }
-
-        hdr_settings = gui_state.hdr
-        if not hdr_settings.hdr_heic_gain_map_enabled:
-            raise ValueError("Enable HDR HEIC gain map export in the HDR Export panel before saving HEIC/HEIF.")
-
-        scene_energy = output_layer.metadata.get(OUTPUT_HDR_SCENE_ENERGY_KEY)
-        scene_luminance = getattr(scene_energy, 'scene_luminance', None)
-        scene_rgb = getattr(scene_energy, 'scene_rgb', None)
-        mode = str(hdr_settings.hdr_mapping_mode)
-        if mode in {'profile_aware', 'film_scan_aware'} and scene_luminance is None:
-            raise ValueError("HDR scene luminance sidecar is missing; rerun the simulation before HDR HEIC export.")
-
-        save_kwargs: dict[str, object] = {
-            'encoding': ColorEncoding(
-                color_space=saving_color_space,
-                transfer='cctf' if saving_cctf_encoding else 'linear',
-                role='display' if saving_cctf_encoding else 'scene',
-                clip_highlights=bool(saving_cctf_encoding),
-            ),
-            'hdr_mapping_kwargs': self._hdr_mapping_kwargs(gui_state),
-            'hdr_photo_quality': float(hdr_settings.heic_quality),
+        return {
+            'color_space': saving_color_space,
+            'cctf_encoding': saving_cctf_encoding,
         }
-        if scene_luminance is not None:
-            save_kwargs['scene_luminance'] = scene_luminance
-        if scene_rgb is not None:
-            save_kwargs['scene_rgb'] = scene_rgb
-        return save_kwargs
-
-    def _hdr_mapping_kwargs(self, gui_state) -> dict[str, object]:
-        hdr_settings = gui_state.hdr
-        mode = str(hdr_settings.hdr_mapping_mode)
-        mapping_kwargs: dict[str, object] = {
-            'hdr_mapping_mode': mode,
-            'hdr_diffuse_white_target': float(hdr_settings.hdr_diffuse_white_target),
-            'max_headroom': float(hdr_settings.hdr_peak_headroom),
-            'headroom_percentile': float(hdr_settings.headroom_percentile),
-            'preserve_sdr_base': bool(hdr_settings.preserve_sdr_base),
-            'gain_map_mode': str(hdr_settings.gain_map_mode),
-        }
-        if str(hdr_settings.hdr_headroom_mode) == 'modern_recovery_peak_budget':
-            mapping_kwargs['profile_hdr_mode'] = 'modern_recovery_peak_budget'
-
-        if mode == 'generic':
-            return mapping_kwargs
-
-        selection = gui_state.simulation.selection
-        if mode == 'profile_aware':
-            mapping_kwargs.update({
-                'film': selection.film_stock,
-                'paper': selection.print_paper,
-            })
-            return mapping_kwargs
-
-        if mode == 'film_scan_aware':
-            params = digest_params(build_params_from_state(gui_state))
-            curve_profile = sample_runtime_film_scan_curve_profile(
-                params=params,
-                film=selection.film_stock,
-            )
-            mapping_kwargs.update({
-                'film': selection.film_stock,
-                'paper': None,
-                'curve_profile': curve_profile,
-            })
-            return mapping_kwargs
-
-        raise ValueError(f"Unknown HDR mapping mode: {mode!r}")
 
     def save_current_as_default(self) -> None:
         persistence_actions.save_current_as_default(
@@ -605,7 +612,7 @@ class GuiController:
         self,
         image: np.ndarray,
         *,
-        float_image: np.ndarray,
+        float_image: object | None,
         output_color_space: str,
         output_cctf_encoding: bool,
         use_display_transform: bool,
@@ -703,14 +710,14 @@ class GuiController:
     def _set_active_layer(self, layer: NapariImageLayer | None) -> None:
         self._layers.set_active_layer(layer)
 
-    def _output_layer_float_data(self) -> np.ndarray | None:
+    def _output_layer_float_data(self) -> object | None:
         output_layer = self._output_layer()
         if output_layer is None:
             return None
         float_data = output_layer.metadata.get(OUTPUT_FLOAT_DATA_KEY)
         if float_data is None:
             return None
-        return np.asarray(float_data)
+        return float_data
 
     def _output_layer_render_settings(
         self,
@@ -853,6 +860,7 @@ class GuiController:
         settings = getattr(params, 'settings', None)
         if settings is not None and hasattr(settings, 'preview_mode'):
             settings.preview_mode = source_layer_name == INPUT_PREVIEW_LAYER_NAME
+        _set_backend_materialize_policy_for_mlx_float32(params)
         return params
 
     def _start_simulation(self, *, source_layer_name: str, mode_label: str, report_status: bool = True) -> None:
@@ -871,6 +879,21 @@ class GuiController:
             build_params_from_state(state),
             source_layer_name=source_layer_name,
         )
+        require_hdr_metadata = _requires_hdr_metadata_for_state(state)
+        if source_layer_name == INPUT_LAYER_NAME:
+            memory_message = runtime.full_render_memory_guard_message(
+                image_data,
+                params,
+                require_hdr_metadata=require_hdr_metadata,
+            )
+            if memory_message is not None:
+                QMessageBox.critical(
+                    dialog_parent(self._viewer),
+                    'Run simulation',
+                    memory_message,
+                )
+                set_status(self._viewer, 'Full-resolution render blocked by memory guard')
+                return
 
         image, phase_timings, memory_estimates = _prepare_simulation_input_image(image_data, params)
         phase_timings['gui.input_conversion'] = phase_timings['gui.input_prepare']
@@ -883,7 +906,7 @@ class GuiController:
             use_display_transform=state.gui_only.display.use_display_transform,
             phase_timings=phase_timings,
             memory_estimates=memory_estimates,
-            require_hdr_metadata=_requires_hdr_metadata_for_state(state),
+            require_hdr_metadata=require_hdr_metadata,
         )
 
         worker = runtime.SimulationWorker(request, execute_request=self._execute_simulation_request)

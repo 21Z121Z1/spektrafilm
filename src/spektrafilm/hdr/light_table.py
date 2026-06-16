@@ -34,7 +34,7 @@ def project_hdr_light_table(
         master,
         config,
         authority_y=authority_y,
-        white=1.0,
+        white=float(config.diffuse_white_scene_anchor),
         strength=config.light_table_extension_strength,
     )
     return _build_result(

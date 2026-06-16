@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
@@ -52,6 +53,57 @@ class TestHeifSaveRequiresPillowHeif:
                 gain_map_io.save_gain_map_heif(tmp_path / "out.heif", base, gm, meta)
 
         assert list(tmp_path.iterdir()) == []
+
+    def test_missing_iso_patcher_removes_partial_heif(self, tmp_path, monkeypatch):
+        from spektrafilm.utils import gain_map_io
+
+        class FakeHeif:
+            def add_from_pillow(self, _image):
+                return None
+
+            def save(self, filename, **_kwargs):
+                Path(filename).write_bytes(b"non-iso-heif")
+
+        monkeypatch.setitem(sys.modules, "pillow_heif", SimpleNamespace(from_pillow=lambda _image: FakeHeif()))
+        monkeypatch.setattr(gain_map_io, "_patch_heif_for_iso21496", lambda *_args, **_kwargs: False)
+
+        base = np.ones((4, 4, 3), dtype=np.float32) * 0.5
+        gm = np.zeros((4, 4, 3), dtype=np.float32)
+        meta = _make_gain_map_metadata()
+        output = tmp_path / "out.heif"
+
+        with pytest.raises(RuntimeError, match="patcher is unavailable"):
+            gain_map_io.save_gain_map_heif(output, base, gm, meta)
+
+        assert not output.exists()
+
+    def test_iso_validation_failure_removes_partial_heif(self, tmp_path, monkeypatch):
+        from spektrafilm.utils import gain_map_io
+
+        class FakeHeif:
+            def add_from_pillow(self, _image):
+                return None
+
+            def save(self, filename, **_kwargs):
+                Path(filename).write_bytes(b"bad-tmap-heif")
+
+        monkeypatch.setitem(sys.modules, "pillow_heif", SimpleNamespace(from_pillow=lambda _image: FakeHeif()))
+        monkeypatch.setattr(gain_map_io, "_patch_heif_for_iso21496", lambda *_args, **_kwargs: True)
+        monkeypatch.setattr(
+            gain_map_io,
+            "validate_heif_iso21496",
+            lambda _path: SimpleNamespace(ok=False, errors=("bad dimg",)),
+        )
+
+        base = np.ones((4, 4, 3), dtype=np.float32) * 0.5
+        gm = np.zeros((4, 4, 3), dtype=np.float32)
+        meta = _make_gain_map_metadata()
+        output = tmp_path / "out.heif"
+
+        with pytest.raises(RuntimeError, match="validation failed"):
+            gain_map_io.save_gain_map_heif(output, base, gm, meta)
+
+        assert not output.exists()
 
 
 # ---------------------------------------------------------------------------

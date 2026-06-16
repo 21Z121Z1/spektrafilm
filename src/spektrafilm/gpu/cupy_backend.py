@@ -5,6 +5,7 @@ from typing import Any
 import numpy as np
 
 from spektrafilm.gpu.backend import BackendUnavailableError
+from spektrafilm.gpu.residency import record_conversion
 
 
 class CupyBackend:
@@ -49,15 +50,22 @@ class CupyBackend:
     def asarray(self, value: Any, dtype: Any | None = None):
         if self._is_cupy_array(value):
             if dtype is None or value.dtype == dtype:
-                return value
-            return value.astype(dtype)
-        return self.cp.asarray(value, dtype=dtype or self.default_dtype)
+                result = value
+            else:
+                result = value.astype(dtype)
+        else:
+            result = self.cp.asarray(value, dtype=dtype or self.default_dtype)
+        record_conversion("asarray", self.name, value, result)
+        return result
 
     def to_numpy(self, value: Any) -> np.ndarray:
         if self._is_cupy_array(value):
             self.synchronize()
-            return self.cp.asnumpy(value)
-        return np.asarray(value)
+            result = self.cp.asnumpy(value)
+        else:
+            result = np.asarray(value)
+        record_conversion("to_numpy", self.name, value, result)
+        return result
 
     def eval(self, *values: Any) -> None:
         if any(self._is_cupy_array(value) for value in values):

@@ -66,7 +66,7 @@ def _make_state() -> GuiState:
     state.scanner = replace(state.scanner, white_correction=True, white_level=0.9, lens_blur=0.3)
     state.input_gamut_compress = replace(state.input_gamut_compress, active=False, algorithm='oklch')
     state.output_gamut_compress = replace(state.output_gamut_compress, algorithm='aces_rgc')
-    state.hdr.hdr_mapping_mode = 'profile_aware'
+    state.hdr.hdr_mapping_mode = 'paper'
     state.hdr.hdr_heic_gain_map_enabled = True
     state.hdr.hdr_peak_headroom = 6.0
     state.simulation.enlarger.print_exposure = 1.3

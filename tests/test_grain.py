@@ -86,6 +86,28 @@ class TestApplyGrain:
 
         np.testing.assert_allclose(actual, expected, atol=0.0)
 
+    def test_layer_particle_model_mlx_poisson_binomial_stays_backend_resident(self, monkeypatch):
+        backend = _mlx_backend_or_skip()
+        density = np.linspace(0.1, 1.6, 16 * 16, dtype=np.float32).reshape(16, 16)
+
+        def fail_to_numpy(_value):
+            raise AssertionError("unexpected MLX to NumPy transfer")
+
+        monkeypatch.setattr(backend, "to_numpy", fail_to_numpy)
+
+        actual = layer_particle_model(
+            backend.asarray(density),
+            density_max=2.4,
+            n_particles_per_pixel=30,
+            grain_uniformity=0.97,
+            seed=123,
+            blur_particle=0.0,
+            backend=backend,
+        )
+
+        assert backend._is_mlx_array(actual)
+        backend.eval(actual)
+
     def test_grain_function_defaults_are_not_mutable_lists(self):
         assert not any(isinstance(default, list) for default in apply_grain_to_density.__defaults__)
         assert not any(isinstance(default, list) for default in apply_grain_to_density_layers.__defaults__)
@@ -146,6 +168,33 @@ class TestApplyGrain:
         backend.eval(result)
 
         assert backend._is_mlx_array(result)
+
+    def test_apply_grain_to_density_mlx_is_statistically_plausible_fixed_seed(self):
+        backend = _mlx_backend_or_skip()
+        density_cmy = np.linspace(0.05, 1.2, 16 * 16 * 3, dtype=np.float32).reshape(16, 16, 3)
+        kwargs = dict(
+            pixel_size_um=5.0,
+            agx_particle_area_um2=0.25,
+            agx_particle_scale=(0.9, 1.1, 1.3),
+            density_min=(0.04, 0.05, 0.06),
+            density_max_curves=(2.0, 2.2, 2.4),
+            grain_uniformity=(0.98, 0.97, 0.96),
+            grain_blur=0.0,
+            n_sub_layers=2,
+            fixed_seed=42,
+        )
+
+        actual = apply_grain_to_density(backend.asarray(density_cmy), backend=backend, **kwargs)
+        actual_np = backend.to_numpy(actual)
+
+        assert backend._is_mlx_array(actual)
+        assert actual_np.shape == density_cmy.shape
+        assert np.isfinite(actual_np).all()
+        np.testing.assert_allclose(
+            actual_np.mean(axis=(0, 1)),
+            density_cmy.mean(axis=(0, 1)),
+            atol=0.35,
+        )
 
     def test_apply_grain_to_density_mlx_is_deterministic_for_fixed_seed(self):
         backend = _mlx_backend_or_skip()

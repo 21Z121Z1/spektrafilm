@@ -7,6 +7,7 @@ import numpy as np
 from opt_einsum import contract
 
 from spektrafilm.gpu.backend import BackendUnavailableError
+from spektrafilm.gpu.residency import record_conversion
 
 
 @dataclass(slots=True)
@@ -75,10 +76,14 @@ class HalideBackend:
         self._cmy_to_log_raw_pipelines: dict[int, tuple[Any, ...]] = {}
 
     def asarray(self, value: Any, dtype: Any | None = None) -> np.ndarray:
-        return np.asarray(value, dtype=dtype or self.default_dtype)
+        result = np.asarray(value, dtype=dtype or self.default_dtype)
+        record_conversion("asarray", self.name, value, result)
+        return result
 
     def to_numpy(self, value: Any) -> np.ndarray:
-        return np.asarray(value)
+        result = np.asarray(value)
+        record_conversion("to_numpy", self.name, value, result)
+        return result
 
     def eval(self, *values: Any) -> None:
         return None

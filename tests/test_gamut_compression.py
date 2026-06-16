@@ -11,6 +11,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+import spektrafilm.gpu.kernels.gamut_compress as gamut_backend
+from spektrafilm.gpu.backend import BackendUnavailableError, select_backend
+from spektrafilm.gpu.kernels.gamut_compress import compress_rgb_backend
+from spektrafilm.gpu.residency import record_backend_residency
 from spektrafilm.utils.gamut_compression import (
     InputGamutCompressSpec,
     OutputGamutCompressSpec,
@@ -25,6 +29,13 @@ from spektrafilm.utils.gamut_compression import (
     remap_tc_lut_for_compression,
     spectral_locus_xy,
 )
+
+
+def _mlx_backend_or_skip():
+    try:
+        return select_backend("mlx", precision="float32")
+    except BackendUnavailableError as exc:
+        pytest.skip(str(exc))
 
 
 class TestInputGamutCompressSpec:
@@ -389,6 +400,183 @@ class TestCompressRgbDispatcher:
         rgb = np.array([1.2, -0.05, -0.05])
         out = compress_rgb(rgb, spec, output_color_space="sRGB")
         assert out.shape == rgb.shape
+
+
+class TestBackendOutputGamutCompression:
+    def test_jzazbz_mlx_capable_backend_dispatches_custom_kernel(self, monkeypatch) -> None:
+        sentinel = object()
+        calls = []
+
+        class FakeMlxCapableBackend:
+            supports_gpu = True
+            mx = object()
+
+        def fake_custom_kernel(
+            rgb,
+            output_color_space,
+            *,
+            threshold,
+            limit,
+            power,
+            lightness_compression,
+            backend,
+        ):
+            calls.append(
+                (
+                    rgb,
+                    output_color_space,
+                    threshold,
+                    limit,
+                    power,
+                    lightness_compression,
+                    backend,
+                )
+            )
+            return sentinel
+
+        monkeypatch.setattr(
+            gamut_backend,
+            "_compress_rgb_jzazbz_chroma_mlx_kernel",
+            fake_custom_kernel,
+        )
+        backend = FakeMlxCapableBackend()
+        spec = OutputGamutCompressSpec(algorithm="jzazbz")
+        rgb = np.zeros((2, 3, 3), dtype=np.float32)
+
+        result = compress_rgb_backend(
+            rgb,
+            spec,
+            output_color_space="sRGB",
+            backend=backend,
+        )
+
+        assert result is sentinel
+        assert len(calls) == 1
+        assert calls[0][0] is rgb
+        assert calls[0][1] == "sRGB"
+        assert calls[0][2:5] == spec.knee
+        assert calls[0][5] == spec.lightness_compression
+        assert calls[0][6] is backend
+
+    @pytest.mark.parametrize(
+        "algorithm,atol",
+        [
+            ("aces_rgc", 2e-7),
+            ("oklch", 2e-6),
+            ("oklrab", 2e-6),
+            pytest.param(
+                "jzazbz",
+                1e-6,
+                marks=pytest.mark.xfail(
+                    reason=(
+                        "resident MLX JzAzBz still misses the strict 1e-6 "
+                        "CPU parity gate"
+                    ),
+                    strict=True,
+                ),
+            ),
+            ("cam16ucs", 3e-6),
+        ],
+    )
+    def test_mlx_backend_matches_cpu_reference_without_full_frame_readback(
+        self,
+        algorithm: str,
+        atol: float,
+    ) -> None:
+        backend = _mlx_backend_or_skip()
+        rgb = np.random.default_rng(20260608).uniform(
+            -0.2, 1.35, size=(6, 7, 3),
+        ).astype(np.float32)
+        spec = OutputGamutCompressSpec(algorithm=algorithm)
+
+        with record_backend_residency(small_array_bytes=128) as recorder:
+            actual_backend = compress_rgb_backend(
+                backend.asarray(rgb),
+                spec,
+                output_color_space="sRGB",
+                backend=backend,
+            )
+            backend.synchronize()
+
+        assert backend._is_mlx_array(actual_backend)
+        assert recorder.unallowed_to_numpy_events() == []
+        actual = backend.to_numpy(actual_backend)
+        expected = compress_rgb(rgb.astype(float), spec, output_color_space="sRGB")
+        np.testing.assert_allclose(actual, expected, rtol=0.0, atol=atol)
+
+    @pytest.mark.xfail(
+        reason="resident MLX JzAzBz still misses the strict 1e-6 CPU parity gate",
+        strict=True,
+    )
+    @pytest.mark.parametrize(
+        "rgb,spec",
+        [
+            (
+                np.random.default_rng(20260609).uniform(
+                    0.0, 1.0, size=(5, 4, 3),
+                ).astype(np.float32),
+                OutputGamutCompressSpec(
+                    algorithm="jzazbz",
+                    lightness_compression=None,
+                ),
+            ),
+            (
+                np.random.default_rng(20260610).uniform(
+                    0.0, 2.5, size=(5, 4, 3),
+                ).astype(np.float32),
+                OutputGamutCompressSpec(
+                    algorithm="jzazbz",
+                    lightness_compression=(0.7, 1.0, 2.2),
+                ),
+            ),
+        ],
+    )
+    def test_mlx_jzazbz_strict_parity_cases_without_full_frame_readback(
+        self,
+        rgb: np.ndarray,
+        spec: OutputGamutCompressSpec,
+    ) -> None:
+        backend = _mlx_backend_or_skip()
+
+        with record_backend_residency(small_array_bytes=128) as recorder:
+            actual_backend = compress_rgb_backend(
+                backend.asarray(rgb),
+                spec,
+                output_color_space="sRGB",
+                backend=backend,
+            )
+            backend.synchronize()
+
+        assert backend._is_mlx_array(actual_backend)
+        assert actual_backend.dtype == backend.mx.float32
+        assert recorder.unallowed_to_numpy_events() == []
+        actual = backend.to_numpy(actual_backend)
+        expected = compress_rgb(rgb.astype(float), spec, output_color_space="sRGB")
+        assert np.isfinite(actual).all()
+        np.testing.assert_allclose(actual, expected, rtol=0.0, atol=1e-6)
+
+    @pytest.mark.xfail(
+        reason="resident MLX JzAzBz still misses the strict 1e-6 CPU parity gate",
+        strict=True,
+    )
+    def test_mlx_jzazbz_handles_large_oog_chroma_without_nan_collapse(self) -> None:
+        backend = _mlx_backend_or_skip()
+        rgb = np.array([0.11020459, 0.24658771, -0.09884067], dtype=np.float32)
+        spec = OutputGamutCompressSpec(algorithm="jzazbz")
+
+        actual_backend = compress_rgb_backend(
+            backend.asarray(rgb),
+            spec,
+            output_color_space="sRGB",
+            backend=backend,
+        )
+        backend.synchronize()
+
+        actual = backend.to_numpy(actual_backend)
+        expected = compress_rgb(rgb.astype(float), spec, output_color_space="sRGB")
+        assert np.isfinite(actual).all()
+        assert not np.allclose(actual, 0.0)
+        np.testing.assert_allclose(actual, expected, rtol=0.0, atol=1e-6)
 
 
 # All four perceptual-chroma algorithms (oklch, jzazbz, oklrab, cam16ucs)

@@ -2,6 +2,73 @@
 
 Date: 2026-06-05
 
+## 2026-06-08 Completion Audit Update
+
+This pass is a RouteMaster hardening/completion pass, not a restart. The
+current worktree already contains the core RouteMaster implementation and the
+first round of docs/tests:
+
+- `src/spektrafilm/runtime/route_master.py` defines `RouteMaster`,
+  `ScanMasterResult`, `FilmingExposureResult`, `HDRMode`, and `RouteKind`.
+- `src/spektrafilm/runtime/stages/scanning.py` already exposes
+  `scan_master()`, `project_sdr_legacy()`, and the legacy `scan()` wrapper.
+- `src/spektrafilm/runtime/stages/filming.py` already exposes
+  `expose_with_metadata()` with `scene_y_raw` and `post_halation_y`.
+- `src/spektrafilm/runtime/pipeline.py`,
+  `src/spektrafilm/runtime/process.py`, `src/spektrafilm/runtime/api.py`,
+  `src/spektrafilm/runtime/__init__.py`, and `src/spektrafilm/__init__.py`
+  already expose `process_master()` / `simulate_master()` entry points.
+- `src/spektrafilm/hdr/projection.py`,
+  `src/spektrafilm/hdr/light_table.py`,
+  `src/spektrafilm/hdr/ideal_paper.py`,
+  `src/spektrafilm/hdr/routemaster_export.py`, and
+  `src/spektrafilm/hdr/profile_cache.py` already contain the first projection,
+  pair export, and route-profile-cache implementation.
+- `tests/test_routemaster.py`, `tests/test_hdr_routemaster_projection.py`,
+  `tests/test_hdr_routemaster_export.py`, and
+  `tests/test_hdr_profile_cache.py` already cover the main P0/P1/P2/P3
+  contracts.
+
+Current non-mutating verification before this completion pass:
+
+```text
+.venv/bin/python -m pytest tests/test_routemaster.py tests/test_hdr_routemaster_projection.py tests/test_hdr_routemaster_export.py tests/test_hdr_profile_cache.py -q
+29 passed
+
+.venv/bin/python -m pytest tests/test_runtime_api.py tests/test_hdr_photo.py tests/test_hdr_curve_profiles.py tests/test_gain_map.py tests/test_image_io_color_metadata.py -q
+260 passed
+
+.venv/bin/python -m pytest tests/test_pipeline_smoke.py -q
+9 passed
+
+.venv/bin/python -m pytest --ignore=tests/gui -q
+1408 passed, 7 skipped
+
+git diff --check
+passed
+```
+
+Remaining completion gaps identified by code audit:
+
+- `RouteMaster.diagnostics` needs to carry the legacy SDR output-transform
+  flags (`output_cctf_encoding`, `output_clip_min`, `output_clip_max`) so HDR
+  projection can distinguish CCTF-encoded SDR from already-linear SDR.
+- `spektrafilm.hdr.projection._sdr_rgb()` must decode legacy SDR only when the
+  RouteMaster actually came from a CCTF-encoded SDR projection; already-linear
+  SDR must pass through unchanged.
+- `HDRProjectionConfig.paper_white` and `headroom_percentile` must affect the
+  paper/HDR extension math instead of being ignored by the luminance extension
+  helpers.
+- Negative-film Light Table positive rendering must not fake
+  `route_linear_xyz` by copying positive RGB. It must derive XYZ from the
+  positive RGB route or explicitly mark XYZ as unavailable.
+- P0 strict-equivalence tests need explicit matrix coverage for grain,
+  halation, diffusion, scanner blur/unsharp, output gamut compression, CCTF,
+  clip flags, positive/reversal film scan, and negative film plus paper.
+- GUI/public HDR mode wiring still needs final cleanup so the public surface
+  exposes `light_table` and `paper`, while legacy strings restore/export
+  through compatibility aliases.
+
 ## New /goal
 
 Spektrafilm HDR RouteMaster rewrite:
@@ -483,3 +550,99 @@ Before marking this goal complete, the implementation report must answer:
 - Tests passed, failed, or skipped with concrete commands and reasons?
 - Remaining future work does not invalidate the current goal?
 
+## 2026-06-08 ISO 21496-1 / HEIC Audit Addendum
+
+This addendum was written before the ISO/HEIC compliance hardening edits. The
+authoritative standard references checked for this pass are the local files in
+`/Users/retriedstormtrooper/Documents/Projects/Active/proxdrtest/docs/reference/standards/`.
+The standards README says to search by clause or keyword instead of loading the
+full standards into context.
+
+Files and clauses checked:
+
+- `ISO_21496-1_2025_2053497278426656768.md`
+  - 4.2: gain-map dimensions can differ from the baseline only when metadata
+    and resampling rules make that explicit.
+  - 4.3 and 5.2.4: gain-map component count is either one achromatic component
+    or three RGB components, and metadata must say which.
+  - 4.4: gain-map quantization should be at least eight bits per component.
+  - 4.5: gain-map orientation must match the baseline.
+  - 5.2.5.2 through 5.2.5.6: per-channel min/max/offset/gamma fields must be
+    valid; max must be greater than or equal to min; gamma must be positive.
+  - 5.2.6 and 5.2.7: baseline and alternate HDR headroom are explicit
+    metadata and alternate headroom must differ from baseline headroom.
+  - 5.3.2 through 5.3.4: baseline colorimetry is required, alternate
+    colorimetry should be present, and the gain-map application primaries flag
+    identifies whether baseline or alternate primaries are used.
+  - 6.2.1 through 6.2.2: stored gain maps are normalized/gamma-coded and
+    resampled before application if dimensions differ.
+  - C.2: `GainMapMetadata` is a big-endian binary payload, with nonzero
+    denominators and RGB channel order when multichannel.
+  - C.3: file formats supporting ISO 21496-1 gain maps must define
+    identification, baseline image, gain-map pixel data, binary metadata
+    storage, baseline color space, and alternate color space.
+- `ISO_IEC_23008-12_2025_Amd_1_2025_2053793830344998912.md`
+  - 6.6.2.4: a `tmap` derived image item uses exactly two `dimg` inputs; the
+    first is the base image and the second is the gain-map image.
+  - 6.6.2.4: the base item must have `colr`; the gain-map input item must have
+    an `nclx` `colr` with colour primaries and transfer characteristics set to
+    `2`; the `tmap` derived item must have alternate-image `colr`.
+  - 6.6.2.4: the gain-map input item should be hidden.
+  - 6.6.2.4: the `ToneMapImage` payload version must be `0`, followed by the
+    ISO 21496-1 binary `GainMapMetadata` payload.
+  - 10.2.6: files containing a tone-map derived item must include the `tmap`
+    compatible brand, and a file advertising `tmap` must contain at least one
+    tone-map derived item.
+  - Annex J.7: the example uses `heic` major brand, `tmap/mif1/heic`
+    compatible brands, `dimg` links, `colr` properties, and an `altr` group for
+    backward compatibility.
+
+Current Spektrafilm evidence before this hardening pass:
+
+- `src/spektrafilm/data/macos/hdr_heif_encoder.swift` writes the RouteMaster
+  pre-rendered SDR/HDR pair through CoreImage HEIF representation options. A
+  live temporary smoke on this machine produced a Mac-openable HEIC with
+  `ftyp` compatible brands `mif1`, `tmap`, `MiHE`, `miaf`, `MiHB`, `heic`.
+- The same live smoke parsed as a real `tmap` item graph: `tmap` item `4`,
+  `dimg` inputs `[1, 3]`, hidden gain-map auxiliary item, `tmap` `nclx`
+  BT.2020/PQ `colr`, and a 142-byte `ToneMapImage` payload whose first byte is
+  version `0` and whose remaining 141 bytes parse as three-channel ISO
+  `GainMapMetadata`.
+- `src/spektrafilm/utils/gain_map_metadata.py` already implements the C.2
+  binary payload shape, but validation is too weak for ISO invariants.
+- `src/spektrafilm/utils/gain_map_io.py::save_gain_map_heif()` currently
+  writes a dual-image HEIF and then tries to call a missing `_isobmff_patch`
+  module. When the patch path fails, it logs and leaves a non-`tmap` HEIF. That
+  is not acceptable for a function claiming ISO 21496-1 HEIF output.
+- Existing documentation only records `strings`-level markers for HEIC smoke.
+  That is too weak; completion evidence must include an item graph and metadata
+  payload validator plus Apple-native openability gates.
+
+Hardening strategy for this pass:
+
+- Keep CoreImage as the default RouteMaster HEIC writer because it is the
+  strongest Mac-openable path and already emits the expected ISO `tmap` family
+  in live smoke tests.
+- Add a local pure-Python HEIF ISO validator under `src/spektrafilm/utils/` so
+  Spektrafilm can prove the `tmap` graph, color properties, hidden gain-map
+  item, and binary metadata payload after encode.
+- Call that validator from `save_hdr_photo_heic_from_pair()` after CoreImage
+  returns. If hard ISO errors are present, raise `HDRPhotoExportError`.
+- Strengthen `GainMapMetadata` validation for finite values, version ordering,
+  headroom ordering/non-equality, nonnegative unsigned headrooms, max/min
+  ordering, and positive gamma.
+- Change `save_gain_map_heif()` to fail closed: if patching is unavailable or
+  validation fails, remove partial output and raise instead of silently leaving
+  a noncompliant HEIF.
+- Update `docs/hdr-export-pipeline.md` and
+  `docs/hdr-routemaster-rewrite-implementation-report.md` from marker-only
+  evidence to ISO item-graph plus Mac ImageIO/sips evidence. Apple Photos visual
+  HDR activation remains a manual/device boundary separate from local ISO and
+  Mac-openability validation.
+
+Post-hardening note: live CoreImage output was confirmed to write a valid
+Mac-openable `tmap` item graph, but the first two C.2 per-channel range fields
+can appear in the opposite order from the local ISO 21496-1 C.2 reference. The
+implementation now performs a same-size repair only for that exact all-channel
+`min > max` pattern, then runs the normal hard validator. Other malformed HEIF
+outputs still fail closed and are deleted.

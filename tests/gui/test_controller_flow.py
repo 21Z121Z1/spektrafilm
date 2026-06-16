@@ -75,6 +75,7 @@ def _run_simulation_case(
         output_cctf_encoding=True,
         use_display_transform,
         padding_pixels=0.0,
+        **kwargs,
     ):
         captured['display_args'] = {
             'image_data': image_data.copy(),
@@ -577,6 +578,7 @@ def test_start_simulation_preserves_mlx_float32_input_before_worker(monkeypatch)
     params = SimpleNamespace(settings=SimpleNamespace(
         compute_backend='mlx',
         gpu_precision='float32',
+        materialize_policy='numpy_float64',
         preview_mode=False,
     ))
     preview_image = np.full((2, 2, 4), 0.25, dtype=np.float32)
@@ -598,6 +600,7 @@ def test_start_simulation_preserves_mlx_float32_input_before_worker(monkeypatch)
     assert captured['request'].phase_timings['gui.input_prepare'] >= 0.0
     assert captured['request'].phase_timings['gui.input_dtype_convert'] >= 0.0
     assert captured['request'].phase_timings['gui.input_copy'] == 0.0
+    assert captured['request'].params.settings.materialize_policy == 'backend'
 
 
 def test_run_simulation_preserves_mlx_float32_input_on_sync_path(monkeypatch) -> None:
@@ -605,6 +608,7 @@ def test_run_simulation_preserves_mlx_float32_input_on_sync_path(monkeypatch) ->
     params = SimpleNamespace(settings=SimpleNamespace(
         compute_backend='mlx',
         gpu_precision='float32',
+        materialize_policy='numpy_float64',
         preview_mode=False,
     ))
     captured = _run_simulation_case(
@@ -617,6 +621,33 @@ def test_run_simulation_preserves_mlx_float32_input_on_sync_path(monkeypatch) ->
 
     assert captured['processing_input'].dtype == np.float32
     assert captured['processing_input'].shape == (2, 2, 3)
+    assert params.settings.materialize_policy == 'backend'
+
+
+def test_start_simulation_blocks_full_render_when_memory_guard_reports(monkeypatch) -> None:
+    simulation_section = SimpleNamespace(preview_button=None, scan_button=None, save_button=None)
+    widgets = SimpleNamespace(simulation=simulation_section)
+    controller = GuiController(viewer=object(), widgets=widgets)
+    gui_state = make_test_controller_gui_state()
+    image_data = np.full((2, 2, 3), 0.25, dtype=np.float32)
+    params = SimpleNamespace(settings=SimpleNamespace(preview_mode=False))
+    captured: dict[str, object] = {}
+
+    controller._current_input_image = image_data
+    controller._current_preview_image = image_data
+    monkeypatch.setattr(controller, '_sync_white_border', lambda *, white_padding: None)
+    monkeypatch.setattr(controller_module, 'collect_gui_state', lambda *, widgets: gui_state)
+    monkeypatch.setattr(controller_module, 'build_params_from_state', lambda state: params)
+    monkeypatch.setattr(controller_module.runtime, 'full_render_memory_guard_message', lambda *args, **kwargs: 'too large')
+    monkeypatch.setattr(controller_module, 'set_status', lambda viewer, message, timeout_ms=5000: captured.setdefault('status', message))
+    monkeypatch.setattr(controller_module.QMessageBox, 'critical', lambda parent, title, message: captured.setdefault('critical', (title, message)))
+    monkeypatch.setattr(controller._thread_pool, 'start', lambda worker: (_ for _ in ()).throw(AssertionError('worker should not start')))
+
+    controller._start_simulation(source_layer_name=INPUT_LAYER_NAME, mode_label='Scan')
+
+    assert captured['critical'] == ('Run simulation', 'too large')
+    assert captured['status'] == 'Full-resolution render blocked by memory guard'
+    assert controller._active_simulation_worker is None
 
 
 def test_request_auto_preview_schedules_once_and_runs_preview(monkeypatch) -> None:

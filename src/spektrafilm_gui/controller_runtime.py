@@ -3,6 +3,7 @@ from __future__ import annotations
 import ctypes
 from dataclasses import dataclass, field
 from io import BytesIO
+import os
 from pathlib import Path
 import sys
 import time
@@ -16,6 +17,7 @@ from spektrafilm.utils.io import resolve_icc_profile_bytes
 
 
 DISPLAY_PREVIEW_COLOR_SPACE = 'sRGB'
+_GPU_FULL_RENDER_BUDGET_BYTES = 10 * 1024**3
 QObject = getattr(QtCore, 'QObject')
 QRunnable = getattr(QtCore, 'QRunnable')
 Signal = getattr(QtCore, 'Signal')
@@ -38,7 +40,7 @@ class SimulationRequest:
 class SimulationResult:
     mode_label: str
     display_image: np.ndarray
-    float_image: np.ndarray
+    float_image: object | None
     output_color_space: str
     use_display_transform: bool
     status_message: str
@@ -64,7 +66,7 @@ class SimulationWorker(QRunnable):
     def run(self) -> None:
         try:
             result = self._execute_request(self._request)
-        except BaseException as exc:
+        except Exception as exc:
             self.signals.failed.emit(f'{type(exc).__name__}: {exc}')
             return
         self.signals.finished.emit(result)
@@ -97,6 +99,33 @@ def array_nbytes(value: object | None) -> int:
         return int(np.prod(tuple(int(dim) for dim in shape)) * np.dtype(dtype).itemsize)
     except (TypeError, ValueError):
         return 0
+
+
+def _shape_tuple(value: object) -> tuple[int, ...] | None:
+    shape = getattr(value, "shape", None)
+    if shape is None:
+        return None
+    try:
+        return tuple(int(dim) for dim in shape)
+    except (TypeError, ValueError):
+        return None
+
+
+def _dtype_itemsize(value: object) -> int:
+    dtype = getattr(value, "dtype", None)
+    if dtype is None:
+        return 4
+    try:
+        return int(np.dtype(dtype).itemsize)
+    except TypeError:
+        text = str(dtype)
+        if "float64" in text or "int64" in text:
+            return 8
+        if "float16" in text or "int16" in text:
+            return 2
+        if "int8" in text or "uint8" in text or "bool" in text:
+            return 1
+        return 4
 
 
 def _record_phase_timing(phase_timings: dict[str, float] | None, key: str, elapsed: float) -> None:
@@ -297,6 +326,10 @@ def prepare_input_color_preview_image(
     return np.asarray(np.clip(srgb_preview, 0.0, 1.0), dtype=np.float32)
 
 
+def _preview_uint8(image_data: np.ndarray) -> np.ndarray:
+    return np.uint8(np.clip(normalized_image_data(image_data), 0.0, 1.0) * 255)
+
+
 def apply_display_transform(
     image_data: np.ndarray,
     *,
@@ -313,7 +346,7 @@ def apply_display_transform(
             colour_module=colour_module,
         )
         return (
-            np.uint8(np.clip(preview, 0.0, 1.0) * 255),
+            _preview_uint8(preview),
             'Display transform: ACES SDR video output transform',
         )
 
@@ -326,20 +359,20 @@ def apply_display_transform(
             apply_cctf_encoding=True,
         )
         return (
-            np.uint8(np.clip(srgb_preview, 0.0, 1.0) * 255),
+            _preview_uint8(srgb_preview),
             'Display transform: linear scene preview, using sRGB display encoding',
         )
 
     display_profile, profile_name = display_profile_details(imagecms_module=imagecms_module)
     if display_profile is None:
-        return np.uint8(np.clip(image_data, 0.0, 1.0) * 255), 'Display transform: no display profile, using raw preview'
+        return _preview_uint8(image_data), 'Display transform: no display profile, using raw preview'
 
     source_profile = imagecms_profile_for_color_space(
         output_color_space,
         output_cctf_encoding=output_cctf_encoding,
         imagecms_module=imagecms_module,
     )
-    source_image_data = np.uint8(np.clip(image_data, 0.0, 1.0) * 255)
+    source_image_data = _preview_uint8(image_data)
     if source_profile is None:
         srgb_preview = colour_module.RGB_to_RGB(
             image_data,
@@ -348,12 +381,12 @@ def apply_display_transform(
             apply_cctf_decoding=True,
             apply_cctf_encoding=True,
         )
-        source_image_data = np.uint8(np.clip(srgb_preview, 0.0, 1.0) * 255)
+        source_image_data = _preview_uint8(srgb_preview)
         source_profile = imagecms_module.createProfile(DISPLAY_PREVIEW_COLOR_SPACE)
 
     source_image = pil_image_module.fromarray(source_image_data, mode='RGB')
     transformed_image = imagecms_module.profileToProfile(source_image, source_profile, display_profile, outputMode='RGB')
-    return np.asarray(transformed_image, dtype=np.uint8), f'Display transform: active ({profile_name})'
+    return np.asarray(transformed_image, dtype=np.uint8), f'Display transform: active ({profile_name}; SDR 8-bit preview)'
 
 
 def imagecms_profile_for_color_space(
@@ -376,7 +409,7 @@ def imagecms_profile_for_color_space(
 
 
 def prepare_output_display_image(
-    image_data: np.ndarray,
+    image_data: object,
     *,
     output_color_space: str,
     output_cctf_encoding: bool = True,
@@ -388,11 +421,13 @@ def prepare_output_display_image(
     phase_timings: dict[str, float] | None = None,
 ) -> tuple[np.ndarray, str]:
     del padding_pixels
+    materialize_start = time.perf_counter()
     source_image = np.asarray(image_data)[..., :3]
-    uint8_start = time.perf_counter()
-    preview_image = np.uint8(np.clip(normalized_image_data(source_image), 0.0, 1.0) * 255)
-    _record_phase_timing(phase_timings, "gui.display_uint8", time.perf_counter() - uint8_start)
+    _record_phase_timing(phase_timings, "gui.preview_materialize", time.perf_counter() - materialize_start)
     if not use_display_transform:
+        uint8_start = time.perf_counter()
+        preview_image = _preview_uint8(source_image)
+        _record_phase_timing(phase_timings, "gui.display_uint8", time.perf_counter() - uint8_start)
         return preview_image, display_transform_status_message(False, imagecms_module=imagecms_module)
     preserve_scene_highlights = is_aces_scene_linear_space(output_color_space) or not output_cctf_encoding
     transform_image = normalized_image_data(source_image, preserve_highlights=preserve_scene_highlights)
@@ -409,6 +444,9 @@ def prepare_output_display_image(
         )
         return transformed_image, status
     except (AttributeError, LookupError, OSError, RuntimeError, ValueError, TypeError, pycms_error):
+        uint8_start = time.perf_counter()
+        preview_image = _preview_uint8(source_image)
+        _record_phase_timing(phase_timings, "gui.display_uint8", time.perf_counter() - uint8_start)
         return preview_image, 'Display transform: transform failed, using raw preview'
     finally:
         _record_phase_timing(phase_timings, "gui.display_transform", time.perf_counter() - transform_start)
@@ -417,8 +455,9 @@ def prepare_output_display_image(
 def _format_phase_timing_summary(phase_timings: dict[str, float]) -> str:
     ordered = (
         ("process", "runtime.process"),
+        ("preview", "gui.preview_materialize"),
         ("display", "gui.display_prepare"),
-        ("materialize", "gui.float_materialize"),
+        ("export", "gui.export_materialize"),
     )
     parts = [
         f"{label}={phase_timings[key]:.2f}s"
@@ -426,6 +465,138 @@ def _format_phase_timing_summary(phase_timings: dict[str, float]) -> str:
         if key in phase_timings
     ]
     return ", ".join(parts)
+
+
+def materialize_export_image(
+    image_data: object,
+    *,
+    dtype: np.dtype | type | str = np.float32,
+    phase_timings: dict[str, float] | None = None,
+) -> np.ndarray:
+    materialize_start = time.perf_counter()
+    try:
+        image = np.asarray(image_data, dtype=dtype)
+        if image.ndim >= 3:
+            image = image[..., :3]
+        return image
+    finally:
+        _record_phase_timing(
+            phase_timings,
+            "gui.export_materialize",
+            time.perf_counter() - materialize_start,
+        )
+
+
+def _uses_mlx_float32_params(params: object) -> bool:
+    settings = getattr(params, "settings", None)
+    return (
+        str(getattr(settings, "compute_backend", "")).lower() == "mlx"
+        and str(getattr(settings, "gpu_precision", "")).lower() == "float32"
+    )
+
+
+def estimate_full_render_memory_bytes(
+    image_data: object,
+    params: object,
+    *,
+    require_hdr_metadata: bool = False,
+) -> dict[str, int]:
+    shape = _shape_tuple(image_data)
+    if shape is None or len(shape) < 2:
+        return {}
+
+    height, width = shape[:2]
+    pixels = max(int(height), 0) * max(int(width), 0)
+    if pixels <= 0:
+        return {}
+
+    channels = min(int(shape[2]) if len(shape) > 2 else 3, 3)
+    source_nbytes = array_nbytes(image_data)
+    rgb32 = pixels * 3 * 4
+    y32 = pixels * 4
+    estimates: dict[str, int] = {
+        "source_image": source_nbytes,
+        "decoded_raw_peak_prior": int(rgb32 * 3.5),
+        "runtime_input": 0 if _uses_mlx_float32_params(params) and _dtype_itemsize(image_data) == 4 and channels >= 3 else rgb32,
+        "runtime_rgb_working_set": int(rgb32 * 5),
+        "spatial_filter_transients": int(rgb32 * 4),
+        "dir_coupler_transients": int(rgb32 * 3),
+        "display_image": pixels * 3 * (4 + 1),
+    }
+
+    input_color_space = str(getattr(getattr(params, "io", None), "input_color_space", ""))
+    if input_color_space and input_color_space != "ACES2065-1":
+        estimates["raw_import_colour_conversion_prior"] = int(rgb32 * 4)
+
+    grain = getattr(getattr(params, "film_render", None), "grain", None)
+    if bool(getattr(grain, "active", False)):
+        estimates["grain_layers"] = int(pixels * 9 * 4) if bool(getattr(grain, "sublayers_active", True)) else rgb32
+
+    if require_hdr_metadata:
+        estimates["hdr_scene_luminance_sidecar"] = y32
+
+    return estimates
+
+
+def _memory_budget_bytes(params: object, *, available_bytes: int | None = None) -> int | None:
+    if os.environ.get("SPEKTRAFILM_RENDER_MEMORY_GUARD", "").strip().lower() in {"0", "false", "off", "no"}:
+        return None
+
+    explicit_mb = os.environ.get("SPEKTRAFILM_RENDER_MEMORY_BUDGET_MB")
+    if explicit_mb:
+        try:
+            return max(int(float(explicit_mb) * 1024 * 1024), 1)
+        except ValueError:
+            pass
+
+    if available_bytes is None:
+        try:
+            import psutil
+
+            available_bytes = int(psutil.virtual_memory().available)
+        except Exception:
+            available_bytes = None
+
+    if available_bytes is None or available_bytes <= 0:
+        return _GPU_FULL_RENDER_BUDGET_BYTES if _uses_mlx_float32_params(params) else None
+
+    budget = int(float(available_bytes) * 0.75)
+    if _uses_mlx_float32_params(params):
+        budget = min(budget, _GPU_FULL_RENDER_BUDGET_BYTES)
+    return max(budget, 1)
+
+
+def full_render_memory_guard_message(
+    image_data: object,
+    params: object,
+    *,
+    require_hdr_metadata: bool = False,
+    available_bytes: int | None = None,
+) -> str | None:
+    estimates = estimate_full_render_memory_bytes(
+        image_data,
+        params,
+        require_hdr_metadata=require_hdr_metadata,
+    )
+    if not estimates:
+        return None
+
+    total = sum(estimates.values())
+    budget = _memory_budget_bytes(params, available_bytes=available_bytes)
+    if budget is None or total <= budget:
+        return None
+
+    def fmt(value: int) -> str:
+        return f"{value / 1024**3:.1f} GiB"
+
+    largest = sorted(estimates.items(), key=lambda item: item[1], reverse=True)[:4]
+    parts = ", ".join(f"{name}={fmt(value)}" for name, value in largest)
+    return (
+        "Full-resolution render is likely to exceed the memory budget. "
+        f"Estimated peak working set is {fmt(total)}; budget is {fmt(budget)}. "
+        f"Largest contributors: {parts}. Use Preview, crop/downscale, disable grain/spatial effects, "
+        "or increase SPEKTRAFILM_RENDER_MEMORY_BUDGET_MB if this machine has enough headroom."
+    )
 
 
 def execute_simulation_request(
@@ -454,18 +625,12 @@ def execute_simulation_request(
     scan = getattr(simulation_output, 'image', simulation_output)
     hdr_scene_energy = getattr(simulation_output, 'hdr_scene_energy', None)
 
-    materialize_start = time.perf_counter()
-    scan_array = np.asarray(scan)
-    phase_timings["gui.float_materialize"] = time.perf_counter() - materialize_start
-    if isinstance(scan, np.ndarray) and np.shares_memory(scan_array, scan):
-        memory_estimates["gui.float_materialize_copy_nbytes"] = 0
-    else:
-        memory_estimates["gui.float_materialize_copy_nbytes"] = array_nbytes(scan_array)
-    memory_estimates["gui.float_image_nbytes"] = array_nbytes(scan_array)
+    memory_estimates["gui.export_source_nbytes"] = array_nbytes(scan)
+    memory_estimates["gui.float_image_nbytes"] = array_nbytes(scan)
 
     display_start = time.perf_counter()
     scan_display, display_status = prepare_output_display_image_fn(
-        scan_array,
+        scan,
         output_color_space=request.output_color_space,
         output_cctf_encoding=request.output_cctf_encoding,
         use_display_transform=request.use_display_transform,
@@ -482,7 +647,7 @@ def execute_simulation_request(
     phase_timings["gui.worker_total"] = elapsed_time
     runtime_status = runtime_status_fn() if runtime_status_fn is not None else None
     runtime_stage_timings = dict(runtime_timings_fn() or {}) if runtime_timings_fn is not None else {}
-    
+
     parts = [display_status]
     if runtime_status:
         parts.append(runtime_status)
@@ -494,7 +659,7 @@ def execute_simulation_request(
     return SimulationResult(
         mode_label=request.mode_label,
         display_image=scan_display,
-        float_image=scan_array,
+        float_image=scan,
         output_color_space=request.output_color_space,
         output_cctf_encoding=request.output_cctf_encoding,
         use_display_transform=request.use_display_transform,

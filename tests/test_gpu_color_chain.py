@@ -16,6 +16,7 @@ from spektrafilm.gpu.kernels.color import (
     cctf_encoding_backend,
     precompute_rgb_to_xyz_matrix,
     precompute_xyz_to_rgb_matrix,
+    rgb_to_raw_mallett2019_backend,
     rgb_to_xyz,
     xyz_to_rgb,
 )
@@ -222,6 +223,40 @@ def test_rgb_to_tc_b_backend_matches_cpu_reference(
 
     np.testing.assert_allclose(actual_tc, expected_tc, rtol=3e-5, atol=3e-5)
     np.testing.assert_allclose(actual_b, expected_b, rtol=3e-5, atol=3e-5)
+    assert backend.to_numpy_calls == 0
+
+
+@pytest.mark.parametrize("color_space", ["sRGB", "Display P3", "ITU-R BT.2020"])
+@pytest.mark.parametrize("apply_cctf_decoding", [False, True])
+def test_rgb_to_raw_mallett2019_backend_matches_cpu_reference(
+    color_space: str,
+    apply_cctf_decoding: bool,
+) -> None:
+    from spektrafilm.utils.spectral_upsampling import rgb_to_raw_mallett2019
+
+    backend = RecordingNumpyGpuBackend(name="mlx")
+    backend.precision = "float32"
+    rng = np.random.default_rng(20260608)
+    rgb = rng.random((5, 7, 3), dtype=np.float32)
+    sensitivity = rng.random((81, 3), dtype=np.float32) + 0.05
+
+    actual = rgb_to_raw_mallett2019_backend(
+        rgb,
+        sensitivity,
+        color_space=color_space,
+        apply_cctf_decoding=apply_cctf_decoding,
+        reference_illuminant="D65",
+        backend=backend,
+    )
+    expected = rgb_to_raw_mallett2019(
+        rgb,
+        sensitivity,
+        color_space=color_space,
+        apply_cctf_decoding=apply_cctf_decoding,
+        reference_illuminant="D65",
+    )
+
+    np.testing.assert_allclose(actual, expected, rtol=2e-6, atol=2e-6)
     assert backend.to_numpy_calls == 0
 
 

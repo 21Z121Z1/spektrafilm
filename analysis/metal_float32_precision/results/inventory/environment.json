@@ -1,0 +1,9 @@
+{
+  "command": "/Users/retriedstormtrooper/Documents/Projects/Active/spektrafilm-main/.venv/bin/python analysis/metal_float32_precision/measure_precision.py --inventory-only --results-dir analysis/metal_float32_precision/results/inventory",
+  "cwd": "/Users/retriedstormtrooper/Documents/Projects/Active/spektrafilm-main",
+  "machine": "arm64",
+  "mlx_importable": true,
+  "mlx_metal_available": true,
+  "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+  "python": "3.13.1 (main, Dec  3 2024, 17:59:52) [Clang 16.0.0 (clang-1600.0.26.4)]"
+}

@@ -78,7 +78,14 @@ def generated_image(size: tuple[int, int] | None) -> np.ndarray:
     ).astype(np.float32, copy=False)
 
 
-def build_params(*, backend: str, precision: str):
+def object_type_name(value: object | None) -> str | None:
+    if value is None:
+        return None
+    value_type = type(value)
+    return f"{value_type.__module__}.{value_type.__qualname__}"
+
+
+def build_params(*, backend: str, precision: str, materialize_policy: str):
     from spektrafilm.runtime.params_builder import digest_params, init_params
 
     params = init_params(film_profile="kodak_portra_400", print_profile="kodak_portra_endura")
@@ -92,6 +99,7 @@ def build_params(*, backend: str, precision: str):
     params.debug.print_timings = False
     params.settings.compute_backend = backend
     params.settings.gpu_precision = precision
+    params.settings.materialize_policy = materialize_policy
     params.settings.gpu_validate = False
     params.settings.preview_mode = False
     params.settings.use_fast_stats = True
@@ -101,7 +109,7 @@ def build_params(*, backend: str, precision: str):
     return digest_params(params)
 
 
-def run_once(source_image: np.ndarray, params) -> dict[str, Any]:
+def run_once(source_image: np.ndarray, params, *, export: bool) -> dict[str, Any]:
     from spektrafilm.runtime.pipeline import SimulationPipeline
     from spektrafilm_gui import controller_runtime
     from spektrafilm_gui.controller import _prepare_simulation_input_image
@@ -140,17 +148,41 @@ def run_once(source_image: np.ndarray, params) -> dict[str, Any]:
         runtime_status_fn=simulator.backend_runtime_summary,
         runtime_timings_fn=lambda: dict(simulator.get_timings()),
     )
+    worker_wall_seconds = time.perf_counter() - start
+    export_payload: dict[str, Any] = {
+        "requested": bool(export),
+        "shape": None,
+        "dtype": None,
+        "nbytes": 0,
+    }
+    if export:
+        export_image = controller_runtime.materialize_export_image(
+            result.float_image,
+            phase_timings=result.phase_timings,
+        )
+        export_payload.update(
+            {
+                "shape": list(export_image.shape),
+                "dtype": str(export_image.dtype),
+                "nbytes": array_nbytes(export_image),
+            }
+        )
     wall_seconds = time.perf_counter() - start
+    export_source = result.float_image
     return {
         "status": "ok",
         "wall_seconds": wall_seconds,
+        "worker_wall_seconds": worker_wall_seconds,
         "phase_timings": dict(result.phase_timings),
         "runtime_stage_timings": dict(result.runtime_stage_timings),
         "memory_estimates": dict(result.memory_estimates),
         "display_shape": list(result.display_image.shape),
         "display_dtype": str(result.display_image.dtype),
-        "float_shape": list(result.float_image.shape),
-        "float_dtype": str(result.float_image.dtype),
+        "export_source_type": object_type_name(export_source),
+        "export_source_shape": list(getattr(export_source, "shape", ())) if export_source is not None else None,
+        "export_source_dtype": str(getattr(export_source, "dtype", None)) if export_source is not None else None,
+        "export_source_nbytes": array_nbytes(export_source),
+        "export": export_payload,
         "status_message": result.status_message,
     }
 
@@ -158,15 +190,19 @@ def run_once(source_image: np.ndarray, params) -> dict[str, Any]:
 def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     size = parse_size(args.size)
     source_image = generated_image(size)
-    params = build_params(backend=args.backend, precision=args.precision)
+    params = build_params(
+        backend=args.backend,
+        precision=args.precision,
+        materialize_policy=args.materialize_policy,
+    )
     measured: list[dict[str, Any]] = []
     warmups: list[dict[str, Any]] = []
 
     try:
         for _ in range(max(0, int(args.warmups))):
-            warmups.append(run_once(source_image, params))
+            warmups.append(run_once(source_image, params, export=bool(args.export)))
         for _ in range(max(1, int(args.runs))):
-            measured.append(run_once(source_image, params))
+            measured.append(run_once(source_image, params, export=bool(args.export)))
     except Exception as exc:
         return {
             "run_id": datetime.now().strftime("%Y%m%d-%H%M%S"),
@@ -187,6 +223,8 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "status": "ok",
         "backend": args.backend,
         "precision": args.precision,
+        "materialize_policy": args.materialize_policy,
+        "export_requested": bool(args.export),
         "size": args.size,
         "input": {
             "shape": list(source_image.shape),
@@ -207,6 +245,8 @@ def format_markdown(payload: dict[str, Any]) -> str:
         f"- Status: `{payload['status']}`",
         f"- Backend: `{payload.get('backend')}`",
         f"- Precision: `{payload.get('precision')}`",
+        f"- Materialize policy: `{payload.get('materialize_policy')}`",
+        f"- Explicit export: `{payload.get('export_requested')}`",
     ]
     if payload["status"] != "ok":
         lines.append(f"- Error: `{payload.get('error')}`")
@@ -234,6 +274,26 @@ def format_markdown(payload: dict[str, Any]) -> str:
         )
 
     last_run = payload["runs"][-1]
+    lines.extend(
+        [
+            "",
+            "## Last Run Output",
+            "",
+            "| Field | Value |",
+            "|---|---|",
+            f"| Display shape | `{last_run.get('display_shape')}` |",
+            f"| Display dtype | `{last_run.get('display_dtype')}` |",
+            f"| Worker wall seconds | `{last_run.get('worker_wall_seconds')}` |",
+            f"| Export source type | `{last_run.get('export_source_type')}` |",
+            f"| Export source shape | `{last_run.get('export_source_shape')}` |",
+            f"| Export source dtype | `{last_run.get('export_source_dtype')}` |",
+            f"| Export source nbytes | `{last_run.get('export_source_nbytes')}` |",
+            f"| Export requested | `{last_run.get('export', {}).get('requested')}` |",
+            f"| Export shape | `{last_run.get('export', {}).get('shape')}` |",
+            f"| Export dtype | `{last_run.get('export', {}).get('dtype')}` |",
+            f"| Export nbytes | `{last_run.get('export', {}).get('nbytes')}` |",
+        ]
+    )
     lines.extend(["", "## Last Run Runtime Stages", "", "| Stage | Seconds |", "|---|---:|"])
     for key, value in last_run.get("runtime_stage_timings", {}).items():
         lines.append(f"| {key} | {float(value):.6f} |")
@@ -266,7 +326,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--size", default="512x384")
     parser.add_argument("--warmups", type=int, default=1)
     parser.add_argument("--runs", type=int, default=3)
+    parser.add_argument("--materialize-policy", choices=("numpy_float64", "numpy_float32", "backend"), default="numpy_float64")
+    parser.add_argument("--export", action="store_true", help="Explicitly materialize the full float export image after preview.")
     parser.add_argument("--out-dir", default=str(DEFAULT_OUT_DIR))
+    parser.add_argument("--no-write", action="store_true", help="Print results without writing JSON/Markdown artifacts.")
     return parser
 
 
@@ -275,9 +338,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.precision is None:
         args.precision = "float64" if args.backend == "cpu" else "float32"
     payload = run_benchmark(args)
-    json_path, md_path = write_artifacts(payload, Path(args.out_dir))
-    print(f"Wrote JSON: {json_path}")
-    print(f"Wrote Markdown: {md_path}")
+    if args.no_write:
+        print(json.dumps(payload, indent=2))
+    else:
+        json_path, md_path = write_artifacts(payload, Path(args.out_dir))
+        print(f"Wrote JSON: {json_path}")
+        print(f"Wrote Markdown: {md_path}")
     if payload["status"] != "ok":
         print(payload["error"])
         return 1
@@ -287,6 +353,7 @@ def main(argv: list[str] | None = None) -> int:
 __all__ = [
     "array_nbytes",
     "format_markdown",
+    "object_type_name",
     "parse_size",
     "run_benchmark",
     "summarize_seconds",

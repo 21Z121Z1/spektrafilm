@@ -30,6 +30,10 @@ from spektrafilm.utils.hdr_curve_profiles import (
     render_negative_scan_positive_rgb,
     sample_runtime_film_scan_curve_profile,
 )
+from spektrafilm.utils.heif_iso21496 import (
+    repair_coreimage_tmap_min_max_order,
+    validate_heif_iso21496,
+)
 from spektrafilm.utils.math_ops import smoothstep as _smoothstep
 from spektrafilm.gpu.kernels.color import (
     precompute_rgb_to_xyz_matrix as _rgb_to_xyz_matrix,
@@ -342,6 +346,7 @@ def save_hdr_photo_heic(
             message = f"{message}: {details}"
         raise HDRPhotoExportError(message)
 
+    _validate_coreimage_heic_iso21496(output_path)
     return renditions.diagnostics
 
 
@@ -363,7 +368,11 @@ def save_hdr_photo_heic_from_pair(
     recovery.
     """
 
-    del metadata
+    if metadata:
+        raise HDRPhotoExportError(
+            "HEIC metadata embedding is not supported by save_hdr_photo_heic_from_pair; "
+            "write route/source metadata through a HEIF-aware encoder instead."
+        )
     if platform.system() != "Darwin":
         raise HDRPhotoExportError("HEIC HDR photo export currently requires macOS CoreImage.")
 
@@ -431,7 +440,24 @@ def save_hdr_photo_heic_from_pair(
             message = f"{message}: {details}"
         raise HDRPhotoExportError(message)
 
+    _validate_coreimage_heic_iso21496(output_path)
     return ()
+
+
+def _validate_coreimage_heic_iso21496(output_path: Path) -> None:
+    """Validate a CoreImage-written HEIC before reporting success."""
+
+    repair_coreimage_tmap_min_max_order(output_path)
+    iso_result = validate_heif_iso21496(output_path)
+    if not iso_result.ok:
+        try:
+            output_path.unlink()
+        except OSError:
+            pass
+        raise HDRPhotoExportError(
+            "CoreImage HDR HEIC export failed ISO 21496-1 validation: "
+            + "; ".join(iso_result.errors)
+        )
 
 
 def _prepare_hdr_rgb(image_data: np.ndarray) -> np.ndarray:

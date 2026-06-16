@@ -6,7 +6,11 @@ from spektrafilm.model.illuminants import standard_illuminant
 from spektrafilm.model.color_filters import compute_band_pass_filter
 from spektrafilm.model.diffusion import apply_diffusion_filter_um, apply_gaussian_blur_um, apply_halation_um, boost_highlights
 from spektrafilm.model.develop import compute_density_spectral, develop, develop_simple
-from spektrafilm.gpu.kernels.color import boost_highlights_backend, rgb_to_tc_b_backend
+from spektrafilm.gpu.kernels.color import (
+    boost_highlights_backend,
+    rgb_to_raw_mallett2019_backend,
+    rgb_to_tc_b_backend,
+)
 from spektrafilm.gpu.kernels.density import safe_log10_backend
 from spektrafilm.utils.autoexposure import measure_autoexposure_ev
 from spektrafilm.utils.spectral_upsampling import (
@@ -186,10 +190,22 @@ class FilmingStage:
                     tc_lut=tc_lut,
                 )
         elif self._settings.rgb_to_raw_method == "mallett2019":
-            raw = rgb_to_raw_mallett2019(rgb, sensitivity,
-                            color_space=color_space,
-                            apply_cctf_decoding=apply_cctf_decoding,
-                            reference_illuminant=self._film.info.reference_illuminant)
+            _backend = getattr(self, '_backend', None)
+            _gpu = use_backend and _backend is not None and getattr(_backend, 'supports_gpu', False)
+            if _gpu:
+                raw = rgb_to_raw_mallett2019_backend(
+                    rgb,
+                    sensitivity,
+                    color_space=color_space,
+                    apply_cctf_decoding=apply_cctf_decoding,
+                    reference_illuminant=self._film.info.reference_illuminant,
+                    backend=_backend,
+                )
+            else:
+                raw = rgb_to_raw_mallett2019(rgb, sensitivity,
+                                color_space=color_space,
+                                apply_cctf_decoding=apply_cctf_decoding,
+                                reference_illuminant=self._film.info.reference_illuminant)
         else:
             raise ValueError(f"Unsupported rgb_to_raw method: {self._settings.rgb_to_raw_method}")
         return raw

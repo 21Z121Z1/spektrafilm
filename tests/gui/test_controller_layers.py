@@ -241,6 +241,39 @@ def test_set_or_add_output_layer_reuses_float32_metadata_array_without_copy() ->
     assert np.shares_memory(metadata_float, float_image)
 
 
+def test_set_or_add_output_layer_stores_backend_export_source_without_materializing() -> None:
+    class ArrayLikeExportSource:
+        shape = (4, 4, 3)
+        dtype = np.dtype(np.float32)
+
+        def __init__(self) -> None:
+            self.array_calls = 0
+
+        def __array__(self, dtype=None):
+            self.array_calls += 1
+            array = np.full(self.shape, 0.5, dtype=np.float32)
+            if dtype is not None:
+                return np.asarray(array, dtype=dtype)
+            return array
+
+    viewer = FakeViewer()
+    service = _make_service(viewer)
+    export_source = ArrayLikeExportSource()
+
+    service.set_or_add_output_layer(
+        np.full((4, 4, 3), 127, dtype=np.uint8),
+        float_image=export_source,
+        output_color_space='sRGB',
+        output_cctf_encoding=True,
+        use_display_transform=False,
+    )
+
+    output_layer = service.output_layer()
+    assert output_layer is not None
+    assert output_layer.metadata[OUTPUT_FLOAT_DATA_KEY] is export_source
+    assert export_source.array_calls == 0
+
+
 def test_set_or_add_output_layer_applies_requested_interpolation_mode() -> None:
     viewer = FakeViewer()
     service = _make_service(viewer)

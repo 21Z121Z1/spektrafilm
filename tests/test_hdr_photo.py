@@ -189,6 +189,7 @@ def test_save_hdr_photo_heic_passes_authored_sdr_and_hdr_payloads(monkeypatch, t
     monkeypatch.setattr(hdr_photo.platform, "system", lambda: "Darwin")
     monkeypatch.setattr(hdr_photo, "_swift_command", lambda: ["swift"])
     monkeypatch.setattr(hdr_photo, "_encoder_script_path", lambda: Path("/tmp/hdr_heif_encoder.swift"))
+    monkeypatch.setattr(hdr_photo, "validate_heif_iso21496", lambda path: SimpleNamespace(ok=True, errors=()))
 
     def fake_run(command, *, check, capture_output, text, timeout):
         captured["command"] = command
@@ -217,6 +218,32 @@ def test_save_hdr_photo_heic_passes_authored_sdr_and_hdr_payloads(monkeypatch, t
     np.testing.assert_allclose(captured["sdr_payload"][..., 3], 1.0)
     np.testing.assert_allclose(captured["hdr_payload"][..., 3], 1.0)
 
+
+def test_save_hdr_photo_heic_fails_closed_on_iso_validation_error(monkeypatch, tmp_path) -> None:
+    image = np.array([[[1.0, 1.0, 1.0], [3.0, 2.0, 1.5]]], dtype=np.float32)
+    output_path = tmp_path / "out.heic"
+
+    monkeypatch.setattr(hdr_photo.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(hdr_photo, "_swift_command", lambda: ["swift"])
+    monkeypatch.setattr(hdr_photo, "_encoder_script_path", lambda: Path("/tmp/hdr_heif_encoder.swift"))
+    monkeypatch.setattr(
+        hdr_photo,
+        "validate_heif_iso21496",
+        lambda path: SimpleNamespace(ok=False, errors=("bad tmap",)),
+    )
+
+    def fake_run(command, *, check, capture_output, text, timeout):
+        Path(command[4]).write_bytes(b"partial-heic")
+        return SimpleNamespace(returncode=0, stderr="", stdout="")
+
+    monkeypatch.setattr(hdr_photo.subprocess, "run", fake_run)
+
+    with pytest.raises(hdr_photo.HDRPhotoExportError, match="ISO 21496-1 validation"):
+        hdr_photo.save_hdr_photo_heic(output_path, image, color_space="Display P3")
+
+    assert not output_path.exists()
+
+
 def test_save_hdr_photo_heic_never_falls_back_to_sdr_on_error(tmp_path) -> None:
     """如果 prepare_hdr_photo_renditions 验证失败（如 film_scan_aware 缺乏所需 sidecar 或 profile），必须主动向上传递错误，绝不允许静默回退到保存普通 HEIF/JPEG。"""
     look_rgb = np.full((10, 10, 3), 0.5, dtype=np.float32)
@@ -241,6 +268,7 @@ def test_save_hdr_photo_heic_uses_scene_luminance_sidecar(monkeypatch, tmp_path)
     monkeypatch.setattr(hdr_photo.platform, "system", lambda: "Darwin")
     monkeypatch.setattr(hdr_photo, "_swift_command", lambda: ["swift"])
     monkeypatch.setattr(hdr_photo, "_encoder_script_path", lambda: Path("/tmp/hdr_heif_encoder.swift"))
+    monkeypatch.setattr(hdr_photo, "validate_heif_iso21496", lambda path: SimpleNamespace(ok=True, errors=()))
 
     def fake_run(command, *, check, capture_output, text, timeout):
         captured["command"] = command
@@ -540,6 +568,7 @@ def test_save_hdr_photo_heic_gain_map_mode_dispatch(monkeypatch, tmp_path) -> No
     monkeypatch.setattr(hdr_photo.platform, "system", lambda: "Darwin")
     monkeypatch.setattr(hdr_photo, "_swift_command", lambda: ["swift"])
     monkeypatch.setattr(hdr_photo, "_encoder_script_path", lambda: Path("/tmp/hdr_heif_encoder.swift"))
+    monkeypatch.setattr(hdr_photo, "validate_heif_iso21496", lambda path: SimpleNamespace(ok=True, errors=()))
 
     def fake_run(command, *, check, capture_output, text, timeout):
         captured["command"] = command

@@ -32,9 +32,8 @@ class RawWhiteBalance(Enum):
 
 
 class HDRMappingModes(Enum):
-    generic = "generic"
-    profile_aware = "profile_aware"
-    film_scan_aware = "film_scan_aware"
+    light_table = "light_table"
+    paper = "paper"
 
 
 class HDRSceneSources(Enum):

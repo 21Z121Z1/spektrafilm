@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from os import PathLike
 
 import colour
@@ -13,6 +14,8 @@ from scipy.ndimage import map_coordinates
 _TUNGSTEN_TEMPERATURE = 2850.0
 _DAYLIGHT_REFERENCE_TEMPERATURE = 6504.0
 _ACES_COLOURSPACE = colour.RGB_COLOURSPACES["ACES2065-1"]
+_log = logging.getLogger(__name__)
+_UINT16_NORMALIZATION = np.float32(1.0 / 65535.0)
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,6 +26,7 @@ class ExifData:
     lens_model: str
     focal_length: float
     f_number: float
+    metadata_error: str = ""
 
 
 def _whitepoint_xyz_from_temperature(temperature: float) -> np.ndarray:
@@ -78,6 +82,50 @@ def _apply_tint_adjustment(rgb: np.ndarray, tint: float | None) -> np.ndarray:
 
     tint_scale = np.array([1.0, float(tint), 1.0], dtype=np.float32)
     return (rgb * tint_scale).astype(np.float32)
+
+
+def _normalize_postprocessed_rgb(raw_rgb: np.ndarray) -> np.ndarray:
+    """Convert LibRaw 16-bit RGB output to linear float32 in place."""
+
+    rgb = np.asarray(raw_rgb, dtype=np.float32)
+    rgb *= _UINT16_NORMALIZATION
+    return rgb
+
+
+def _convert_linear_rgb_colourspace(
+    rgb: np.ndarray,
+    output_colorspace: str,
+    *,
+    output_cctf_encoding: bool,
+) -> np.ndarray:
+    """Convert linear ACES RGB to another RGB space without float64 frames."""
+
+    if output_colorspace == 'ACES2065-1':
+        return np.asarray(rgb, dtype=np.float32)
+
+    output_colourspace = colour.RGB_COLOURSPACES[output_colorspace]
+    matrix = np.asarray(
+        colour.matrix_RGB_to_RGB(
+            _ACES_COLOURSPACE,
+            output_colourspace,
+            chromatic_adaptation_transform='CAT02',
+        ),
+        dtype=np.float32,
+    )
+    converted = np.matmul(np.asarray(rgb, dtype=np.float32), matrix.T)
+    if output_cctf_encoding:
+        cctf_encoding = getattr(output_colourspace, 'cctf_encoding', None)
+        if callable(cctf_encoding):
+            converted = cctf_encoding(converted)
+        else:
+            converted = colour.RGB_to_RGB(
+                converted,
+                input_colourspace=output_colourspace,
+                output_colourspace=output_colourspace,
+                apply_cctf_decoding=False,
+                apply_cctf_encoding=True,
+            )
+    return np.asarray(converted, dtype=np.float32)
 
 
 def _postprocess_params(
@@ -152,7 +200,9 @@ def _read_exif_metadata(raw_path: str | PathLike[str]) -> ExifData:
         image = exiv2.ImageFactory.open(str(raw_path))
         image.readMetadata()
         exif = image.exifData()
-    except Exception:
+    except Exception as exc:
+        message = f"{type(exc).__name__}: {exc}"
+        _log.warning("Failed to read RAW EXIF metadata from %s: %s", raw_path, message)
         return ExifData(
             make="",
             model="",
@@ -160,6 +210,7 @@ def _read_exif_metadata(raw_path: str | PathLike[str]) -> ExifData:
             lens_model="",
             focal_length=0.0,
             f_number=0.0,
+            metadata_error=message,
         )
 
     def _str(key: str) -> str:
@@ -417,10 +468,14 @@ def load_and_process_raw_file(
 
     with rawpy.imread(str(raw_path)) as raw:
         params, postprocess_adaptation, tint_multiplier = _postprocess_params(white_balance, temperature, tint)
-        rgb = raw.postprocess(**params).astype(np.float32) / np.float32(65535.0)
+        postprocessed_rgb = raw.postprocess(**params)
+        rgb = _normalize_postprocessed_rgb(postprocessed_rgb)
+        del postprocessed_rgb
 
     if lens_correction:
         exif_metadata = _read_exif_metadata(raw_path)
+        if lens_info_out is not None and exif_metadata.metadata_error:
+            lens_info_out["warning"] = f"EXIF metadata unavailable; lens correction skipped: {exif_metadata.metadata_error}"
         rgb, lens_info = _apply_lens_correction(rgb, exif_metadata)
 
         if lens_info_out is not None and lens_info:
@@ -431,16 +486,11 @@ def load_and_process_raw_file(
 
     rgb = _apply_tint_adjustment(rgb, tint_multiplier)
 
-    if output_colorspace != 'ACES2065-1':
-        rgb = colour.RGB_to_RGB(
-            rgb,
-            input_colourspace=_ACES_COLOURSPACE,
-            output_colourspace=colour.RGB_COLOURSPACES[output_colorspace],
-            apply_cctf_decoding=False,
-            apply_cctf_encoding=output_cctf_encoding,
-        )
-
-    return rgb
+    return _convert_linear_rgb_colourspace(
+        rgb,
+        output_colorspace,
+        output_cctf_encoding=output_cctf_encoding,
+    )
 
 
 __all__ = ['load_and_process_raw_file']

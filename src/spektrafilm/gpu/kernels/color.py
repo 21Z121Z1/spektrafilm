@@ -113,7 +113,7 @@ def rgb_to_xyz(rgb: Any, matrix_3x3: Any, backend) -> Any:
 
 def xyz_to_rgb(xyz: Any, matrix_3x3: Any, backend) -> Any:
     """``RGB[…,j] = Σ_i XYZ[…,i] * M[j,i]`` — i.e. ``RGB = XYZ @ M.T``."""
-    specialized = getattr(backend, "rgb_to_xyz", None)
+    specialized = getattr(backend, "xyz_to_rgb", None)
     if callable(specialized):
         return specialized(xyz, matrix_3x3)
     M_T = matrix_3x3.T if hasattr(matrix_3x3, 'T') else np.asarray(matrix_3x3).T
@@ -123,7 +123,7 @@ def xyz_to_rgb(xyz: Any, matrix_3x3: Any, backend) -> Any:
 def _backend_float32_dtype(backend):
     if getattr(backend, "precision", "float32") != "float32":
         raise NotImplementedError(
-            "rgb_to_tc_b_backend currently supports backend float32 only; "
+            "backend colour kernels currently support backend float32 only; "
             "set gpu_precision='float32' or use the CPU reference path."
         )
     dtype = getattr(backend, "default_dtype", None)
@@ -194,6 +194,28 @@ def _cached_rgb_to_xyz_matrix(
     )
 
 
+@lru_cache(maxsize=32)
+def _cached_rgb_to_srgb_matrix(color_space: str) -> np.ndarray:
+    return np.asarray(
+        colour.matrix_RGB_to_RGB(
+            color_space,
+            "sRGB",
+            chromatic_adaptation_transform="CAT02",
+        ),
+        dtype=np.float32,
+    )
+
+
+@lru_cache(maxsize=16)
+def _cached_mallett2019_basis_with_illuminant(reference_illuminant: str) -> np.ndarray:
+    from spektrafilm.model.illuminants import standard_illuminant
+    from spektrafilm.utils.spectral_upsampling import MALLETT2019_BASIS
+
+    illuminant = np.asarray(standard_illuminant(reference_illuminant)[:], dtype=np.float32)
+    basis = np.asarray(MALLETT2019_BASIS[:], dtype=np.float32)
+    return basis * illuminant[:, None]
+
+
 def rgb_to_tc_b_backend(
     rgb: Any,
     *,
@@ -227,6 +249,49 @@ def rgb_to_tc_b_backend(
     xy = xyz[..., 0:2] / _fmax_scalar_backend(b[..., None], 1e-10, backend)
     tc = _tri2quad_backend(xy, backend)
     return tc, backend.nan_to_num(b)
+
+
+def rgb_to_raw_mallett2019_backend(
+    rgb: Any,
+    sensitivity: Any,
+    *,
+    color_space: str = "sRGB",
+    apply_cctf_decoding: bool = True,
+    reference_illuminant: str = "D65",
+    backend,
+) -> Any:
+    """Backend-resident Mallett 2019 RGB -> raw sensor response.
+
+    Mirrors ``utils.spectral_upsampling.rgb_to_raw_mallett2019`` while keeping
+    the image-sized RGB, linear-sRGB, and raw-response tensors on the supplied
+    float32 backend.  Only the small basis, sensitivity, and normalization
+    constants are prepared on CPU and uploaded.
+    """
+    if backend is None:
+        raise ValueError("rgb_to_raw_mallett2019_backend requires an array backend")
+
+    dtype = _backend_float32_dtype(backend)
+    rgb_backend = backend.asarray(rgb, dtype=dtype)
+    if apply_cctf_decoding:
+        rgb_backend = cctf_decoding_transfer_backend(rgb_backend, color_space, backend)
+
+    matrix = backend.asarray(_cached_rgb_to_srgb_matrix(color_space), dtype=dtype)
+    lrgb = rgb_to_xyz(rgb_backend, matrix, backend)
+
+    sensitivity_np = np.nan_to_num(np.asarray(sensitivity, dtype=np.float32))
+    basis = backend.asarray(
+        _cached_mallett2019_basis_with_illuminant(reference_illuminant),
+        dtype=dtype,
+    )
+    sensitivity_backend = backend.asarray(sensitivity_np, dtype=dtype)
+    raw = backend.einsum("ijk,lk,lm->ijm", lrgb, basis, sensitivity_backend)
+    raw = backend.nan_to_num(raw)
+
+    from spektrafilm.model.illuminants import standard_illuminant
+
+    illuminant = np.asarray(standard_illuminant(reference_illuminant)[:], dtype=np.float32)
+    raw_midgray = np.einsum("k,km->m", illuminant * 0.184, sensitivity_np)
+    return raw / float(raw_midgray[1])
 
 
 # ---------------------------------------------------------------------------

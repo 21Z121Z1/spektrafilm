@@ -1,0 +1,9 @@
+{
+  "command": "/Users/retriedstormtrooper/Documents/Projects/Active/spektrafilm-main/.venv/bin/python analysis/metal_float32_precision/measure_precision.py --deterministic --max-working-size 128 --results-dir analysis/metal_float32_precision/results/raw_128 --samples /Users/retriedstormtrooper/Downloads/03_图片素材/RAW_DNG照片/07_历史批量归档_DNG/IMG_4557.DNG /Users/retriedstormtrooper/Downloads/03_图片素材/RAW_DNG照片/04_批量导出_转换与预览/converted_DNG/IMG_0342_converted.DNG /Users/retriedstormtrooper/Downloads/03_图片素材/RAW_DNG照片/01_散片原始DNG/IMG20260603204611..dng /Users/retriedstormtrooper/Downloads/03_图片素材/RAW_DNG照片/08_小归档_Archive1_DNG/IMG_9333.DNG /Users/retriedstormtrooper/Downloads/03_图片素材/RAW_DNG照片/03_成组拍摄/20260531_IDG_131302_390/IMG_2972.DNG /Users/retriedstormtrooper/Downloads/03_图片素材/RAW_DNG照片/02_转换DNG/IDG_20260410_140916_153_converted.DNG /Users/retriedstormtrooper/Downloads/03_图片素材/RAW_DNG照片/03_成组拍摄/20260528_IMG_4897/IMG_4897.DNG /Users/retriedstormtrooper/Downloads/03_图片素材/RAW_DNG照片/07_历史批量归档_DNG/IMG_4536.DNG",
+  "cwd": "/Users/retriedstormtrooper/Documents/Projects/Active/spektrafilm-main",
+  "machine": "arm64",
+  "mlx_importable": true,
+  "mlx_metal_available": true,
+  "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+  "python": "3.13.1 (main, Dec  3 2024, 17:59:52) [Clang 16.0.0 (clang-1600.0.26.4)]"
+}

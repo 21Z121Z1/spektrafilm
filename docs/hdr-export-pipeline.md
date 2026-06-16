@@ -1,6 +1,6 @@
 # HDR Export Pipeline
 
-Date: 2026-06-05
+Date: 2026-06-08
 
 ## New Pair Export Flow
 
@@ -8,7 +8,7 @@ RouteMaster HDR export is:
 
 ```text
 master = simulator.process_master(image, hdr_mode="light_table" or "paper")
-projection = render_hdr_pair_from_master(master, hdr_mode=...)
+projection = render_hdr_film_pair_from_master(master, hdr_mode=...)
 save_hdr_photo_heic_from_pair(path, projection.sdr_rgb, projection.hdr_rgb, ...)
 ```
 
@@ -51,10 +51,25 @@ available for legacy callers, but it is no longer the RouteMaster export path.
 
 - `normalize_hdr_mode()`
 - `render_hdr_pair_from_master()`
+- `render_hdr_film_pair_from_master()`
 - `export_hdr_heic_from_simulator()`
 
 `export_hdr_heic_from_simulator()` calls `process_master()` once, projects the
 pair, then calls `save_hdr_photo_heic_from_pair()`.
+
+GUI export now passes the public RouteMaster mode ids (`paper` or
+`light_table`) to this helper. Legacy GUI state values are normalized before
+export.
+
+The GUI-to-projection conversion lives in
+`src/spektrafilm_gui/hdr_settings.py::hdr_projection_config_from_settings()`.
+It maps the current diffuse-white GUI control to
+`HDRProjectionConfig.diffuse_white_scene_anchor` and
+`output_diffuse_white`. The RouteMaster projection preserves the authored SDR
+base, then applies `output_diffuse_white` to the HDR extension above that SDR
+base before gain-map/headroom metadata is generated. It derives scene authority
+from the RouteMaster sidecars and supports only content-percentile headroom
+budgeting; incompatible legacy GUI fields raise before export.
 
 ## Gain Map Metadata
 
@@ -87,7 +102,7 @@ Included in the key:
 - scanner black/white correction and levels
 - viewing illuminant
 - output color space
-- paper white anchor policy for paper mode
+- diffuse-white scene-anchor policy for paper mode
 
 Excluded from the key:
 
@@ -101,3 +116,67 @@ Excluded from the key:
 Spatial and random material enters HDR through `RouteMaster`, not through a
 profile cache baseline.
 
+## SDR Encoding Boundary
+
+RouteMaster projection treats `sdr_legacy_rgb` according to its recorded output
+transform flags:
+
+- `output_cctf_encoding=True`: decode the legacy SDR projection to linear RGB
+  once before pair encoding.
+- `output_cctf_encoding=False`: preserve already-linear SDR as-is.
+
+This keeps the pair encoder independent from the runtime while avoiding double
+decoding or accidental linear-SDR darkening.
+
+## ISO 21496-1 / HEIC Validation Boundary
+
+RouteMaster HEIC export keeps CoreImage as the default writer because it is the
+Mac-compatible path. Spektrafilm now validates the file after CoreImage returns
+instead of trusting marker strings.
+
+`src/spektrafilm/utils/heif_iso21496.py` parses the relevant HEIF item graph:
+
+- `ftyp`
+- file-level `meta`
+- `pitm`
+- `iinf` / `infe`
+- `iref`
+- `iprp` / `ipco` / `ipma`
+- `iloc`
+- `idat`
+
+Hard errors reject the export and remove the partial output:
+
+- `tmap` item and `tmap` compatible brand must agree.
+- The `tmap` item must have exactly one `dimg` reference with two inputs, ordered
+  base image first and gain-map image second.
+- The base input must have `colr`.
+- The gain-map input must be hidden and must have `nclx` `colr` with colour
+  primaries and transfer characteristics set to `2`.
+- The `tmap` item must have alternate-image `colr`.
+- The `ToneMapImage` payload version must be `0`.
+- The remaining payload must parse as ISO 21496-1 C.2 `GainMapMetadata`.
+- Metadata must have finite values, `minimum_version == 0`,
+  `writer_version >= minimum_version`, non-negative and distinct headrooms,
+  `gain_map_max >= gain_map_min`, and `gamma > 0`.
+
+Advisory conditions such as missing `clli` remain warnings so Mac-compatible
+files are not rejected for optional viewing-condition hints.
+
+CoreImage currently writes the correct `tmap` item graph, but its C.2 channel
+range fields can appear in the opposite order from the ISO 21496-1 C.2 markdown
+reference. `repair_coreimage_tmap_min_max_order()` performs a same-size repair
+only when every channel exhibits that exact invalid `min > max` pattern, then the
+normal validator must pass. Arbitrary malformed HEIF files still fail closed.
+
+`save_gain_map_heif()` follows the same rule: if the ISOBMFF patcher is
+unavailable, declines the file, or the post-patch ISO validator reports hard
+errors, Spektrafilm deletes the partial HEIF and raises instead of leaving a
+non-`tmap` file while claiming ISO 21496-1 support.
+
+The real macOS smoke gate is
+`tests/test_hdr_routemaster_export.py::test_coreimage_pair_export_writes_iso_tmap_and_is_mac_openable`.
+On Darwin with `swift`/`xcrun` and `sips`, it writes a small SDR/HDR pair,
+validates the ISO `tmap` graph, checks `sips` openability, and checks Swift
+ImageIO can create a `CGImage` from the result. Apple Photos visual HDR
+activation remains a separate manual/device acceptance boundary.

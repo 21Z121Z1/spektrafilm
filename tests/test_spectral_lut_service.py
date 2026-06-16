@@ -137,34 +137,28 @@ def test_spectral_compute_gpu_direct_path_keeps_backend_array_resident() -> None
     assert result is value
 
 
-def test_spectral_compute_gpu_lut_path_returns_backend_result_without_numpy_transfer(monkeypatch) -> None:
+def test_spectral_compute_gpu_lut_path_uses_exact_direct_backend_fallback(monkeypatch) -> None:
     class FakeGpuArray:
         def __array__(self, dtype=None):
             del dtype
-            raise AssertionError("unexpected LUT result to NumPy transfer")
+            raise AssertionError("unexpected GPU array to NumPy transfer")
 
     class FakeGpuBackend:
         supports_gpu = True
 
         def asarray(self, value):
-            return np.asarray(value, dtype=np.float32)
+            del value
+            return backend_input
 
+    backend_input = FakeGpuArray()
     expected = FakeGpuArray()
-    calls: list[dict[str, object]] = []
 
     def spectral_calculation(value):
-        return np.zeros_like(np.asarray(value, dtype=float))
-
-    def fake_apply_lut(lut, image, backend, *, prepared_lut=None):
-        calls.append(
-            {
-                "lut_shape": np.asarray(lut).shape,
-                "image_shape": np.asarray(image).shape,
-                "backend": backend,
-                "prepared_lut_was_cached": prepared_lut is not None,
-            }
-        )
+        assert value is backend_input
         return expected
+
+    def fake_apply_lut(*_args, **_kwargs):
+        raise AssertionError("GPU spectral LUT must not use approximate trilinear apply")
 
     monkeypatch.setattr(
         spectral_lut_compute_module,
@@ -194,11 +188,4 @@ def test_spectral_compute_gpu_lut_path_returns_backend_result_without_numpy_tran
     )
 
     assert result is expected
-    assert calls == [
-        {
-            "lut_shape": (5, 5, 5, 3),
-            "image_shape": (2, 2, 3),
-            "backend": service._backend,
-            "prepared_lut_was_cached": True,
-        }
-    ]
+    assert "SpectralLUTService.gpu_lut_direct_fallback" in service.timings

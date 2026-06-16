@@ -1,0 +1,3079 @@
+{
+  "run_id": "20260608-224101",
+  "config": {
+    "backend": "mlx",
+    "precision": "float32",
+    "runs": 1,
+    "warmups": 0,
+    "include_real": true,
+    "include_scanner_lut": true,
+    "real_input": "/Users/retriedstormtrooper/Documents/Projects/Active/spektrafilm-main/scratch/IMG_9121_converted.DNG"
+  },
+  "results": [
+    {
+      "sample": "synthetic_256",
+      "source": "generated",
+      "shape": [
+        256,
+        256,
+        3
+      ],
+      "dtype": "float32",
+      "workload": {
+        "label": "runtime_grain_off_hdr_off",
+        "grain": false,
+        "hdr_metadata": false,
+        "preview": false,
+        "export": false,
+        "route": "print_scan",
+        "scanner_lut": false
+      },
+      "backend": "mlx",
+      "precision": "float32",
+      "materialize_policy": "backend",
+      "status": "ok",
+      "warmups": [],
+      "runs": [
+        {
+          "status": "ok",
+          "runtime_wall_seconds": 0.4187648329825606,
+          "total_wall_seconds": 0.4187648329825606,
+          "sync_seconds": 0.11938695798744448,
+          "backend": "mlx",
+          "precision": "float32",
+          "materialize_policy": "backend",
+          "route": "print_scan",
+          "flags": {
+            "grain": false,
+            "hdr_metadata": false,
+            "preview": false,
+            "export": false,
+            "scanner_lut": false
+          },
+          "preview_seconds": 0.0,
+          "export_seconds": 0.0,
+          "output_source": {
+            "type": "mlx.core.array",
+            "shape": [
+              256,
+              256,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "nbytes": 786432
+          },
+          "hdr_scene_luminance": {
+            "type": null,
+            "shape": null,
+            "dtype": null,
+            "nbytes": 0
+          },
+          "preview": {
+            "requested": false
+          },
+          "export": {
+            "requested": false
+          },
+          "pipeline_timings": {
+            "preprocess": 0.0009220829815603793,
+            "SpectralLUTService.get_filming_tc_lut": 3.97089752368629e-05,
+            "SpectralLUTService.get_filming_tc_lut_backend": 0.0008514169894624501,
+            "filming.expose": 0.007932957989396527,
+            "filming.develop": 0.006653958989772946,
+            "PrintingStage.expose": 0.049151541985338554,
+            "printing.expose": 0.04917154199210927,
+            "PrintingStage.develop": 0.002229250007076189,
+            "printing.develop": 0.002242582995677367,
+            "SpectralLUTService.spectral_compute_scanner": 0.008865083014825359,
+            "ScanningStage.scan": 0.23237587499897927,
+            "scanning.scan_print": 0.23238116601714864,
+            "SimulationPipeline.materialize": 2.4999899324029684e-06
+          },
+          "gui_phase_timings": {},
+          "residency_summary": {
+            "events": 78,
+            "to_numpy": 2,
+            "asarray": 76,
+            "unallowed": 0,
+            "unallowed_to_numpy": 0
+          }
+        }
+      ],
+      "summary": {
+        "runtime_wall_seconds": {
+          "median": 0.4187648329825606,
+          "min": 0.4187648329825606,
+          "max": 0.4187648329825606
+        },
+        "total_wall_seconds": {
+          "median": 0.4187648329825606,
+          "min": 0.4187648329825606,
+          "max": 0.4187648329825606
+        },
+        "sync_seconds": {
+          "median": 0.11938695798744448,
+          "min": 0.11938695798744448,
+          "max": 0.11938695798744448
+        },
+        "preview_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "export_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    {
+      "sample": "synthetic_256",
+      "source": "generated",
+      "shape": [
+        256,
+        256,
+        3
+      ],
+      "dtype": "float32",
+      "workload": {
+        "label": "runtime_grain_off_hdr_on",
+        "grain": false,
+        "hdr_metadata": true,
+        "preview": false,
+        "export": false,
+        "route": "print_scan",
+        "scanner_lut": false
+      },
+      "backend": "mlx",
+      "precision": "float32",
+      "materialize_policy": "backend",
+      "status": "ok",
+      "warmups": [],
+      "runs": [
+        {
+          "status": "ok",
+          "runtime_wall_seconds": 0.062326125014806166,
+          "total_wall_seconds": 0.062326125014806166,
+          "sync_seconds": 0.01373616699129343,
+          "backend": "mlx",
+          "precision": "float32",
+          "materialize_policy": "backend",
+          "route": "print_scan",
+          "flags": {
+            "grain": false,
+            "hdr_metadata": true,
+            "preview": false,
+            "export": false,
+            "scanner_lut": false
+          },
+          "preview_seconds": 0.0,
+          "export_seconds": 0.0,
+          "output_source": {
+            "type": "mlx.core.array",
+            "shape": [
+              256,
+              256,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "nbytes": 786432
+          },
+          "hdr_scene_luminance": {
+            "type": "numpy.ndarray",
+            "shape": [
+              256,
+              256
+            ],
+            "dtype": "float32",
+            "nbytes": 262144
+          },
+          "preview": {
+            "requested": false
+          },
+          "export": {
+            "requested": false
+          },
+          "pipeline_timings": {
+            "SimulationPipeline.hdr_scene_luminance_materialize": 0.0004107500135432929,
+            "preprocess": 0.006706457992549986,
+            "SpectralLUTService.get_filming_tc_lut": 4.8707996029406786e-05,
+            "SpectralLUTService.get_filming_tc_lut_backend": 0.0008526660094503313,
+            "filming.expose": 0.0051437919901218265,
+            "filming.develop": 0.002711332985199988,
+            "PrintingStage.expose": 0.020284708007238805,
+            "printing.expose": 0.020290082989959046,
+            "PrintingStage.develop": 0.0008832909807097167,
+            "printing.develop": 0.0008856659987941384,
+            "SpectralLUTService.spectral_compute_scanner": 0.002351750008529052,
+            "ScanningStage.scan": 0.012746124994009733,
+            "scanning.scan_print": 0.012751374975778162,
+            "SimulationPipeline.materialize": 1.9579892978072166e-06
+          },
+          "gui_phase_timings": {},
+          "residency_summary": {
+            "events": 79,
+            "to_numpy": 3,
+            "asarray": 76,
+            "unallowed": 0,
+            "unallowed_to_numpy": 0
+          }
+        }
+      ],
+      "summary": {
+        "runtime_wall_seconds": {
+          "median": 0.062326125014806166,
+          "min": 0.062326125014806166,
+          "max": 0.062326125014806166
+        },
+        "total_wall_seconds": {
+          "median": 0.062326125014806166,
+          "min": 0.062326125014806166,
+          "max": 0.062326125014806166
+        },
+        "sync_seconds": {
+          "median": 0.01373616699129343,
+          "min": 0.01373616699129343,
+          "max": 0.01373616699129343
+        },
+        "preview_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "export_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    {
+      "sample": "synthetic_256",
+      "source": "generated",
+      "shape": [
+        256,
+        256,
+        3
+      ],
+      "dtype": "float32",
+      "workload": {
+        "label": "runtime_grain_on_hdr_off",
+        "grain": true,
+        "hdr_metadata": false,
+        "preview": false,
+        "export": false,
+        "route": "print_scan",
+        "scanner_lut": false
+      },
+      "backend": "mlx",
+      "precision": "float32",
+      "materialize_policy": "backend",
+      "status": "ok",
+      "warmups": [],
+      "runs": [
+        {
+          "status": "ok",
+          "runtime_wall_seconds": 0.11159474999294616,
+          "total_wall_seconds": 0.11159474999294616,
+          "sync_seconds": 0.04547645797720179,
+          "backend": "mlx",
+          "precision": "float32",
+          "materialize_policy": "backend",
+          "route": "print_scan",
+          "flags": {
+            "grain": true,
+            "hdr_metadata": false,
+            "preview": false,
+            "export": false,
+            "scanner_lut": false
+          },
+          "preview_seconds": 0.0,
+          "export_seconds": 0.0,
+          "output_source": {
+            "type": "mlx.core.array",
+            "shape": [
+              256,
+              256,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "nbytes": 786432
+          },
+          "hdr_scene_luminance": {
+            "type": null,
+            "shape": null,
+            "dtype": null,
+            "nbytes": 0
+          },
+          "preview": {
+            "requested": false
+          },
+          "export": {
+            "requested": false
+          },
+          "pipeline_timings": {
+            "preprocess": 0.00047533298493362963,
+            "SpectralLUTService.get_filming_tc_lut": 4.7250010538846254e-05,
+            "SpectralLUTService.get_filming_tc_lut_backend": 0.0009840410202741623,
+            "filming.expose": 0.005563916987739503,
+            "filming.develop": 0.02056379200075753,
+            "PrintingStage.expose": 0.02357270900392905,
+            "printing.expose": 0.023578708001878113,
+            "PrintingStage.develop": 0.0009426249889656901,
+            "printing.develop": 0.0009447909833397716,
+            "SpectralLUTService.spectral_compute_scanner": 0.003400207991944626,
+            "ScanningStage.scan": 0.014929917000699788,
+            "scanning.scan_print": 0.014934459002688527,
+            "SimulationPipeline.materialize": 1.1249794624745846e-06
+          },
+          "gui_phase_timings": {},
+          "residency_summary": {
+            "events": 86,
+            "to_numpy": 2,
+            "asarray": 84,
+            "unallowed": 0,
+            "unallowed_to_numpy": 0
+          }
+        }
+      ],
+      "summary": {
+        "runtime_wall_seconds": {
+          "median": 0.11159474999294616,
+          "min": 0.11159474999294616,
+          "max": 0.11159474999294616
+        },
+        "total_wall_seconds": {
+          "median": 0.11159474999294616,
+          "min": 0.11159474999294616,
+          "max": 0.11159474999294616
+        },
+        "sync_seconds": {
+          "median": 0.04547645797720179,
+          "min": 0.04547645797720179,
+          "max": 0.04547645797720179
+        },
+        "preview_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "export_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    {
+      "sample": "synthetic_256",
+      "source": "generated",
+      "shape": [
+        256,
+        256,
+        3
+      ],
+      "dtype": "float32",
+      "workload": {
+        "label": "runtime_grain_on_hdr_on",
+        "grain": true,
+        "hdr_metadata": true,
+        "preview": false,
+        "export": false,
+        "route": "print_scan",
+        "scanner_lut": false
+      },
+      "backend": "mlx",
+      "precision": "float32",
+      "materialize_policy": "backend",
+      "status": "ok",
+      "warmups": [],
+      "runs": [
+        {
+          "status": "ok",
+          "runtime_wall_seconds": 0.09313895800733007,
+          "total_wall_seconds": 0.09313895800733007,
+          "sync_seconds": 0.029320665984414518,
+          "backend": "mlx",
+          "precision": "float32",
+          "materialize_policy": "backend",
+          "route": "print_scan",
+          "flags": {
+            "grain": true,
+            "hdr_metadata": true,
+            "preview": false,
+            "export": false,
+            "scanner_lut": false
+          },
+          "preview_seconds": 0.0,
+          "export_seconds": 0.0,
+          "output_source": {
+            "type": "mlx.core.array",
+            "shape": [
+              256,
+              256,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "nbytes": 786432
+          },
+          "hdr_scene_luminance": {
+            "type": "numpy.ndarray",
+            "shape": [
+              256,
+              256
+            ],
+            "dtype": "float32",
+            "nbytes": 262144
+          },
+          "preview": {
+            "requested": false
+          },
+          "export": {
+            "requested": false
+          },
+          "pipeline_timings": {
+            "SimulationPipeline.hdr_scene_luminance_materialize": 0.0003795000084210187,
+            "preprocess": 0.005863708007382229,
+            "SpectralLUTService.get_filming_tc_lut": 2.0915991626679897e-05,
+            "SpectralLUTService.get_filming_tc_lut_backend": 0.0006122080085333437,
+            "filming.expose": 0.004613458993844688,
+            "filming.develop": 0.015669749991502613,
+            "PrintingStage.expose": 0.022055167006328702,
+            "printing.expose": 0.022059875016566366,
+            "PrintingStage.develop": 0.0011216670100111514,
+            "printing.develop": 0.001124958012951538,
+            "SpectralLUTService.spectral_compute_scanner": 0.003347499994561076,
+            "ScanningStage.scan": 0.01442216700525023,
+            "scanning.scan_print": 0.01442704099463299,
+            "SimulationPipeline.materialize": 1.500011421740055e-06
+          },
+          "gui_phase_timings": {},
+          "residency_summary": {
+            "events": 87,
+            "to_numpy": 3,
+            "asarray": 84,
+            "unallowed": 0,
+            "unallowed_to_numpy": 0
+          }
+        }
+      ],
+      "summary": {
+        "runtime_wall_seconds": {
+          "median": 0.09313895800733007,
+          "min": 0.09313895800733007,
+          "max": 0.09313895800733007
+        },
+        "total_wall_seconds": {
+          "median": 0.09313895800733007,
+          "min": 0.09313895800733007,
+          "max": 0.09313895800733007
+        },
+        "sync_seconds": {
+          "median": 0.029320665984414518,
+          "min": 0.029320665984414518,
+          "max": 0.029320665984414518
+        },
+        "preview_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "export_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    {
+      "sample": "synthetic_256",
+      "source": "generated",
+      "shape": [
+        256,
+        256,
+        3
+      ],
+      "dtype": "float32",
+      "workload": {
+        "label": "runtime_scan_film_grain_off_hdr_off",
+        "grain": false,
+        "hdr_metadata": false,
+        "preview": false,
+        "export": false,
+        "route": "scan_film",
+        "scanner_lut": false
+      },
+      "backend": "mlx",
+      "precision": "float32",
+      "materialize_policy": "backend",
+      "status": "ok",
+      "warmups": [],
+      "runs": [
+        {
+          "status": "ok",
+          "runtime_wall_seconds": 0.03314229100942612,
+          "total_wall_seconds": 0.03314229100942612,
+          "sync_seconds": 0.009892041009152308,
+          "backend": "mlx",
+          "precision": "float32",
+          "materialize_policy": "backend",
+          "route": "scan_film",
+          "flags": {
+            "grain": false,
+            "hdr_metadata": false,
+            "preview": false,
+            "export": false,
+            "scanner_lut": false
+          },
+          "preview_seconds": 0.0,
+          "export_seconds": 0.0,
+          "output_source": {
+            "type": "mlx.core.array",
+            "shape": [
+              256,
+              256,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "nbytes": 786432
+          },
+          "hdr_scene_luminance": {
+            "type": null,
+            "shape": null,
+            "dtype": null,
+            "nbytes": 0
+          },
+          "preview": {
+            "requested": false
+          },
+          "export": {
+            "requested": false
+          },
+          "pipeline_timings": {
+            "preprocess": 0.0005624170007649809,
+            "SpectralLUTService.get_filming_tc_lut": 4.604100831784308e-05,
+            "SpectralLUTService.get_filming_tc_lut_backend": 0.0007403340132441372,
+            "filming.expose": 0.005534416995942593,
+            "filming.develop": 0.0036034579970873892,
+            "SpectralLUTService.spectral_compute_scanner": 0.0031150419963523746,
+            "ScanningStage.scan": 0.013495791994500905,
+            "scanning.scan_film": 0.013501459005055949,
+            "SimulationPipeline.materialize": 1.6250123735517263e-06
+          },
+          "gui_phase_timings": {},
+          "residency_summary": {
+            "events": 42,
+            "to_numpy": 0,
+            "asarray": 42,
+            "unallowed": 0,
+            "unallowed_to_numpy": 0
+          }
+        }
+      ],
+      "summary": {
+        "runtime_wall_seconds": {
+          "median": 0.03314229100942612,
+          "min": 0.03314229100942612,
+          "max": 0.03314229100942612
+        },
+        "total_wall_seconds": {
+          "median": 0.03314229100942612,
+          "min": 0.03314229100942612,
+          "max": 0.03314229100942612
+        },
+        "sync_seconds": {
+          "median": 0.009892041009152308,
+          "min": 0.009892041009152308,
+          "max": 0.009892041009152308
+        },
+        "preview_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "export_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    {
+      "sample": "synthetic_256",
+      "source": "generated",
+      "shape": [
+        256,
+        256,
+        3
+      ],
+      "dtype": "float32",
+      "workload": {
+        "label": "preview_only_grain_off_hdr_off",
+        "grain": false,
+        "hdr_metadata": false,
+        "preview": true,
+        "export": false,
+        "route": "print_scan",
+        "scanner_lut": false
+      },
+      "backend": "mlx",
+      "precision": "float32",
+      "materialize_policy": "backend",
+      "status": "ok",
+      "warmups": [],
+      "runs": [
+        {
+          "status": "ok",
+          "runtime_wall_seconds": 0.06274941700394265,
+          "total_wall_seconds": 0.06444566702703014,
+          "sync_seconds": 0.013381333003053442,
+          "backend": "mlx",
+          "precision": "float32",
+          "materialize_policy": "backend",
+          "route": "print_scan",
+          "flags": {
+            "grain": false,
+            "hdr_metadata": false,
+            "preview": true,
+            "export": false,
+            "scanner_lut": false
+          },
+          "preview_seconds": 0.0016962500230874866,
+          "export_seconds": 0.0,
+          "output_source": {
+            "type": "mlx.core.array",
+            "shape": [
+              256,
+              256,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "nbytes": 786432
+          },
+          "hdr_scene_luminance": {
+            "type": null,
+            "shape": null,
+            "dtype": null,
+            "nbytes": 0
+          },
+          "preview": {
+            "requested": true,
+            "status": "Display transform: disabled",
+            "display": {
+              "type": "numpy.ndarray",
+              "shape": [
+                256,
+                256,
+                3
+              ],
+              "dtype": "uint8",
+              "nbytes": 196608
+            }
+          },
+          "export": {
+            "requested": false
+          },
+          "pipeline_timings": {
+            "preprocess": 0.0006021249864716083,
+            "SpectralLUTService.get_filming_tc_lut": 3.254198236390948e-05,
+            "SpectralLUTService.get_filming_tc_lut_backend": 0.0008492080087307841,
+            "filming.expose": 0.005198708007810637,
+            "filming.develop": 0.003224624990252778,
+            "PrintingStage.expose": 0.02515891700750217,
+            "printing.expose": 0.025163209007587284,
+            "PrintingStage.develop": 0.0008737499883864075,
+            "printing.develop": 0.0008757500036153942,
+            "SpectralLUTService.spectral_compute_scanner": 0.0037027919897809625,
+            "ScanningStage.scan": 0.014242791017750278,
+            "scanning.scan_print": 0.014248624996980652,
+            "SimulationPipeline.materialize": 1.6249832697212696e-06
+          },
+          "gui_phase_timings": {
+            "gui.preview_materialize": 1.995800994336605e-05,
+            "gui.display_uint8": 0.0005497919919434935
+          },
+          "residency_summary": {
+            "events": 78,
+            "to_numpy": 2,
+            "asarray": 76,
+            "unallowed": 0,
+            "unallowed_to_numpy": 0
+          }
+        }
+      ],
+      "summary": {
+        "runtime_wall_seconds": {
+          "median": 0.06274941700394265,
+          "min": 0.06274941700394265,
+          "max": 0.06274941700394265
+        },
+        "total_wall_seconds": {
+          "median": 0.06444566702703014,
+          "min": 0.06444566702703014,
+          "max": 0.06444566702703014
+        },
+        "sync_seconds": {
+          "median": 0.013381333003053442,
+          "min": 0.013381333003053442,
+          "max": 0.013381333003053442
+        },
+        "preview_seconds": {
+          "median": 0.0016962500230874866,
+          "min": 0.0016962500230874866,
+          "max": 0.0016962500230874866
+        },
+        "export_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    {
+      "sample": "synthetic_256",
+      "source": "generated",
+      "shape": [
+        256,
+        256,
+        3
+      ],
+      "dtype": "float32",
+      "workload": {
+        "label": "export_only_grain_off_hdr_off",
+        "grain": false,
+        "hdr_metadata": false,
+        "preview": false,
+        "export": true,
+        "route": "print_scan",
+        "scanner_lut": false
+      },
+      "backend": "mlx",
+      "precision": "float32",
+      "materialize_policy": "backend",
+      "status": "ok",
+      "warmups": [],
+      "runs": [
+        {
+          "status": "ok",
+          "runtime_wall_seconds": 0.05670629200176336,
+          "total_wall_seconds": 0.05677808300242759,
+          "sync_seconds": 0.011178083019331098,
+          "backend": "mlx",
+          "precision": "float32",
+          "materialize_policy": "backend",
+          "route": "print_scan",
+          "flags": {
+            "grain": false,
+            "hdr_metadata": false,
+            "preview": false,
+            "export": true,
+            "scanner_lut": false
+          },
+          "preview_seconds": 0.0,
+          "export_seconds": 7.179100066423416e-05,
+          "output_source": {
+            "type": "mlx.core.array",
+            "shape": [
+              256,
+              256,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "nbytes": 786432
+          },
+          "hdr_scene_luminance": {
+            "type": null,
+            "shape": null,
+            "dtype": null,
+            "nbytes": 0
+          },
+          "preview": {
+            "requested": false
+          },
+          "export": {
+            "requested": true,
+            "image": {
+              "type": "numpy.ndarray",
+              "shape": [
+                256,
+                256,
+                3
+              ],
+              "dtype": "float32",
+              "nbytes": 786432
+            }
+          },
+          "pipeline_timings": {
+            "preprocess": 0.0004151250177528709,
+            "SpectralLUTService.get_filming_tc_lut": 2.3125001462176442e-05,
+            "SpectralLUTService.get_filming_tc_lut_backend": 0.0005929999751970172,
+            "filming.expose": 0.004610500007402152,
+            "filming.develop": 0.004253249993780628,
+            "PrintingStage.expose": 0.02330779199837707,
+            "printing.expose": 0.023315415979595855,
+            "PrintingStage.develop": 0.0008763330115471035,
+            "printing.develop": 0.0008784999954514205,
+            "SpectralLUTService.spectral_compute_scanner": 0.002823124988935888,
+            "ScanningStage.scan": 0.011988749989541247,
+            "scanning.scan_print": 0.011995832988759503,
+            "SimulationPipeline.materialize": 2.70901364274323e-06
+          },
+          "gui_phase_timings": {
+            "gui.export_materialize": 2.329100971110165e-05
+          },
+          "residency_summary": {
+            "events": 78,
+            "to_numpy": 2,
+            "asarray": 76,
+            "unallowed": 0,
+            "unallowed_to_numpy": 0
+          }
+        }
+      ],
+      "summary": {
+        "runtime_wall_seconds": {
+          "median": 0.05670629200176336,
+          "min": 0.05670629200176336,
+          "max": 0.05670629200176336
+        },
+        "total_wall_seconds": {
+          "median": 0.05677808300242759,
+          "min": 0.05677808300242759,
+          "max": 0.05677808300242759
+        },
+        "sync_seconds": {
+          "median": 0.011178083019331098,
+          "min": 0.011178083019331098,
+          "max": 0.011178083019331098
+        },
+        "preview_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "export_seconds": {
+          "median": 7.179100066423416e-05,
+          "min": 7.179100066423416e-05,
+          "max": 7.179100066423416e-05
+        }
+      }
+    },
+    {
+      "sample": "synthetic_256",
+      "source": "generated",
+      "shape": [
+        256,
+        256,
+        3
+      ],
+      "dtype": "float32",
+      "workload": {
+        "label": "preview_export_grain_off_hdr_off",
+        "grain": false,
+        "hdr_metadata": false,
+        "preview": true,
+        "export": true,
+        "route": "print_scan",
+        "scanner_lut": false
+      },
+      "backend": "mlx",
+      "precision": "float32",
+      "materialize_policy": "backend",
+      "status": "ok",
+      "warmups": [],
+      "runs": [
+        {
+          "status": "ok",
+          "runtime_wall_seconds": 0.10502537499996834,
+          "total_wall_seconds": 0.10559724998893216,
+          "sync_seconds": 0.016536124981939793,
+          "backend": "mlx",
+          "precision": "float32",
+          "materialize_policy": "backend",
+          "route": "print_scan",
+          "flags": {
+            "grain": false,
+            "hdr_metadata": false,
+            "preview": true,
+            "export": true,
+            "scanner_lut": false
+          },
+          "preview_seconds": 0.0005578749987762421,
+          "export_seconds": 1.3999990187585354e-05,
+          "output_source": {
+            "type": "mlx.core.array",
+            "shape": [
+              256,
+              256,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "nbytes": 786432
+          },
+          "hdr_scene_luminance": {
+            "type": null,
+            "shape": null,
+            "dtype": null,
+            "nbytes": 0
+          },
+          "preview": {
+            "requested": true,
+            "status": "Display transform: disabled",
+            "display": {
+              "type": "numpy.ndarray",
+              "shape": [
+                256,
+                256,
+                3
+              ],
+              "dtype": "uint8",
+              "nbytes": 196608
+            }
+          },
+          "export": {
+            "requested": true,
+            "image": {
+              "type": "numpy.ndarray",
+              "shape": [
+                256,
+                256,
+                3
+              ],
+              "dtype": "float32",
+              "nbytes": 786432
+            }
+          },
+          "pipeline_timings": {
+            "preprocess": 0.0004339580191299319,
+            "SpectralLUTService.get_filming_tc_lut": 2.037500962615013e-05,
+            "SpectralLUTService.get_filming_tc_lut_backend": 0.0006033329991623759,
+            "filming.expose": 0.0037952910060994327,
+            "filming.develop": 0.0037161660147830844,
+            "PrintingStage.expose": 0.034077332995366305,
+            "printing.expose": 0.03408237500116229,
+            "PrintingStage.develop": 0.0012215419847052544,
+            "printing.develop": 0.0012249579885974526,
+            "SpectralLUTService.spectral_compute_scanner": 0.004156209004577249,
+            "ScanningStage.scan": 0.045174208004027605,
+            "scanning.scan_print": 0.045179834007285535,
+            "SimulationPipeline.materialize": 2.208980731666088e-06
+          },
+          "gui_phase_timings": {
+            "gui.preview_materialize": 1.762501779012382e-05,
+            "gui.display_uint8": 0.0004992920148652047,
+            "gui.export_materialize": 4.041008651256561e-06
+          },
+          "residency_summary": {
+            "events": 78,
+            "to_numpy": 2,
+            "asarray": 76,
+            "unallowed": 0,
+            "unallowed_to_numpy": 0
+          }
+        }
+      ],
+      "summary": {
+        "runtime_wall_seconds": {
+          "median": 0.10502537499996834,
+          "min": 0.10502537499996834,
+          "max": 0.10502537499996834
+        },
+        "total_wall_seconds": {
+          "median": 0.10559724998893216,
+          "min": 0.10559724998893216,
+          "max": 0.10559724998893216
+        },
+        "sync_seconds": {
+          "median": 0.016536124981939793,
+          "min": 0.016536124981939793,
+          "max": 0.016536124981939793
+        },
+        "preview_seconds": {
+          "median": 0.0005578749987762421,
+          "min": 0.0005578749987762421,
+          "max": 0.0005578749987762421
+        },
+        "export_seconds": {
+          "median": 1.3999990187585354e-05,
+          "min": 1.3999990187585354e-05,
+          "max": 1.3999990187585354e-05
+        }
+      }
+    },
+    {
+      "sample": "synthetic_256",
+      "source": "generated",
+      "shape": [
+        256,
+        256,
+        3
+      ],
+      "dtype": "float32",
+      "workload": {
+        "label": "runtime_grain_off_hdr_off_scanner_lut_on",
+        "grain": false,
+        "hdr_metadata": false,
+        "preview": false,
+        "export": false,
+        "route": "print_scan",
+        "scanner_lut": true
+      },
+      "backend": "mlx",
+      "precision": "float32",
+      "materialize_policy": "backend",
+      "status": "ok",
+      "warmups": [],
+      "runs": [
+        {
+          "status": "ok",
+          "runtime_wall_seconds": 0.10305654199328274,
+          "total_wall_seconds": 0.10305654199328274,
+          "sync_seconds": 0.023613166995346546,
+          "backend": "mlx",
+          "precision": "float32",
+          "materialize_policy": "backend",
+          "route": "print_scan",
+          "flags": {
+            "grain": false,
+            "hdr_metadata": false,
+            "preview": false,
+            "export": false,
+            "scanner_lut": true
+          },
+          "preview_seconds": 0.0,
+          "export_seconds": 0.0,
+          "output_source": {
+            "type": "mlx.core.array",
+            "shape": [
+              256,
+              256,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "nbytes": 786432
+          },
+          "hdr_scene_luminance": {
+            "type": null,
+            "shape": null,
+            "dtype": null,
+            "nbytes": 0
+          },
+          "preview": {
+            "requested": false
+          },
+          "export": {
+            "requested": false
+          },
+          "pipeline_timings": {
+            "preprocess": 0.0028951249842066318,
+            "SpectralLUTService.get_filming_tc_lut": 2.4375010980293155e-05,
+            "SpectralLUTService.get_filming_tc_lut_backend": 0.000648290995741263,
+            "filming.expose": 0.005351083993446082,
+            "filming.develop": 0.005142417008755729,
+            "PrintingStage.expose": 0.03533904199139215,
+            "printing.expose": 0.035345083015272394,
+            "PrintingStage.develop": 0.001013541012071073,
+            "printing.develop": 0.0010161249956581742,
+            "SpectralLUTService.gpu_lut_direct_fallback": 0.012473500013584271,
+            "SpectralLUTService.spectral_compute_scanner": 0.012486792023992166,
+            "ScanningStage.scan": 0.029614375001983717,
+            "scanning.scan_print": 0.0296198750147596,
+            "SimulationPipeline.materialize": 1.6660196706652641e-06
+          },
+          "gui_phase_timings": {},
+          "residency_summary": {
+            "events": 78,
+            "to_numpy": 2,
+            "asarray": 76,
+            "unallowed": 0,
+            "unallowed_to_numpy": 0
+          }
+        }
+      ],
+      "summary": {
+        "runtime_wall_seconds": {
+          "median": 0.10305654199328274,
+          "min": 0.10305654199328274,
+          "max": 0.10305654199328274
+        },
+        "total_wall_seconds": {
+          "median": 0.10305654199328274,
+          "min": 0.10305654199328274,
+          "max": 0.10305654199328274
+        },
+        "sync_seconds": {
+          "median": 0.023613166995346546,
+          "min": 0.023613166995346546,
+          "max": 0.023613166995346546
+        },
+        "preview_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "export_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    {
+      "sample": "synthetic_512x384",
+      "source": "generated",
+      "shape": [
+        384,
+        512,
+        3
+      ],
+      "dtype": "float32",
+      "workload": {
+        "label": "runtime_grain_off_hdr_off",
+        "grain": false,
+        "hdr_metadata": false,
+        "preview": false,
+        "export": false,
+        "route": "print_scan",
+        "scanner_lut": false
+      },
+      "backend": "mlx",
+      "precision": "float32",
+      "materialize_policy": "backend",
+      "status": "ok",
+      "warmups": [],
+      "runs": [
+        {
+          "status": "ok",
+          "runtime_wall_seconds": 0.1768802919832524,
+          "total_wall_seconds": 0.1768802919832524,
+          "sync_seconds": 0.05312991698156111,
+          "backend": "mlx",
+          "precision": "float32",
+          "materialize_policy": "backend",
+          "route": "print_scan",
+          "flags": {
+            "grain": false,
+            "hdr_metadata": false,
+            "preview": false,
+            "export": false,
+            "scanner_lut": false
+          },
+          "preview_seconds": 0.0,
+          "export_seconds": 0.0,
+          "output_source": {
+            "type": "mlx.core.array",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "nbytes": 2359296
+          },
+          "hdr_scene_luminance": {
+            "type": null,
+            "shape": null,
+            "dtype": null,
+            "nbytes": 0
+          },
+          "preview": {
+            "requested": false
+          },
+          "export": {
+            "requested": false
+          },
+          "pipeline_timings": {
+            "preprocess": 0.0022028750099707395,
+            "SpectralLUTService.get_filming_tc_lut": 4.7375011490657926e-05,
+            "SpectralLUTService.get_filming_tc_lut_backend": 0.000714917026925832,
+            "filming.expose": 0.00490179201005958,
+            "filming.develop": 0.0033859590184874833,
+            "PrintingStage.expose": 0.041163167014019564,
+            "printing.expose": 0.041172249999362975,
+            "PrintingStage.develop": 0.0014958750107325613,
+            "printing.develop": 0.0015007090114522725,
+            "SpectralLUTService.spectral_compute_scanner": 0.0029904170078225434,
+            "ScanningStage.scan": 0.07052391700563021,
+            "scanning.scan_print": 0.07052995800040662,
+            "SimulationPipeline.materialize": 2.04198295250535e-06
+          },
+          "gui_phase_timings": {},
+          "residency_summary": {
+            "events": 78,
+            "to_numpy": 2,
+            "asarray": 76,
+            "unallowed": 0,
+            "unallowed_to_numpy": 0
+          }
+        }
+      ],
+      "summary": {
+        "runtime_wall_seconds": {
+          "median": 0.1768802919832524,
+          "min": 0.1768802919832524,
+          "max": 0.1768802919832524
+        },
+        "total_wall_seconds": {
+          "median": 0.1768802919832524,
+          "min": 0.1768802919832524,
+          "max": 0.1768802919832524
+        },
+        "sync_seconds": {
+          "median": 0.05312991698156111,
+          "min": 0.05312991698156111,
+          "max": 0.05312991698156111
+        },
+        "preview_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "export_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    {
+      "sample": "synthetic_512x384",
+      "source": "generated",
+      "shape": [
+        384,
+        512,
+        3
+      ],
+      "dtype": "float32",
+      "workload": {
+        "label": "runtime_grain_off_hdr_on",
+        "grain": false,
+        "hdr_metadata": true,
+        "preview": false,
+        "export": false,
+        "route": "print_scan",
+        "scanner_lut": false
+      },
+      "backend": "mlx",
+      "precision": "float32",
+      "materialize_policy": "backend",
+      "status": "ok",
+      "warmups": [],
+      "runs": [
+        {
+          "status": "ok",
+          "runtime_wall_seconds": 0.19782850000774488,
+          "total_wall_seconds": 0.19782850000774488,
+          "sync_seconds": 0.05663700000150129,
+          "backend": "mlx",
+          "precision": "float32",
+          "materialize_policy": "backend",
+          "route": "print_scan",
+          "flags": {
+            "grain": false,
+            "hdr_metadata": true,
+            "preview": false,
+            "export": false,
+            "scanner_lut": false
+          },
+          "preview_seconds": 0.0,
+          "export_seconds": 0.0,
+          "output_source": {
+            "type": "mlx.core.array",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "nbytes": 2359296
+          },
+          "hdr_scene_luminance": {
+            "type": "numpy.ndarray",
+            "shape": [
+              384,
+              512
+            ],
+            "dtype": "float32",
+            "nbytes": 786432
+          },
+          "preview": {
+            "requested": false
+          },
+          "export": {
+            "requested": false
+          },
+          "pipeline_timings": {
+            "SimulationPipeline.hdr_scene_luminance_materialize": 0.0008422079845331609,
+            "preprocess": 0.030577083001844585,
+            "SpectralLUTService.get_filming_tc_lut": 3.066600766032934e-05,
+            "SpectralLUTService.get_filming_tc_lut_backend": 0.0064323749975301325,
+            "filming.expose": 0.011920332995941862,
+            "filming.develop": 0.004372958996100351,
+            "PrintingStage.expose": 0.06709516601404175,
+            "printing.expose": 0.06710066701634787,
+            "PrintingStage.develop": 0.000941415986744687,
+            "printing.develop": 0.0009436249965801835,
+            "SpectralLUTService.spectral_compute_scanner": 0.0026447499985806644,
+            "ScanningStage.scan": 0.026208250026684254,
+            "scanning.scan_print": 0.026212875003693625,
+            "SimulationPipeline.materialize": 1.7919810488820076e-06
+          },
+          "gui_phase_timings": {},
+          "residency_summary": {
+            "events": 79,
+            "to_numpy": 3,
+            "asarray": 76,
+            "unallowed": 0,
+            "unallowed_to_numpy": 0
+          }
+        }
+      ],
+      "summary": {
+        "runtime_wall_seconds": {
+          "median": 0.19782850000774488,
+          "min": 0.19782850000774488,
+          "max": 0.19782850000774488
+        },
+        "total_wall_seconds": {
+          "median": 0.19782850000774488,
+          "min": 0.19782850000774488,
+          "max": 0.19782850000774488
+        },
+        "sync_seconds": {
+          "median": 0.05663700000150129,
+          "min": 0.05663700000150129,
+          "max": 0.05663700000150129
+        },
+        "preview_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "export_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    {
+      "sample": "synthetic_512x384",
+      "source": "generated",
+      "shape": [
+        384,
+        512,
+        3
+      ],
+      "dtype": "float32",
+      "workload": {
+        "label": "runtime_grain_on_hdr_off",
+        "grain": true,
+        "hdr_metadata": false,
+        "preview": false,
+        "export": false,
+        "route": "print_scan",
+        "scanner_lut": false
+      },
+      "backend": "mlx",
+      "precision": "float32",
+      "materialize_policy": "backend",
+      "status": "ok",
+      "warmups": [],
+      "runs": [
+        {
+          "status": "ok",
+          "runtime_wall_seconds": 0.14339812498656102,
+          "total_wall_seconds": 0.14339812498656102,
+          "sync_seconds": 0.06518291600514203,
+          "backend": "mlx",
+          "precision": "float32",
+          "materialize_policy": "backend",
+          "route": "print_scan",
+          "flags": {
+            "grain": true,
+            "hdr_metadata": false,
+            "preview": false,
+            "export": false,
+            "scanner_lut": false
+          },
+          "preview_seconds": 0.0,
+          "export_seconds": 0.0,
+          "output_source": {
+            "type": "mlx.core.array",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "nbytes": 2359296
+          },
+          "hdr_scene_luminance": {
+            "type": null,
+            "shape": null,
+            "dtype": null,
+            "nbytes": 0
+          },
+          "preview": {
+            "requested": false
+          },
+          "export": {
+            "requested": false
+          },
+          "pipeline_timings": {
+            "preprocess": 0.0014603330055251718,
+            "SpectralLUTService.get_filming_tc_lut": 3.29169852193445e-05,
+            "SpectralLUTService.get_filming_tc_lut_backend": 0.0007330839871428907,
+            "filming.expose": 0.004500999988522381,
+            "filming.develop": 0.02794974998687394,
+            "PrintingStage.expose": 0.02439304199651815,
+            "printing.expose": 0.024399374990025535,
+            "PrintingStage.develop": 0.0018620409828145057,
+            "printing.develop": 0.001866292004706338,
+            "SpectralLUTService.spectral_compute_scanner": 0.0036433329805731773,
+            "ScanningStage.scan": 0.017950290988665074,
+            "scanning.scan_print": 0.01797116600209847,
+            "SimulationPipeline.materialize": 2.167013008147478e-06
+          },
+          "gui_phase_timings": {},
+          "residency_summary": {
+            "events": 86,
+            "to_numpy": 2,
+            "asarray": 84,
+            "unallowed": 0,
+            "unallowed_to_numpy": 0
+          }
+        }
+      ],
+      "summary": {
+        "runtime_wall_seconds": {
+          "median": 0.14339812498656102,
+          "min": 0.14339812498656102,
+          "max": 0.14339812498656102
+        },
+        "total_wall_seconds": {
+          "median": 0.14339812498656102,
+          "min": 0.14339812498656102,
+          "max": 0.14339812498656102
+        },
+        "sync_seconds": {
+          "median": 0.06518291600514203,
+          "min": 0.06518291600514203,
+          "max": 0.06518291600514203
+        },
+        "preview_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "export_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    {
+      "sample": "synthetic_512x384",
+      "source": "generated",
+      "shape": [
+        384,
+        512,
+        3
+      ],
+      "dtype": "float32",
+      "workload": {
+        "label": "runtime_grain_on_hdr_on",
+        "grain": true,
+        "hdr_metadata": true,
+        "preview": false,
+        "export": false,
+        "route": "print_scan",
+        "scanner_lut": false
+      },
+      "backend": "mlx",
+      "precision": "float32",
+      "materialize_policy": "backend",
+      "status": "ok",
+      "warmups": [],
+      "runs": [
+        {
+          "status": "ok",
+          "runtime_wall_seconds": 0.20842449998599477,
+          "total_wall_seconds": 0.20842449998599477,
+          "sync_seconds": 0.07398745801765472,
+          "backend": "mlx",
+          "precision": "float32",
+          "materialize_policy": "backend",
+          "route": "print_scan",
+          "flags": {
+            "grain": true,
+            "hdr_metadata": true,
+            "preview": false,
+            "export": false,
+            "scanner_lut": false
+          },
+          "preview_seconds": 0.0,
+          "export_seconds": 0.0,
+          "output_source": {
+            "type": "mlx.core.array",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "nbytes": 2359296
+          },
+          "hdr_scene_luminance": {
+            "type": "numpy.ndarray",
+            "shape": [
+              384,
+              512
+            ],
+            "dtype": "float32",
+            "nbytes": 786432
+          },
+          "preview": {
+            "requested": false
+          },
+          "export": {
+            "requested": false
+          },
+          "pipeline_timings": {
+            "SimulationPipeline.hdr_scene_luminance_materialize": 0.00037887500366196036,
+            "preprocess": 0.02023066600668244,
+            "SpectralLUTService.get_filming_tc_lut": 2.2916996385902166e-05,
+            "SpectralLUTService.get_filming_tc_lut_backend": 0.0006707920110784471,
+            "filming.expose": 0.005049041996244341,
+            "filming.develop": 0.02341566700488329,
+            "PrintingStage.expose": 0.04074595798738301,
+            "printing.expose": 0.04075179199571721,
+            "PrintingStage.develop": 0.011370959022315219,
+            "printing.develop": 0.011380666983313859,
+            "SpectralLUTService.spectral_compute_scanner": 0.0044314170081634074,
+            "ScanningStage.scan": 0.03058329099440016,
+            "scanning.scan_print": 0.030590624985052273,
+            "SimulationPipeline.materialize": 2.374988980591297e-06
+          },
+          "gui_phase_timings": {},
+          "residency_summary": {
+            "events": 87,
+            "to_numpy": 3,
+            "asarray": 84,
+            "unallowed": 0,
+            "unallowed_to_numpy": 0
+          }
+        }
+      ],
+      "summary": {
+        "runtime_wall_seconds": {
+          "median": 0.20842449998599477,
+          "min": 0.20842449998599477,
+          "max": 0.20842449998599477
+        },
+        "total_wall_seconds": {
+          "median": 0.20842449998599477,
+          "min": 0.20842449998599477,
+          "max": 0.20842449998599477
+        },
+        "sync_seconds": {
+          "median": 0.07398745801765472,
+          "min": 0.07398745801765472,
+          "max": 0.07398745801765472
+        },
+        "preview_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "export_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    {
+      "sample": "synthetic_512x384",
+      "source": "generated",
+      "shape": [
+        384,
+        512,
+        3
+      ],
+      "dtype": "float32",
+      "workload": {
+        "label": "runtime_scan_film_grain_off_hdr_off",
+        "grain": false,
+        "hdr_metadata": false,
+        "preview": false,
+        "export": false,
+        "route": "scan_film",
+        "scanner_lut": false
+      },
+      "backend": "mlx",
+      "precision": "float32",
+      "materialize_policy": "backend",
+      "status": "ok",
+      "warmups": [],
+      "runs": [
+        {
+          "status": "ok",
+          "runtime_wall_seconds": 0.04772999999113381,
+          "total_wall_seconds": 0.04772999999113381,
+          "sync_seconds": 0.013136540976120159,
+          "backend": "mlx",
+          "precision": "float32",
+          "materialize_policy": "backend",
+          "route": "scan_film",
+          "flags": {
+            "grain": false,
+            "hdr_metadata": false,
+            "preview": false,
+            "export": false,
+            "scanner_lut": false
+          },
+          "preview_seconds": 0.0,
+          "export_seconds": 0.0,
+          "output_source": {
+            "type": "mlx.core.array",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "nbytes": 2359296
+          },
+          "hdr_scene_luminance": {
+            "type": null,
+            "shape": null,
+            "dtype": null,
+            "nbytes": 0
+          },
+          "preview": {
+            "requested": false
+          },
+          "export": {
+            "requested": false
+          },
+          "pipeline_timings": {
+            "preprocess": 0.0007371659739874303,
+            "SpectralLUTService.get_filming_tc_lut": 3.591700806282461e-05,
+            "SpectralLUTService.get_filming_tc_lut_backend": 0.0011005410051438957,
+            "filming.expose": 0.007021749974228442,
+            "filming.develop": 0.005001790996175259,
+            "SpectralLUTService.spectral_compute_scanner": 0.00440066700684838,
+            "ScanningStage.scan": 0.021748375002061948,
+            "scanning.scan_film": 0.02175508299842477,
+            "SimulationPipeline.materialize": 2.3339816834777594e-06
+          },
+          "gui_phase_timings": {},
+          "residency_summary": {
+            "events": 42,
+            "to_numpy": 0,
+            "asarray": 42,
+            "unallowed": 0,
+            "unallowed_to_numpy": 0
+          }
+        }
+      ],
+      "summary": {
+        "runtime_wall_seconds": {
+          "median": 0.04772999999113381,
+          "min": 0.04772999999113381,
+          "max": 0.04772999999113381
+        },
+        "total_wall_seconds": {
+          "median": 0.04772999999113381,
+          "min": 0.04772999999113381,
+          "max": 0.04772999999113381
+        },
+        "sync_seconds": {
+          "median": 0.013136540976120159,
+          "min": 0.013136540976120159,
+          "max": 0.013136540976120159
+        },
+        "preview_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "export_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    {
+      "sample": "synthetic_512x384",
+      "source": "generated",
+      "shape": [
+        384,
+        512,
+        3
+      ],
+      "dtype": "float32",
+      "workload": {
+        "label": "preview_only_grain_off_hdr_off",
+        "grain": false,
+        "hdr_metadata": false,
+        "preview": true,
+        "export": false,
+        "route": "print_scan",
+        "scanner_lut": false
+      },
+      "backend": "mlx",
+      "precision": "float32",
+      "materialize_policy": "backend",
+      "status": "ok",
+      "warmups": [],
+      "runs": [
+        {
+          "status": "ok",
+          "runtime_wall_seconds": 0.11374829200212844,
+          "total_wall_seconds": 0.11653491700417362,
+          "sync_seconds": 0.047610709007130936,
+          "backend": "mlx",
+          "precision": "float32",
+          "materialize_policy": "backend",
+          "route": "print_scan",
+          "flags": {
+            "grain": false,
+            "hdr_metadata": false,
+            "preview": true,
+            "export": false,
+            "scanner_lut": false
+          },
+          "preview_seconds": 0.0027866250020451844,
+          "export_seconds": 0.0,
+          "output_source": {
+            "type": "mlx.core.array",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "nbytes": 2359296
+          },
+          "hdr_scene_luminance": {
+            "type": null,
+            "shape": null,
+            "dtype": null,
+            "nbytes": 0
+          },
+          "preview": {
+            "requested": true,
+            "status": "Display transform: disabled",
+            "display": {
+              "type": "numpy.ndarray",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "uint8",
+              "nbytes": 589824
+            }
+          },
+          "export": {
+            "requested": false
+          },
+          "pipeline_timings": {
+            "preprocess": 0.0008148339984472841,
+            "SpectralLUTService.get_filming_tc_lut": 9.704200783744454e-05,
+            "SpectralLUTService.get_filming_tc_lut_backend": 0.0016657920205034316,
+            "filming.expose": 0.007598166004754603,
+            "filming.develop": 0.004185792000498623,
+            "PrintingStage.expose": 0.031053625018103048,
+            "printing.expose": 0.031060707988217473,
+            "PrintingStage.develop": 0.0011344999948050827,
+            "printing.develop": 0.0011373329907655716,
+            "SpectralLUTService.spectral_compute_scanner": 0.006944749999092892,
+            "ScanningStage.scan": 0.02126829099142924,
+            "scanning.scan_print": 0.021274416998494416,
+            "SimulationPipeline.materialize": 2.1249870769679546e-06
+          },
+          "gui_phase_timings": {
+            "gui.preview_materialize": 1.9750004867091775e-05,
+            "gui.display_uint8": 0.002696208015549928
+          },
+          "residency_summary": {
+            "events": 78,
+            "to_numpy": 2,
+            "asarray": 76,
+            "unallowed": 0,
+            "unallowed_to_numpy": 0
+          }
+        }
+      ],
+      "summary": {
+        "runtime_wall_seconds": {
+          "median": 0.11374829200212844,
+          "min": 0.11374829200212844,
+          "max": 0.11374829200212844
+        },
+        "total_wall_seconds": {
+          "median": 0.11653491700417362,
+          "min": 0.11653491700417362,
+          "max": 0.11653491700417362
+        },
+        "sync_seconds": {
+          "median": 0.047610709007130936,
+          "min": 0.047610709007130936,
+          "max": 0.047610709007130936
+        },
+        "preview_seconds": {
+          "median": 0.0027866250020451844,
+          "min": 0.0027866250020451844,
+          "max": 0.0027866250020451844
+        },
+        "export_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    {
+      "sample": "synthetic_512x384",
+      "source": "generated",
+      "shape": [
+        384,
+        512,
+        3
+      ],
+      "dtype": "float32",
+      "workload": {
+        "label": "export_only_grain_off_hdr_off",
+        "grain": false,
+        "hdr_metadata": false,
+        "preview": false,
+        "export": true,
+        "route": "print_scan",
+        "scanner_lut": false
+      },
+      "backend": "mlx",
+      "precision": "float32",
+      "materialize_policy": "backend",
+      "status": "ok",
+      "warmups": [],
+      "runs": [
+        {
+          "status": "ok",
+          "runtime_wall_seconds": 0.08550783299142495,
+          "total_wall_seconds": 0.08557987498352304,
+          "sync_seconds": 0.025342292006826028,
+          "backend": "mlx",
+          "precision": "float32",
+          "materialize_policy": "backend",
+          "route": "print_scan",
+          "flags": {
+            "grain": false,
+            "hdr_metadata": false,
+            "preview": false,
+            "export": true,
+            "scanner_lut": false
+          },
+          "preview_seconds": 0.0,
+          "export_seconds": 7.204199209809303e-05,
+          "output_source": {
+            "type": "mlx.core.array",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "nbytes": 2359296
+          },
+          "hdr_scene_luminance": {
+            "type": null,
+            "shape": null,
+            "dtype": null,
+            "nbytes": 0
+          },
+          "preview": {
+            "requested": false
+          },
+          "export": {
+            "requested": true,
+            "image": {
+              "type": "numpy.ndarray",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "nbytes": 2359296
+            }
+          },
+          "pipeline_timings": {
+            "preprocess": 0.0009217080078087747,
+            "SpectralLUTService.get_filming_tc_lut": 0.00012029102072119713,
+            "SpectralLUTService.get_filming_tc_lut_backend": 0.0010230420157313347,
+            "filming.expose": 0.00646929198410362,
+            "filming.develop": 0.004045084002427757,
+            "PrintingStage.expose": 0.02969320901320316,
+            "printing.expose": 0.0296998749836348,
+            "PrintingStage.develop": 0.0015997079899534583,
+            "printing.develop": 0.0016039169859141111,
+            "SpectralLUTService.spectral_compute_scanner": 0.0037638749927282333,
+            "ScanningStage.scan": 0.01732225000159815,
+            "scanning.scan_print": 0.017329958005575463,
+            "SimulationPipeline.materialize": 2.082990249618888e-06
+          },
+          "gui_phase_timings": {
+            "gui.export_materialize": 2.4500011932104826e-05
+          },
+          "residency_summary": {
+            "events": 78,
+            "to_numpy": 2,
+            "asarray": 76,
+            "unallowed": 0,
+            "unallowed_to_numpy": 0
+          }
+        }
+      ],
+      "summary": {
+        "runtime_wall_seconds": {
+          "median": 0.08550783299142495,
+          "min": 0.08550783299142495,
+          "max": 0.08550783299142495
+        },
+        "total_wall_seconds": {
+          "median": 0.08557987498352304,
+          "min": 0.08557987498352304,
+          "max": 0.08557987498352304
+        },
+        "sync_seconds": {
+          "median": 0.025342292006826028,
+          "min": 0.025342292006826028,
+          "max": 0.025342292006826028
+        },
+        "preview_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "export_seconds": {
+          "median": 7.204199209809303e-05,
+          "min": 7.204199209809303e-05,
+          "max": 7.204199209809303e-05
+        }
+      }
+    },
+    {
+      "sample": "synthetic_512x384",
+      "source": "generated",
+      "shape": [
+        384,
+        512,
+        3
+      ],
+      "dtype": "float32",
+      "workload": {
+        "label": "preview_export_grain_off_hdr_off",
+        "grain": false,
+        "hdr_metadata": false,
+        "preview": true,
+        "export": true,
+        "route": "print_scan",
+        "scanner_lut": false
+      },
+      "backend": "mlx",
+      "precision": "float32",
+      "materialize_policy": "backend",
+      "status": "ok",
+      "warmups": [],
+      "runs": [
+        {
+          "status": "ok",
+          "runtime_wall_seconds": 0.10027208301471546,
+          "total_wall_seconds": 0.10260450004716404,
+          "sync_seconds": 0.04504833399550989,
+          "backend": "mlx",
+          "precision": "float32",
+          "materialize_policy": "backend",
+          "route": "print_scan",
+          "flags": {
+            "grain": false,
+            "hdr_metadata": false,
+            "preview": true,
+            "export": true,
+            "scanner_lut": false
+          },
+          "preview_seconds": 0.0023030420124996454,
+          "export_seconds": 2.9375019948929548e-05,
+          "output_source": {
+            "type": "mlx.core.array",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "nbytes": 2359296
+          },
+          "hdr_scene_luminance": {
+            "type": null,
+            "shape": null,
+            "dtype": null,
+            "nbytes": 0
+          },
+          "preview": {
+            "requested": true,
+            "status": "Display transform: disabled",
+            "display": {
+              "type": "numpy.ndarray",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "uint8",
+              "nbytes": 589824
+            }
+          },
+          "export": {
+            "requested": true,
+            "image": {
+              "type": "numpy.ndarray",
+              "shape": [
+                384,
+                512,
+                3
+              ],
+              "dtype": "float32",
+              "nbytes": 2359296
+            }
+          },
+          "pipeline_timings": {
+            "preprocess": 0.0006520420138258487,
+            "SpectralLUTService.get_filming_tc_lut": 3.6708981497213244e-05,
+            "SpectralLUTService.get_filming_tc_lut_backend": 0.0017785420059226453,
+            "filming.expose": 0.006688083027256653,
+            "filming.develop": 0.004649165988666937,
+            "PrintingStage.expose": 0.025211458007106557,
+            "printing.expose": 0.025218750000931323,
+            "PrintingStage.develop": 0.001342083007330075,
+            "printing.develop": 0.0013466250093188137,
+            "SpectralLUTService.spectral_compute_scanner": 0.0043949169921688735,
+            "ScanningStage.scan": 0.01659562499844469,
+            "scanning.scan_print": 0.016602666990365833,
+            "SimulationPipeline.materialize": 2.207991201430559e-06
+          },
+          "gui_phase_timings": {
+            "gui.preview_materialize": 1.8082995666190982e-05,
+            "gui.display_uint8": 0.0022069999831728637,
+            "gui.export_materialize": 1.3707991456612945e-05
+          },
+          "residency_summary": {
+            "events": 78,
+            "to_numpy": 2,
+            "asarray": 76,
+            "unallowed": 0,
+            "unallowed_to_numpy": 0
+          }
+        }
+      ],
+      "summary": {
+        "runtime_wall_seconds": {
+          "median": 0.10027208301471546,
+          "min": 0.10027208301471546,
+          "max": 0.10027208301471546
+        },
+        "total_wall_seconds": {
+          "median": 0.10260450004716404,
+          "min": 0.10260450004716404,
+          "max": 0.10260450004716404
+        },
+        "sync_seconds": {
+          "median": 0.04504833399550989,
+          "min": 0.04504833399550989,
+          "max": 0.04504833399550989
+        },
+        "preview_seconds": {
+          "median": 0.0023030420124996454,
+          "min": 0.0023030420124996454,
+          "max": 0.0023030420124996454
+        },
+        "export_seconds": {
+          "median": 2.9375019948929548e-05,
+          "min": 2.9375019948929548e-05,
+          "max": 2.9375019948929548e-05
+        }
+      }
+    },
+    {
+      "sample": "synthetic_512x384",
+      "source": "generated",
+      "shape": [
+        384,
+        512,
+        3
+      ],
+      "dtype": "float32",
+      "workload": {
+        "label": "runtime_grain_off_hdr_off_scanner_lut_on",
+        "grain": false,
+        "hdr_metadata": false,
+        "preview": false,
+        "export": false,
+        "route": "print_scan",
+        "scanner_lut": true
+      },
+      "backend": "mlx",
+      "precision": "float32",
+      "materialize_policy": "backend",
+      "status": "ok",
+      "warmups": [],
+      "runs": [
+        {
+          "status": "ok",
+          "runtime_wall_seconds": 0.07493674999568611,
+          "total_wall_seconds": 0.07493674999568611,
+          "sync_seconds": 0.01994179200846702,
+          "backend": "mlx",
+          "precision": "float32",
+          "materialize_policy": "backend",
+          "route": "print_scan",
+          "flags": {
+            "grain": false,
+            "hdr_metadata": false,
+            "preview": false,
+            "export": false,
+            "scanner_lut": true
+          },
+          "preview_seconds": 0.0,
+          "export_seconds": 0.0,
+          "output_source": {
+            "type": "mlx.core.array",
+            "shape": [
+              384,
+              512,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "nbytes": 2359296
+          },
+          "hdr_scene_luminance": {
+            "type": null,
+            "shape": null,
+            "dtype": null,
+            "nbytes": 0
+          },
+          "preview": {
+            "requested": false
+          },
+          "export": {
+            "requested": false
+          },
+          "pipeline_timings": {
+            "preprocess": 0.0005379169888328761,
+            "SpectralLUTService.get_filming_tc_lut": 2.6875000912696123e-05,
+            "SpectralLUTService.get_filming_tc_lut_backend": 0.0007397920126095414,
+            "filming.expose": 0.004528166988166049,
+            "filming.develop": 0.005040707997977734,
+            "PrintingStage.expose": 0.023186791979242116,
+            "printing.expose": 0.02319470900692977,
+            "PrintingStage.develop": 0.0018353750056121498,
+            "printing.develop": 0.0018406250164844096,
+            "SpectralLUTService.gpu_lut_direct_fallback": 0.005013707996113226,
+            "SpectralLUTService.spectral_compute_scanner": 0.005031250009778887,
+            "ScanningStage.scan": 0.019788250006968156,
+            "scanning.scan_print": 0.01979383299476467,
+            "SimulationPipeline.materialize": 1.8329883459955454e-06
+          },
+          "gui_phase_timings": {},
+          "residency_summary": {
+            "events": 78,
+            "to_numpy": 2,
+            "asarray": 76,
+            "unallowed": 0,
+            "unallowed_to_numpy": 0
+          }
+        }
+      ],
+      "summary": {
+        "runtime_wall_seconds": {
+          "median": 0.07493674999568611,
+          "min": 0.07493674999568611,
+          "max": 0.07493674999568611
+        },
+        "total_wall_seconds": {
+          "median": 0.07493674999568611,
+          "min": 0.07493674999568611,
+          "max": 0.07493674999568611
+        },
+        "sync_seconds": {
+          "median": 0.01994179200846702,
+          "min": 0.01994179200846702,
+          "max": 0.01994179200846702
+        },
+        "preview_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "export_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    {
+      "sample": "real_dng",
+      "source": "/Users/retriedstormtrooper/Documents/Projects/Active/spektrafilm-main/scratch/IMG_9121_converted.DNG",
+      "shape": [
+        3024,
+        4032,
+        3
+      ],
+      "dtype": "float32",
+      "workload": {
+        "label": "runtime_grain_off_hdr_off",
+        "grain": false,
+        "hdr_metadata": false,
+        "preview": false,
+        "export": false,
+        "route": "print_scan",
+        "scanner_lut": false
+      },
+      "backend": "mlx",
+      "precision": "float32",
+      "materialize_policy": "backend",
+      "status": "ok",
+      "warmups": [],
+      "runs": [
+        {
+          "status": "ok",
+          "runtime_wall_seconds": 3.5348900830140337,
+          "total_wall_seconds": 3.5348900830140337,
+          "sync_seconds": 3.412933832994895,
+          "backend": "mlx",
+          "precision": "float32",
+          "materialize_policy": "backend",
+          "route": "print_scan",
+          "flags": {
+            "grain": false,
+            "hdr_metadata": false,
+            "preview": false,
+            "export": false,
+            "scanner_lut": false
+          },
+          "preview_seconds": 0.0,
+          "export_seconds": 0.0,
+          "output_source": {
+            "type": "mlx.core.array",
+            "shape": [
+              3024,
+              4032,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "nbytes": 146313216
+          },
+          "hdr_scene_luminance": {
+            "type": null,
+            "shape": null,
+            "dtype": null,
+            "nbytes": 0
+          },
+          "preview": {
+            "requested": false
+          },
+          "export": {
+            "requested": false
+          },
+          "pipeline_timings": {
+            "preprocess": 0.04746683398843743,
+            "SpectralLUTService.get_filming_tc_lut": 5.2499992307275534e-05,
+            "SpectralLUTService.get_filming_tc_lut_backend": 0.0009119999886024743,
+            "filming.expose": 0.006151167006464675,
+            "filming.develop": 0.005022750003263354,
+            "PrintingStage.expose": 0.027332708006724715,
+            "printing.expose": 0.027338958985637873,
+            "PrintingStage.develop": 0.0010579170193523169,
+            "printing.develop": 0.0010605840070638806,
+            "SpectralLUTService.spectral_compute_scanner": 0.0037359170091804117,
+            "ScanningStage.scan": 0.01592633401742205,
+            "scanning.scan_print": 0.015932415990391746,
+            "SimulationPipeline.materialize": 2.3329921532422304e-06
+          },
+          "gui_phase_timings": {},
+          "residency_summary": {
+            "events": 78,
+            "to_numpy": 2,
+            "asarray": 76,
+            "unallowed": 0,
+            "unallowed_to_numpy": 0
+          }
+        }
+      ],
+      "summary": {
+        "runtime_wall_seconds": {
+          "median": 3.5348900830140337,
+          "min": 3.5348900830140337,
+          "max": 3.5348900830140337
+        },
+        "total_wall_seconds": {
+          "median": 3.5348900830140337,
+          "min": 3.5348900830140337,
+          "max": 3.5348900830140337
+        },
+        "sync_seconds": {
+          "median": 3.412933832994895,
+          "min": 3.412933832994895,
+          "max": 3.412933832994895
+        },
+        "preview_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "export_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    {
+      "sample": "real_dng",
+      "source": "/Users/retriedstormtrooper/Documents/Projects/Active/spektrafilm-main/scratch/IMG_9121_converted.DNG",
+      "shape": [
+        3024,
+        4032,
+        3
+      ],
+      "dtype": "float32",
+      "workload": {
+        "label": "runtime_grain_off_hdr_on",
+        "grain": false,
+        "hdr_metadata": true,
+        "preview": false,
+        "export": false,
+        "route": "print_scan",
+        "scanner_lut": false
+      },
+      "backend": "mlx",
+      "precision": "float32",
+      "materialize_policy": "backend",
+      "status": "ok",
+      "warmups": [],
+      "runs": [
+        {
+          "status": "ok",
+          "runtime_wall_seconds": 5.292735416005598,
+          "total_wall_seconds": 5.292735416005598,
+          "sync_seconds": 3.3894509590172675,
+          "backend": "mlx",
+          "precision": "float32",
+          "materialize_policy": "backend",
+          "route": "print_scan",
+          "flags": {
+            "grain": false,
+            "hdr_metadata": true,
+            "preview": false,
+            "export": false,
+            "scanner_lut": false
+          },
+          "preview_seconds": 0.0,
+          "export_seconds": 0.0,
+          "output_source": {
+            "type": "mlx.core.array",
+            "shape": [
+              3024,
+              4032,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "nbytes": 146313216
+          },
+          "hdr_scene_luminance": {
+            "type": "numpy.ndarray",
+            "shape": [
+              3024,
+              4032
+            ],
+            "dtype": "float32",
+            "nbytes": 48771072
+          },
+          "preview": {
+            "requested": false
+          },
+          "export": {
+            "requested": false
+          },
+          "pipeline_timings": {
+            "SimulationPipeline.hdr_scene_luminance_materialize": 0.0006875410035718232,
+            "preprocess": 1.8218828749959357,
+            "SpectralLUTService.get_filming_tc_lut": 5.0583010306581855e-05,
+            "SpectralLUTService.get_filming_tc_lut_backend": 0.0012810830085072666,
+            "filming.expose": 0.011400542018236592,
+            "filming.develop": 0.0031630000157747418,
+            "PrintingStage.expose": 0.04584325000178069,
+            "printing.expose": 0.045864209008868784,
+            "PrintingStage.develop": 0.002757457987172529,
+            "printing.develop": 0.002765457989880815,
+            "SpectralLUTService.spectral_compute_scanner": 0.0032426249817945063,
+            "ScanningStage.scan": 0.01536537500214763,
+            "scanning.scan_print": 0.015371792018413544,
+            "SimulationPipeline.materialize": 1.7909915186464787e-06
+          },
+          "gui_phase_timings": {},
+          "residency_summary": {
+            "events": 79,
+            "to_numpy": 3,
+            "asarray": 76,
+            "unallowed": 0,
+            "unallowed_to_numpy": 0
+          }
+        }
+      ],
+      "summary": {
+        "runtime_wall_seconds": {
+          "median": 5.292735416005598,
+          "min": 5.292735416005598,
+          "max": 5.292735416005598
+        },
+        "total_wall_seconds": {
+          "median": 5.292735416005598,
+          "min": 5.292735416005598,
+          "max": 5.292735416005598
+        },
+        "sync_seconds": {
+          "median": 3.3894509590172675,
+          "min": 3.3894509590172675,
+          "max": 3.3894509590172675
+        },
+        "preview_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "export_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    {
+      "sample": "real_dng",
+      "source": "/Users/retriedstormtrooper/Documents/Projects/Active/spektrafilm-main/scratch/IMG_9121_converted.DNG",
+      "shape": [
+        3024,
+        4032,
+        3
+      ],
+      "dtype": "float32",
+      "workload": {
+        "label": "runtime_grain_on_hdr_off",
+        "grain": true,
+        "hdr_metadata": false,
+        "preview": false,
+        "export": false,
+        "route": "print_scan",
+        "scanner_lut": false
+      },
+      "backend": "mlx",
+      "precision": "float32",
+      "materialize_policy": "backend",
+      "status": "ok",
+      "warmups": [],
+      "runs": [
+        {
+          "status": "ok",
+          "runtime_wall_seconds": 55.54366295799264,
+          "total_wall_seconds": 55.54366295799264,
+          "sync_seconds": 54.87172612498398,
+          "backend": "mlx",
+          "precision": "float32",
+          "materialize_policy": "backend",
+          "route": "print_scan",
+          "flags": {
+            "grain": true,
+            "hdr_metadata": false,
+            "preview": false,
+            "export": false,
+            "scanner_lut": false
+          },
+          "preview_seconds": 0.0,
+          "export_seconds": 0.0,
+          "output_source": {
+            "type": "mlx.core.array",
+            "shape": [
+              3024,
+              4032,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "nbytes": 146313216
+          },
+          "hdr_scene_luminance": {
+            "type": null,
+            "shape": null,
+            "dtype": null,
+            "nbytes": 0
+          },
+          "preview": {
+            "requested": false
+          },
+          "export": {
+            "requested": false
+          },
+          "pipeline_timings": {
+            "preprocess": 0.32733970900881104,
+            "SpectralLUTService.get_filming_tc_lut": 0.0001473749871365726,
+            "SpectralLUTService.get_filming_tc_lut_backend": 0.0018750420131254941,
+            "filming.expose": 0.010643624991644174,
+            "filming.develop": 0.2816179170040414,
+            "PrintingStage.expose": 0.025363125023432076,
+            "printing.expose": 0.025369665992911905,
+            "PrintingStage.develop": 0.0012660829816013575,
+            "printing.develop": 0.0012699170038104057,
+            "SpectralLUTService.spectral_compute_scanner": 0.003647417004685849,
+            "ScanningStage.scan": 0.016002916992874816,
+            "scanning.scan_print": 0.016008625010726973,
+            "SimulationPipeline.materialize": 1.2708012945950031e-05
+          },
+          "gui_phase_timings": {},
+          "residency_summary": {
+            "events": 86,
+            "to_numpy": 2,
+            "asarray": 84,
+            "unallowed": 0,
+            "unallowed_to_numpy": 0
+          }
+        }
+      ],
+      "summary": {
+        "runtime_wall_seconds": {
+          "median": 55.54366295799264,
+          "min": 55.54366295799264,
+          "max": 55.54366295799264
+        },
+        "total_wall_seconds": {
+          "median": 55.54366295799264,
+          "min": 55.54366295799264,
+          "max": 55.54366295799264
+        },
+        "sync_seconds": {
+          "median": 54.87172612498398,
+          "min": 54.87172612498398,
+          "max": 54.87172612498398
+        },
+        "preview_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "export_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    {
+      "sample": "real_dng",
+      "source": "/Users/retriedstormtrooper/Documents/Projects/Active/spektrafilm-main/scratch/IMG_9121_converted.DNG",
+      "shape": [
+        3024,
+        4032,
+        3
+      ],
+      "dtype": "float32",
+      "workload": {
+        "label": "runtime_scan_film_grain_off_hdr_off",
+        "grain": false,
+        "hdr_metadata": false,
+        "preview": false,
+        "export": false,
+        "route": "scan_film",
+        "scanner_lut": false
+      },
+      "backend": "mlx",
+      "precision": "float32",
+      "materialize_policy": "backend",
+      "status": "ok",
+      "warmups": [],
+      "runs": [
+        {
+          "status": "ok",
+          "runtime_wall_seconds": 3.220326249982463,
+          "total_wall_seconds": 3.220326249982463,
+          "sync_seconds": 0.6326222910138313,
+          "backend": "mlx",
+          "precision": "float32",
+          "materialize_policy": "backend",
+          "route": "scan_film",
+          "flags": {
+            "grain": false,
+            "hdr_metadata": false,
+            "preview": false,
+            "export": false,
+            "scanner_lut": false
+          },
+          "preview_seconds": 0.0,
+          "export_seconds": 0.0,
+          "output_source": {
+            "type": "mlx.core.array",
+            "shape": [
+              3024,
+              4032,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "nbytes": 146313216
+          },
+          "hdr_scene_luminance": {
+            "type": null,
+            "shape": null,
+            "dtype": null,
+            "nbytes": 0
+          },
+          "preview": {
+            "requested": false
+          },
+          "export": {
+            "requested": false
+          },
+          "pipeline_timings": {
+            "preprocess": 0.8387105420115404,
+            "SpectralLUTService.get_filming_tc_lut": 5.154198152013123e-05,
+            "SpectralLUTService.get_filming_tc_lut_backend": 0.0063545419834554195,
+            "filming.expose": 0.03265362500678748,
+            "filming.develop": 0.007944916986161843,
+            "SpectralLUTService.spectral_compute_scanner": 0.003663417010102421,
+            "ScanningStage.scan": 0.02456408299622126,
+            "scanning.scan_film": 0.024573333008447662,
+            "SimulationPipeline.materialize": 1.0041985660791397e-05,
+            "SimulationPipeline.mlx_cleanup": 1.6826567919924855
+          },
+          "gui_phase_timings": {},
+          "residency_summary": {
+            "events": 42,
+            "to_numpy": 0,
+            "asarray": 42,
+            "unallowed": 0,
+            "unallowed_to_numpy": 0
+          }
+        }
+      ],
+      "summary": {
+        "runtime_wall_seconds": {
+          "median": 3.220326249982463,
+          "min": 3.220326249982463,
+          "max": 3.220326249982463
+        },
+        "total_wall_seconds": {
+          "median": 3.220326249982463,
+          "min": 3.220326249982463,
+          "max": 3.220326249982463
+        },
+        "sync_seconds": {
+          "median": 0.6326222910138313,
+          "min": 0.6326222910138313,
+          "max": 0.6326222910138313
+        },
+        "preview_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "export_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    {
+      "sample": "real_dng",
+      "source": "/Users/retriedstormtrooper/Documents/Projects/Active/spektrafilm-main/scratch/IMG_9121_converted.DNG",
+      "shape": [
+        3024,
+        4032,
+        3
+      ],
+      "dtype": "float32",
+      "workload": {
+        "label": "preview_export_grain_off_hdr_off",
+        "grain": false,
+        "hdr_metadata": false,
+        "preview": true,
+        "export": true,
+        "route": "print_scan",
+        "scanner_lut": false
+      },
+      "backend": "mlx",
+      "precision": "float32",
+      "materialize_policy": "backend",
+      "status": "ok",
+      "warmups": [],
+      "runs": [
+        {
+          "status": "ok",
+          "runtime_wall_seconds": 3.395504209009232,
+          "total_wall_seconds": 4.672774042002857,
+          "sync_seconds": 3.0849114170123357,
+          "backend": "mlx",
+          "precision": "float32",
+          "materialize_policy": "backend",
+          "route": "print_scan",
+          "flags": {
+            "grain": false,
+            "hdr_metadata": false,
+            "preview": true,
+            "export": true,
+            "scanner_lut": false
+          },
+          "preview_seconds": 1.277130375005072,
+          "export_seconds": 0.00013945798855274916,
+          "output_source": {
+            "type": "mlx.core.array",
+            "shape": [
+              3024,
+              4032,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "nbytes": 146313216
+          },
+          "hdr_scene_luminance": {
+            "type": null,
+            "shape": null,
+            "dtype": null,
+            "nbytes": 0
+          },
+          "preview": {
+            "requested": true,
+            "status": "Display transform: disabled",
+            "display": {
+              "type": "numpy.ndarray",
+              "shape": [
+                3024,
+                4032,
+                3
+              ],
+              "dtype": "uint8",
+              "nbytes": 36578304
+            }
+          },
+          "export": {
+            "requested": true,
+            "image": {
+              "type": "numpy.ndarray",
+              "shape": [
+                3024,
+                4032,
+                3
+              ],
+              "dtype": "float32",
+              "nbytes": 146313216
+            }
+          },
+          "pipeline_timings": {
+            "preprocess": 0.014614125015214086,
+            "SpectralLUTService.get_filming_tc_lut": 3.875000402331352e-05,
+            "SpectralLUTService.get_filming_tc_lut_backend": 0.0010331660159863532,
+            "filming.expose": 0.005717834021197632,
+            "filming.develop": 0.004749375017127022,
+            "PrintingStage.expose": 0.17195545899448916,
+            "printing.expose": 0.17197262498666532,
+            "PrintingStage.develop": 0.0020534999785013497,
+            "printing.develop": 0.0020574999798554927,
+            "SpectralLUTService.spectral_compute_scanner": 0.002632082992931828,
+            "ScanningStage.scan": 0.10283812499255873,
+            "scanning.scan_print": 0.10284316699835472,
+            "SimulationPipeline.materialize": 2.1250161807984114e-06
+          },
+          "gui_phase_timings": {
+            "gui.preview_materialize": 0.004067834001034498,
+            "gui.display_uint8": 1.2703588329895865,
+            "gui.export_materialize": 9.379198309034109e-05
+          },
+          "residency_summary": {
+            "events": 78,
+            "to_numpy": 2,
+            "asarray": 76,
+            "unallowed": 0,
+            "unallowed_to_numpy": 0
+          }
+        }
+      ],
+      "summary": {
+        "runtime_wall_seconds": {
+          "median": 3.395504209009232,
+          "min": 3.395504209009232,
+          "max": 3.395504209009232
+        },
+        "total_wall_seconds": {
+          "median": 4.672774042002857,
+          "min": 4.672774042002857,
+          "max": 4.672774042002857
+        },
+        "sync_seconds": {
+          "median": 3.0849114170123357,
+          "min": 3.0849114170123357,
+          "max": 3.0849114170123357
+        },
+        "preview_seconds": {
+          "median": 1.277130375005072,
+          "min": 1.277130375005072,
+          "max": 1.277130375005072
+        },
+        "export_seconds": {
+          "median": 0.00013945798855274916,
+          "min": 0.00013945798855274916,
+          "max": 0.00013945798855274916
+        }
+      }
+    },
+    {
+      "sample": "real_dng",
+      "source": "/Users/retriedstormtrooper/Documents/Projects/Active/spektrafilm-main/scratch/IMG_9121_converted.DNG",
+      "shape": [
+        3024,
+        4032,
+        3
+      ],
+      "dtype": "float32",
+      "workload": {
+        "label": "runtime_grain_off_hdr_off_scanner_lut_on",
+        "grain": false,
+        "hdr_metadata": false,
+        "preview": false,
+        "export": false,
+        "route": "print_scan",
+        "scanner_lut": true
+      },
+      "backend": "mlx",
+      "precision": "float32",
+      "materialize_policy": "backend",
+      "status": "ok",
+      "warmups": [],
+      "runs": [
+        {
+          "status": "ok",
+          "runtime_wall_seconds": 4.610460333991796,
+          "total_wall_seconds": 4.610460333991796,
+          "sync_seconds": 4.278639124997426,
+          "backend": "mlx",
+          "precision": "float32",
+          "materialize_policy": "backend",
+          "route": "print_scan",
+          "flags": {
+            "grain": false,
+            "hdr_metadata": false,
+            "preview": false,
+            "export": false,
+            "scanner_lut": true
+          },
+          "preview_seconds": 0.0,
+          "export_seconds": 0.0,
+          "output_source": {
+            "type": "mlx.core.array",
+            "shape": [
+              3024,
+              4032,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "nbytes": 146313216
+          },
+          "hdr_scene_luminance": {
+            "type": null,
+            "shape": null,
+            "dtype": null,
+            "nbytes": 0
+          },
+          "preview": {
+            "requested": false
+          },
+          "export": {
+            "requested": false
+          },
+          "pipeline_timings": {
+            "preprocess": 0.19767804199364036,
+            "SpectralLUTService.get_filming_tc_lut": 0.0001655830128584057,
+            "SpectralLUTService.get_filming_tc_lut_backend": 0.0011722500203177333,
+            "filming.expose": 0.013054917013505474,
+            "filming.develop": 0.0037482500192709267,
+            "PrintingStage.expose": 0.06302645898540504,
+            "printing.expose": 0.06303483300143853,
+            "PrintingStage.develop": 0.0018356250075157732,
+            "printing.develop": 0.0018399579857941717,
+            "SpectralLUTService.gpu_lut_direct_fallback": 0.002828124997904524,
+            "SpectralLUTService.spectral_compute_scanner": 0.0028555410099215806,
+            "ScanningStage.scan": 0.01622120800311677,
+            "scanning.scan_print": 0.016226417006691918,
+            "SimulationPipeline.materialize": 9.334005881100893e-06
+          },
+          "gui_phase_timings": {},
+          "residency_summary": {
+            "events": 78,
+            "to_numpy": 2,
+            "asarray": 76,
+            "unallowed": 0,
+            "unallowed_to_numpy": 0
+          }
+        }
+      ],
+      "summary": {
+        "runtime_wall_seconds": {
+          "median": 4.610460333991796,
+          "min": 4.610460333991796,
+          "max": 4.610460333991796
+        },
+        "total_wall_seconds": {
+          "median": 4.610460333991796,
+          "min": 4.610460333991796,
+          "max": 4.610460333991796
+        },
+        "sync_seconds": {
+          "median": 4.278639124997426,
+          "min": 4.278639124997426,
+          "max": 4.278639124997426
+        },
+        "preview_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "export_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    {
+      "sample": "real_dng",
+      "source": "/Users/retriedstormtrooper/Documents/Projects/Active/spektrafilm-main/scratch/IMG_9121_converted.DNG",
+      "shape": [
+        3024,
+        4032,
+        3
+      ],
+      "dtype": "float32",
+      "workload": {
+        "label": "runtime_grain_on_hdr_off_scanner_lut_on",
+        "grain": true,
+        "hdr_metadata": false,
+        "preview": false,
+        "export": false,
+        "route": "print_scan",
+        "scanner_lut": true
+      },
+      "backend": "mlx",
+      "precision": "float32",
+      "materialize_policy": "backend",
+      "status": "ok",
+      "warmups": [],
+      "runs": [
+        {
+          "status": "ok",
+          "runtime_wall_seconds": 48.805940624995856,
+          "total_wall_seconds": 48.805940624995856,
+          "sync_seconds": 46.39090512500843,
+          "backend": "mlx",
+          "precision": "float32",
+          "materialize_policy": "backend",
+          "route": "print_scan",
+          "flags": {
+            "grain": true,
+            "hdr_metadata": false,
+            "preview": false,
+            "export": false,
+            "scanner_lut": true
+          },
+          "preview_seconds": 0.0,
+          "export_seconds": 0.0,
+          "output_source": {
+            "type": "mlx.core.array",
+            "shape": [
+              3024,
+              4032,
+              3
+            ],
+            "dtype": "mlx.core.float32",
+            "nbytes": 146313216
+          },
+          "hdr_scene_luminance": {
+            "type": null,
+            "shape": null,
+            "dtype": null,
+            "nbytes": 0
+          },
+          "preview": {
+            "requested": false
+          },
+          "export": {
+            "requested": false
+          },
+          "pipeline_timings": {
+            "preprocess": 0.2308985840063542,
+            "SpectralLUTService.get_filming_tc_lut": 0.0001416669983882457,
+            "SpectralLUTService.get_filming_tc_lut_backend": 0.006584540999028832,
+            "filming.expose": 0.021477375004906207,
+            "filming.develop": 2.0897442910063546,
+            "PrintingStage.expose": 0.03130991701618768,
+            "printing.expose": 0.0314090000174474,
+            "PrintingStage.develop": 0.0025164170074276626,
+            "printing.develop": 0.0025232909829355776,
+            "SpectralLUTService.gpu_lut_direct_fallback": 0.0032583750144112855,
+            "SpectralLUTService.spectral_compute_scanner": 0.0033393749909009784,
+            "ScanningStage.scan": 0.031938792002620175,
+            "scanning.scan_print": 0.031964584020897746,
+            "SimulationPipeline.materialize": 1.5875004464760423e-05
+          },
+          "gui_phase_timings": {},
+          "residency_summary": {
+            "events": 86,
+            "to_numpy": 2,
+            "asarray": 84,
+            "unallowed": 0,
+            "unallowed_to_numpy": 0
+          }
+        }
+      ],
+      "summary": {
+        "runtime_wall_seconds": {
+          "median": 48.805940624995856,
+          "min": 48.805940624995856,
+          "max": 48.805940624995856
+        },
+        "total_wall_seconds": {
+          "median": 48.805940624995856,
+          "min": 48.805940624995856,
+          "max": 48.805940624995856
+        },
+        "sync_seconds": {
+          "median": 46.39090512500843,
+          "min": 46.39090512500843,
+          "max": 46.39090512500843
+        },
+        "preview_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "export_seconds": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        }
+      }
+    }
+  ]
+}

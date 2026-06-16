@@ -7,6 +7,9 @@ import colour
 from .conftest import make_fast_test_params
 
 from spektrafilm.runtime.process import simulate
+from spektrafilm.runtime.params_builder import digest_params, init_params
+from spektrafilm.runtime.pipeline import SimulationPipeline
+from spektrafilm.runtime.topology import Tap
 
 
 pytestmark = pytest.mark.integration
@@ -29,6 +32,35 @@ def _assert_valid_output(
 
 def _tile_rgb(rgb: tuple[float, float, float], size: int) -> np.ndarray:
     return np.ones((size, size, 3), dtype=np.float64) * np.asarray(rgb, dtype=np.float64)
+
+
+def _default_pipeline_with_spatial_effects() -> SimulationPipeline:
+    params = init_params(film_profile='kodak_portra_400', print_profile='kodak_portra_endura')
+    params.io.input_color_space = 'sRGB'
+    params.io.input_cctf_decoding = False
+    params.io.crop = False
+    params.io.upscale_factor = 1.0
+    params.camera.auto_exposure = False
+    params.settings.compute_backend = 'cpu'
+    return SimulationPipeline(digest_params(params))
+
+
+def test_topology_inject_log_e_film_initializes_pixel_size_for_spatial_couplers() -> None:
+    pipeline = _default_pipeline_with_spatial_effects()
+    log_e = np.full((4, 4, 3), -1.0, dtype=np.float64)
+
+    result = pipeline.process(log_e, inject=Tap.LOG_E_FILM, collect=Tap.CMY_FILM)
+
+    assert result.shape == log_e.shape
+    assert np.isfinite(result).all()
+    assert pipeline._resize_service.pixel_size_um == pipeline.camera.film_format_mm * 1000 / 4
+
+
+def test_topology_inject_after_preprocess_requires_image_geometry() -> None:
+    pipeline = _default_pipeline_with_spatial_effects()
+
+    with pytest.raises(ValueError, match="requires an image with height and width"):
+        pipeline.process(np.array([0.0, 1.0, 2.0]), inject=Tap.LOG_E_FILM, collect=Tap.CMY_FILM)
 
 
 def test_pipeline_returns_valid_outputs_for_edge_cases(default_params) -> None:
@@ -228,7 +260,7 @@ def test_midgray_input_produces_expected_output_values(default_params) -> None:
     result = simulate(mid_gray, default_params)
     _assert_valid_output(result, shape=(4, 4, 3))
     center = result[1, 1, :]
-    expected_center = np.array([0.46369073, 0.46374183, 0.46358347])
+    expected_center = np.array([0.46483247, 0.45977580, 0.46409895])
     np.testing.assert_allclose(center, expected_center, rtol=0.0, atol=1e-5)
     # Uniform input should produce uniform output (no spatial artifacts)
     for row in range(4):

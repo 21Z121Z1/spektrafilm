@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -13,12 +14,13 @@ from spektrafilm.hdr import (
 from spektrafilm.runtime.params_builder import digest_params, init_params
 from spektrafilm.runtime.process import Simulator
 from spektrafilm.runtime.route_master import RouteMaster
+from spektrafilm.utils.hdr_curve_profiles import luminance_y
 
 
 pytestmark = pytest.mark.integration
 
 
-def make_fast_test_params(*, film_profile: str = "kodak_portra_400", print_profile: str = "kodak_portra_endura"):
+def _fast_params_before_digest(*, film_profile: str = "kodak_portra_400", print_profile: str = "kodak_portra_endura"):
     params = init_params(film_profile=film_profile, print_profile=print_profile)
     params.debug.deactivate_spatial_effects = True
     params.debug.deactivate_stochastic_effects = True
@@ -28,6 +30,11 @@ def make_fast_test_params(*, film_profile: str = "kodak_portra_400", print_profi
     params.io.crop = False
     params.camera.auto_exposure = False
     params.camera.exposure_compensation_ev = 0.0
+    return params
+
+
+def make_fast_test_params(*, film_profile: str = "kodak_portra_400", print_profile: str = "kodak_portra_endura"):
+    params = _fast_params_before_digest(film_profile=film_profile, print_profile=print_profile)
     return digest_params(params)
 
 
@@ -59,9 +66,45 @@ def _synthetic_master(
     )
 
 
+def _paper_master_for_sdr_encoding(*, output_cctf_encoding: bool) -> RouteMaster:
+    sdr_rgb = np.array([[[0.6, 0.5, 0.4]]], dtype=np.float32)
+    route_rgb = np.array([[[0.3, 0.5, 0.7]]], dtype=np.float32)
+    scene = np.array([[0.5]], dtype=np.float32)
+    return RouteMaster(
+        mode="paper",
+        route_kind="print_scan",
+        route_linear_rgb=route_rgb,
+        route_linear_xyz=route_rgb,
+        route_luminance_y=np.array([[0.5]], dtype=np.float32),
+        sdr_legacy_rgb=sdr_rgb,
+        scene_y_raw=scene,
+        post_halation_y=scene,
+        density_cmy=sdr_rgb,
+        route_look_chroma=None,
+        material_detail_y=None,
+        diagnostics={
+            "output_color_space": "Display P3",
+            "output_cctf_encoding": output_cctf_encoding,
+        },
+    )
+
+
 def _small_patch() -> np.ndarray:
     ramp = np.linspace(0.05, 1.25, 5, dtype=np.float64)
     return np.repeat(ramp.reshape(1, -1, 1), 5, axis=0).repeat(3, axis=2)
+
+
+def _project_paper_hdr_rgb(params, image: np.ndarray) -> np.ndarray:
+    master = Simulator(copy.deepcopy(params)).process_master(image, hdr_mode="paper")
+    result = project_hdr_ideal_paper(master, HDRProjectionConfig(max_headroom=4.0, headroom_percentile=100.0))
+    return result.hdr_rgb
+
+
+def _assert_paper_hdr_changes(base_params, changed_params) -> None:
+    image = _small_patch()
+    base = _project_paper_hdr_rgb(base_params, image)
+    changed = _project_paper_hdr_rgb(changed_params, image)
+    assert not np.allclose(changed, base, atol=1e-4)
 
 
 def test_light_table_does_not_respond_to_paper_params() -> None:
@@ -119,6 +162,52 @@ def test_paper_mode_responds_to_paper_profile() -> None:
     assert not np.allclose(changed.hdr_rgb, base.hdr_rgb, atol=1e-4)
 
 
+def test_paper_mode_responds_to_camera_exposure() -> None:
+    base_params = make_fast_test_params()
+    changed_params = copy.deepcopy(base_params)
+    changed_params.camera.exposure_compensation_ev = 1.0
+
+    _assert_paper_hdr_changes(base_params, changed_params)
+
+
+def test_paper_mode_responds_to_film_stock() -> None:
+    base_params = make_fast_test_params(film_profile="kodak_portra_400")
+    changed_params = make_fast_test_params(film_profile="kodak_gold_200")
+
+    _assert_paper_hdr_changes(base_params, changed_params)
+
+
+def test_paper_mode_responds_to_enlarger_filter_color_adjustments() -> None:
+    base_params = make_fast_test_params()
+    changed_params = copy.deepcopy(base_params)
+    changed_params.enlarger.y_filter_shift = 40.0
+    changed_params.enlarger.m_filter_shift = 60.0
+
+    _assert_paper_hdr_changes(base_params, changed_params)
+
+
+def test_paper_mode_responds_to_film_density_gamma() -> None:
+    base_params = make_fast_test_params()
+    changed_raw_params = _fast_params_before_digest()
+    changed_raw_params.film_render.density_curve_gamma = 1.35
+    changed_params = digest_params(changed_raw_params)
+
+    _assert_paper_hdr_changes(base_params, changed_params)
+
+
+def test_paper_mode_responds_to_print_density_curve_morph() -> None:
+    base_params = make_fast_test_params()
+    changed_raw_params = _fast_params_before_digest()
+    changed_raw_params.print_render.density_curves_morph = replace(
+        changed_raw_params.print_render.density_curves_morph,
+        active=True,
+        gamma_factor=1.3,
+    )
+    changed_params = digest_params(changed_raw_params)
+
+    _assert_paper_hdr_changes(base_params, changed_params)
+
+
 def test_negative_film_light_table_requires_positive_rendering() -> None:
     raw_master = _synthetic_master(
         route_kind="film_scan",
@@ -133,6 +222,243 @@ def test_negative_film_light_table_requires_positive_rendering() -> None:
     assert master.diagnostics["profile_kind"] == "positive_negative_scan"
     result = project_hdr_light_table(master, HDRProjectionConfig(max_headroom=4.0))
     assert np.all(np.isfinite(result.hdr_rgb))
+
+
+def test_negative_positive_scan_route_xyz_not_rgb_alias() -> None:
+    params = make_fast_test_params(film_profile="kodak_gold_200")
+    master = Simulator(params).process_master(_small_patch(), hdr_mode="light_table")
+
+    assert master.diagnostics["profile_kind"] == "positive_negative_scan"
+    assert master.diagnostics["route_linear_xyz_source"] == "positive_render_rgb_to_xyz"
+    assert master.route_linear_xyz.shape == master.route_linear_rgb.shape
+    assert np.all(np.isfinite(master.route_linear_xyz))
+    assert not np.allclose(master.route_linear_xyz, master.route_linear_rgb, rtol=0.0, atol=1e-6)
+
+
+def test_projection_respects_linear_sdr_without_cctf_decode() -> None:
+    master = _paper_master_for_sdr_encoding(output_cctf_encoding=False)
+    result = project_hdr_ideal_paper(master)
+
+    np.testing.assert_allclose(result.sdr_rgb, master.sdr_legacy_rgb, rtol=0.0, atol=1e-7)
+    np.testing.assert_allclose(result.hdr_rgb, master.sdr_legacy_rgb, rtol=0.0, atol=1e-7)
+    np.testing.assert_allclose(result.gain_map, 0.0, atol=1e-5)
+
+
+def test_projection_decodes_cctf_sdr_once() -> None:
+    master = _paper_master_for_sdr_encoding(output_cctf_encoding=True)
+    result = project_hdr_ideal_paper(master)
+
+    expected_linear = np.array([[[
+        ((0.6 + 0.055) / 1.055) ** 2.4,
+        ((0.5 + 0.055) / 1.055) ** 2.4,
+        ((0.4 + 0.055) / 1.055) ** 2.4,
+    ]]], dtype=np.float32)
+    np.testing.assert_allclose(result.sdr_rgb, expected_linear, rtol=1e-3)
+    np.testing.assert_allclose(result.hdr_rgb, expected_linear, rtol=1e-3)
+
+
+def test_paper_white_anchor_changes_hdr_join() -> None:
+    scene = np.array([[0.9]], dtype=np.float32)
+    route = np.array([[0.45]], dtype=np.float32)
+    master = RouteMaster(
+        mode="paper",
+        route_kind="print_scan",
+        route_linear_rgb=np.repeat(route[..., None], 3, axis=2),
+        route_linear_xyz=np.repeat(route[..., None], 3, axis=2),
+        route_luminance_y=route,
+        sdr_legacy_rgb=np.repeat(route[..., None], 3, axis=2),
+        scene_y_raw=scene,
+        post_halation_y=scene,
+        density_cmy=np.repeat(route[..., None], 3, axis=2),
+        route_look_chroma=None,
+        material_detail_y=None,
+        diagnostics={"output_cctf_encoding": False},
+    )
+
+    below = project_hdr_ideal_paper(master, HDRProjectionConfig(max_headroom=4.0, paper_white=1.0))
+    above = project_hdr_ideal_paper(master, HDRProjectionConfig(max_headroom=4.0, paper_white=0.8))
+
+    np.testing.assert_allclose(below.hdr_rgb, below.sdr_rgb, rtol=0.0, atol=1e-7)
+    assert float(np.max(above.hdr_rgb - above.sdr_rgb)) > 1e-3
+
+
+def test_diffuse_white_scene_anchor_replaces_paper_white_alias() -> None:
+    config = HDRProjectionConfig(max_headroom=4.0, diffuse_white_scene_anchor=0.8)
+
+    assert config.diffuse_white_scene_anchor == 0.8
+    assert config.paper_white == 0.8
+
+
+def test_conflicting_diffuse_white_aliases_raise() -> None:
+    with pytest.raises(ValueError, match="diffuse_white_scene_anchor and paper_white"):
+        HDRProjectionConfig(diffuse_white_scene_anchor=0.8, paper_white=1.0)
+
+
+def test_output_diffuse_white_scales_hdr_extension_and_gain_map() -> None:
+    master = _synthetic_master(mode="paper", route_kind="print_scan")
+    base_config = HDRProjectionConfig(
+        max_headroom=4.0,
+        diffuse_white_scene_anchor=0.75,
+        output_diffuse_white=1.0,
+    )
+    lifted_config = HDRProjectionConfig(
+        max_headroom=4.0,
+        diffuse_white_scene_anchor=0.75,
+        output_diffuse_white=1.25,
+    )
+
+    base = project_hdr_ideal_paper(master, base_config)
+    lifted = project_hdr_ideal_paper(master, lifted_config)
+
+    below_or_at_white = master.scene_y_raw <= lifted_config.diffuse_white_scene_anchor
+    np.testing.assert_allclose(
+        lifted.hdr_rgb[below_or_at_white],
+        lifted.sdr_rgb[below_or_at_white],
+        rtol=0.0,
+        atol=1e-7,
+    )
+    above_white = master.scene_y_raw > lifted_config.diffuse_white_scene_anchor
+    assert float(np.max(lifted.hdr_rgb[above_white] - base.hdr_rgb[above_white])) > 1e-3
+    assert float(np.max(lifted.gain_map - base.gain_map)) > 1e-3
+    assert lifted.diagnostics["diffuse_white_scene_anchor"] == pytest.approx(0.75)
+    assert lifted.diagnostics["output_diffuse_white"] == pytest.approx(1.25)
+    assert lifted.diagnostics["output_diffuse_white_effect"] == "hdr_delta_from_sdr"
+    assert lifted.diagnostics["preserve_sdr_base"] is True
+
+
+def test_paper_projection_uses_safe_chemical_print_profile() -> None:
+    master = _synthetic_master(
+        mode="paper",
+        route_kind="print_scan",
+        diagnostics={
+            "film": "kodak_portra_400",
+            "paper": "kodak_portra_endura",
+            "output_cctf_encoding": False,
+        },
+    )
+
+    result = project_hdr_ideal_paper(master, HDRProjectionConfig(max_headroom=5.0, headroom_percentile=100.0))
+
+    assert result.diagnostics["paper_rolloff_strategy"] == "chemical_print"
+    assert result.diagnostics["chemical_profile_source"] == "kodak_portra_400__kodak_portra_endura"
+    assert result.diagnostics["chemical_profile_safe"] is True
+    below_or_at_white = master.scene_y_raw <= 1.0
+    np.testing.assert_allclose(
+        result.hdr_rgb[below_or_at_white],
+        result.sdr_rgb[below_or_at_white],
+        rtol=0.0,
+        atol=1e-7,
+    )
+    sdr_y = luminance_y(result.sdr_rgb)
+    assert float(np.max(result.hdr_luminance_y[master.scene_y_raw > 1.0] - sdr_y[master.scene_y_raw > 1.0])) > 1e-3
+
+
+def test_paper_projection_display_budget_creates_hdr_when_paper_sdr_is_low() -> None:
+    master = _synthetic_master(
+        mode="paper",
+        route_kind="print_scan",
+        route_scale=0.6,
+        diagnostics={
+            "film": "kodak_gold_200",
+            "paper": "kodak_supra_endura",
+            "output_cctf_encoding": False,
+        },
+    )
+    config = HDRProjectionConfig(max_headroom=8.0, headroom_percentile=99.9)
+
+    result = project_hdr_ideal_paper(master, config)
+
+    assert float(np.nanpercentile(master.scene_y_raw, 99.9)) > 3.0
+    assert float(np.max(luminance_y(result.sdr_rgb))) <= 0.6
+    np.testing.assert_allclose(result.sdr_rgb, master.sdr_legacy_rgb, rtol=0.0, atol=1e-7)
+
+    below_or_at_white = master.scene_y_raw <= config.diffuse_white_scene_anchor
+    np.testing.assert_allclose(
+        result.hdr_rgb[below_or_at_white],
+        result.sdr_rgb[below_or_at_white],
+        rtol=0.0,
+        atol=1e-7,
+    )
+    assert result.diagnostics["paper_rolloff_strategy"] == "chemical_print"
+    assert result.diagnostics["paper_headroom_strategy"] == "chemical_display_budget"
+    assert result.diagnostics["paper_display_extension_strength_used"] > 0.0
+    assert result.headroom > 1.0
+    assert float(np.max(result.hdr_rgb)) > 1.0
+
+
+def test_high_tint_chemical_profile_reduces_path_to_white_strength() -> None:
+    master = _synthetic_master(
+        mode="paper",
+        route_kind="print_scan",
+        diagnostics={
+            "film": "fujifilm_c200",
+            "paper": "kodak_2393",
+            "output_cctf_encoding": False,
+        },
+    )
+    config = HDRProjectionConfig(
+        max_headroom=5.0,
+        headroom_percentile=100.0,
+        paper_path_to_white_strength=0.2,
+    )
+
+    result = project_hdr_ideal_paper(master, config)
+
+    assert result.diagnostics["paper_rolloff_strategy"] == "chemical_print"
+    assert result.diagnostics["chemical_highlight_tint_spread"] > 0.12
+    assert result.diagnostics["paper_path_to_white_strength_used"] == pytest.approx(0.1)
+
+
+def test_safe_chemical_profile_without_scene_headroom_falls_back() -> None:
+    master = _synthetic_master(
+        mode="paper",
+        route_kind="print_scan",
+        scene_scale=0.1,
+        diagnostics={
+            "film": "kodak_portra_400",
+            "paper": "kodak_portra_endura",
+            "output_cctf_encoding": False,
+        },
+    )
+
+    result = project_hdr_ideal_paper(master, HDRProjectionConfig(max_headroom=5.0))
+
+    assert result.diagnostics["paper_rolloff_strategy"] == "generic_scene_extension"
+    assert result.diagnostics["chemical_profile_safe"] is True
+    assert result.diagnostics["chemical_fallback_reason"] == "no_scene_headroom"
+    np.testing.assert_allclose(result.hdr_rgb, result.sdr_rgb, rtol=0.0, atol=1e-7)
+
+
+def test_paper_projection_falls_back_without_chemical_profile_identity() -> None:
+    master = _synthetic_master(mode="paper", route_kind="print_scan")
+
+    result = project_hdr_ideal_paper(master, HDRProjectionConfig(max_headroom=5.0, headroom_percentile=100.0))
+
+    assert result.diagnostics["paper_rolloff_strategy"] == "generic_scene_extension"
+    assert result.diagnostics["chemical_profile_safe"] is False
+    assert result.diagnostics["chemical_fallback_reason"] == "missing_film_or_paper_identifier"
+
+
+def test_paper_projection_rejects_unsafe_chemical_print_profile() -> None:
+    master = _synthetic_master(
+        mode="paper",
+        route_kind="print_scan",
+        diagnostics={
+            "film": "fujifilm_velvia_100",
+            "paper": "fujifilm_crystal_archive_typeii",
+            "output_cctf_encoding": False,
+        },
+    )
+
+    result = project_hdr_ideal_paper(master, HDRProjectionConfig(max_headroom=5.0, headroom_percentile=100.0))
+
+    assert result.diagnostics["paper_rolloff_strategy"] == "generic_scene_extension"
+    assert result.diagnostics["chemical_profile_safe"] is False
+    assert result.diagnostics["chemical_fallback_reason"] in {
+        "profile_marked_unsafe",
+        "profile_not_increasing",
+        "negative_highlight_slope",
+    }
 
 
 def test_hdr_light_table_curve_monotonic() -> None:
@@ -154,6 +480,8 @@ def test_hdr_ideal_paper_curve_monotonic() -> None:
 
 
 def test_hdr_ideal_paper_curve_continuity() -> None:
+    from spektrafilm.hdr.projection import _sdr_rgb
+
     scene = np.linspace(0.9, 1.1, 33, dtype=np.float32).reshape(1, -1)
     route = np.minimum(scene * 0.84, 0.92)
     master = RouteMaster(
@@ -171,11 +499,13 @@ def test_hdr_ideal_paper_curve_continuity() -> None:
         diagnostics={},
     )
 
-    result = project_hdr_ideal_paper(master, HDRProjectionConfig(max_headroom=3.0, paper_white=0.84))
+    result = project_hdr_ideal_paper(master, HDRProjectionConfig(max_headroom=3.0, paper_white=1.0))
     y = result.hdr_luminance_y.reshape(-1)
     join_index = int(np.argmin(np.abs(scene.reshape(-1) - 1.0)))
 
-    assert abs(float(y[join_index]) - float(route.reshape(-1)[join_index])) < 0.03
+    sdr_rgb = _sdr_rgb(master)
+    expected_join_val = float(luminance_y(sdr_rgb).reshape(-1)[join_index])
+    assert abs(float(y[join_index]) - expected_join_val) < 0.03
     assert float(np.max(np.abs(np.diff(y)))) < 0.08
 
 

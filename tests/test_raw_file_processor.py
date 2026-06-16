@@ -41,7 +41,7 @@ def _stub_exif(monkeypatch, **overrides) -> None:
     monkeypatch.setattr(raw_file_processor, '_read_exif_metadata', lambda path: exif_metadata)
 
 
-def test_process_raw_file_daylight_uses_linear_output_and_colour_conversion(monkeypatch):
+def test_process_raw_file_daylight_uses_float32_matrix_colour_conversion(monkeypatch):
     raw_image = np.full((1, 1, 3), 16384, dtype=np.uint16)
     captured = {}
 
@@ -71,10 +71,16 @@ def test_process_raw_file_daylight_uses_linear_output_and_colour_conversion(monk
         captured['path'] = path
         return Reader()
 
-    def fake_rgb_to_rgb(image, **kwargs):
-        captured['image'] = image
-        captured['colour'] = kwargs
-        return image + 0.25
+    def fail_rgb_to_rgb(*_args, **_kwargs):
+        raise AssertionError('linear RAW conversion must not materialize through colour.RGB_to_RGB')
+
+    def fake_matrix_rgb_to_rgb(input_colourspace, output_colourspace, **kwargs):
+        captured['matrix'] = {
+            'input_colourspace': input_colourspace,
+            'output_colourspace': output_colourspace,
+            'kwargs': kwargs,
+        }
+        return np.diag([1.0, 2.0, 3.0])
 
     monkeypatch.setattr(
         raw_file_processor,
@@ -84,7 +90,8 @@ def test_process_raw_file_daylight_uses_linear_output_and_colour_conversion(monk
             ColorSpace=SimpleNamespace(ACES='ACES'),
         ),
     )
-    monkeypatch.setattr(raw_file_processor.colour, 'RGB_to_RGB', fake_rgb_to_rgb)
+    monkeypatch.setattr(raw_file_processor.colour, 'RGB_to_RGB', fail_rgb_to_rgb)
+    monkeypatch.setattr(raw_file_processor.colour, 'matrix_RGB_to_RGB', fake_matrix_rgb_to_rgb)
 
     result = raw_file_processor.load_and_process_raw_file(
         'example.nef',
@@ -94,8 +101,8 @@ def test_process_raw_file_daylight_uses_linear_output_and_colour_conversion(monk
     )
 
     expected_linear = raw_image.astype(np.float32) / 65535.0
-    np.testing.assert_allclose(captured['image'], expected_linear)
-    np.testing.assert_allclose(result, expected_linear + 0.25)
+    np.testing.assert_allclose(result, expected_linear * np.array([1.0, 2.0, 3.0], dtype=np.float32))
+    assert result.dtype == np.float32
     assert captured['path'] == 'example.nef'
     assert captured['postprocess']['output_color'] == 'ACES'
     assert captured['postprocess']['output_bps'] == 16
@@ -103,10 +110,9 @@ def test_process_raw_file_daylight_uses_linear_output_and_colour_conversion(monk
     assert captured['postprocess']['gamma'] == (1, 1)
     assert 'user_wb' not in captured['postprocess']
     assert 'use_camera_wb' not in captured['postprocess']
-    assert captured['colour']['input_colourspace'] == raw_file_processor.colour.RGB_COLOURSPACES['ACES2065-1']
-    assert captured['colour']['output_colourspace'] == raw_file_processor.colour.RGB_COLOURSPACES['sRGB']
-    assert captured['colour']['apply_cctf_decoding'] is False
-    assert captured['colour']['apply_cctf_encoding'] is False
+    assert captured['matrix']['input_colourspace'] == raw_file_processor.colour.RGB_COLOURSPACES['ACES2065-1']
+    assert captured['matrix']['output_colourspace'] == raw_file_processor.colour.RGB_COLOURSPACES['sRGB']
+    assert captured['matrix']['kwargs']['chromatic_adaptation_transform'] == 'CAT02'
 
 
 def test_process_raw_file_as_shot_uses_camera_white_balance(monkeypatch):
@@ -147,8 +153,35 @@ def test_process_raw_file_as_shot_uses_camera_white_balance(monkeypatch):
     result = raw_file_processor.load_and_process_raw_file('example.nef', white_balance='as_shot')
 
     np.testing.assert_allclose(result, raw_image.astype(np.float32) / 65535.0)
+    assert result.dtype == np.float32
     assert captured['postprocess']['use_camera_wb'] is True
     assert 'user_wb' not in captured['postprocess']
+
+
+def test_linear_colourspace_conversion_matches_colour_reference_without_float64_output() -> None:
+    rgb = np.array(
+        [
+            [[0.05, 0.10, 0.20], [0.25, 0.50, 0.75]],
+            [[0.90, 0.40, 0.15], [1.10, 0.95, 0.60]],
+        ],
+        dtype=np.float32,
+    )
+
+    actual = raw_file_processor._convert_linear_rgb_colourspace(
+        rgb,
+        'ProPhoto RGB',
+        output_cctf_encoding=False,
+    )
+    expected = raw_file_processor.colour.RGB_to_RGB(
+        rgb,
+        input_colourspace=raw_file_processor.colour.RGB_COLOURSPACES['ACES2065-1'],
+        output_colourspace=raw_file_processor.colour.RGB_COLOURSPACES['ProPhoto RGB'],
+        apply_cctf_decoding=False,
+        apply_cctf_encoding=False,
+    )
+
+    assert actual.dtype == np.float32
+    np.testing.assert_allclose(actual, expected.astype(np.float32), rtol=0.0, atol=2e-7)
 
 
 @pytest.mark.parametrize(
@@ -277,3 +310,39 @@ def test_process_raw_file_lens_info_reporting(
 
     np.testing.assert_allclose(result, raw_image.astype(np.float32) / 65535.0)
     assert lens_info_out == expected_lens_info
+
+
+def test_process_raw_file_reports_exif_read_failure_for_lens_correction(monkeypatch):
+    raw_image = np.full((1, 1, 3), 16384, dtype=np.uint16)
+    lens_info_out: dict[str, str] = {}
+
+    _stub_raw_reader(monkeypatch, raw_image)
+    monkeypatch.setattr(
+        raw_file_processor,
+        '_read_exif_metadata',
+        lambda path: raw_file_processor.ExifData(
+            make='',
+            model='',
+            lens_make='',
+            lens_model='',
+            focal_length=0.0,
+            f_number=0.0,
+            metadata_error='RuntimeError: damaged EXIF',
+        ),
+    )
+    monkeypatch.setattr(
+        raw_file_processor.lensfunpy,
+        'Database',
+        lambda: (_ for _ in ()).throw(AssertionError('lensfun database should not be queried without EXIF lens metadata')),
+    )
+
+    result = raw_file_processor.load_and_process_raw_file(
+        'example.nef',
+        lens_correction=True,
+        lens_info_out=lens_info_out,
+    )
+
+    np.testing.assert_allclose(result, raw_image.astype(np.float32) / 65535.0)
+    assert lens_info_out == {
+        'warning': 'EXIF metadata unavailable; lens correction skipped: RuntimeError: damaged EXIF',
+    }

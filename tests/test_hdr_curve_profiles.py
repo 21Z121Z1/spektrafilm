@@ -98,10 +98,17 @@ def test_curve_profile_database_schema_and_loader_roundtrip(tmp_path: Path) -> N
     profile = profiles[("kodak_portra_400", "kodak_portra_endura")]
     assert profile.route == "print_scan"
     assert profile.safe_for_profile_aware_hdr is True
+    assert profile.output_rgb is not None
+    assert profile.output_rgb.shape == (len(scene_y), 3)
     assert profile.defaults.safe_max_headroom >= 1.01
     np.testing.assert_allclose(
         hdr_curve_profiles.evaluate_profile_sdr_curve(profile, np.array([1.0], dtype=np.float32)),
         [profile.look_diffuse_white_y],
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(
+        hdr_curve_profiles.evaluate_profile_rgb_curve(profile, np.array([1.0], dtype=np.float32)),
+        [[profile.look_diffuse_white_y] * 3],
         atol=1e-6,
     )
 

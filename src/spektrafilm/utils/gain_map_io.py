@@ -25,6 +25,7 @@ from spektrafilm.utils.gain_map import (
     normalize_gain_map,
 )
 from spektrafilm.utils.gain_map_metadata import GainMapChannel, GainMapMetadata
+from spektrafilm.utils.heif_iso21496 import validate_heif_iso21496
 
 _log = logging.getLogger(__name__)
 
@@ -126,16 +127,23 @@ def save_gain_map_heif(
     if base_img.mode != "RGB":
         base_img = base_img.convert("RGB")
 
-    heif = from_pillow(base_img)
-    heif.add_from_pillow(gm_img)
-    heif.save(str(output_path), quality=quality, chroma="444")
-
-    # Patch for ISO 21496-1 compliance
     try:
+        heif = from_pillow(base_img)
+        heif.add_from_pillow(gm_img)
+        heif.save(str(output_path), quality=quality, chroma="444")
+
         iso_meta = _gainmap_metadata_to_iso_dict(metadata)
-        _patch_heif_for_iso21496(str(output_path), iso_meta)
-    except Exception as e:
-        _log.warning("ISO 21496-1 HEIF patching failed: %s", e)
+        if not _patch_heif_for_iso21496(str(output_path), iso_meta):
+            raise RuntimeError("ISO 21496-1 HEIF patcher is unavailable or declined the file.")
+        validation = validate_heif_iso21496(output_path)
+        if not validation.ok:
+            raise RuntimeError("ISO 21496-1 HEIF validation failed: " + "; ".join(validation.errors))
+    except Exception:
+        try:
+            output_path.unlink()
+        except OSError:
+            pass
+        raise
 
 
 def load_gain_map(path: str | Path) -> dict:
@@ -271,7 +279,7 @@ def _patch_heif_for_iso21496(path: str, iso_meta: dict) -> bool:
     except ImportError:
         pass
 
-    log.warning("_isobmff_patch module not available; skipping ISO 21496-1 HEIF brand patching")
+    _log.warning("_isobmff_patch module not available; skipping ISO 21496-1 HEIF brand patching")
     return False
 
 
@@ -348,19 +356,26 @@ def _load_gain_map_jpeg(path: Path) -> dict:
         "gain_map": None,
         "metadata": None,
         "format": "jpeg",
+        "warnings": [],
     }
 
     if gm_data is not None:
         try:
             result["gain_map"] = Image.open(io.BytesIO(gm_data)).copy()
-        except Exception:
-            pass
+        except Exception as exc:
+            result["warnings"].append(f"gain-map JPEG decode failed: {type(exc).__name__}: {exc}")
+    else:
+        result["warnings"].append("no MPF gain-map image found")
 
     if metadata_bytes is not None:
         try:
             result["metadata"] = GainMapMetadata.deserialize(metadata_bytes)
-        except Exception:
-            pass
+        except Exception as exc:
+            result["warnings"].append(f"ISO 21496-1 metadata decode failed: {type(exc).__name__}: {exc}")
+    else:
+        result["warnings"].append("no ISO 21496-1 gain-map metadata found")
+
+    result["warnings"] = tuple(result["warnings"])
 
     return result
 
@@ -498,11 +513,22 @@ def _load_gain_map_heif(path: Path) -> dict:
         gm = heif_img[1]
         gain_map = gm.to_pillow()
 
+    warnings: list[str] = []
+    metadata = None
+    validation = validate_heif_iso21496(path, require_tmap=False)
+    if validation.errors:
+        warnings.extend(f"HEIF ISO 21496-1 metadata validation error: {error}" for error in validation.errors)
+    warnings.extend(validation.warnings)
+    metadata = validation.metadata
+    if metadata is None:
+        warnings.append("no HEIF ISO 21496-1 gain-map metadata found")
+
     return {
         "base_image": base_image,
         "gain_map": gain_map,
-        "metadata": None,  # Would need ISOBMFF parsing to extract
+        "metadata": metadata,
         "format": "heif",
+        "warnings": tuple(warnings),
     }
 
 

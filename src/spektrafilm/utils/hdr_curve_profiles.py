@@ -68,6 +68,7 @@ class HDRCurveProfile:
     scanner: str | None = None
     profile_kind: FilmScanProfileKind = "print_scan"
     negative_scan_render: dict[str, object] | None = None
+    output_rgb: np.ndarray | None = None
 
 
 FilmPrintHDRCurveProfile: TypeAlias = HDRCurveProfile
@@ -450,6 +451,11 @@ def build_dynamic_curve_profile(
         scanner=fallback_profile.scanner,
         profile_kind=fallback_profile.profile_kind,
         negative_scan_render=fallback_profile.negative_scan_render,
+        output_rgb=(
+            None
+            if fallback_profile.output_rgb is None
+            else np.asarray(fallback_profile.output_rgb, dtype=np.float32)
+        ),
     )
 
 def _slug(value: str) -> str:
@@ -735,6 +741,7 @@ def curve_profile_from_sample(sample: dict[str, object]) -> HDRCurveProfile:
         scanner=None if sample.get("scanner") is None else str(sample["scanner"]),
         profile_kind=profile_kind,  # type: ignore[arg-type]
         negative_scan_render=negative_scan_render,
+        output_rgb=np.asarray(output["rgb"], dtype=np.float32),
     )
 
 
@@ -743,6 +750,7 @@ def _profile_from_entry(root: Path, entry: dict[str, object]) -> HDRCurveProfile
     sample = json.loads(sample_path.read_text(encoding="utf-8"))
     scene_y = np.asarray(sample["input_domain"]["scene_y"], dtype=np.float32)
     sdr_y = np.asarray(sample["output"]["luminance_y"], dtype=np.float32)
+    output_rgb = np.asarray(sample["output"]["rgb"], dtype=np.float32)
     defaults_map = entry.get("defaults")
     if not isinstance(defaults_map, dict):
         defaults_map = sample.get("hdr_defaults", {})
@@ -773,6 +781,7 @@ def _profile_from_entry(root: Path, entry: dict[str, object]) -> HDRCurveProfile
         scanner=None if entry.get("scanner") is None else str(entry["scanner"]),
         profile_kind=profile_kind,  # type: ignore[arg-type]
         negative_scan_render=negative_scan_render,
+        output_rgb=output_rgb,
     )
 
 
@@ -813,6 +822,22 @@ def evaluate_profile_sdr_curve(
     scene_y: np.ndarray,
 ) -> np.ndarray:
     return _interp_log_domain(scene_y, profile.scene_y, profile.sdr_luminance_y)
+
+
+def evaluate_profile_rgb_curve(
+    profile: HDRCurveProfile,
+    scene_y: np.ndarray,
+) -> np.ndarray:
+    if profile.output_rgb is None:
+        raise ValueError("HDR curve profile does not contain per-channel RGB samples.")
+    rgb = np.asarray(profile.output_rgb, dtype=np.float32)
+    if rgb.ndim != 2 or rgb.shape[1] < 3 or rgb.shape[0] != profile.scene_y.shape[0]:
+        raise ValueError("HDR curve profile RGB samples must have shape (sample_count, 3).")
+    channels = [
+        _interp_log_domain(scene_y, profile.scene_y, rgb[:, channel])
+        for channel in range(3)
+    ]
+    return np.stack(channels, axis=-1).astype(np.float32, copy=False)
 
 
 def build_profile_hdr_curve(

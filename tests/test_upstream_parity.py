@@ -163,9 +163,9 @@ class TestGoldenReference:
     #   img = np.full((16, 16, 3), 0.18, dtype=np.float64)
     #   result = simulate(img, digest_params(params))
     #   center = result[8, 8]
-    GOLDEN_R = 4.575983903974706890e-01
-    GOLDEN_G = 4.570808783878304582e-01
-    GOLDEN_B = 4.569784346847138301e-01
+    GOLDEN_R = 4.587501955381701468e-01
+    GOLDEN_G = 4.532247835250490797e-01
+    GOLDEN_B = 4.577094035034299790e-01
 
     def test_midgray_output_golden_reference(self) -> None:
         params = _make_deterministic_params()

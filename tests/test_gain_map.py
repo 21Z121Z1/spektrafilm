@@ -283,6 +283,32 @@ class TestGainMapMetadata:
         with pytest.raises(ValueError, match="Expected 3 channels"):
             GainMapMetadata(is_multichannel=True, channels=(GainMapChannel(),))
 
+    def test_minimum_version_must_match_current_iso_version(self) -> None:
+        with pytest.raises(ValueError, match="minimum_version must be 0"):
+            GainMapMetadata(minimum_version=1, writer_version=1)
+        with pytest.raises(ValueError, match="writer_version must be in"):
+            GainMapMetadata(writer_version=-1)
+
+    def test_headroom_values_must_be_valid_and_distinct(self) -> None:
+        with pytest.raises(ValueError, match="base_hdr_headroom must be finite"):
+            GainMapMetadata(base_hdr_headroom=math.inf, alternate_hdr_headroom=3.0)
+        with pytest.raises(ValueError, match="alternate_hdr_headroom must be finite"):
+            GainMapMetadata(base_hdr_headroom=0.0, alternate_hdr_headroom=math.nan)
+        with pytest.raises(ValueError, match="base_hdr_headroom must be >= 0"):
+            GainMapMetadata(base_hdr_headroom=-0.1, alternate_hdr_headroom=3.0)
+        with pytest.raises(ValueError, match="alternate_hdr_headroom must differ"):
+            GainMapMetadata(base_hdr_headroom=1.0, alternate_hdr_headroom=1.0)
+
+    def test_channel_values_must_be_valid(self) -> None:
+        with pytest.raises(ValueError, match="gain_map_min must be finite"):
+            GainMapChannel(gain_map_min=math.nan)
+        with pytest.raises(ValueError, match="alternate_offset must be finite"):
+            GainMapChannel(alternate_offset=math.inf)
+        with pytest.raises(ValueError, match="gain_map_max .* must be >= gain_map_min"):
+            GainMapChannel(gain_map_min=2.0, gain_map_max=1.0)
+        with pytest.raises(ValueError, match="gamma must be > 0"):
+            GainMapChannel(gamma=0.0)
+
     def test_to_xmp(self) -> None:
         meta = GainMapMetadata(
             is_multichannel=True,
@@ -588,6 +614,29 @@ class TestGainMapIO:
         assert loaded["metadata"] is not None
         assert loaded["metadata"].alternate_hdr_headroom == pytest.approx(4.0, abs=1e-3)
         assert loaded["metadata"].is_multichannel is False
+        assert not any("metadata" in warning for warning in loaded["warnings"])
+
+    def test_load_jpeg_reports_broken_gain_map_payload(self, tmp_path, monkeypatch) -> None:
+        """Broken MPF gain-map payloads must be reported as structured warnings."""
+        from spektrafilm.utils import gain_map_io
+
+        sdr = np.full((16, 16, 3), 0.5, dtype=np.float32)
+        gain = np.full((16, 16, 3), 0.5, dtype=np.float32)
+        meta = GainMapMetadata(
+            is_multichannel=False,
+            use_base_colour_space=True,
+            base_hdr_headroom=0.0,
+            alternate_hdr_headroom=4.0,
+            channels=(GainMapChannel(gain_map_min=0.0, gain_map_max=2.0, gamma=1.0),),
+        )
+        out_path = tmp_path / "broken_gain_map.jpg"
+        gain_map_io.save_gain_map_jpeg(out_path, sdr, gain, meta)
+        monkeypatch.setattr(gain_map_io, "_extract_mpf_gain_map", lambda _data: b"not-a-jpeg")
+
+        loaded = gain_map_io.load_gain_map(out_path)
+
+        assert loaded["gain_map"] is None
+        assert any("gain-map JPEG decode failed" in warning for warning in loaded["warnings"])
 
     def test_save_jpeg_uint8_input(self, tmp_path) -> None:
         """Verify uint8 images are handled correctly."""

@@ -8,6 +8,7 @@ import pytest
 from spektrafilm.runtime.params_builder import digest_params, init_params
 from spektrafilm.runtime.pipeline import SimulationPipeline
 from spektrafilm.runtime.process import Simulator
+from spektrafilm.utils.gamut_compression import OutputGamutCompressSpec
 
 
 pytestmark = pytest.mark.integration
@@ -24,6 +25,90 @@ def make_fast_test_params(*, film_profile: str = "kodak_portra_400", print_profi
     params.camera.auto_exposure = False
     params.camera.exposure_compensation_ev = 0.0
     return digest_params(params)
+
+
+def make_equivalence_params(
+    *,
+    case: str,
+    film_profile: str = "kodak_portra_400",
+    print_profile: str = "kodak_portra_endura",
+):
+    params = init_params(film_profile=film_profile, print_profile=print_profile)
+    params.debug.deactivate_spatial_effects = True
+    params.debug.deactivate_stochastic_effects = True
+    params.settings.use_enlarger_lut = False
+    params.settings.use_scanner_lut = False
+    params.io.upscale_factor = 1.0
+    params.io.crop = False
+    params.camera.auto_exposure = False
+    params.camera.exposure_compensation_ev = 0.0
+    params.io.output_gamut_compress = OutputGamutCompressSpec(algorithm="off")
+
+    if case == "grain":
+        params.debug.deactivate_stochastic_effects = False
+        params.film_render.grain.active = True
+        params.film_render.grain.sublayers_active = False
+        params.film_render.grain.blur = 0.0
+        params.print_render.glare.active = False
+    elif case == "halation":
+        params.debug.deactivate_spatial_effects = False
+        params.film_render.halation.active = True
+        params.film_render.halation.boost_ev = 0.5
+        params.film_render.halation.halation_strength = (0.08, 0.03, 0.0)
+    elif case == "diffusion":
+        params.debug.deactivate_spatial_effects = False
+        params.camera.diffusion_filter.active = True
+        params.camera.diffusion_filter.strength = 0.5
+        params.camera.diffusion_filter.spatial_scale = 0.8
+    elif case == "scanner_blur_unsharp":
+        params.debug.deactivate_spatial_effects = False
+        params.scanner.lens_blur = 0.45
+        params.scanner.unsharp_mask = (0.5, 0.6)
+    elif case == "output_gamut_compression":
+        params.io.output_gamut_compress = OutputGamutCompressSpec(algorithm="oklch")
+    elif case == "linear_unclipped_output":
+        params.io.output_cctf_encoding = False
+        params.io.output_clip_min = False
+        params.io.output_clip_max = False
+    elif case == "cctf_clipped_output":
+        params.io.output_cctf_encoding = True
+        params.io.output_clip_min = True
+        params.io.output_clip_max = True
+    elif case != "baseline":
+        raise ValueError(f"unknown equivalence case {case!r}")
+
+    digested = digest_params(params)
+    if case == "grain":
+        digested.debug.deactivate_stochastic_effects = False
+        digested.film_render.grain.active = True
+        digested.film_render.grain.sublayers_active = False
+        digested.film_render.grain.blur = 0.0
+        digested.print_render.glare.active = False
+    elif case == "halation":
+        digested.debug.deactivate_spatial_effects = False
+        digested.film_render.halation.active = True
+        digested.film_render.halation.boost_ev = 0.5
+        digested.film_render.halation.halation_strength = (0.08, 0.03, 0.0)
+    elif case == "diffusion":
+        digested.debug.deactivate_spatial_effects = False
+        digested.camera.diffusion_filter.active = True
+        digested.camera.diffusion_filter.strength = 0.5
+        digested.camera.diffusion_filter.spatial_scale = 0.8
+    elif case == "scanner_blur_unsharp":
+        digested.debug.deactivate_spatial_effects = False
+        digested.scanner.lens_blur = 0.45
+        digested.scanner.unsharp_mask = (0.5, 0.6)
+    elif case == "output_gamut_compression":
+        digested.io.output_gamut_compress = OutputGamutCompressSpec(algorithm="oklch")
+    elif case == "linear_unclipped_output":
+        digested.io.output_cctf_encoding = False
+        digested.io.output_clip_min = False
+        digested.io.output_clip_max = False
+    elif case == "cctf_clipped_output":
+        digested.io.output_cctf_encoding = True
+        digested.io.output_clip_min = True
+        digested.io.output_clip_max = True
+    return digested
 
 
 def _small_hdr_patch(size: int = 6) -> np.ndarray:
@@ -103,6 +188,39 @@ def test_routemaster_sdr_equivalence_positive_film_scan() -> None:
 
     assert master.route_kind == "film_scan"
     np.testing.assert_allclose(master.sdr_legacy_rgb, legacy, rtol=0.0, atol=1e-9)
+
+
+@pytest.mark.parametrize(
+    ("case", "film_profile", "hdr_mode", "scan_film"),
+    [
+        ("baseline", "kodak_portra_400", "paper", False),
+        ("grain", "kodak_portra_400", "paper", False),
+        ("halation", "kodak_portra_400", "paper", False),
+        ("diffusion", "kodak_portra_400", "paper", False),
+        ("scanner_blur_unsharp", "kodak_portra_400", "paper", False),
+        ("output_gamut_compression", "kodak_portra_400", "paper", False),
+        ("linear_unclipped_output", "kodak_portra_400", "paper", False),
+        ("cctf_clipped_output", "kodak_portra_400", "paper", False),
+        ("baseline", "fujifilm_provia_100f", "light_table", True),
+        ("baseline", "kodak_gold_200", "paper", False),
+    ],
+)
+def test_routemaster_sdr_strict_equivalence_matrix(
+    case: str,
+    film_profile: str,
+    hdr_mode: str,
+    scan_film: bool,
+) -> None:
+    params = make_equivalence_params(case=case, film_profile=film_profile)
+    params.io.scan_film = scan_film
+    image = _small_hdr_patch(size=7)
+    legacy = Simulator(copy.deepcopy(params)).process(image)
+    master = Simulator(copy.deepcopy(params)).process_master(image, hdr_mode=hdr_mode)  # type: ignore[arg-type]
+
+    np.testing.assert_allclose(master.sdr_legacy_rgb, legacy, rtol=0.0, atol=1e-9)
+    assert master.diagnostics["output_cctf_encoding"] is bool(params.io.output_cctf_encoding)
+    assert master.diagnostics["output_clip_min"] is bool(params.io.output_clip_min)
+    assert master.diagnostics["output_clip_max"] is bool(params.io.output_clip_max)
 
 
 def test_process_master_does_not_change_process_output() -> None:

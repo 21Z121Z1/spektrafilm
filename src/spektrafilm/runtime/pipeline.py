@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from time import perf_counter
 from typing import Any
 
+import colour
 import numpy as np
 from skimage.transform import rescale
 
@@ -232,6 +233,7 @@ class SimulationPipeline:
         start = perf_counter()
         
         try:
+            self._prepare_topology_injection_side_effects(image, inject)
             return run_topology(
                 self._topology, inject, collect, image,
                 on_fire=self._record_node_timing,
@@ -242,6 +244,32 @@ class SimulationPipeline:
                 self._backend.cleanup()
                 self.timings["SimulationPipeline.mlx_cleanup"] = perf_counter() - cleanup_start
             self._last_elapsed_time = perf_counter() - start
+
+    def _prepare_topology_injection_side_effects(self, image, inject: str) -> None:
+        if inject == Tap.RGB_IN or self._resize_service.pixel_size_um is not None:
+            return
+        if inject not in {
+            Tap.RGB_PRE,
+            Tap.LOG_E_FILM,
+            Tap.CMY_FILM,
+            Tap.LOG_E_PRINT,
+            Tap.CMY_PRINT,
+            Tap.RGB_OUT,
+        }:
+            return
+
+        shape = getattr(image, "shape", None)
+        if shape is None or len(shape) < 2:
+            raise ValueError(
+                "topology injection after preprocess requires an image with "
+                "height and width to infer pixel_size_um"
+            )
+        height, width = int(shape[0]), int(shape[1])
+        if height <= 0 or width <= 0:
+            raise ValueError(
+                "topology injection after preprocess requires non-empty image geometry"
+            )
+        self._resize_service.pixel_size_um = self.camera.film_format_mm * 1000 / max(height, width)
 
     def _gpu_validation_tolerance(self) -> float:
         explicit = getattr(self.settings, "gpu_validation_tolerance", None)
@@ -416,6 +444,7 @@ class SimulationPipeline:
                     film_density_curves=None,
                     print_density_curves=None,):
         invalidates_print_balance_reference = False
+        refreshes_backend_print_tables = False
         if exposure_compensation_ev is not None:
             self.camera.exposure_compensation_ev = exposure_compensation_ev
             invalidates_print_balance_reference = True
@@ -423,15 +452,20 @@ class SimulationPipeline:
             self.enlarger.print_exposure = print_exposure
         if c_filter_neutral is not None:
             self.enlarger.c_filter_neutral = c_filter_neutral
+            refreshes_backend_print_tables = True
         if m_filter_neutral is not None:
             self.enlarger.m_filter_neutral = m_filter_neutral
+            refreshes_backend_print_tables = True
         if y_filter_neutral is not None:
             self.enlarger.y_filter_neutral = y_filter_neutral
+            refreshes_backend_print_tables = True
         if film_density_curves is not None:
             self.film.data.density_curves = film_density_curves
             invalidates_print_balance_reference = True
         if print_density_curves is not None:
             self.print.data.density_curves = print_density_curves
+        if refreshes_backend_print_tables:
+            self._printing_stage.refresh_backend_spectral_tables()
         if invalidates_print_balance_reference:
             (
                 self._enlarger_service.density_spectral_midgray,
@@ -662,6 +696,12 @@ class SimulationPipeline:
         return image
 
     def _scene_luminance(self, image: np.ndarray) -> np.ndarray:
+        if getattr(self._backend, "supports_gpu", False):
+            image = self._materialize_sidecar_array(
+                image,
+                dtype=np.float32,
+                label="SimulationPipeline.hdr_scene_luminance_materialize",
+            )
         apply_cctf_decoding = bool(self.io.input_cctf_decoding)
         if is_aces_scene_linear_space(self.io.input_color_space):
             apply_cctf_decoding = False
@@ -703,25 +743,46 @@ class SimulationPipeline:
         scan_master: ScanMasterResult,
         scene_y_raw,
     ) -> tuple[ScanMasterResult, np.ndarray, dict[str, object]]:
-        raw_rgb = np.asarray(self._materialize_output_value(scan_master.route_linear_rgb), dtype=np.float32)
-        scene_y = np.asarray(self._materialize_output_value(scene_y_raw), dtype=np.float32)
+        raw_rgb = self._materialize_sidecar_array(
+            scan_master.route_linear_rgb,
+            dtype=np.float32,
+            label="SimulationPipeline.route_master_materialize",
+        )
+        scene_y = self._materialize_sidecar_array(
+            scene_y_raw,
+            dtype=np.float32,
+            label="SimulationPipeline.route_master_materialize",
+        )
         positive_rgb, render_metadata = render_negative_scan_positive_rgb(
             raw_rgb,
             scene_y=scene_y.reshape(-1),
             return_metadata=True,
         )
+        positive_xyz = np.asarray(
+            colour.RGB_to_XYZ(
+                positive_rgb,
+                colourspace=self.io.output_color_space,
+                apply_cctf_decoding=False,
+            ),
+            dtype=np.float32,
+        )
         positive_y = luminance_y(positive_rgb)
         rendered_master = ScanMasterResult(
             route_linear_rgb=positive_rgb,
-            route_linear_xyz=positive_rgb,
+            route_linear_xyz=positive_xyz,
             route_luminance_y=positive_y,
             density_cmy=scan_master.density_cmy,
-            diagnostics={**scan_master.diagnostics, "negative_scan_positive_rendering": True},
+            diagnostics={
+                **scan_master.diagnostics,
+                "negative_scan_positive_rendering": True,
+                "route_linear_xyz_source": "positive_render_rgb_to_xyz",
+            },
         )
         diagnostics = {
             "profile_kind": "positive_negative_scan",
             "negative_scan_render": render_metadata,
             "negative_scan_positive_rendering": True,
+            "route_linear_xyz_source": "positive_render_rgb_to_xyz",
         }
         return rendered_master, np.clip(positive_rgb, 0.0, 1.0).astype(np.float32, copy=False), diagnostics
 
@@ -736,18 +797,47 @@ class SimulationPipeline:
         post_halation_y,
         diagnostics: dict[str, Any],
     ) -> RouteMaster:
-        route_rgb = np.asarray(self._materialize_output_value(scan_master.route_linear_rgb))
-        route_xyz = np.asarray(self._materialize_output_value(scan_master.route_linear_xyz))
-        route_y = np.asarray(self._materialize_output_value(scan_master.route_luminance_y))
-        sdr_rgb = np.asarray(self._materialize_output_value(sdr_legacy_rgb))
-        scene_y = np.asarray(self._materialize_output_value(scene_y_raw), dtype=np.float32)
-        post_y = np.asarray(self._materialize_output_value(post_halation_y), dtype=np.float32)
-        density_cmy = np.asarray(self._materialize_output_value(scan_master.density_cmy))
+        route_rgb = self._materialize_sidecar_array(
+            scan_master.route_linear_rgb,
+            label="SimulationPipeline.route_master_materialize",
+        )
+        route_xyz = self._materialize_sidecar_array(
+            scan_master.route_linear_xyz,
+            label="SimulationPipeline.route_master_materialize",
+        )
+        route_y = self._materialize_sidecar_array(
+            scan_master.route_luminance_y,
+            label="SimulationPipeline.route_master_materialize",
+        )
+        sdr_rgb = self._materialize_sidecar_array(
+            sdr_legacy_rgb,
+            label="SimulationPipeline.route_master_materialize",
+        )
+        scene_y = self._materialize_sidecar_array(
+            scene_y_raw,
+            dtype=np.float32,
+            label="SimulationPipeline.route_master_materialize",
+        )
+        post_y = self._materialize_sidecar_array(
+            post_halation_y,
+            dtype=np.float32,
+            label="SimulationPipeline.route_master_materialize",
+        )
+        density_cmy = self._materialize_sidecar_array(
+            scan_master.density_cmy,
+            label="SimulationPipeline.route_master_materialize",
+        )
         route_look_chroma = self._route_look_chroma(route_rgb)
         material_detail_y = self._material_detail_y(route_y)
         diagnostics = dict(diagnostics)
         diagnostics.setdefault("route_render_count", 1)
         diagnostics.setdefault("route_kind", route_kind)
+        diagnostics.setdefault("film", getattr(getattr(self.film, "info", None), "stock", None))
+        diagnostics.setdefault("paper", getattr(getattr(self.print, "info", None), "stock", None))
+        diagnostics.setdefault("output_color_space", self.io.output_color_space)
+        diagnostics.setdefault("output_cctf_encoding", bool(self.io.output_cctf_encoding))
+        diagnostics.setdefault("output_clip_min", bool(self.io.output_clip_min))
+        diagnostics.setdefault("output_clip_max", bool(self.io.output_clip_max))
         return RouteMaster(
             mode=hdr_mode,
             route_kind=route_kind,  # type: ignore[arg-type]
@@ -860,3 +950,31 @@ class SimulationPipeline:
         raise ValueError(
             "materialize_policy must be one of: 'numpy_float64', 'numpy_float32', 'backend'"
         )
+
+    def _materialize_sidecar_array(
+        self,
+        value,
+        *,
+        dtype=None,
+        label: str = "SimulationPipeline.sidecar_materialize",
+    ) -> np.ndarray:
+        return self._record_stage_timing(
+            label,
+            self._materialize_sidecar_array_value,
+            value,
+            dtype,
+        )
+
+    def _materialize_sidecar_array_value(self, value, dtype=None) -> np.ndarray:
+        policy = getattr(self.settings, "materialize_policy", "numpy_float64")
+        if (
+            policy == "backend"
+            and getattr(self._backend, "supports_gpu", False)
+            and hasattr(self._backend, "to_numpy")
+        ):
+            array = self._backend.to_numpy(value)
+        else:
+            array = self._materialize_output_value(value)
+        if dtype is not None:
+            return np.asarray(array, dtype=dtype)
+        return np.asarray(array)

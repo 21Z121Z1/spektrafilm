@@ -18,6 +18,7 @@ from spektrafilm.gpu.kernels.density import (
 )
 from spektrafilm.gpu.backend import BackendUnavailableError, select_backend
 from spektrafilm.gpu.numpy_backend import NumpyBackend
+from spektrafilm.gpu.residency import record_backend_residency
 from spektrafilm.model.couplers import compute_exposure_correction_dir_couplers
 from spektrafilm.model.density_curves import interp_density_cmy_layers, interpolate_exposure_to_density
 from spektrafilm.model.emulsion import compute_density_spectral
@@ -235,6 +236,62 @@ def test_cmy_to_log_xyz_backend_prefers_specialized_backend_method() -> None:
     np.testing.assert_array_equal(actual, np.array([[[1.0, 2.0, 3.0]]], dtype=np.float32))
     assert len(backend.calls) == 1
     assert backend.calls[0][0] is density_cmy
+
+
+def test_mlx_cmy_to_log_raw_fused_kernel_matches_cpu_without_readback() -> None:
+    backend = _mlx_backend_or_skip()
+    density_cmy = np.array(
+        [
+            [[0.10, 0.20, 0.30], [0.35, 0.18, 0.08]],
+            [[0.05, 0.42, 0.16], [0.62, 0.55, 0.20]],
+        ],
+        dtype=np.float32,
+    )
+    channel_density = np.array(
+        [
+            [0.80, 0.10, 0.20],
+            [0.20, 0.90, 0.10],
+            [0.05, 0.30, 1.10],
+            [0.40, 0.50, 0.20],
+        ],
+        dtype=np.float32,
+    )
+    base_density = np.array([0.03, np.nan, 0.05, 0.06], dtype=np.float32)
+    print_illuminant = np.array([1.0, 0.8, 0.6, 0.4], dtype=np.float32)
+    sensitivity = np.array(
+        [
+            [0.5, 0.2, 0.1],
+            [0.1, 0.6, 0.2],
+            [0.2, 0.1, 0.7],
+            [0.4, 0.3, 0.2],
+        ],
+        dtype=np.float32,
+    )
+    exposure_factor = np.array([1.25], dtype=np.float32)
+    preflash = np.array([0.01, 0.02, 0.03], dtype=np.float32)
+
+    with record_backend_residency() as recorder:
+        actual_backend = backend.cmy_to_log_raw(
+            density_cmy,
+            channel_density,
+            base_density,
+            print_illuminant,
+            sensitivity,
+            exposure_factor,
+            preflash,
+        )
+        backend.eval(actual_backend)
+
+    density_spectral = compute_density_spectral(channel_density, density_cmy, base_density)
+    light = density_to_light(density_spectral, print_illuminant)
+    raw = contract("ijk,kl->ijl", light, sensitivity)
+    raw = raw * exposure_factor.reshape(1, 1, 1) + preflash.reshape(1, 1, 3)
+    expected = np.log10(np.fmax(raw, 0.0) + 1e-10).astype(np.float32)
+
+    actual = backend.to_numpy(actual_backend)
+    assert recorder.unallowed_to_numpy_events() == []
+    assert getattr(actual_backend, "dtype", None) == backend.mx.float32
+    np.testing.assert_allclose(actual, expected, rtol=0.0, atol=1e-6)
 
 
 def test_interpolate_exposure_to_density_backend_matches_cpu_reference() -> None:

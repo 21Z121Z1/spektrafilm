@@ -1,6 +1,6 @@
 # HDR RouteMaster Rewrite
 
-Date: 2026-06-05
+Date: 2026-06-08
 
 ## Goal
 
@@ -55,6 +55,16 @@ route_linear_rgb
 `ScanningStage.scan()` remains the legacy wrapper and delegates to
 `scan_master()` plus `project_sdr_legacy()`.
 
+`RouteMaster.diagnostics` records the legacy SDR output transform policy:
+
+- `output_color_space`
+- `output_cctf_encoding`
+- `output_clip_min`
+- `output_clip_max`
+
+The HDR projection layer uses these flags to decode CCTF SDR exactly once and
+to preserve already-linear SDR without accidental darkening.
+
 ## RouteMaster Fields
 
 `RouteMaster` stores the MVP route state:
@@ -98,7 +108,10 @@ HDR Light Table only accepts a positive film/scan look. A raw negative scan is
 diagnostic material, not a public HDR output. For negative film,
 `SimulationPipeline.process_master(..., hdr_mode="light_table")` uses the
 existing `render_negative_scan_positive_rgb()` path and marks diagnostics with
-`profile_kind="positive_negative_scan"`.
+`profile_kind="positive_negative_scan"`. The positive route derives
+`route_linear_xyz` from the positive linear route RGB and marks
+`route_linear_xyz_source="positive_render_rgb_to_xyz"`; it no longer aliases
+RGB into the XYZ field.
 
 ## Projection Layer
 
@@ -120,6 +133,17 @@ HDR RGB = route_look_chroma * HDR luminance
 `scene_rgb` is not a default color authority in the RouteMaster projection
 path. It remains legacy/auxiliary only.
 
+Idealized HDR Paper uses `HDRProjectionConfig.diffuse_white_scene_anchor` as
+the join anchor: scene/material energy at or below that anchor preserves the
+legacy SDR print look, while values above it are extended continuously into
+display headroom. `HDRProjectionConfig.paper_white` remains a
+backward-compatible alias only; new code should not use it as an output
+diffuse-white target. `HDRProjectionConfig.output_diffuse_white` scales the HDR
+extension above the authored SDR base before headroom and gain-map metadata are
+generated; it does not remap the preserved SDR base itself.
+`HDRProjectionConfig.headroom_percentile` is used both for content headroom and
+for the extension gain percentile.
+
 ## Tests
 
 New tests:
@@ -134,10 +158,15 @@ They cover:
 - RouteMaster field completeness.
 - scan master to legacy SDR equivalence.
 - `process()` to `process_master(...).sdr_legacy_rgb` equivalence.
+- strict SDR equivalence with grain, halation, diffusion, scanner
+  blur/unsharp, output gamut compression, CCTF, and clip settings.
 - post-halation and density sidecars.
 - Light Table paper-parameter isolation.
 - Paper response to print exposure and paper profile.
 - raw negative rejection and positive negative-scan route acceptance.
+- positive negative-scan `route_linear_xyz` derivation from route RGB.
+- linear SDR passthrough and one-time CCTF SDR decode.
+- paper-white anchor behavior.
 - HDR curve monotonicity and paper join continuity.
 - route-look chroma preservation.
 - gain-map high-frequency cleanliness and shared grain/material field.
@@ -145,4 +174,3 @@ They cover:
 - single `process_master()` call during RouteMaster export.
 - legacy mode alias warnings.
 - dynamic profile cache tone/spatial key behavior.
-

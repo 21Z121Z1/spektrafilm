@@ -10,6 +10,7 @@ Implements the GainMapMetadata binary payload (ISO 21496-1:2025 C.2.2):
 
 from __future__ import annotations
 
+import math
 import struct
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
@@ -52,6 +53,18 @@ class GainMapChannel:
     base_offset: float = 0.0
     alternate_offset: float = 0.0
 
+    def __post_init__(self) -> None:
+        for name in ("gain_map_min", "gain_map_max", "gamma", "base_offset", "alternate_offset"):
+            value = float(getattr(self, name))
+            if not math.isfinite(value):
+                raise ValueError(f"{name} must be finite.")
+        if self.gain_map_max < self.gain_map_min:
+            raise ValueError(
+                f"gain_map_max ({self.gain_map_max}) must be >= gain_map_min ({self.gain_map_min})."
+            )
+        if self.gamma <= 0.0:
+            raise ValueError("gamma must be > 0.")
+
 
 @dataclass(frozen=True, slots=True)
 class GainMapMetadata:
@@ -71,8 +84,24 @@ class GainMapMetadata:
     def __post_init__(self) -> None:
         if self.minimum_version < 0 or self.minimum_version > 65535:
             raise ValueError("minimum_version must be in [0, 65535].")
+        if self.minimum_version != 0:
+            raise ValueError("minimum_version must be 0 for ISO 21496-1:2025.")
         if self.writer_version < 0 or self.writer_version > 65535:
             raise ValueError("writer_version must be in [0, 65535].")
+        if self.writer_version < self.minimum_version:
+            raise ValueError("writer_version must be >= minimum_version.")
+        if not math.isfinite(float(self.base_hdr_headroom)):
+            raise ValueError("base_hdr_headroom must be finite.")
+        if not math.isfinite(float(self.alternate_hdr_headroom)):
+            raise ValueError("alternate_hdr_headroom must be finite.")
+        if self.base_hdr_headroom < 0.0:
+            raise ValueError("base_hdr_headroom must be >= 0.")
+        if self.alternate_hdr_headroom < 0.0:
+            raise ValueError("alternate_hdr_headroom must be >= 0.")
+        if self.alternate_hdr_headroom == self.base_hdr_headroom:
+            raise ValueError("alternate_hdr_headroom must differ from base_hdr_headroom.")
+        if not isinstance(self.channels, tuple):
+            object.__setattr__(self, "channels", tuple(self.channels))
         expected = 3 if self.is_multichannel else 1
         if len(self.channels) != expected:
             raise ValueError(

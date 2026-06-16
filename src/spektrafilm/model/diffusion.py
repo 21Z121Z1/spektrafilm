@@ -1,7 +1,7 @@
 import numpy as np
 import scipy.ndimage
 from spektrafilm.utils.fast_gaussian_filter import fast_exponential_filter, fast_gaussian_filter
-from spektrafilm.utils.numba_boost_hightlights import boost_highlights
+from spektrafilm.utils.numba_boost_highlights import boost_highlights
 
 def apply_unsharp_mask(image, sigma=0.0, amount=0.0, *, backend=None):
     """
@@ -672,5 +672,4 @@ def apply_diffusion_filter_um(image, diffusion_filter, pixel_size_um, *, backend
     blurred = blurred[radius:-radius, radius:-radius, :]
 
     return (1.0 - p_s) * image + p_s * blurred
-
 
