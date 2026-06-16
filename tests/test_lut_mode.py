@@ -92,7 +92,7 @@ def test_lut_mode_digest_disables_every_dangerous_effect():
     assert p.film_render.dir_couplers.diffusion_size_um == 0
     assert p.film_render.grain.blur == 0.0
     assert p.film_render.grain.blur_dye_clouds_um == 0.0
-    assert p.film_render.grain.mult_usm_amount == 0.0
+    # Note: mult_usm_amount is not defined in upstream/main, removing from main-sync.
     assert p.print_render.glare.blur == 0
     # stochastic
     assert p.film_render.grain.active is False
