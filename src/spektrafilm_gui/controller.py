@@ -880,6 +880,7 @@ class GuiController:
             source_layer_name=source_layer_name,
         )
         require_hdr_metadata = _requires_hdr_metadata_for_state(state)
+        memory_warning_shown = False
         if source_layer_name == INPUT_LAYER_NAME:
             memory_message = runtime.full_render_memory_guard_message(
                 image_data,
@@ -887,13 +888,23 @@ class GuiController:
                 require_hdr_metadata=require_hdr_metadata,
             )
             if memory_message is not None:
-                QMessageBox.critical(
+                warning_message = (
+                    f'{memory_message}\n\n'
+                    'Continuing anyway. If the render fails or the system becomes memory pressured, '
+                    'use Preview, crop/downscale, disable grain/spatial effects, or increase '
+                    'SPEKTRAFILM_RENDER_MEMORY_BUDGET_MB.'
+                )
+                QMessageBox.warning(
                     dialog_parent(self._viewer),
                     'Run simulation',
-                    memory_message,
+                    warning_message,
                 )
-                set_status(self._viewer, 'Full-resolution render blocked by memory guard')
-                return
+                set_status(
+                    self._viewer,
+                    'Full-resolution render exceeds estimated memory budget; continuing anyway',
+                    timeout_ms=0,
+                )
+                memory_warning_shown = True
 
         image, phase_timings, memory_estimates = _prepare_simulation_input_image(image_data, params)
         phase_timings['gui.input_conversion'] = phase_timings['gui.input_prepare']
@@ -916,7 +927,7 @@ class GuiController:
         self._active_simulation_label = mode_label
         self._active_simulation_reports_status = report_status
         self._set_simulation_controls_enabled(False)
-        if report_status:
+        if report_status and not memory_warning_shown:
             set_status(self._viewer, f'Computing {mode_label.lower()}...', timeout_ms=0)
         self._thread_pool.start(worker)
 

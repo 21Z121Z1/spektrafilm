@@ -624,7 +624,7 @@ def test_run_simulation_preserves_mlx_float32_input_on_sync_path(monkeypatch) ->
     assert params.settings.materialize_policy == 'backend'
 
 
-def test_start_simulation_blocks_full_render_when_memory_guard_reports(monkeypatch) -> None:
+def test_start_simulation_warns_and_continues_full_render_when_memory_guard_reports(monkeypatch) -> None:
     simulation_section = SimpleNamespace(preview_button=None, scan_button=None, save_button=None)
     widgets = SimpleNamespace(simulation=simulation_section)
     controller = GuiController(viewer=object(), widgets=widgets)
@@ -638,16 +638,35 @@ def test_start_simulation_blocks_full_render_when_memory_guard_reports(monkeypat
     monkeypatch.setattr(controller, '_sync_white_border', lambda *, white_padding: None)
     monkeypatch.setattr(controller_module, 'collect_gui_state', lambda *, widgets: gui_state)
     monkeypatch.setattr(controller_module, 'build_params_from_state', lambda state: params)
-    monkeypatch.setattr(controller_module.runtime, 'full_render_memory_guard_message', lambda *args, **kwargs: 'too large')
-    monkeypatch.setattr(controller_module, 'set_status', lambda viewer, message, timeout_ms=5000: captured.setdefault('status', message))
-    monkeypatch.setattr(controller_module.QMessageBox, 'critical', lambda parent, title, message: captured.setdefault('critical', (title, message)))
-    monkeypatch.setattr(controller._thread_pool, 'start', lambda worker: (_ for _ in ()).throw(AssertionError('worker should not start')))
+    memory_message = (
+        'Full-resolution render is likely to exceed the memory budget.\n'
+        'Estimated peak working set is 3.4 GiB; budget is 3.1 GiB.\n'
+        'Largest contributors: spatial_filter_transients.'
+    )
+    monkeypatch.setattr(controller_module.runtime, 'full_render_memory_guard_message', lambda *args, **kwargs: memory_message)
+    monkeypatch.setattr(controller_module, 'set_status', lambda viewer, message, timeout_ms=5000: captured.setdefault('status', (message, timeout_ms)))
+    monkeypatch.setattr(
+        controller_module.QMessageBox,
+        'critical',
+        lambda parent, title, message: (_ for _ in ()).throw(AssertionError('memory guard must not block with critical dialog')),
+    )
+    monkeypatch.setattr(controller_module.QMessageBox, 'warning', lambda parent, title, message: captured.setdefault('warning', (title, message)))
+    monkeypatch.setattr(controller._thread_pool, 'start', lambda worker: captured.setdefault('request', worker._request))
 
     controller._start_simulation(source_layer_name=INPUT_LAYER_NAME, mode_label='Scan')
 
-    assert captured['critical'] == ('Run simulation', 'too large')
-    assert captured['status'] == 'Full-resolution render blocked by memory guard'
-    assert controller._active_simulation_worker is None
+    warning_title, warning_message = captured['warning']
+    assert warning_title == 'Run simulation'
+    assert memory_message in warning_message
+    assert 'Continuing anyway.' in warning_message
+    assert 'blocked' not in warning_message.lower()
+    assert captured['status'] == (
+        'Full-resolution render exceeds estimated memory budget; continuing anyway',
+        0,
+    )
+    assert captured['request'].mode_label == 'Scan'
+    np.testing.assert_allclose(captured['request'].image, image_data)
+    assert controller._active_simulation_worker is not None
 
 
 def test_request_auto_preview_schedules_once_and_runs_preview(monkeypatch) -> None:

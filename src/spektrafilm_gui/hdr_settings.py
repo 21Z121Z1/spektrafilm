@@ -27,12 +27,14 @@ def hdr_projection_config_from_settings(settings: "HDRExportSettings"):
     if str(settings.hdr_headroom_mode) != "content_percentile":
         raise ValueError("RouteMaster HDR export currently supports only content_percentile headroom mode.")
 
-    diffuse_anchor = float(settings.hdr_diffuse_white_target)
     return HDRProjectionConfig(
         max_headroom=float(settings.hdr_peak_headroom),
         headroom_percentile=float(settings.headroom_percentile),
-        diffuse_white_scene_anchor=diffuse_anchor,
-        output_diffuse_white=diffuse_anchor,
+        diffuse_white_scene_anchor=float(settings.hdr_diffuse_white_target),
+        reference_white_mode=str(settings.hdr_reference_white_mode),
+        reference_white_ev=float(settings.hdr_reference_white_ev),
+        output_diffuse_white=float(settings.hdr_output_diffuse_white),
+        display_reference_white_nits=float(settings.hdr_display_reference_white_nits),
         gain_map_mode=settings.gain_map_mode,
     )
 
@@ -45,6 +47,10 @@ class HDRExportSettings:
     hdr_heic_gain_map_enabled: bool = False
     hdr_scene_source: str = "output_layer_metadata"
     hdr_diffuse_white_target: float = 1.0
+    hdr_reference_white_mode: str = "manual_scene_anchor"
+    hdr_reference_white_ev: float = 0.0
+    hdr_output_diffuse_white: float = 1.0
+    hdr_display_reference_white_nits: float = 203.0
     hdr_peak_headroom: float = 8.0
     hdr_headroom_mode: str = "content_percentile"
     headroom_percentile: float = 99.9

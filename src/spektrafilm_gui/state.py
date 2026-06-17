@@ -114,6 +114,10 @@ def hdr_to_dict(state: HDRExportSettings) -> dict[str, object]:
         'hdr_heic_gain_map_enabled': state.hdr_heic_gain_map_enabled,
         'hdr_scene_source': state.hdr_scene_source,
         'hdr_diffuse_white_target': state.hdr_diffuse_white_target,
+        'hdr_reference_white_mode': state.hdr_reference_white_mode,
+        'hdr_reference_white_ev': state.hdr_reference_white_ev,
+        'hdr_output_diffuse_white': state.hdr_output_diffuse_white,
+        'hdr_display_reference_white_nits': state.hdr_display_reference_white_nits,
         'hdr_peak_headroom': state.hdr_peak_headroom,
         'hdr_headroom_mode': state.hdr_headroom_mode,
         'headroom_percentile': state.headroom_percentile,
@@ -211,6 +215,22 @@ def normalize_hdr_dict(data: dict[str, Any]) -> dict[str, Any]:
         'hdr_diffuse_white_target': data.get(
             'hdr_diffuse_white_target',
             PROJECT_DEFAULT_GUI_STATE.hdr.hdr_diffuse_white_target,
+        ),
+        'hdr_reference_white_mode': data.get(
+            'hdr_reference_white_mode',
+            PROJECT_DEFAULT_GUI_STATE.hdr.hdr_reference_white_mode,
+        ),
+        'hdr_reference_white_ev': data.get(
+            'hdr_reference_white_ev',
+            PROJECT_DEFAULT_GUI_STATE.hdr.hdr_reference_white_ev,
+        ),
+        'hdr_output_diffuse_white': data.get(
+            'hdr_output_diffuse_white',
+            PROJECT_DEFAULT_GUI_STATE.hdr.hdr_output_diffuse_white,
+        ),
+        'hdr_display_reference_white_nits': data.get(
+            'hdr_display_reference_white_nits',
+            PROJECT_DEFAULT_GUI_STATE.hdr.hdr_display_reference_white_nits,
         ),
         'hdr_peak_headroom': data.get('hdr_peak_headroom', PROJECT_DEFAULT_GUI_STATE.hdr.hdr_peak_headroom),
         'hdr_headroom_mode': data.get('hdr_headroom_mode', PROJECT_DEFAULT_GUI_STATE.hdr.hdr_headroom_mode),

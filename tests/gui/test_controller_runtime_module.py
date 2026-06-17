@@ -244,6 +244,58 @@ def test_full_render_memory_guard_reports_large_mlx_render() -> None:
     assert 'spatial_filter_transients' in message
 
 
+def test_full_render_memory_guard_can_be_disabled_by_env(monkeypatch) -> None:
+    class LargeImage:
+        shape = (6144, 8192, 3)
+        dtype = np.dtype(np.float32)
+        nbytes = int(np.prod(shape) * dtype.itemsize)
+
+    params = SimpleNamespace(
+        settings=SimpleNamespace(compute_backend='mlx', gpu_precision='float32'),
+        io=SimpleNamespace(input_color_space='ProPhoto RGB'),
+        film_render=SimpleNamespace(grain=SimpleNamespace(active=True, sublayers_active=True)),
+    )
+
+    monkeypatch.setenv('SPEKTRAFILM_RENDER_MEMORY_GUARD', '0')
+
+    assert runtime_module.full_render_memory_guard_message(
+        LargeImage(),
+        params,
+        available_bytes=1,
+    ) is None
+
+
+def test_full_render_memory_guard_uses_budget_env_override(monkeypatch) -> None:
+    class SmallImage:
+        shape = (128, 128, 3)
+        dtype = np.dtype(np.float32)
+        nbytes = int(np.prod(shape) * dtype.itemsize)
+
+    params = SimpleNamespace(
+        settings=SimpleNamespace(compute_backend='numpy', gpu_precision='float32'),
+        io=SimpleNamespace(input_color_space='ProPhoto RGB'),
+        film_render=SimpleNamespace(grain=SimpleNamespace(active=False, sublayers_active=False)),
+    )
+
+    monkeypatch.setenv('SPEKTRAFILM_RENDER_MEMORY_BUDGET_MB', '8')
+    under_budget = runtime_module.full_render_memory_guard_message(
+        SmallImage(),
+        params,
+        available_bytes=1,
+    )
+
+    monkeypatch.setenv('SPEKTRAFILM_RENDER_MEMORY_BUDGET_MB', '0.01')
+    over_budget = runtime_module.full_render_memory_guard_message(
+        SmallImage(),
+        params,
+        available_bytes=1024**3,
+    )
+
+    assert under_budget is None
+    assert over_budget is not None
+    assert 'budget is 0.0 GiB' in over_budget
+
+
 def test_prepare_output_display_image_uses_aces_output_transform_for_linear_scene(monkeypatch) -> None:
     captured: dict[str, object] = {}
 

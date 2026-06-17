@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Literal
 
 import colour
 import numpy as np
 
+from spektrafilm.hdr.reference_white import HDRReferenceWhiteCalibration
 from spektrafilm.runtime.route_master import RouteMaster
 from spektrafilm.utils import hdr_photo
 from spektrafilm.utils.hdr_curve_profiles import luminance_y
@@ -21,6 +24,9 @@ class HDRProjectionConfig:
     diffuse_white_scene_anchor: float | None = None
     output_diffuse_white: float = 1.0
     paper_white: float | None = None
+    reference_white_mode: Literal["manual_scene_anchor"] = "manual_scene_anchor"
+    reference_white_ev: float = 0.0
+    display_reference_white_nits: float = 203.0
     light_table_extension_strength: float = 0.75
     paper_extension_strength: float = 0.55
     min_detail: float = 0.75
@@ -41,15 +47,24 @@ class HDRProjectionConfig:
             raise ValueError("diffuse_white_scene_anchor and paper_white must match when both are provided.")
         if not math.isfinite(float(scene_anchor)) or float(scene_anchor) <= 0.0:
             raise ValueError("diffuse_white_scene_anchor must be a finite positive value.")
+        if self.reference_white_mode != "manual_scene_anchor":
+            raise ValueError("reference_white_mode must be 'manual_scene_anchor'.")
+        if not math.isfinite(float(self.reference_white_ev)):
+            raise ValueError("reference_white_ev must be finite.")
+        if not math.isfinite(float(self.display_reference_white_nits)) or float(self.display_reference_white_nits) <= 0.0:
+            raise ValueError("display_reference_white_nits must be a finite positive value.")
+        effective_scene_anchor = float(scene_anchor) * (2.0 ** float(self.reference_white_ev))
+        if not math.isfinite(effective_scene_anchor) or effective_scene_anchor <= 0.0:
+            raise ValueError("effective reference white must be a finite positive value.")
         if not math.isfinite(self.output_diffuse_white) or self.output_diffuse_white <= 0.0:
             raise ValueError("output_diffuse_white must be a finite positive value.")
         if self.gain_map_mode not in ("luma", "rgb"):
             raise ValueError("gain_map_mode must be 'luma' or 'rgb'.")
-        object.__setattr__(self, "diffuse_white_scene_anchor", float(scene_anchor))
+        object.__setattr__(self, "diffuse_white_scene_anchor", effective_scene_anchor)
         # Backward-compatible alias for older tests/callers. New code should use
         # diffuse_white_scene_anchor so the scene anchor is not mistaken for an
         # output diffuse-white target.
-        object.__setattr__(self, "paper_white", float(scene_anchor))
+        object.__setattr__(self, "paper_white", effective_scene_anchor)
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,12 +211,64 @@ def _clip_hdr(rgb: np.ndarray, headroom: float) -> np.ndarray:
     return np.clip(rgb, 0.0, max(1.0, headroom)).astype(np.float32, copy=False)
 
 
+def _debug_hdr_pair(
+    *,
+    master: RouteMaster,
+    sdr: np.ndarray,
+    hdr_rgb: np.ndarray,
+    hdr_luma: np.ndarray,
+    scene_y: np.ndarray,
+    calibration: HDRReferenceWhiteCalibration,
+) -> dict[str, Any]:
+    if os.environ.get("SPEKTRAFILM_HDR_PAIR_DEBUG", "").strip().lower() not in {"1", "true", "yes", "on"}:
+        return {}
+
+    sdr_y = luminance_y(sdr)
+    eps = np.float32(1e-6)
+    log_gain = np.log2(np.maximum(hdr_luma, eps) / np.maximum(sdr_y, eps)).astype(np.float32, copy=False)
+    target_mask = scene_y > np.float32(calibration.scene_diffuse_white_y)
+    bad = (target_mask & (hdr_luma + np.float32(1e-4) < sdr_y)).astype(np.uint8, copy=False)
+
+    output_path = Path(
+        os.environ.get(
+            "SPEKTRAFILM_HDR_PAIR_DEBUG_PATH",
+            "/tmp/spektrafilm_hdr_pair_debug.npz",
+        )
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(
+        output_path,
+        sdr=np.asarray(sdr, dtype=np.float32),
+        hdr=np.asarray(hdr_rgb, dtype=np.float32),
+        sdr_y=np.asarray(sdr_y, dtype=np.float32),
+        hdr_y=np.asarray(hdr_luma, dtype=np.float32),
+        scene_y=np.asarray(scene_y, dtype=np.float32),
+        log_gain=log_gain,
+        target_mask=target_mask.astype(np.uint8, copy=False),
+        bad=bad,
+    )
+
+    return {
+        "hdr_pair_debug_path": str(output_path),
+        "hdr_pair_bad_pixels": int(np.count_nonzero(bad)),
+        "hdr_pair_bad_fraction": float(np.mean(bad)),
+        "hdr_pair_target_fraction": float(np.mean(target_mask)),
+        "hdr_pair_sdr_y_p99": float(np.percentile(sdr_y, 99.0)),
+        "hdr_pair_hdr_y_p99": float(np.percentile(hdr_luma, 99.0)),
+        "hdr_pair_log_gain_min": float(np.min(log_gain)),
+        "hdr_pair_log_gain_p01": float(np.percentile(log_gain, 1.0)),
+        "hdr_pair_log_gain_p50": float(np.percentile(log_gain, 50.0)),
+        "hdr_pair_log_gain_p99": float(np.percentile(log_gain, 99.0)),
+    }
+
+
 def _build_result(
     *,
     master: RouteMaster,
     mode: Literal["light_table", "paper"],
     hdr_y: np.ndarray,
     config: HDRProjectionConfig,
+    calibration: HDRReferenceWhiteCalibration,
     path_to_white_strength: float,
     diagnostics: dict[str, Any],
 ) -> HDRProjectionResult:
@@ -211,13 +278,22 @@ def _build_result(
     hdr_rgb = np.maximum(chroma * np.maximum(hdr_y, 0.0)[..., None], 0.0)
     if mode == "paper":
         scene_y = _scene_authority(master, shape)
-        mask = (scene_y <= np.float32(config.diffuse_white_scene_anchor))[..., None]
+        mask = (scene_y <= np.float32(calibration.scene_diffuse_white_y))[..., None]
         hdr_rgb = np.where(mask, sdr, hdr_rgb)
     hdr_rgb = _apply_path_to_white(hdr_rgb, hdr_y, path_to_white_strength, config.max_headroom)
     hdr_rgb = _apply_output_diffuse_white(hdr_rgb, sdr, config)
     headroom = _headroom(hdr_rgb, config)
     hdr_rgb = _clip_hdr(hdr_rgb, headroom)
     hdr_luma = luminance_y(hdr_rgb)
+    scene_y = _scene_authority(master, shape)
+    debug_diagnostics = _debug_hdr_pair(
+        master=master,
+        sdr=sdr,
+        hdr_rgb=hdr_rgb,
+        hdr_luma=hdr_luma,
+        scene_y=scene_y,
+        calibration=calibration,
+    )
     gain_map = hdr_photo.encode_gain_map_log2(sdr, hdr_rgb, headroom=headroom)
     renditions = hdr_photo.HDRPhotoRenditions(
         hdr_rgb=np.ascontiguousarray(hdr_rgb),
@@ -229,12 +305,14 @@ def _build_result(
     metadata = hdr_photo.build_iso_21496_1_gain_map_metadata(renditions)
     diagnostics = {
         **diagnostics,
+        **debug_diagnostics,
         "route_kind": master.route_kind,
         "route_render_count": master.diagnostics.get("route_render_count"),
         "source_chroma_default": "route_look_chroma",
         "diffuse_white_scene_anchor": float(config.diffuse_white_scene_anchor),
         "output_diffuse_white": float(config.output_diffuse_white),
         "output_diffuse_white_effect": "hdr_delta_from_sdr",
+        "reference_white": dict(calibration.diagnostics),
         "preserve_sdr_base": True,
     }
     return HDRProjectionResult(

@@ -47,6 +47,26 @@ def _master() -> RouteMaster:
     )
 
 
+def _paper_onset_master() -> RouteMaster:
+    scene = np.array([[0.5, 1.0, 2.0, 4.0]], dtype=np.float32)
+    sdr = np.full((1, 4, 3), 0.4, dtype=np.float32)
+    route = np.ones((1, 4, 3), dtype=np.float32)
+    return RouteMaster(
+        mode="paper",
+        route_kind="print_scan",
+        route_linear_rgb=route,
+        route_linear_xyz=route,
+        route_luminance_y=scene,
+        sdr_legacy_rgb=sdr,
+        scene_y_raw=scene,
+        post_halation_y=scene,
+        density_cmy=sdr,
+        route_look_chroma=np.ones_like(route, dtype=np.float32),
+        material_detail_y=None,
+        diagnostics={"output_cctf_encoding": False},
+    )
+
+
 def test_save_hdr_photo_heic_from_pair_does_not_call_simulator(monkeypatch, tmp_path) -> None:
     sdr, hdr = _pair()
     output_path = tmp_path / "pair.heic"
@@ -168,6 +188,121 @@ def test_render_hdr_film_pair_alias_matches_route_master_pair() -> None:
     np.testing.assert_allclose(film_pair.sdr_rgb, legacy.sdr_rgb)
     np.testing.assert_allclose(film_pair.hdr_rgb, legacy.hdr_rgb)
     assert film_pair.mode == legacy.mode
+
+
+def test_reference_white_default_is_compatible_with_existing_default() -> None:
+    master = _paper_onset_master()
+
+    baseline = render_hdr_pair_from_master(
+        master,
+        hdr_mode="paper",
+        config=HDRProjectionConfig(max_headroom=4.0, headroom_percentile=100.0),
+    )
+    explicit = render_hdr_pair_from_master(
+        master,
+        hdr_mode="paper",
+        config=HDRProjectionConfig(
+            max_headroom=4.0,
+            headroom_percentile=100.0,
+            diffuse_white_scene_anchor=1.0,
+            reference_white_ev=0.0,
+            output_diffuse_white=1.0,
+        ),
+    )
+
+    np.testing.assert_allclose(explicit.sdr_rgb, baseline.sdr_rgb)
+    np.testing.assert_allclose(explicit.hdr_rgb, baseline.hdr_rgb)
+    np.testing.assert_allclose(explicit.gain_map, baseline.gain_map)
+    assert explicit.headroom == pytest.approx(baseline.headroom)
+
+
+def test_reference_white_ev_moves_paper_hdr_onset_without_changing_sdr() -> None:
+    master = _paper_onset_master()
+    config_a = HDRProjectionConfig(max_headroom=4.0, headroom_percentile=100.0)
+    config_b = HDRProjectionConfig(max_headroom=4.0, headroom_percentile=100.0, reference_white_ev=1.0)
+
+    result_a = render_hdr_pair_from_master(master, hdr_mode="paper", config=config_a)
+    result_b = render_hdr_pair_from_master(master, hdr_mode="paper", config=config_b)
+
+    np.testing.assert_allclose(result_b.sdr_rgb, result_a.sdr_rgb)
+    np.testing.assert_allclose(result_b.hdr_rgb[0, 2], result_b.sdr_rgb[0, 2], atol=1e-6)
+    assert np.max(result_b.hdr_rgb[0, 3] - result_b.sdr_rgb[0, 3]) > 0.01
+    assert np.max(result_a.hdr_rgb[0, 2] - result_a.sdr_rgb[0, 2]) > 0.01
+    assert np.allclose(result_a.hdr_rgb[0, 1], result_a.sdr_rgb[0, 1], atol=1e-6)
+
+
+def test_output_diffuse_white_scales_hdr_delta_without_changing_sdr_base() -> None:
+    master = _paper_onset_master()
+    baseline = render_hdr_pair_from_master(
+        master,
+        hdr_mode="paper",
+        config=HDRProjectionConfig(max_headroom=4.0, headroom_percentile=100.0),
+    )
+    scaled = render_hdr_pair_from_master(
+        master,
+        hdr_mode="paper",
+        config=HDRProjectionConfig(max_headroom=4.0, headroom_percentile=100.0, output_diffuse_white=0.5),
+    )
+
+    np.testing.assert_allclose(scaled.sdr_rgb, baseline.sdr_rgb)
+    assert not np.allclose(scaled.hdr_rgb[0, 3], baseline.hdr_rgb[0, 3])
+    np.testing.assert_allclose(scaled.hdr_rgb[0, :2], scaled.sdr_rgb[0, :2], atol=1e-6)
+
+
+def test_reference_white_diagnostics_are_reported() -> None:
+    result = render_hdr_pair_from_master(
+        _paper_onset_master(),
+        hdr_mode="paper",
+        config=HDRProjectionConfig(
+            max_headroom=4.0,
+            headroom_percentile=100.0,
+            reference_white_ev=0.5,
+            output_diffuse_white=1.25,
+            display_reference_white_nits=203.0,
+        ),
+    )
+
+    diagnostics = result.diagnostics["reference_white"]
+    assert diagnostics["mode"] == "manual_scene_anchor"
+    assert diagnostics["scene_diffuse_white_y"] == pytest.approx(2.0 ** 0.5)
+    assert diagnostics["reference_white_ev"] == pytest.approx(0.5)
+    assert diagnostics["output_diffuse_white"] == pytest.approx(1.25)
+    assert diagnostics["display_reference_white_nits"] == pytest.approx(203.0)
+
+
+def test_hdr_pair_debug_env_writes_pre_encoder_pair_diagnostics(monkeypatch, tmp_path) -> None:
+    debug_path = tmp_path / "pair_debug.npz"
+    monkeypatch.setenv("SPEKTRAFILM_HDR_PAIR_DEBUG", "1")
+    monkeypatch.setenv("SPEKTRAFILM_HDR_PAIR_DEBUG_PATH", str(debug_path))
+
+    result = render_hdr_pair_from_master(
+        _paper_onset_master(),
+        hdr_mode="paper",
+        config=HDRProjectionConfig(max_headroom=4.0, headroom_percentile=100.0),
+    )
+
+    assert result.diagnostics["hdr_pair_debug_path"] == str(debug_path)
+    assert result.diagnostics["hdr_pair_bad_pixels"] == 0
+    assert result.diagnostics["hdr_pair_bad_fraction"] == 0.0
+    assert result.diagnostics["hdr_pair_log_gain_min"] >= -1e-6
+    payload = np.load(debug_path)
+    assert set(payload.files) >= {"sdr", "hdr", "sdr_y", "hdr_y", "scene_y", "log_gain", "bad"}
+    np.testing.assert_allclose(payload["sdr"], result.sdr_rgb)
+    np.testing.assert_allclose(payload["hdr"], result.hdr_rgb)
+    assert payload["bad"].dtype == np.uint8
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"reference_white_ev": float("nan")}, "reference_white_ev"),
+        ({"display_reference_white_nits": 0.0}, "display_reference_white_nits"),
+        ({"reference_white_mode": "auto"}, "reference_white_mode"),
+    ],
+)
+def test_reference_white_config_validation_fails_fast(kwargs, message) -> None:
+    with pytest.raises(ValueError, match=message):
+        HDRProjectionConfig(**kwargs)
 
 
 def test_no_duplicate_scan_when_exporting_hdr(monkeypatch, tmp_path) -> None:

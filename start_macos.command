@@ -5,6 +5,10 @@ import subprocess
 import venv
 
 def main():
+    # 注入 HDR 调试环境变量
+    os.environ["SPEKTRAFILM_HDR_PAIR_DEBUG"] = "1"
+    os.environ["SPEKTRAFILM_HDR_PAIR_DEBUG_PATH"] = "/tmp/spektrafilm_hdr_pair_debug.npz"
+
     print("========================================")
     print("    Spektrafilm 一键启动脚本 (macOS)    ")
     print("========================================")

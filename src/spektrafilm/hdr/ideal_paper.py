@@ -12,6 +12,7 @@ from spektrafilm.hdr.projection import (
     build_hdr_y_from_route,
     _sdr_rgb,
 )
+from spektrafilm.hdr.reference_white import resolve_reference_white
 from spektrafilm.runtime.route_master import RouteMaster
 from spektrafilm.utils.hdr_curve_profiles import (
     HDRCurveProfile,
@@ -167,10 +168,12 @@ def project_hdr_ideal_paper(
     config = HDRProjectionConfig() if config is None else config
     if master.route_kind != "print_scan":
         raise ValueError("Idealized HDR Paper requires a print_scan RouteMaster.")
+    calibration = resolve_reference_white(master, config)
 
     sdr_rgb = _sdr_rgb(master)
     sdr_y = luminance_y(sdr_rgb)
     scene_y = _scene_authority(master, sdr_y.shape)
+    scene_white = float(calibration.scene_diffuse_white_y)
     profile, fallback_reason = _chemical_profile_from_master(master)
     chemical_diagnostics: dict[str, object]
     path_to_white_strength = config.paper_path_to_white_strength
@@ -183,7 +186,7 @@ def project_hdr_ideal_paper(
         profile_safe = safe
         if safe:
             use_chemical_rolloff = bool(
-                np.any(scene_y > np.float32(config.diffuse_white_scene_anchor))
+                np.any(scene_y > np.float32(scene_white))
             )
             if use_chemical_rolloff:
                 hdr_y = _chemical_print_hdr_y(
@@ -210,7 +213,7 @@ def project_hdr_ideal_paper(
             master,
             config,
             authority_y=scene_y,
-            white=float(config.diffuse_white_scene_anchor),
+            white=scene_white,
             strength=config.paper_extension_strength,
         )
         chemical_diagnostics = {
@@ -220,13 +223,14 @@ def project_hdr_ideal_paper(
             "chemical_fallback_reason": fallback_reason or "unavailable",
         }
     chemical_diagnostics["paper_path_to_white_strength_used"] = float(path_to_white_strength)
-    hdr_y = np.where(scene_y <= np.float32(config.diffuse_white_scene_anchor), sdr_y, hdr_y)
+    hdr_y = np.where(scene_y <= np.float32(scene_white), sdr_y, hdr_y)
     hdr_y = hdr_y.astype(np.float32, copy=False)
     return _build_result(
         master=master,
         mode="paper",
         hdr_y=hdr_y,
         config=config,
+        calibration=calibration,
         path_to_white_strength=path_to_white_strength,
         diagnostics={
             "hdr_mode": "paper",

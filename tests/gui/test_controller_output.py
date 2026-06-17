@@ -463,6 +463,7 @@ def test_save_output_layer_passes_paper_hdr_config(monkeypatch) -> None:
     gui_state.hdr.hdr_heic_gain_map_enabled = True
     gui_state.hdr.hdr_mapping_mode = 'paper'
     gui_state.hdr.hdr_diffuse_white_target = 0.9
+    gui_state.hdr.hdr_output_diffuse_white = 1.25
     gui_state.hdr.hdr_peak_headroom = 6.0
     gui_state.hdr.gain_map_mode = 'rgb'
     gui_state.hdr.heic_quality = 0.95
@@ -506,7 +507,7 @@ def test_save_output_layer_passes_paper_hdr_config(monkeypatch) -> None:
     assert config.max_headroom == 6.0
     assert config.paper_white == 0.9
     assert config.diffuse_white_scene_anchor == 0.9
-    assert config.output_diffuse_white == 0.9
+    assert config.output_diffuse_white == 1.25
     assert config.gain_map_mode == 'rgb'
 
 

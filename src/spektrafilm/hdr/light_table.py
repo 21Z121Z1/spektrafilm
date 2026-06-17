@@ -7,6 +7,7 @@ from spektrafilm.hdr.projection import (
     _spatial_authority,
     build_hdr_y_from_route,
 )
+from spektrafilm.hdr.reference_white import resolve_reference_white
 from spektrafilm.runtime.route_master import RouteMaster
 
 
@@ -27,6 +28,7 @@ def project_hdr_light_table(
         raise ValueError("HDR Light Table requires a film_scan RouteMaster.")
     if master.diagnostics.get("profile_kind") == "raw_negative_scan":
         raise ValueError("HDR Light Table requires positive rendering, not a raw negative scan.")
+    calibration = resolve_reference_white(master, config)
 
     shape = master.sdr_legacy_rgb.shape[:2]
     authority_y = _spatial_authority(master, shape)
@@ -34,7 +36,7 @@ def project_hdr_light_table(
         master,
         config,
         authority_y=authority_y,
-        white=float(config.diffuse_white_scene_anchor),
+        white=float(calibration.scene_diffuse_white_y),
         strength=config.light_table_extension_strength,
     )
     return _build_result(
@@ -42,6 +44,7 @@ def project_hdr_light_table(
         mode="light_table",
         hdr_y=hdr_y,
         config=config,
+        calibration=calibration,
         path_to_white_strength=config.light_table_path_to_white_strength,
         diagnostics={
             "hdr_mode": "light_table",
