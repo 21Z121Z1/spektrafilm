@@ -30,6 +30,7 @@ from spektrafilm.utils.hdr_curve_profiles import (
     render_negative_scan_positive_rgb,
     sample_runtime_film_scan_curve_profile,
 )
+from spektrafilm.hdr.standards import HDRStandardsMetadata, build_hdr_standards_metadata, write_hdr_standards_sidecar
 from spektrafilm.utils.heif_iso21496 import (
     repair_coreimage_tmap_min_max_order,
     validate_heif_iso21496,
@@ -254,6 +255,7 @@ class HDRPhotoRenditions:
     sdr_rgb: np.ndarray
     headroom: float
     mapping_mode_used: Literal["generic", "profile_aware", "film_scan_aware"] = "generic"
+    mastering_metadata: HDRStandardsMetadata | None = None
     diagnostics: tuple[str, ...] = ()
 
 
@@ -347,6 +349,14 @@ def save_hdr_photo_heic(
         raise HDRPhotoExportError(message)
 
     _validate_coreimage_heic_iso21496(output_path)
+    sidecar_metadata = build_hdr_standards_metadata(
+        color_space=color_space,
+        hdr_headroom=renditions.headroom,
+        scene_luminance=scene_luminance,
+        render_rgb=renditions.hdr_rgb,
+        source_role="hdr_photo",
+    )
+    write_hdr_standards_sidecar(output_path, sidecar_metadata)
     return renditions.diagnostics
 
 
@@ -441,6 +451,13 @@ def save_hdr_photo_heic_from_pair(
         raise HDRPhotoExportError(message)
 
     _validate_coreimage_heic_iso21496(output_path)
+    sidecar_metadata = build_hdr_standards_metadata(
+        color_space=color_space,
+        hdr_headroom=headroom,
+        render_rgb=hdr,
+        source_role="hdr_pair",
+    )
+    write_hdr_standards_sidecar(output_path, sidecar_metadata)
     return ()
 
 
@@ -945,11 +962,37 @@ def build_hdr_debug_sidecar(
         }
 
     is_modern = isinstance(curve_result, ProfileHDRCurveResult)
-
+    anchors = {
+        "scene_white": float(curve_result.scene_white),
+        "look_white": float(curve_result.look_white),
+        "display_white_nits": float(curve_result.display_white_nits),
+        "target_peak_ev": float(curve_result.target_peak_ev),
+    }
+    curve_budget_ev = float(getattr(curve_result, "curve_budget_ev", curve_result.target_peak_ev))
     sidecar: dict = {
         "mode": "modern_recovery_peak_budget" if is_modern else "profile_preserving",
+        "scene_white": anchors["scene_white"],
         "diffuse_white": curve_result.diffuse_white,
-        "look_white": curve_result.look_white,
+        "look_white": anchors["look_white"],
+        "display_white_nits": anchors["display_white_nits"],
+        "target_peak_ev": anchors["target_peak_ev"],
+        "curve_budget_ev": curve_budget_ev,
+        "anchors": anchors,
+        "curve": {
+            "scene_white": anchors["scene_white"],
+            "look_white": anchors["look_white"],
+            "display_white_nits": anchors["display_white_nits"],
+            "target_peak_ev": anchors["target_peak_ev"],
+            "curve_budget_ev": curve_budget_ev,
+        },
+        "budget": {
+            "mode": "budgeted" if is_modern else "strict_preserving",
+            "target_peak_ev": anchors["target_peak_ev"],
+        },
+        "monotonicity": {
+            "enabled": None if mapping is None else bool(mapping.profile_hdr_enforce_monotonic),
+            "operator": "enforce_monotonic_profile_curve",
+        },
         "percentiles": {
             "s_profile": _pcts(curve_result.s_profile),
             "h_profile": _pcts(curve_result.h_profile),
@@ -959,15 +1002,22 @@ def build_hdr_debug_sidecar(
     }
 
     if is_modern:
-        sidecar["target_peak_ev"] = curve_result.target_peak_ev
         sidecar["raw_peak_ev_before_budget"] = curve_result.raw_peak_ev_before_budget
         sidecar["actual_peak_ev_after_budget"] = curve_result.actual_peak_ev_after_budget
         sidecar["budget_scale"] = curve_result.budget_scale
+        sidecar["budget"].update(
+            {
+                "raw_peak_ev_before_budget": curve_result.raw_peak_ev_before_budget,
+                "actual_peak_ev_after_budget": curve_result.actual_peak_ev_after_budget,
+                "budget_scale": curve_result.budget_scale,
+            }
+        )
         sidecar["percentiles"]["raw_gain_ev"] = _pcts(curve_result.raw_gain_ev)
         sidecar["percentiles"]["compressed_ev"] = _pcts(curve_result.compressed_ev)
         sidecar["percentiles"]["final_h_ev"] = _pcts(curve_result.final_h_ev)
     else:
         sidecar["visual_peak"] = curve_result.visual_peak
+        sidecar["budget"]["visual_peak"] = curve_result.visual_peak
 
     if mapping is not None:
         mapping_info: dict = {

@@ -551,6 +551,15 @@ def _metadata_validation_checks(
         "oiio:ColorSpace",
         "whiteLuminance",
         "hdrHeadroom",
+        "masteringDisplayPrimaries",
+        "masteringDisplayWhitePoint",
+        "minMasteringLuminance",
+        "maxMasteringLuminance",
+        "referenceWhiteLuminance",
+        "dynamicMetadataApplication",
+        "dynamicMetadataVersion",
+        "hdrEncodedColorSpace",
+        "hdrSourceRole",
     ]
     return {
         "color_space": color_space,

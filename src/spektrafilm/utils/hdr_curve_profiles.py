@@ -913,7 +913,18 @@ class ProfilePreservingHDRCurveResult:
     slope: np.ndarray
     diffuse_white: float
     look_white: float
+    display_white_nits: float
+    target_peak_ev: float
     visual_peak: float
+    curve_budget_ev: float
+
+    @property
+    def scene_white(self) -> float:
+        return self.diffuse_white
+
+    @property
+    def peak_headroom_ev(self) -> float:
+        return self.target_peak_ev
 
 
 @dataclass(frozen=True, slots=True)
@@ -932,10 +943,19 @@ class ProfileHDRCurveResult:
     compressed_ev: np.ndarray
     diffuse_white: float
     look_white: float
+    display_white_nits: float
     target_peak_ev: float
     raw_peak_ev_before_budget: float
     actual_peak_ev_after_budget: float
     budget_scale: float
+
+    @property
+    def scene_white(self) -> float:
+        return self.diffuse_white
+
+    @property
+    def peak_headroom_ev(self) -> float:
+        return self.target_peak_ev
 
 
 def profile_slope_loglog(
@@ -1304,11 +1324,13 @@ def build_profile_preserving_hdr_curve(
     s = evaluate_profile_sdr_curve(profile, scene).astype(np.float32)
     dw = max(float(diffuse_white), _EPS)
 
+    scene_white = float(diffuse_white)
     look_white = float(evaluate_profile_sdr_curve(
         profile,
-        np.array([dw], dtype=np.float32),
+        np.array([scene_white], dtype=np.float32),
     )[0])
     look_white = max(look_white, _EPS)
+    display_white_nits = 203.0
 
     mode = getattr(mapping, "profile_hdr_mode", "strict_preserving")
     min_gain_val = _finite_float(getattr(mapping, "profile_hdr_min_gain", None), 1.0)
@@ -1366,8 +1388,9 @@ def build_profile_preserving_hdr_curve(
                 raw_h_ev=diag["raw_h_ev"],
                 final_h_ev=final_h_ev,
                 compressed_ev=diag["compressed_ev"],
-                diffuse_white=dw,
+                diffuse_white=scene_white,
                 look_white=look_white,
+                display_white_nits=display_white_nits,
                 target_peak_ev=target_peak_ev,
                 raw_peak_ev_before_budget=diag["raw_peak_ev_before_budget"],
                 actual_peak_ev_after_budget=diag["actual_peak_ev_after_budget"],
@@ -1423,8 +1446,11 @@ def build_profile_preserving_hdr_curve(
             h_profile=h,
             gain_ev=gain_ev,
             slope=slope,
-            diffuse_white=dw,
+            diffuse_white=scene_white,
             look_white=look_white,
+            display_white_nits=display_white_nits,
+            target_peak_ev=peak_ev,
             visual_peak=visual_peak,
+            curve_budget_ev=peak_ev,
         )
     return h

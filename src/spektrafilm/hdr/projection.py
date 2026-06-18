@@ -11,6 +11,7 @@ import numpy as np
 
 from spektrafilm.hdr.reference_white import HDRReferenceWhiteCalibration
 from spektrafilm.runtime.route_master import RouteMaster
+from spektrafilm.hdr.standards import HDRStandardsMetadata, build_hdr_standards_metadata
 from spektrafilm.utils import hdr_photo
 from spektrafilm.utils.hdr_curve_profiles import luminance_y
 
@@ -76,6 +77,7 @@ class HDRProjectionResult:
     headroom: float
     gain_map: np.ndarray
     gain_map_metadata: hdr_photo.ISO21496GainMapMetadata
+    standards_metadata: HDRStandardsMetadata
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
@@ -323,6 +325,19 @@ def _build_result(
         headroom=float(headroom),
         gain_map=np.ascontiguousarray(gain_map),
         gain_map_metadata=metadata,
+        standards_metadata=build_hdr_standards_metadata(
+            color_space=str(master.diagnostics.get("output_color_space", "Display P3")),
+            eotf="scene-linear",
+            reference_white_nits=float(config.display_reference_white_nits),
+            hdr_headroom=float(headroom),
+            min_mastering_luminance_nits=0.005,
+            target_display_color_space=str(master.diagnostics.get("output_color_space", "Display P3")),
+            target_display_min_luminance_nits=0.005,
+            target_display_max_luminance_nits=float(config.display_reference_white_nits) * float(headroom),
+            scene_luminance=scene_y,
+            render_rgb=hdr_rgb,
+            source_role=f"routemaster_{mode}",
+        ),
         diagnostics=diagnostics,
     )
 

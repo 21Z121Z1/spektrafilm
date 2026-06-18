@@ -23,6 +23,11 @@ import PIL.ImageCms
 import scipy.interpolate
 
 from spektrafilm.color_management import ColorEncoding, Transfer, is_aces_scene_linear_space
+from spektrafilm.hdr.standards import (
+    HDRStandardsMetadata,
+    build_hdr_standards_metadata,
+    write_hdr_standards_sidecar,
+)
 from spektrafilm.utils.dtypes import validate_float_dtype
 
 _log = logging.getLogger(__name__)
@@ -274,6 +279,22 @@ def colorspace_chromaticities(color_space: str) -> tuple[float, ...] | None:
     )
 
 
+def _chromaticities_match(chromaticities: tuple[float, ...] | np.ndarray | None, color_space: str) -> bool:
+    if chromaticities is None:
+        return True
+    reference = colorspace_chromaticities(color_space)
+    if reference is None:
+        return False
+    arr = np.asarray(chromaticities, dtype=np.float32).reshape(-1)
+    ref = np.asarray(reference, dtype=np.float32).reshape(-1)
+    if arr.shape != (8,) or ref.shape != (8,):
+        return False
+    return bool(
+        np.allclose(arr[:6], ref[:6], atol=_CHROMATICITY_PRIMARY_ERROR_THRESHOLD, rtol=0.0)
+        and np.allclose(arr[6:8], ref[6:8], atol=_CHROMATICITY_WHITEPOINT_ERROR_THRESHOLD, rtol=0.0)
+    )
+
+
 _OIIO_COLORSPACE_ALIASES = {
     "aces2065-1": "ACES2065-1",
     "lin_ap0_scene": "ACES2065-1",
@@ -479,6 +500,130 @@ def _known_color_space_from_chromaticities(spec) -> str | None:
     return None
 
 
+def _validate_color_space_metadata(
+    *,
+    color_space: str,
+    standards_metadata: HDRStandardsMetadata | None,
+    ext: str,
+) -> None:
+    if standards_metadata is None:
+        return
+    if standards_metadata.encoded_color_space is not None and standards_metadata.encoded_color_space != color_space:
+        raise ValueError(
+            f"Declared color space {color_space!r} does not match standards metadata encoded_color_space {standards_metadata.encoded_color_space!r} for {ext.upper()} export."
+        )
+    reference = colorspace_chromaticities(color_space)
+    if reference is None:
+        return
+    reference_array = np.asarray(reference, dtype=np.float32)
+    mastering_array = np.asarray(
+        tuple(value for pair in standards_metadata.mastering_primaries for value in pair) + tuple(standards_metadata.mastering_white_point),
+        dtype=np.float32,
+    )
+    target_array = (
+        None
+        if standards_metadata.target_display_primaries is None or standards_metadata.target_display_white_point is None
+        else np.asarray(
+            tuple(value for pair in standards_metadata.target_display_primaries for value in pair)
+            + tuple(standards_metadata.target_display_white_point),
+            dtype=np.float32,
+        )
+    )
+    if mastering_array.shape != (8,) or not np.allclose(
+        mastering_array,
+        reference_array,
+        atol=max(_CHROMATICITY_PRIMARY_ERROR_THRESHOLD, _CHROMATICITY_WHITEPOINT_ERROR_THRESHOLD),
+        rtol=0.0,
+    ):
+        raise ValueError(
+            f"Declared color space {color_space!r} does not match mastering chromaticities metadata for {ext.upper()} export."
+        )
+    if target_array is not None and (
+        target_array.shape != (8,)
+        or not np.allclose(
+            target_array,
+            reference_array,
+            atol=max(_CHROMATICITY_PRIMARY_ERROR_THRESHOLD, _CHROMATICITY_WHITEPOINT_ERROR_THRESHOLD),
+            rtol=0.0,
+        )
+    ):
+        raise ValueError(
+            f"Declared color space {color_space!r} does not match target-display chromaticities metadata for {ext.upper()} export."
+        )
+
+
+def _build_output_standards_metadata(
+    *,
+    color_space: str,
+    image_data: np.ndarray,
+    scene_luminance: np.ndarray | None,
+    hdr_headroom: float | None,
+    white_luminance: float | None,
+    source_role: str,
+) -> HDRStandardsMetadata:
+    reference_white = HDR_REFERENCE_WHITE_LUMINANCE_NITS if white_luminance is None else float(white_luminance)
+    return build_hdr_standards_metadata(
+        color_space=color_space,
+        eotf="scene-linear",
+        reference_white_nits=reference_white,
+        hdr_headroom=hdr_headroom,
+        scene_luminance=scene_luminance,
+        render_rgb=image_data,
+        source_role=source_role,
+    )
+
+
+def _assign_spec_attribute(spec, name: str, value) -> None:
+    if isinstance(value, np.ndarray):
+        array = np.asarray(value)
+        if array.ndim == 0:
+            scalar = array.item()
+            if isinstance(scalar, (np.integer, int)):
+                spec.attribute(name, int(scalar))
+            elif isinstance(scalar, (np.floating, float)):
+                spec.attribute(name, float(scalar))
+            elif isinstance(scalar, (np.bool_, bool)):
+                spec.attribute(name, int(bool(scalar)))
+            else:
+                spec.attribute(name, str(scalar))
+            return
+        flat = np.asarray(array).reshape(-1)
+        if np.issubdtype(flat.dtype, np.integer):
+            spec.attribute(name, oiio.TypeDesc(f"int[{flat.size}]"), tuple(int(v) for v in flat.tolist()))
+            return
+        if np.issubdtype(flat.dtype, np.bool_):
+            spec.attribute(name, oiio.TypeDesc(f"int[{flat.size}]"), tuple(int(bool(v)) for v in flat.tolist()))
+            return
+        if np.issubdtype(flat.dtype, np.floating):
+            spec.attribute(name, oiio.TypeDesc(f"float[{flat.size}]"), tuple(float(v) for v in flat.tolist()))
+            return
+        spec.attribute(name, str(flat.tolist()))
+        return
+    if isinstance(value, (tuple, list)):
+        flat = tuple(value)
+        if not flat:
+            spec.attribute(name, str(()))
+            return
+        if all(isinstance(v, (int, np.integer, bool, np.bool_)) for v in flat):
+            spec.attribute(name, oiio.TypeDesc(f"int[{len(flat)}]"), tuple(int(v) for v in flat))
+            return
+        if all(isinstance(v, (float, int, np.floating, np.integer, bool, np.bool_)) for v in flat):
+            spec.attribute(name, oiio.TypeDesc(f"float[{len(flat)}]"), tuple(float(v) for v in flat))
+            return
+        spec.attribute(name, str(flat))
+        return
+    if isinstance(value, (np.integer, int)):
+        spec.attribute(name, int(value))
+        return
+    if isinstance(value, (np.floating, float)):
+        spec.attribute(name, float(value))
+        return
+    if isinstance(value, (np.bool_, bool)):
+        spec.attribute(name, int(bool(value)))
+        return
+    spec.attribute(name, str(value))
+
+
 def load_image_oiio(filename: str | Path, *, dtype: np.dtype = np.float32) -> np.ndarray:
     dtype = validate_float_dtype(dtype)
     filename_str = str(filename)
@@ -664,6 +809,7 @@ def save_image_oiio(
 
     hdr_headroom: float | None = None
     hdr_diagnostics: tuple[str, ...] = ()
+    standards_metadata: HDRStandardsMetadata | None = None
 
     if ext == "exr":
         if exr_mode not in {"scene_linear_archive", "hdr_rendition"}:
@@ -681,6 +827,28 @@ def save_image_oiio(
             hdr_diagnostics = renditions.diagnostics
             if white_luminance is None:
                 white_luminance = HDR_REFERENCE_WHITE_LUMINANCE_NITS
+            exr_color_space = color_space or (encoding.color_space if encoding is not None else None)
+            if exr_color_space is None:
+                raise ValueError("EXR export requires an explicit color space.")
+            standards_metadata = _build_output_standards_metadata(
+                color_space=exr_color_space,
+                image_data=np.asarray(image_data, dtype=np.float32),
+                scene_luminance=scene_luminance,
+                hdr_headroom=hdr_headroom,
+                white_luminance=white_luminance,
+                source_role="hdr_rendition",
+            )
+        else:
+            exr_color_space = color_space or (encoding.color_space if encoding is not None else None)
+            if exr_color_space is not None:
+                standards_metadata = _build_output_standards_metadata(
+                    color_space=exr_color_space,
+                    image_data=np.asarray(image_data, dtype=np.float32),
+                    scene_luminance=scene_luminance,
+                    hdr_headroom=None,
+                    white_luminance=white_luminance,
+                    source_role="scene_linear_archive",
+                )
 
     # Extract image dimensions and number of channels
     height, width, nchannels = image_data.shape
@@ -762,6 +930,14 @@ def save_image_oiio(
             spec.attribute("chromaticities", oiio.TypeDesc("float[8]"), chromaticities)
         spec.attribute("colorInteropID", color_space)
         spec.attribute("oiio:ColorSpace", color_space)
+    if ext == "exr" and standards_metadata is not None:
+        _validate_color_space_metadata(
+            color_space=color_space or standards_metadata.encoded_color_space or "",
+            standards_metadata=standards_metadata,
+            ext=ext,
+        )
+        for key, value in standards_metadata.to_exr_attribute_items():
+            _assign_spec_attribute(spec, key, value)
     if white_luminance is not None:
         spec.attribute("whiteLuminance", float(white_luminance))
     if hdr_headroom is not None:
@@ -788,6 +964,9 @@ def save_image_oiio(
         out.write_image(data_to_write)
     finally:
         out.close()
+
+    if ext == "exr" and standards_metadata is not None:
+        write_hdr_standards_sidecar(filename, standards_metadata)
 
     return hdr_diagnostics
 

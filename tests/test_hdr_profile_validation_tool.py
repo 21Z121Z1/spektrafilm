@@ -22,4 +22,19 @@ def test_metadata_validation_checks_cover_android_iso_and_exr_expectations(tmp_p
     assert checks["iso_21496_1"]["serialized_metadata_roundtrip"] is True
     assert checks["iso_21496_1"]["gain_map_validation_warnings"] == []
     assert checks["jpeg_probe"]["roundtrip_metadata"] is True
-    assert checks["exr"]["required_attributes"] == ["chromaticities", "colorInteropID", "oiio:ColorSpace", "whiteLuminance", "hdrHeadroom"]
+    assert checks["exr"]["required_attributes"] == [
+        "chromaticities",
+        "colorInteropID",
+        "oiio:ColorSpace",
+        "whiteLuminance",
+        "hdrHeadroom",
+        "masteringDisplayPrimaries",
+        "masteringDisplayWhitePoint",
+        "minMasteringLuminance",
+        "maxMasteringLuminance",
+        "referenceWhiteLuminance",
+        "dynamicMetadataApplication",
+        "dynamicMetadataVersion",
+        "hdrEncodedColorSpace",
+        "hdrSourceRole",
+    ]

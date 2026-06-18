@@ -6,6 +6,7 @@ import exiv2
 import pytest
 
 from spektrafilm.color_management import ColorEncoding
+from spektrafilm.hdr.standards import HDRStandardsMetadata
 from spektrafilm.utils import io as io_module
 from spektrafilm.utils.io import (
     ImageMetadata,
@@ -577,6 +578,17 @@ def test_save_hdr_rendition_exr_produces_valid_output(tmp_path) -> None:
     headroom = spec.getattribute("hdrHeadroom")
     assert headroom is not None
     assert float(headroom) > 1.0
+    assert spec.get_string_attribute("dynamicMetadataApplication") == "spektrafilm"
+    assert spec.get_string_attribute("dynamicMetadataVersion") == "1"
+    assert spec.get_string_attribute("hdrEncodedColorSpace") == "Display P3"
+    assert spec.get_string_attribute("hdrSourceRole") == "hdr_rendition"
+    assert spec.getattribute("masteringDisplayPrimaries") is not None
+    assert spec.getattribute("referenceWhiteLuminance") == pytest.approx(203.0)
+    sidecar = path.with_suffix(".hdr.json")
+    assert sidecar.exists()
+    sidecar_data = sidecar.read_text(encoding="utf-8")
+    assert '"schema": "spektrafilm.hdr.dynamic_metadata"' in sidecar_data
+    assert '"source_role": "hdr_rendition"' in sidecar_data
 
 
 def test_save_hdr_rendition_exr_returns_mapping_diagnostics(tmp_path) -> None:
@@ -600,6 +612,34 @@ def test_save_hdr_rendition_exr_returns_mapping_diagnostics(tmp_path) -> None:
     )
 
     assert any("degrading to off" in item for item in diagnostics)
+
+
+def test_save_image_oiio_exr_scene_linear_archive_is_still_compatible(tmp_path) -> None:
+    path = tmp_path / "archive.exr"
+    image = np.array([[[0.25, 1.5, 4.0]]], dtype=np.float32)
+
+    save_image_oiio(
+        str(path),
+        image,
+        encoding=ColorEncoding(
+            color_space="Display P3",
+            transfer="linear",
+            role="scene",
+            clip_highlights=False,
+        ),
+    )
+
+    image_input = oiio.ImageInput.open(str(path))
+    assert image_input is not None
+    try:
+        spec = image_input.spec()
+    finally:
+        image_input.close()
+
+    assert spec.getattribute("whiteLuminance") is None
+    assert spec.getattribute("hdrHeadroom") is None
+    assert spec.getattribute("masteringDisplayPrimaries") is not None
+    assert path.with_suffix(".hdr.json").exists()
 
 
 def test_save_image_oiio_hdr_rendition_returns_mapping_diagnostics(tmp_path) -> None:
