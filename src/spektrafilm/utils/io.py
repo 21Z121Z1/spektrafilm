@@ -560,16 +560,28 @@ def _build_output_standards_metadata(
     hdr_headroom: float | None,
     white_luminance: float | None,
     source_role: str,
+    mastering_metadata: HDRStandardsMetadata | None = None,
 ) -> HDRStandardsMetadata:
     reference_white = HDR_REFERENCE_WHITE_LUMINANCE_NITS if white_luminance is None else float(white_luminance)
+    mastering_kwargs: dict[str, object] = {}
+    if mastering_metadata is not None:
+        mastering_kwargs = {
+            "mastering_scene_white": mastering_metadata.mastering_scene_white,
+            "mastering_look_white": mastering_metadata.mastering_look_white,
+            "mastering_display_white_nits": mastering_metadata.mastering_display_white_nits,
+            "mastering_target_peak_ev": mastering_metadata.mastering_target_peak_ev,
+            "mastering_curve_budget_ev": mastering_metadata.mastering_curve_budget_ev,
+        }
     return build_hdr_standards_metadata(
         color_space=color_space,
         eotf="scene-linear",
+        encoded_color_space=color_space,
         reference_white_nits=reference_white,
         hdr_headroom=hdr_headroom,
         scene_luminance=scene_luminance,
         render_rgb=image_data,
         source_role=source_role,
+        **mastering_kwargs,
     )
 
 
@@ -816,20 +828,21 @@ def save_image_oiio(
             raise ValueError("exr_mode must be 'scene_linear_archive' or 'hdr_rendition'.")
         if exr_mode == "hdr_rendition":
             mapping = HDRPhotoMapping(**hdr_mapping_kwargs) if hdr_mapping_kwargs else HDRPhotoMapping()
+            exr_color_space = color_space or (encoding.color_space if encoding is not None else None)
+            if exr_color_space is None:
+                raise ValueError("EXR export requires an explicit color space.")
             renditions = prepare_hdr_photo_renditions(
                 image_data,
                 mapping=mapping,
                 scene_luminance=scene_luminance,
                 scene_rgb=scene_rgb,
+                output_color_space=exr_color_space,
             )
             image_data = renditions.hdr_rgb
             hdr_headroom = renditions.headroom
             hdr_diagnostics = renditions.diagnostics
             if white_luminance is None:
                 white_luminance = HDR_REFERENCE_WHITE_LUMINANCE_NITS
-            exr_color_space = color_space or (encoding.color_space if encoding is not None else None)
-            if exr_color_space is None:
-                raise ValueError("EXR export requires an explicit color space.")
             standards_metadata = _build_output_standards_metadata(
                 color_space=exr_color_space,
                 image_data=np.asarray(image_data, dtype=np.float32),
@@ -837,6 +850,7 @@ def save_image_oiio(
                 hdr_headroom=hdr_headroom,
                 white_luminance=white_luminance,
                 source_role="hdr_rendition",
+                mastering_metadata=renditions.mastering_metadata,
             )
         else:
             exr_color_space = color_space or (encoding.color_space if encoding is not None else None)

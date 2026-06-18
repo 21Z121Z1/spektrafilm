@@ -2007,6 +2007,45 @@ def test_oklch_gamut_compression_integration() -> None:
     assert float(np.min(renditions.hdr_rgb)) >= -1e-4
 
 
+def test_oklch_gamut_compression_reports_jzazbz_fallback_for_blue_cyan_highlights(monkeypatch) -> None:
+    profile = _synthetic_safe_hdr_profile()
+    scene_luminance = np.array([[8.0]], dtype=np.float32)
+    look_rgb = np.array([[[0.95, 0.93, 0.94]]], dtype=np.float32)
+
+    mapping = hdr_photo.HDRPhotoMapping(
+        hdr_mapping_mode="profile_aware",
+        curve_profile=profile,
+        max_headroom=6.0,
+        headroom_percentile=100.0,
+        hdr_highlight_color_mode="source_chroma",
+        gamut_mapping_mode="oklch_perceptual",
+        hdr_highlight_gamut="working",
+    )
+
+    calls: list[str] = []
+
+    def fake_compress_output_rgb(rgb, spec, *, output_color_space=None):
+        calls.append(spec.algorithm)
+        if spec.algorithm == "oklch":
+            return np.array([[[1.4, 0.2, 0.2]]], dtype=np.float32)
+        if spec.algorithm == "jzazbz":
+            return np.array([[[0.6, 0.4, 0.9]]], dtype=np.float32)
+        raise AssertionError(f"unexpected algorithm {spec.algorithm!r}")
+
+    monkeypatch.setattr(hdr_photo, "_needs_jzazbz_fallback", lambda rgb, *, max_headroom: np.array([[True]]))
+    monkeypatch.setattr(hdr_photo, "compress_output_rgb", fake_compress_output_rgb)
+
+    renditions = hdr_photo.prepare_hdr_photo_renditions(
+        look_rgb,
+        mapping=mapping,
+        scene_luminance=scene_luminance,
+    )
+
+    assert calls == ["oklch", "jzazbz"]
+    assert any("gamut_compression_jzazbz_fallback" in item for item in renditions.diagnostics)
+    np.testing.assert_allclose(renditions.hdr_rgb, np.array([[[0.6, 0.4, 0.9]]], dtype=np.float32))
+
+
 # ---------------------------------------------------------------------------
 # ISO 21496-1 Gain Map Validation and Statistics Tests
 # ---------------------------------------------------------------------------

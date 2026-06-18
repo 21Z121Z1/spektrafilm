@@ -13,8 +13,13 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Final, Literal
 
+import colour
 import numpy as np
 
+from spektrafilm.utils.gamut_compression import (
+    OutputGamutCompressSpec,
+    compress_rgb as compress_output_rgb,
+)
 from spektrafilm.utils.hdr_curve_profiles import (
     HDRCurveProfile,
     FilmPrintHDRCurveProfile,
@@ -232,6 +237,8 @@ class HDRPhotoMapping:
             raise ValueError("profile_hdr_budget_hard_cap must be boolean-compatible.")
         if not math.isfinite(self.profile_hdr_recovery_ratio) or self.profile_hdr_recovery_ratio < 0.0:
             raise ValueError("profile_hdr_recovery_ratio must be a finite non-negative value.")
+        if self.profile_hdr_recovery_ratio > 1.0:
+            raise ValueError("profile_hdr_recovery_ratio must be a finite value in [0, 1].")
         if (
             not math.isfinite(self.profile_hdr_recovery_knee_ev)
             or self.profile_hdr_recovery_knee_ev < 0.0
@@ -277,6 +284,112 @@ def hdr_photo_color_space(color_space: str | None) -> str:
     return DEFAULT_HDR_PHOTO_COLOR_SPACE
 
 
+def _hdr_highlight_gamut_color_space(mapping: HDRPhotoMapping) -> str:
+    return {
+        "display-p3": "Display P3",
+        "rec2020": "ITU-R BT.2020",
+        "working": "sRGB",
+    }[mapping.hdr_highlight_gamut]
+
+
+def _needs_jzazbz_fallback(rgb: np.ndarray, *, max_headroom: float) -> np.ndarray:
+    eps = _EPS32
+    image = np.asarray(rgb, dtype=np.float32)
+    luma = luminance_y(image)
+    rgb_max = np.max(image, axis=-1)
+    rgb_min = np.min(image, axis=-1)
+    sat = (rgb_max - rgb_min) / np.maximum(rgb_max, eps)
+    high_light = luma >= np.float32(max(1.0, 0.70 * float(max_headroom)))
+    high_sat = sat >= np.float32(0.40)
+    blue_cyan = (image[..., 2] >= image[..., 1] * np.float32(0.95)) & (image[..., 1] >= image[..., 0] * np.float32(0.80))
+    return high_light & high_sat & blue_cyan
+
+
+def build_hdr_photo_standards_metadata(
+    *,
+    color_space: str,
+    encoded_color_space: str | None = None,
+    source_rgb: np.ndarray,
+    render_rgb: np.ndarray,
+    headroom: float | None,
+    source_role: str,
+    mapping: HDRPhotoMapping | None = None,
+    scene_luminance: np.ndarray | None = None,
+    white_luminance: float | None = None,
+    mastering_scene_white: float | None = None,
+    mastering_look_white: float | None = None,
+    mastering_display_white_nits: float | None = None,
+    mastering_target_peak_ev: float | None = None,
+    mastering_curve_budget_ev: float | None = None,
+) -> HDRStandardsMetadata:
+    """Build mastering metadata for HDR photo and HDR rendition exports."""
+
+    reference_white = HDR_REFERENCE_WHITE_LUMINANCE_NITS if white_luminance is None else float(white_luminance)
+    source = np.asarray(source_rgb, dtype=np.float32)
+    render = np.asarray(render_rgb, dtype=np.float32)
+
+    if mastering_scene_white is None:
+        if mapping is not None:
+            if mapping.hdr_mapping_mode in {"profile_aware", "film_scan_aware"}:
+                mastering_scene_white = float(mapping.diffuse_white_override if mapping.diffuse_white_override is not None else 1.0)
+            else:
+                mastering_scene_white = float(mapping.diffuse_white)
+        else:
+            mastering_scene_white = 1.0
+
+    if mastering_look_white is None:
+        if mapping is not None and mapping.look_diffuse_white_reference is not None:
+            mastering_look_white = float(mapping.look_diffuse_white_reference)
+        else:
+            look_y = luminance_y(source)
+            if scene_luminance is not None:
+                scene_y = _prepare_scene_luminance(scene_luminance, shape=source.shape[:2])
+                scene_y = scene_y / np.float32(max(float(mastering_scene_white), 1e-8))
+                mastering_look_white = _estimate_look_diffuse_white_reference(
+                    look_y,
+                    scene_y,
+                    explicit=None,
+                    fallback_percentile=(mapping.look_paper_white_percentile if mapping is not None else 99.0),
+                    profile_fallback=(mapping.profile_diffuse_white_reference if mapping is not None else 0.8387),
+                )
+            else:
+                mastering_look_white = _estimate_look_diffuse_white_reference(
+                    look_y,
+                    None,
+                    explicit=None,
+                    fallback_percentile=(mapping.look_paper_white_percentile if mapping is not None else 99.0),
+                    profile_fallback=(mapping.profile_diffuse_white_reference if mapping is not None else 0.8387),
+                )
+
+    if mastering_target_peak_ev is None:
+        if mastering_target_peak_ev is None and headroom is not None and headroom > 1.0:
+            mastering_target_peak_ev = float(math.log2(float(headroom)))
+
+    if mastering_curve_budget_ev is None:
+        mastering_curve_budget_ev = mastering_target_peak_ev
+
+    if mastering_display_white_nits is None:
+        mastering_display_white_nits = reference_white
+
+    hdr_headroom = None if headroom is None else float(headroom)
+    return build_hdr_standards_metadata(
+        color_space=color_space,
+        eotf="scene-linear",
+        encoded_color_space=encoded_color_space or color_space,
+        reference_white_nits=reference_white,
+        hdr_headroom=hdr_headroom,
+        min_mastering_luminance_nits=0.005,
+        mastering_scene_white=float(mastering_scene_white) if mastering_scene_white is not None else None,
+        mastering_look_white=float(mastering_look_white) if mastering_look_white is not None else None,
+        mastering_display_white_nits=float(mastering_display_white_nits),
+        mastering_target_peak_ev=float(mastering_target_peak_ev) if mastering_target_peak_ev is not None else None,
+        mastering_curve_budget_ev=float(mastering_curve_budget_ev) if mastering_curve_budget_ev is not None else None,
+        scene_luminance=scene_luminance,
+        render_rgb=render,
+        source_role=source_role,
+    )
+
+
 def save_hdr_photo_heic(
     filename: str | Path,
     image_data: np.ndarray,
@@ -301,9 +414,15 @@ def save_hdr_photo_heic(
     mapping = HDRPhotoMapping() if mapping is None else mapping
     if gain_map_mode not in ("luma", "rgb"):
         raise ValueError("gain_map_mode must be either 'luma' or 'rgb'.")
-
-    renditions = prepare_hdr_photo_renditions(image_data, mapping=mapping, scene_luminance=scene_luminance, scene_rgb=scene_rgb)
     color_space = hdr_photo_color_space(color_space)
+
+    renditions = prepare_hdr_photo_renditions(
+        image_data,
+        mapping=mapping,
+        scene_luminance=scene_luminance,
+        scene_rgb=scene_rgb,
+        output_color_space=color_space,
+    )
     sdr_payload = _rgba_float_payload(renditions.sdr_rgb, headroom=1.0)
     hdr_payload = _rgba_float_payload(renditions.hdr_rgb, headroom=renditions.headroom)
 
@@ -349,13 +468,18 @@ def save_hdr_photo_heic(
         raise HDRPhotoExportError(message)
 
     _validate_coreimage_heic_iso21496(output_path)
-    sidecar_metadata = build_hdr_standards_metadata(
-        color_space=color_space,
-        hdr_headroom=renditions.headroom,
-        scene_luminance=scene_luminance,
-        render_rgb=renditions.hdr_rgb,
-        source_role="hdr_photo",
-    )
+    sidecar_metadata = renditions.mastering_metadata
+    if sidecar_metadata is None:
+        sidecar_metadata = build_hdr_photo_standards_metadata(
+            color_space=color_space,
+            encoded_color_space=color_space,
+            source_rgb=renditions.sdr_rgb,
+            render_rgb=renditions.hdr_rgb,
+            headroom=renditions.headroom,
+            source_role="hdr_photo",
+            mapping=mapping,
+            scene_luminance=scene_luminance,
+        )
     write_hdr_standards_sidecar(output_path, sidecar_metadata)
     return renditions.diagnostics
 
@@ -451,11 +575,14 @@ def save_hdr_photo_heic_from_pair(
         raise HDRPhotoExportError(message)
 
     _validate_coreimage_heic_iso21496(output_path)
-    sidecar_metadata = build_hdr_standards_metadata(
+    sidecar_metadata = build_hdr_photo_standards_metadata(
         color_space=color_space,
-        hdr_headroom=headroom,
+        encoded_color_space=color_space,
+        source_rgb=sdr,
         render_rgb=hdr,
+        headroom=headroom,
         source_role="hdr_pair",
+        white_luminance=None,
     )
     write_hdr_standards_sidecar(output_path, sidecar_metadata)
     return ()
@@ -619,12 +746,24 @@ def prepare_hdr_photo_renditions(
     mapping: HDRPhotoMapping | None = None,
     scene_luminance: np.ndarray | None = None,
     scene_rgb: np.ndarray | None = None,
+    output_color_space: str | None = None,
 ) -> HDRPhotoRenditions:
     mapping = HDRPhotoMapping() if mapping is None else mapping
     image = _prepare_hdr_rgb(image_data)
     if mapping.hdr_mapping_mode in {"profile_aware", "film_scan_aware"}:
-        return _prepare_curve_profile_renditions(image, mapping=mapping, scene_luminance=scene_luminance, scene_rgb=scene_rgb)
-    return _prepare_generic_renditions(image, mapping=mapping, scene_luminance=scene_luminance)
+        return _prepare_curve_profile_renditions(
+            image,
+            mapping=mapping,
+            scene_luminance=scene_luminance,
+            scene_rgb=scene_rgb,
+            output_color_space=output_color_space,
+        )
+    return _prepare_generic_renditions(
+        image,
+        mapping=mapping,
+        scene_luminance=scene_luminance,
+        output_color_space=output_color_space,
+    )
 
 
 def _prepare_generic_renditions(
@@ -632,6 +771,7 @@ def _prepare_generic_renditions(
     *,
     mapping: HDRPhotoMapping,
     scene_luminance: np.ndarray | None,
+    output_color_space: str | None = None,
     diagnostics: tuple[str, ...] = (),
 ) -> HDRPhotoRenditions:
     if scene_luminance is None:
@@ -654,11 +794,24 @@ def _prepare_generic_renditions(
     else:
         sdr_rgb = _tone_map_sdr_base(unlifted_hdr_rgb, mapping=mapping, headroom=headroom)
 
+    mastering_metadata = build_hdr_photo_standards_metadata(
+        color_space=output_color_space or DEFAULT_HDR_PHOTO_COLOR_SPACE,
+        encoded_color_space=output_color_space,
+        source_rgb=sdr_rgb,
+        render_rgb=hdr_rgb,
+        headroom=headroom,
+        source_role="hdr_photo",
+        mapping=mapping,
+        scene_luminance=scene_luminance,
+        mastering_scene_white=float(mapping.diffuse_white_override if mapping.diffuse_white_override is not None else mapping.diffuse_white),
+    )
+
     return HDRPhotoRenditions(
         hdr_rgb=np.ascontiguousarray(hdr_rgb),
         sdr_rgb=np.ascontiguousarray(sdr_rgb),
         headroom=float(headroom),
         mapping_mode_used="generic",
+        mastering_metadata=mastering_metadata,
         diagnostics=diagnostics,
     )
 
@@ -684,6 +837,7 @@ def _prepare_curve_profile_renditions(
     mapping: HDRPhotoMapping,
     scene_luminance: np.ndarray | None,
     scene_rgb: np.ndarray | None = None,
+    output_color_space: str | None = None,
 ) -> HDRPhotoRenditions:
     if scene_luminance is None:
         mode_label = "film-scan-aware" if mapping.hdr_mapping_mode == "film_scan_aware" else "profile-aware"
@@ -793,11 +947,35 @@ def _prepare_curve_profile_renditions(
     hdr_rgb = np.clip(hdr_rgb, 0.0, headroom).astype(np.float32, copy=False)
     # The authored SDR base preserves the exact look the user authored.
     sdr_rgb = np.clip(look, 0.0, 1.0).astype(np.float32, copy=False)
+    mastering_metadata = build_hdr_photo_standards_metadata(
+        color_space=output_color_space or DEFAULT_HDR_PHOTO_COLOR_SPACE,
+        encoded_color_space=output_color_space,
+        source_rgb=sdr_rgb,
+        render_rgb=hdr_rgb,
+        headroom=headroom,
+        source_role=f"hdr_photo_{mapping.hdr_mapping_mode}",
+        mapping=mapping,
+        scene_luminance=scene_luminance,
+        mastering_scene_white=float(diffuse_white),
+        mastering_look_white=look_white,
+        mastering_display_white_nits=HDR_REFERENCE_WHITE_LUMINANCE_NITS,
+        mastering_target_peak_ev=(
+            float(mapping.profile_hdr_target_peak_ev)
+            if mapping.profile_hdr_mode == "modern_recovery_peak_budget"
+            else float(mapping.profile_hdr_peak_ev)
+        ),
+        mastering_curve_budget_ev=(
+            float(mapping.profile_hdr_target_peak_ev)
+            if mapping.profile_hdr_mode == "modern_recovery_peak_budget"
+            else float(mapping.profile_hdr_peak_ev)
+        ),
+    )
     return HDRPhotoRenditions(
         hdr_rgb=np.ascontiguousarray(hdr_rgb),
         sdr_rgb=np.ascontiguousarray(sdr_rgb),
         headroom=float(headroom),
         mapping_mode_used=mapping.hdr_mapping_mode,
+        mastering_metadata=mastering_metadata,
         diagnostics=tuple(diagnostics_list),
     )
 
@@ -808,12 +986,14 @@ def _prepare_profile_aware_renditions(
     mapping: HDRPhotoMapping,
     scene_luminance: np.ndarray | None,
     scene_rgb: np.ndarray | None = None,
+    output_color_space: str | None = None,
 ) -> HDRPhotoRenditions:
     return _prepare_curve_profile_renditions(
         image,
         mapping=mapping,
         scene_luminance=scene_luminance,
         scene_rgb=scene_rgb,
+        output_color_space=output_color_space,
     )
 
 
@@ -918,12 +1098,34 @@ def _apply_hdr_color_recovery(
     # Gamut Compression
     gamut_mode = mapping.gamut_mapping_mode
     if gamut_mode == "oklch_perceptual":
-        _gamut_to_cs = {"display-p3": "Display P3", "rec2020": "ITU-R BT.2020", "working": "sRGB"}
-        hdr_rgb = gamut_map_oklch(
-            hdr_rgb,
-            working_color_space=_gamut_to_cs.get(mapping.hdr_highlight_gamut, "sRGB"),
-            peak_headroom=max_headroom,
+        output_color_space = _hdr_highlight_gamut_color_space(mapping)
+        lightness_compression = (0.7, 1.0, 2.2)
+        oklch_spec = OutputGamutCompressSpec(
+            algorithm="oklch",
+            lightness_compression=lightness_compression,
         )
+        jz_spec = OutputGamutCompressSpec(
+            algorithm="jzazbz",
+            lightness_compression=lightness_compression,
+        )
+        oklch_rgb = compress_output_rgb(
+            hdr_rgb,
+            oklch_spec,
+            output_color_space=output_color_space,
+        )
+        fallback_mask = _needs_jzazbz_fallback(oklch_rgb, max_headroom=max_headroom)
+        if np.any(fallback_mask):
+            diagnostics.append(
+                f"gamut_compression_jzazbz_fallback: {int(np.count_nonzero(fallback_mask))} pixels"
+            )
+            jz_rgb = compress_output_rgb(
+                hdr_rgb,
+                jz_spec,
+                output_color_space=output_color_space,
+            )
+            hdr_rgb = np.where(fallback_mask[..., None], jz_rgb, oklch_rgb)
+        else:
+            hdr_rgb = oklch_rgb
     else:
         # Luma preserving chroma reduction (default).
         max_rgb = np.max(hdr_rgb, axis=-1)

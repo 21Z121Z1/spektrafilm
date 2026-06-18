@@ -603,6 +603,10 @@ def test_modern_recovery_uses_compressed_ev() -> None:
         profile, scene_y, diffuse_white=1.0, mapping=mapping, return_diagnostics=True
     )
     assert isinstance(result, ProfileHDRCurveResult)
+    assert result.scene_white == pytest.approx(1.0)
+    assert result.look_white > 0.0
+    assert result.display_white_nits == pytest.approx(203.0)
+    assert result.target_peak_ev == pytest.approx(mapping.profile_hdr_target_peak_ev)
     # Compressed EV should increase with scene_y
     diffs = np.diff(result.compressed_ev)
     assert np.all(diffs >= -1e-5)

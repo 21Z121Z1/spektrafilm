@@ -167,10 +167,10 @@ class HDRStandardsMetadata:
             raise ValueError("mastering_look_white must be positive when provided.")
         if self.mastering_display_white_nits is not None and self.mastering_display_white_nits <= 0.0:
             raise ValueError("mastering_display_white_nits must be positive when provided.")
-        if self.mastering_target_peak_ev is not None and self.mastering_target_peak_ev <= 0.0:
-            raise ValueError("mastering_target_peak_ev must be positive when provided.")
-        if self.mastering_curve_budget_ev is not None and self.mastering_curve_budget_ev <= 0.0:
-            raise ValueError("mastering_curve_budget_ev must be positive when provided.")
+        if self.mastering_target_peak_ev is not None and self.mastering_target_peak_ev < 0.0:
+            raise ValueError("mastering_target_peak_ev must be non-negative when provided.")
+        if self.mastering_curve_budget_ev is not None and self.mastering_curve_budget_ev < 0.0:
+            raise ValueError("mastering_curve_budget_ev must be non-negative when provided.")
         if self.hdr_headroom is not None and self.hdr_headroom < 1.0:
             raise ValueError("hdr_headroom must be greater than or equal to 1.0 when provided.")
         if self.time_interval is not None:
@@ -198,6 +198,7 @@ class HDRStandardsMetadata:
         color_space: str,
         *,
         eotf: str = "scene-linear",
+        encoded_color_space: str | None = None,
         reference_white_nits: float = _DEFAULT_REFERENCE_WHITE_NITS,
         hdr_headroom: float | None = None,
         min_mastering_luminance_nits: float = _DEFAULT_MIN_MASTERING_LUMINANCE_NITS,
@@ -237,6 +238,11 @@ class HDRStandardsMetadata:
             scene_stats["render_luminance"] = render_summary
         if scene_stats["luminance_source"] is None:
             scene_stats.pop("luminance_source")
+        if mastering_target_peak_ev is None and hdr_headroom is not None:
+            mastering_target_peak_ev = float(math.log2(max(float(hdr_headroom), 1.0)))
+        if mastering_curve_budget_ev is None:
+            mastering_curve_budget_ev = mastering_target_peak_ev
+        encoded = color_space if encoded_color_space is None else encoded_color_space
         return cls(
             eotf=eotf,
             mastering_primaries=mastering_primaries,
@@ -271,11 +277,19 @@ class HDRStandardsMetadata:
             target_display_max_luminance_nits=float(target_display_max),
             scene_statistics=scene_stats,
             hdr_headroom=float(hdr_headroom) if hdr_headroom is not None else None,
-            encoded_color_space=color_space,
+            encoded_color_space=encoded,
             source_role=source_role,
         )
 
     def to_exr_attributes(self) -> dict[str, Any]:
+        mastering_summary = {
+            "scene_white": None if self.mastering_scene_white is None else float(self.mastering_scene_white),
+            "look_white": None if self.mastering_look_white is None else float(self.mastering_look_white),
+            "display_white_nits": None if self.mastering_display_white_nits is None else float(self.mastering_display_white_nits),
+            "target_peak_ev": None if self.mastering_target_peak_ev is None else float(self.mastering_target_peak_ev),
+            "curve_budget_ev": None if self.mastering_curve_budget_ev is None else float(self.mastering_curve_budget_ev),
+            "hdr_headroom": None if self.hdr_headroom is None else float(self.hdr_headroom),
+        }
         attrs: dict[str, Any] = {
             "eotf": self.eotf,
             "masteringDisplayPrimaries": tuple(v for pair in self.mastering_primaries for v in pair),
@@ -285,6 +299,7 @@ class HDRStandardsMetadata:
             "referenceWhiteLuminance": float(self.reference_white_nits),
             "dynamicMetadataApplication": self.application_id,
             "dynamicMetadataVersion": self.application_version,
+            "masteringSummary": json.dumps(mastering_summary, sort_keys=True),
         }
         if self.target_display_primaries is not None:
             attrs["targetDisplayPrimaries"] = tuple(v for pair in self.target_display_primaries for v in pair)
@@ -373,6 +388,7 @@ def build_hdr_standards_metadata(
     *,
     color_space: str,
     eotf: str = "scene-linear",
+    encoded_color_space: str | None = None,
     reference_white_nits: float = _DEFAULT_REFERENCE_WHITE_NITS,
     hdr_headroom: float | None = None,
     min_mastering_luminance_nits: float = _DEFAULT_MIN_MASTERING_LUMINANCE_NITS,
@@ -395,6 +411,7 @@ def build_hdr_standards_metadata(
     return HDRStandardsMetadata.from_color_space(
         color_space,
         eotf=eotf,
+        encoded_color_space=encoded_color_space,
         reference_white_nits=reference_white_nits,
         hdr_headroom=hdr_headroom,
         min_mastering_luminance_nits=min_mastering_luminance_nits,
