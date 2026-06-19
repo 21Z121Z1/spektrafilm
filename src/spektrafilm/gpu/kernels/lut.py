@@ -311,7 +311,114 @@ def apply_lut_cubic_2d_backend(lut: Any, image: Any, backend, *, prepared_lut: A
 # 3D LUT trilinear interpolation
 # ---------------------------------------------------------------------------
 
-def apply_lut_trilinear_3d_mlx(lut: Any, image: Any, *, mx=None):
+_LUT_TRILINEAR_3D_KERNEL = None
+
+
+def _get_lut_trilinear_3d_kernel(mx):
+    global _LUT_TRILINEAR_3D_KERNEL
+    if _LUT_TRILINEAR_3D_KERNEL is not None:
+        return _LUT_TRILINEAR_3D_KERNEL
+
+    source = """
+        uint elem = thread_position_in_grid.x;
+        uint H = image_shape[0];
+        uint W = image_shape[1];
+        uint total = H * W * 3;
+        if (elem >= total) {
+            return;
+        }
+
+        uint c = elem % 3;
+        uint pixel = elem / 3;
+        uint size = lut_shape[0];
+        float upper = float(size - 1);
+
+        float r = float(image[pixel * 3 + 0]);
+        float g = float(image[pixel * 3 + 1]);
+        float b = float(image[pixel * 3 + 2]);
+
+        if (r <= 0.0f) {
+            r = 0.0f;
+        } else if (r >= 1.0f) {
+            r = 1.0f;
+        }
+        if (g <= 0.0f) {
+            g = 0.0f;
+        } else if (g >= 1.0f) {
+            g = 1.0f;
+        }
+        if (b <= 0.0f) {
+            b = 0.0f;
+        } else if (b >= 1.0f) {
+            b = 1.0f;
+        }
+
+        float rc = r * upper;
+        float gc = g * upper;
+        float bc = b * upper;
+
+        uint r0 = uint(floor(rc));
+        uint g0 = uint(floor(gc));
+        uint b0 = uint(floor(bc));
+        uint max_index = size - 1;
+        uint r1 = min(r0 + 1, max_index);
+        uint g1 = min(g0 + 1, max_index);
+        uint b1 = min(b0 + 1, max_index);
+
+        float fr = rc - float(r0);
+        float fg = gc - float(g0);
+        float fb = bc - float(b0);
+
+        uint stride_r = size * size * 3;
+        uint stride_g = size * 3;
+        uint stride_b = 3;
+        uint base000 = r0 * stride_r + g0 * stride_g + b0 * stride_b + c;
+        uint base100 = r1 * stride_r + g0 * stride_g + b0 * stride_b + c;
+        uint base010 = r0 * stride_r + g1 * stride_g + b0 * stride_b + c;
+        uint base110 = r1 * stride_r + g1 * stride_g + b0 * stride_b + c;
+        uint base001 = r0 * stride_r + g0 * stride_g + b1 * stride_b + c;
+        uint base101 = r1 * stride_r + g0 * stride_g + b1 * stride_b + c;
+        uint base011 = r0 * stride_r + g1 * stride_g + b1 * stride_b + c;
+        uint base111 = r1 * stride_r + g1 * stride_g + b1 * stride_b + c;
+
+        float c000 = float(lut[base000]);
+        float c100 = float(lut[base100]);
+        float c010 = float(lut[base010]);
+        float c110 = float(lut[base110]);
+        float c001 = float(lut[base001]);
+        float c101 = float(lut[base101]);
+        float c011 = float(lut[base011]);
+        float c111 = float(lut[base111]);
+
+        float c00 = c000 + fr * (c100 - c000);
+        float c10 = c010 + fr * (c110 - c010);
+        float c01 = c001 + fr * (c101 - c001);
+        float c11 = c011 + fr * (c111 - c011);
+        float c0 = c00 + fg * (c10 - c00);
+        float c1 = c01 + fg * (c11 - c01);
+        out[elem] = c0 + fb * (c1 - c0);
+    """
+    _LUT_TRILINEAR_3D_KERNEL = mx.fast.metal_kernel(
+        name="spektrafilm_lut_trilinear_3d",
+        input_names=["lut", "image"],
+        output_names=["out"],
+        source=source,
+    )
+    return _LUT_TRILINEAR_3D_KERNEL
+
+
+def _validate_lut_trilinear_3d_inputs(lut: Any, image: Any) -> int:
+    size = int(lut.shape[0])
+    if lut.ndim != 4 or lut.shape[-1] != 3:
+        raise ValueError("3D LUT must have shape LxLxLx3")
+    if size == 0 or lut.shape[1] != size or lut.shape[2] != size:
+        raise ValueError("3D LUT must have equal non-empty dimensions")
+    if image.ndim != 3 or image.shape[-1] != 3:
+        raise ValueError("3D LUT coordinates must have shape HxWx3")
+    return size
+
+
+def apply_lut_trilinear_3d_mlx_ops(lut: Any, image: Any, *, mx=None):
     """Apply a normalized 3D LUT with trilinear interpolation using MLX ops.
 
     This is a fast pilot kernel, not the CPU PCHIP-quality path. Callers must
@@ -322,11 +429,7 @@ def apply_lut_trilinear_3d_mlx(lut: Any, image: Any, *, mx=None):
 
     lut = _as_mlx_array(mx, lut, mx.float32)
     image = _as_mlx_array(mx, image, mx.float32)
-    size = int(lut.shape[0])
-    if lut.ndim != 4 or lut.shape[-1] != 3:
-        raise ValueError("3D LUT must have shape LxLxLx3")
-    if size == 0 or lut.shape[1] != size or lut.shape[2] != size:
-        raise ValueError("3D LUT must have equal non-empty dimensions")
+    size = _validate_lut_trilinear_3d_inputs(lut, image)
     if size == 1:
         return mx.broadcast_to(lut[0, 0, 0], image.shape[:-1] + (3,))
 
@@ -367,15 +470,35 @@ def apply_lut_trilinear_3d_mlx(lut: Any, image: Any, *, mx=None):
     return c0 + fb * (c1 - c0)
 
 
+def apply_lut_trilinear_3d_mlx(lut: Any, image: Any, *, mx=None):
+    """Apply a normalized 3D LUT with the fused MLX/Metal trilinear kernel.
+
+    ``apply_lut_trilinear_3d_mlx_ops`` remains available as the legacy MLX
+    array-ops baseline for benchmark comparisons.
+    """
+    if mx is None:
+        import mlx.core as mx
+
+    lut = _as_mlx_array(mx, lut, mx.float32)
+    image = _as_mlx_array(mx, image, mx.float32)
+    _validate_lut_trilinear_3d_inputs(lut, image)
+
+    kernel = _get_lut_trilinear_3d_kernel(mx)
+    outputs = kernel(
+        inputs=[lut, image],
+        grid=(int(np.prod(image.shape[:-1]) * 3), 1, 1),
+        threadgroup=(256, 1, 1),
+        output_shapes=[image.shape],
+        output_dtypes=[mx.float32],
+    )
+    return outputs[0]
+
+
 def apply_lut_trilinear_3d_numpy(lut: np.ndarray, image: np.ndarray) -> np.ndarray:
     """NumPy reference for the MLX trilinear pilot kernel."""
     lut = np.asarray(lut, dtype=np.float64)
     image = np.asarray(image, dtype=np.float64)
-    size = lut.shape[0]
-    if lut.ndim != 4 or lut.shape[-1] != 3:
-        raise ValueError("3D LUT must have shape LxLxLx3")
-    if size == 0 or lut.shape[1] != size or lut.shape[2] != size:
-        raise ValueError("3D LUT must have equal non-empty dimensions")
+    size = _validate_lut_trilinear_3d_inputs(lut, image)
     if size == 1:
         return np.broadcast_to(lut[0, 0, 0], image.shape[:-1] + (3,)).copy()
 

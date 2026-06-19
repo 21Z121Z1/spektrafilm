@@ -12,6 +12,7 @@ from spektrafilm.gpu.kernels.lut import (
     apply_lut_cubic_2d_numpy,
     apply_lut_trilinear_3d_backend,
     apply_lut_trilinear_3d_mlx,
+    apply_lut_trilinear_3d_mlx_ops,
     apply_lut_trilinear_3d_numpy,
 )
 from spektrafilm.utils.lut import compute_with_lut
@@ -294,6 +295,94 @@ def test_trilinear_3d_lut_mlx_matches_numpy_reference_when_available() -> None:
     expected = apply_lut_trilinear_3d_numpy(lut, image)
 
     np.testing.assert_allclose(backend.to_numpy(actual), expected, rtol=2e-6, atol=2e-6)
+
+
+@pytest.mark.parametrize(
+    ("case_name", "lut", "image", "rtol", "atol"),
+    [
+        (
+            "small_deterministic",
+            _make_3d_lut(5).astype(np.float32),
+            np.array(
+                [
+                    [[0.0, 0.2, 0.4], [0.25, 0.5, 0.75]],
+                    [[0.9, 0.1, 0.3], [1.0, 0.8, 0.6]],
+                ],
+                dtype=np.float32,
+            ),
+            1e-6,
+            1e-6,
+        ),
+        (
+            "non_divisible_total_threads",
+            _make_3d_lut(7).astype(np.float32),
+            np.linspace(0.0, 1.0, 17 * 19 * 3, dtype=np.float32).reshape(17, 19, 3),
+            1e-6,
+            1e-6,
+        ),
+        (
+            "random_inputs",
+            np.random.default_rng(12345).random((9, 9, 9, 3), dtype=np.float32),
+            np.random.default_rng(54321).random((7, 11, 3), dtype=np.float32),
+            2e-6,
+            2e-6,
+        ),
+        (
+            "boundary_zero_one",
+            _make_3d_lut(4).astype(np.float32),
+            np.array(
+                [
+                    [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                    [[0.0, 0.0, 1.0], [1.0, 1.0, 0.0], [1.0, 1.0, 1.0]],
+                ],
+                dtype=np.float32,
+            ),
+            1e-6,
+            1e-6,
+        ),
+        (
+            "clamps_out_of_range_coordinates",
+            _make_3d_lut(6).astype(np.float32),
+            np.array(
+                [
+                    [[-0.25, 0.5, 1.25], [1.5, -2.0, 0.25]],
+                    [[0.5, 2.0, -1.0], [-3.0, 4.0, 5.0]],
+                ],
+                dtype=np.float32,
+            ),
+            1e-6,
+            1e-6,
+        ),
+        (
+            "size_one_lut",
+            np.array([[[[0.125, 0.5, 0.875]]]], dtype=np.float32),
+            np.array(
+                [
+                    [[-1.0, 0.25, 2.0], [0.5, 0.5, 0.5], [1.0, 1.0, 1.0]],
+                    [[0.0, 0.0, 0.0], [3.0, -4.0, 5.0], [0.75, 0.25, 0.5]],
+                ],
+                dtype=np.float32,
+            ),
+            0.0,
+            0.0,
+        ),
+    ],
+)
+def test_trilinear_3d_lut_mlx_metal_kernel_matches_numpy_cases_when_available(
+    case_name: str,
+    lut: np.ndarray,
+    image: np.ndarray,
+    rtol: float,
+    atol: float,
+) -> None:
+    backend = _mlx_backend_or_skip()
+
+    actual = apply_lut_trilinear_3d_mlx(lut, image, mx=backend.mx)
+    baseline = apply_lut_trilinear_3d_mlx_ops(lut, image, mx=backend.mx)
+    expected = apply_lut_trilinear_3d_numpy(lut, image)
+
+    np.testing.assert_allclose(backend.to_numpy(actual), expected, rtol=rtol, atol=atol, err_msg=case_name)
+    np.testing.assert_allclose(backend.to_numpy(baseline), expected, rtol=rtol, atol=atol, err_msg=case_name)
 
 
 def test_trilinear_3d_lut_mlx_prepared_arrays_avoid_mx_array_copy(monkeypatch) -> None:
