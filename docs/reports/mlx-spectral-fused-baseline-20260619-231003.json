@@ -1,0 +1,725 @@
+{
+  "status": "ok",
+  "suite": "mlx_spectral_fused_baseline",
+  "seed": 20260619,
+  "kernel_runs": [
+    {
+      "status": "ok",
+      "label": "preview_256x256",
+      "case": {
+        "height": 256,
+        "width": 256,
+        "dtype": "float32",
+        "seed": 20260619,
+        "film_profile": "kodak_portra_400",
+        "print_profile": "kodak_portra_endura",
+        "spectral_length": 81,
+        "compile_setup_excluded": true,
+        "static_table_conversion_excluded": true,
+        "numpy_reference_computed": true
+      },
+      "warmup": 3,
+      "runs": 10,
+      "kernels": {
+        "cmy_to_log_raw": {
+          "results": [
+            {
+              "name": "cmy_to_log_raw_unfused_backend_chain",
+              "summary": {
+                "runs": 10,
+                "median_ms": 1.6673335048835725,
+                "p90_ms": 4.643441952066496,
+                "min_ms": 1.3397079892456532,
+                "max_ms": 4.801167000550777
+              },
+              "timings_ms": [
+                4.801167000550777,
+                1.7183750169351697,
+                2.001665998250246,
+                4.625916946679354,
+                1.6162919928319752,
+                1.4367499970830977,
+                4.504292039200664,
+                1.401458983309567,
+                1.3662500423379242,
+                1.3397079892456532
+              ],
+              "peak_memory_bytes": 25957488,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_current_fused_metal": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 2.8100981842397548e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "precision_vs_numpy": {
+                "max_abs_diff": 1.7881393432617188e-07,
+                "mean_abs_diff": 2.6783961934913798e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "speedup_vs_current": 0.6017965393547605
+            },
+            {
+              "name": "cmy_to_log_raw_fused_metal",
+              "summary": {
+                "runs": 10,
+                "median_ms": 1.0033955331891775,
+                "p90_ms": 1.7102917016018182,
+                "min_ms": 0.7960830116644502,
+                "max_ms": 1.9975419854745269
+              },
+              "timings_ms": [
+                1.0238750255666673,
+                1.026791986078024,
+                1.1853339965455234,
+                1.9975419854745269,
+                1.6783750033937395,
+                0.9829160408116877,
+                0.9219159837812185,
+                0.8808329585008323,
+                0.8075829828158021,
+                0.7960830116644502
+              ],
+              "peak_memory_bytes": 4723816,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 2.8100981842397548e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "precision_vs_current_fused_metal": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_numpy": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 3.7474624424438385e-08,
+                "p90_abs_diff": 7.450580596923828e-08
+              },
+              "speedup_vs_current": 1.0
+            },
+            {
+              "name": "cmy_to_log_raw_pixel_thread_v1",
+              "summary": {
+                "runs": 10,
+                "median_ms": 0.7938960043247789,
+                "p90_ms": 1.5799252956639975,
+                "min_ms": 0.5873329937458038,
+                "max_ms": 2.0367499673739076
+              },
+              "timings_ms": [
+                1.1233749683015049,
+                0.9843339794315398,
+                0.822708010673523,
+                0.7650839979760349,
+                0.636667013168335,
+                0.5873329937458038,
+                0.5918340175412595,
+                0.622499966993928,
+                2.0367499673739076,
+                1.5291669988073409
+              ],
+              "peak_memory_bytes": 4723816,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 2.8100981842397548e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "precision_vs_current_fused_metal": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_numpy": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 3.7474624424438385e-08,
+                "p90_abs_diff": 7.450580596923828e-08
+              },
+              "speedup_vs_current": 1.2638878741335664
+            }
+          ],
+          "median_speedup_fused_vs_unfused": 1.6616911773407486,
+          "median_speedup_pixel_thread_v1_vs_current": 1.2638878741335664,
+          "p90_speedup_pixel_thread_v1_vs_current": 1.0825142848814453,
+          "peak_memory_ratio_pixel_thread_v1_vs_current": 1.0
+        },
+        "cmy_to_log_xyz": {
+          "results": [
+            {
+              "name": "cmy_to_log_xyz_unfused_backend_chain",
+              "summary": {
+                "runs": 10,
+                "median_ms": 1.5424165176227689,
+                "p90_ms": 5.356645234860479,
+                "min_ms": 1.358790963422507,
+                "max_ms": 6.847082986496389
+              },
+              "timings_ms": [
+                6.847082986496389,
+                1.65591697441414,
+                5.191041040234268,
+                1.4809589483775198,
+                1.4227500068955123,
+                4.306082963012159,
+                1.5920830192044377,
+                1.3994580367580056,
+                1.4927500160411,
+                1.358790963422507
+              ],
+              "peak_memory_bytes": 25957476,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_numpy": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 3.814208563805247e-08,
+                "p90_abs_diff": 1.1920928955078125e-07
+              }
+            },
+            {
+              "name": "cmy_to_log_xyz_fused_metal",
+              "summary": {
+                "runs": 10,
+                "median_ms": 0.5312080029398203,
+                "p90_ms": 1.0185713763348754,
+                "min_ms": 0.4799170419573784,
+                "max_ms": 1.9848329829983413
+              },
+              "timings_ms": [
+                0.5187910282984376,
+                0.4977919743396342,
+                0.4799170419573784,
+                0.548750045709312,
+                0.524458009749651,
+                0.5104580195620656,
+                0.5453330231830478,
+                0.5379579961299896,
+                1.9848329829983413,
+                0.9112089755944908
+              ],
+              "peak_memory_bytes": 4723804,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 3.179320628987625e-08,
+                "p90_abs_diff": 1.1920928955078125e-07
+              },
+              "precision_vs_numpy": {
+                "max_abs_diff": 3.5762786865234375e-07,
+                "mean_abs_diff": 6.092523108236492e-08,
+                "p90_abs_diff": 1.1920928955078125e-07
+              }
+            }
+          ],
+          "median_speedup_fused_vs_unfused": 2.9036018077414147
+        }
+      },
+      "raw_fused_to_xyz_fused_median_ratio": 1.8888938563353133,
+      "raw_pixel_thread_v1_median_speedup_vs_current": 1.2638878741335664,
+      "raw_pixel_thread_v1_p90_speedup_vs_current": 1.0825142848814453,
+      "raw_pixel_thread_v1_peak_memory_ratio_vs_current": 1.0
+    },
+    {
+      "status": "ok",
+      "label": "medium_768x1024",
+      "case": {
+        "height": 768,
+        "width": 1024,
+        "dtype": "float32",
+        "seed": 20260619,
+        "film_profile": "kodak_portra_400",
+        "print_profile": "kodak_portra_endura",
+        "spectral_length": 81,
+        "compile_setup_excluded": true,
+        "static_table_conversion_excluded": true,
+        "numpy_reference_computed": true
+      },
+      "warmup": 3,
+      "runs": 10,
+      "kernels": {
+        "cmy_to_log_raw": {
+          "results": [
+            {
+              "name": "cmy_to_log_raw_unfused_backend_chain",
+              "summary": {
+                "runs": 10,
+                "median_ms": 28.018812474329025,
+                "p90_ms": 31.862920190906156,
+                "min_ms": 19.48600000469014,
+                "max_ms": 32.101457996759564
+              },
+              "timings_ms": [
+                32.101457996759564,
+                25.054958008695394,
+                31.836415990255773,
+                28.165124997030944,
+                24.009292013943195,
+                27.872499951627105,
+                28.277041972614825,
+                19.48600000469014,
+                24.419834022410214,
+                30.45912500238046
+              ],
+              "peak_memory_bytes": 311432328,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_current_fused_metal": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 2.8225456651784715e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "precision_vs_numpy": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 2.6746151914897275e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "speedup_vs_current": 0.39122671639287965
+            },
+            {
+              "name": "cmy_to_log_raw_fused_metal",
+              "summary": {
+                "runs": 10,
+                "median_ms": 10.9617080015596,
+                "p90_ms": 13.66631699493155,
+                "min_ms": 10.229541978333145,
+                "max_ms": 13.75429198378697
+              },
+              "timings_ms": [
+                13.656541996169835,
+                10.507375001907349,
+                13.75429198378697,
+                10.3288340033032,
+                10.93237497843802,
+                13.09054100420326,
+                10.757791984360665,
+                12.777374999132007,
+                10.229541978333145,
+                10.99104102468118
+              ],
+              "peak_memory_bytes": 56628328,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 2.8225456651784715e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "precision_vs_current_fused_metal": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_numpy": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 3.73211122850563e-08,
+                "p90_abs_diff": 7.450580596923828e-08
+              },
+              "speedup_vs_current": 1.0
+            },
+            {
+              "name": "cmy_to_log_raw_pixel_thread_v1",
+              "summary": {
+                "runs": 10,
+                "median_ms": 3.151332988636568,
+                "p90_ms": 4.332758882082999,
+                "min_ms": 2.5295839877799153,
+                "max_ms": 4.399582976475358
+              },
+              "timings_ms": [
+                4.32533398270607,
+                3.152749966830015,
+                3.0602090409956872,
+                4.399582976475358,
+                2.5523750227876008,
+                4.1882090154103935,
+                3.149916010443121,
+                3.069792001042515,
+                4.2967909830622375,
+                2.5295839877799153
+              ],
+              "peak_memory_bytes": 56628328,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 2.8225456651784715e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "precision_vs_current_fused_metal": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_numpy": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 3.73211122850563e-08,
+                "p90_abs_diff": 7.450580596923828e-08
+              },
+              "speedup_vs_current": 3.478435329140577
+            }
+          ],
+          "median_speedup_fused_vs_unfused": 2.5560626565077804,
+          "median_speedup_pixel_thread_v1_vs_current": 3.478435329140577,
+          "p90_speedup_pixel_thread_v1_vs_current": 3.1541835968405865,
+          "peak_memory_ratio_pixel_thread_v1_vs_current": 1.0
+        },
+        "cmy_to_log_xyz": {
+          "results": [
+            {
+              "name": "cmy_to_log_xyz_unfused_backend_chain",
+              "summary": {
+                "runs": 10,
+                "median_ms": 27.001499984180555,
+                "p90_ms": 31.42713750130497,
+                "min_ms": 24.720999994315207,
+                "max_ms": 31.609500001650304
+              },
+              "timings_ms": [
+                26.095999986864626,
+                25.994875002652407,
+                26.453375001437962,
+                25.245208002161235,
+                24.720999994315207,
+                30.811165983323008,
+                27.93537499383092,
+                31.609500001650304,
+                27.549624966923147,
+                31.4068750012666
+              ],
+              "peak_memory_bytes": 311432292,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_numpy": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 3.809833831130365e-08,
+                "p90_abs_diff": 1.1920928955078125e-07
+              }
+            },
+            {
+              "name": "cmy_to_log_xyz_fused_metal",
+              "summary": {
+                "runs": 10,
+                "median_ms": 4.3871040106751025,
+                "p90_ms": 6.070495874155312,
+                "min_ms": 2.954374998807907,
+                "max_ms": 6.387708999682218
+              },
+              "timings_ms": [
+                3.255541028920561,
+                5.202291009481996,
+                3.5719170118682086,
+                5.600125005003065,
+                6.008333002682775,
+                2.954374998807907,
+                6.03524997131899,
+                3.133749996777624,
+                6.387708999682218,
+                3.076000022701919
+              ],
+              "peak_memory_bytes": 56628316,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 2.980232238769531e-07,
+                "mean_abs_diff": 3.1768072024836634e-08,
+                "p90_abs_diff": 1.1920928955078125e-07
+              },
+              "precision_vs_numpy": {
+                "max_abs_diff": 3.5762786865234375e-07,
+                "mean_abs_diff": 6.094679368591945e-08,
+                "p90_abs_diff": 1.1920928955078125e-07
+              }
+            }
+          ],
+          "median_speedup_fused_vs_unfused": 6.154743520663754
+        }
+      },
+      "raw_fused_to_xyz_fused_median_ratio": 2.4986204965477388,
+      "raw_pixel_thread_v1_median_speedup_vs_current": 3.478435329140577,
+      "raw_pixel_thread_v1_p90_speedup_vs_current": 3.1541835968405865,
+      "raw_pixel_thread_v1_peak_memory_ratio_vs_current": 1.0
+    },
+    {
+      "status": "ok",
+      "label": "full_3024x4032",
+      "case": {
+        "height": 3024,
+        "width": 4032,
+        "dtype": "float32",
+        "seed": 20260619,
+        "film_profile": "kodak_portra_400",
+        "print_profile": "kodak_portra_endura",
+        "spectral_length": 81,
+        "compile_setup_excluded": true,
+        "static_table_conversion_excluded": true,
+        "numpy_reference_computed": false
+      },
+      "warmup": 2,
+      "runs": 5,
+      "kernels": {
+        "cmy_to_log_raw": {
+          "results": [
+            {
+              "name": "cmy_to_log_raw_unfused_backend_chain",
+              "summary": {
+                "runs": 5,
+                "median_ms": 326.39150001341477,
+                "p90_ms": 330.3326918045059,
+                "min_ms": 323.7885000417009,
+                "max_ms": 330.7713749818504
+              },
+              "timings_ms": [
+                326.39150001341477,
+                323.7885000417009,
+                325.5288749933243,
+                330.7713749818504,
+                329.67466703848913
+              ],
+              "peak_memory_bytes": 4828419208,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_current_fused_metal": {
+                "max_abs_diff": 2.980232238769531e-07,
+                "mean_abs_diff": 2.8225717696132638e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "precision_vs_numpy": null,
+              "speedup_vs_current": 0.4509528159475107
+            },
+            {
+              "name": "cmy_to_log_raw_fused_metal",
+              "summary": {
+                "runs": 5,
+                "median_ms": 147.18716603238136,
+                "p90_ms": 148.36071642348543,
+                "min_ms": 135.1449580397457,
+                "max_ms": 148.825750045944
+              },
+              "timings_ms": [
+                148.825750045944,
+                147.66316598979756,
+                147.18716603238136,
+                145.6122089875862,
+                135.1449580397457
+              ],
+              "peak_memory_bytes": 877958248,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 2.980232238769531e-07,
+                "mean_abs_diff": 2.8225717696132638e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "precision_vs_current_fused_metal": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_numpy": null,
+              "speedup_vs_current": 1.0
+            },
+            {
+              "name": "cmy_to_log_raw_pixel_thread_v1",
+              "summary": {
+                "runs": 5,
+                "median_ms": 48.26745798345655,
+                "p90_ms": 48.64172519883141,
+                "min_ms": 45.9079589927569,
+                "max_ms": 48.66429202957079
+              },
+              "timings_ms": [
+                48.66429202957079,
+                47.90345800574869,
+                45.9079589927569,
+                48.26745798345655,
+                48.60787495272234
+              ],
+              "peak_memory_bytes": 877958248,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 2.980232238769531e-07,
+                "mean_abs_diff": 2.8225717696132638e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "precision_vs_current_fused_metal": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_numpy": null,
+              "speedup_vs_current": 3.049407865705898
+            }
+          ],
+          "median_speedup_fused_vs_unfused": 2.2175269000125204,
+          "median_speedup_pixel_thread_v1_vs_current": 3.049407865705898,
+          "p90_speedup_pixel_thread_v1_vs_current": 3.0500710206522386,
+          "peak_memory_ratio_pixel_thread_v1_vs_current": 1.0
+        },
+        "cmy_to_log_xyz": {
+          "results": [
+            {
+              "name": "cmy_to_log_xyz_unfused_backend_chain",
+              "summary": {
+                "runs": 5,
+                "median_ms": 324.9442089581862,
+                "p90_ms": 325.5294913891703,
+                "min_ms": 314.29245800245553,
+                "max_ms": 325.7413749815896
+              },
+              "timings_ms": [
+                325.2116660005413,
+                325.7413749815896,
+                324.9442089581862,
+                314.29245800245553,
+                324.06570902094245
+              ],
+              "peak_memory_bytes": 4828419172,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_numpy": null
+            },
+            {
+              "name": "cmy_to_log_xyz_fused_metal",
+              "summary": {
+                "runs": 5,
+                "median_ms": 48.66220901021734,
+                "p90_ms": 49.97610020218417,
+                "min_ms": 47.244165965821594,
+                "max_ms": 50.55291700409725
+              },
+              "timings_ms": [
+                47.571458970196545,
+                49.11087499931455,
+                48.66220901021734,
+                47.244165965821594,
+                50.55291700409725
+              ],
+              "peak_memory_bytes": 877958236,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 3.5762786865234375e-07,
+                "mean_abs_diff": 3.1755746621656785e-08,
+                "p90_abs_diff": 1.1920928955078125e-07
+              },
+              "precision_vs_numpy": null
+            }
+          ],
+          "median_speedup_fused_vs_unfused": 6.677547435011827
+        }
+      },
+      "raw_fused_to_xyz_fused_median_ratio": 3.024670869369643,
+      "raw_pixel_thread_v1_median_speedup_vs_current": 3.049407865705898,
+      "raw_pixel_thread_v1_p90_speedup_vs_current": 3.0500710206522386,
+      "raw_pixel_thread_v1_peak_memory_ratio_vs_current": 1.0
+    }
+  ],
+  "end_to_end_attribution": {
+    "status": "ok",
+    "image_shape": [
+      768,
+      1024,
+      3
+    ],
+    "warmup": 1,
+    "runs": 3,
+    "wall_seconds": [
+      0.05524645798141137,
+      0.04500095796538517,
+      0.0523884579888545
+    ],
+    "wall_summary": {
+      "runs": 3,
+      "median_ms": 52.3884579888545,
+      "p90_ms": 54.6748579829,
+      "min_ms": 45.00095796538517,
+      "max_ms": 55.24645798141137
+    },
+    "kernel_trace": {
+      "cmy_to_log_raw": {
+        "calls": 9,
+        "total_seconds": 0.04678687598789111,
+        "shapes": {
+          "1x1x3": 6,
+          "768x1024x3": 3
+        },
+        "call_seconds": [
+          0.0015501659945584834,
+          0.0006270839949138463,
+          0.013688582985196263,
+          0.0009666670230217278,
+          0.000443084049038589,
+          0.012319416971877217,
+          0.0008373750024475157,
+          0.0003464579931460321,
+          0.016008041973691434
+        ],
+        "wall_percent": 30.65260792336128,
+        "median_ms": 0.9666670230217278,
+        "p90_ms": 14.152474782895299
+      },
+      "cmy_to_log_xyz": {
+        "calls": 3,
+        "total_seconds": 0.0158107919851318,
+        "shapes": {
+          "768x1024x3": 3
+        },
+        "call_seconds": [
+          0.004519374982919544,
+          0.004950208007358015,
+          0.006341208994854242
+        ],
+        "wall_percent": 10.358503264964689,
+        "median_ms": 4.950208007358015,
+        "p90_ms": 6.063008797354996
+      }
+    },
+    "stage_totals": {
+      "PrintingStage.expose": 0.05031337507534772,
+      "PrintingStage.develop": 0.0025587090058252215,
+      "ScanningStage.scan": 0.01910991792101413,
+      "SpectralLUTService.spectral_compute_enlarger": 0.0,
+      "SpectralLUTService.spectral_compute_scanner": 0.015862915955949575
+    },
+    "stage_wall_percent": {
+      "PrintingStage.expose": 32.96300782905012,
+      "PrintingStage.develop": 1.6763483838038848,
+      "ScanningStage.scan": 12.51993874590097,
+      "SpectralLUTService.spectral_compute_enlarger": 0.0,
+      "SpectralLUTService.spectral_compute_scanner": 10.392652491797007
+    }
+  },
+  "recommendation": {
+    "accept_raw_pixel_thread_v1": true,
+    "replace_production_recommended": true,
+    "reason": "accepted: pixel-thread v1 preserves current raw output and materially improves a meaningful full-render contributor",
+    "raw_wall_percent": 30.65260792336128,
+    "max_raw_fused_to_xyz_fused_median_ratio": 3.024670869369643,
+    "median_speedup_raw_pixel_thread_v1": 3.049407865705898,
+    "p90_speedup_raw_pixel_thread_v1": 3.0500710206522386,
+    "peak_memory_ratio_raw_pixel_thread_v1": 1.0,
+    "max_diff_raw_pixel_thread_v1_vs_current": 0.0,
+    "wall_threshold_percent": 10.0,
+    "raw_vs_xyz_ratio_threshold": 2.0,
+    "median_speedup_threshold": 1.25,
+    "p90_slowdown_limit": 1.05,
+    "memory_increase_limit": 1.05,
+    "precision_atol": 1e-06,
+    "pixel_thread_v1_acceptance_sizes": [
+      [
+        768,
+        1024
+      ],
+      [
+        3024,
+        4032
+      ]
+    ],
+    "pixel_thread_v1_decision_case_count": 2
+  }
+}

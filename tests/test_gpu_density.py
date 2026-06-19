@@ -60,6 +60,92 @@ def _cupy_backend_or_skip():
         pytest.skip(str(exc))
 
 
+def _reference_mlx_cmy_to_log_raw_kernel(
+    density_cmy: np.ndarray,
+    channel_density: np.ndarray,
+    base_density: np.ndarray,
+    print_illuminant: np.ndarray,
+    sensitivity: np.ndarray,
+    exposure_factor,
+    preflash,
+) -> np.ndarray:
+    density = np.asarray(density_cmy, dtype=np.float32)
+    channel_density = np.asarray(channel_density, dtype=np.float32)
+    base_density = np.asarray(base_density, dtype=np.float32)
+    print_illuminant = np.asarray(print_illuminant, dtype=np.float32)
+    sensitivity = np.asarray(sensitivity, dtype=np.float32)
+    exposure_scalar = float(np.asarray(exposure_factor, dtype=np.float32).reshape(-1)[0])
+    preflash = np.asarray(preflash, dtype=np.float32).reshape(-1)
+
+    out = np.empty_like(density, dtype=np.float32)
+    for y in range(density.shape[0]):
+        for x in range(density.shape[1]):
+            c0, c1, c2 = density[y, x]
+            for c in range(3):
+                raw = np.float32(0.0)
+                for k in range(channel_density.shape[0]):
+                    d = (
+                        c0 * channel_density[k, 0]
+                        + c1 * channel_density[k, 1]
+                        + c2 * channel_density[k, 2]
+                        + base_density[k]
+                    )
+                    if not bool(d == d):
+                        continue
+                    if d < -35.0:
+                        d = np.float32(-35.0)
+                    light = np.float32(10.0) ** np.float32(-d)
+                    light = light * print_illuminant[k]
+                    raw = raw + light * sensitivity[k, c]
+                raw = raw * exposure_scalar + preflash[c]
+                if not bool(raw == raw):
+                    raw = np.float32(0.0)
+                if raw < 0.0:
+                    raw = np.float32(0.0)
+                out[y, x, c] = np.log10(raw + np.float32(1e-10))
+    return out.astype(np.float32)
+
+
+def _reference_mlx_cmy_to_log_xyz_kernel(
+    density_cmy: np.ndarray,
+    channel_density: np.ndarray,
+    base_density: np.ndarray | None,
+    scan_illuminant: np.ndarray,
+    cmfs: np.ndarray,
+    normalization: float,
+) -> np.ndarray:
+    density = np.asarray(density_cmy, dtype=np.float32)
+    channel_density = np.asarray(channel_density, dtype=np.float32)
+    if base_density is None:
+        base_density = np.zeros((channel_density.shape[0],), dtype=np.float32)
+    else:
+        base_density = np.asarray(base_density, dtype=np.float32)
+    scan_illuminant = np.asarray(scan_illuminant, dtype=np.float32)
+    cmfs = np.asarray(cmfs, dtype=np.float32)
+
+    out = np.empty_like(density, dtype=np.float32)
+    for y in range(density.shape[0]):
+        for x in range(density.shape[1]):
+            c0, c1, c2 = density[y, x]
+            xyz = np.zeros((3,), dtype=np.float32)
+            for k in range(channel_density.shape[0]):
+                d = (
+                    c0 * channel_density[k, 0]
+                    + c1 * channel_density[k, 1]
+                    + c2 * channel_density[k, 2]
+                    + base_density[k]
+                )
+                if d < -35.0:
+                    d = np.float32(-35.0)
+                light = np.float32(10.0) ** np.float32(-d)
+                light = light * scan_illuminant[k]
+                xyz += light * cmfs[k]
+            vals = xyz / np.float32(normalization)
+            vals = np.maximum(vals, np.float32(0.0))
+            out[y, x] = np.log10(vals + np.float32(1e-10))
+    return out.astype(np.float32)
+
+
 def test_mlx_custom_cmy_kernel_has_no_default_nan_debug_readbacks() -> None:
     """Default MLX custom-kernel path must not read full arrays back for debug prints."""
     from spektrafilm.gpu.kernels import density as density_module
@@ -238,6 +324,168 @@ def test_cmy_to_log_xyz_backend_prefers_specialized_backend_method() -> None:
     assert backend.calls[0][0] is density_cmy
 
 
+@pytest.mark.parametrize("base_density_mode", ["none", "present"])
+def test_mlx_cmy_to_log_xyz_direct_custom_kernel_matches_manual_cpu_chain(base_density_mode: str) -> None:
+    backend = _mlx_backend_or_skip()
+    cmfs = STANDARD_OBSERVER_CMFS[:].astype(np.float32)
+    density_cmy = np.array(
+        [
+            [[0.10, 0.20, 0.30], [0.40, 0.10, 0.05]],
+            [[0.15, 0.25, 0.35], [0.60, 0.70, 0.20]],
+        ],
+        dtype=np.float32,
+    )
+    channel_density = np.linspace(0.05, 1.2, cmfs.shape[0] * 3, dtype=np.float32).reshape(-1, 3)
+    base_density = (
+        None
+        if base_density_mode == "none"
+        else np.linspace(0.01, 0.05, cmfs.shape[0], dtype=np.float32)
+    )
+    scan_illuminant = np.linspace(0.2, 1.0, cmfs.shape[0], dtype=np.float32)
+    normalization = float(np.sum(scan_illuminant * cmfs[:, 1], axis=0))
+
+    result = cmy_to_log_xyz_backend(
+        backend.asarray(density_cmy),
+        backend.asarray(channel_density),
+        None if base_density is None else backend.asarray(base_density),
+        backend.asarray(scan_illuminant),
+        backend.asarray(cmfs),
+        normalization,
+        backend,
+    )
+    actual = backend.to_numpy(result)
+    expected = _reference_mlx_cmy_to_log_xyz_kernel(
+        density_cmy,
+        channel_density,
+        base_density,
+        scan_illuminant,
+        cmfs,
+        normalization,
+    )
+
+    np.testing.assert_allclose(actual, expected, rtol=0.0, atol=1e-5)
+
+
+@pytest.mark.parametrize("table_kind", ["scan_film", "print_scan"])
+def test_mlx_cmy_to_log_xyz_direct_custom_kernel_profile_table_shapes(table_kind: str) -> None:
+    backend = _mlx_backend_or_skip()
+    from spektrafilm.model.illuminants import standard_illuminant
+    from spektrafilm.profiles.io import load_profile
+
+    film = load_profile("kodak_portra_400")
+    paper = load_profile("kodak_portra_endura")
+    if table_kind == "scan_film":
+        profile = film
+    else:
+        profile = paper
+    channel_density = np.nan_to_num(
+        np.asarray(profile.data.channel_density, dtype=np.float32),
+        nan=0.0,
+        posinf=0.0,
+        neginf=0.0,
+    )
+    base_density = np.nan_to_num(
+        np.asarray(profile.data.base_density, dtype=np.float32),
+        nan=0.0,
+        posinf=0.0,
+        neginf=0.0,
+    )
+    scan_illuminant = np.asarray(standard_illuminant(profile.info.viewing_illuminant), dtype=np.float32)
+    cmfs = STANDARD_OBSERVER_CMFS[:].astype(np.float32)
+    normalization = float(np.sum(scan_illuminant * cmfs[:, 1], axis=0))
+    density_cmy = np.linspace(0.0, 1.4, 5 * 7 * 3, dtype=np.float32).reshape(5, 7, 3)
+
+    actual = backend.to_numpy(
+        cmy_to_log_xyz_backend(
+            backend.asarray(density_cmy),
+            backend.asarray(channel_density),
+            backend.asarray(base_density),
+            backend.asarray(scan_illuminant),
+            backend.asarray(cmfs),
+            normalization,
+            backend,
+        )
+    )
+    expected = _reference_mlx_cmy_to_log_xyz_kernel(
+        density_cmy,
+        channel_density,
+        base_density,
+        scan_illuminant,
+        cmfs,
+        normalization,
+    )
+
+    assert channel_density.shape[1] == 3
+    assert channel_density.shape[0] == cmfs.shape[0] == scan_illuminant.shape[0]
+    np.testing.assert_allclose(actual, expected, rtol=0.0, atol=1e-5)
+
+
+def test_mlx_cmy_to_log_xyz_direct_custom_kernel_non_divisible_pixel_count() -> None:
+    backend = _mlx_backend_or_skip()
+    rng = np.random.default_rng(91)
+    density_cmy = rng.uniform(0.0, 1.4, size=(5, 7, 3)).astype(np.float32)
+    channel_density = rng.uniform(0.02, 1.0, size=(13, 3)).astype(np.float32)
+    base_density = rng.uniform(0.0, 0.05, size=(13,)).astype(np.float32)
+    scan_illuminant = rng.uniform(0.1, 1.0, size=(13,)).astype(np.float32)
+    cmfs = rng.uniform(0.01, 1.1, size=(13, 3)).astype(np.float32)
+    normalization = float(np.sum(scan_illuminant * cmfs[:, 1], axis=0))
+
+    actual = backend.to_numpy(
+        cmy_to_log_xyz_backend(
+            backend.asarray(density_cmy),
+            backend.asarray(channel_density),
+            backend.asarray(base_density),
+            backend.asarray(scan_illuminant),
+            backend.asarray(cmfs),
+            normalization,
+            backend,
+        )
+    )
+    expected = _reference_mlx_cmy_to_log_xyz_kernel(
+        density_cmy,
+        channel_density,
+        base_density,
+        scan_illuminant,
+        cmfs,
+        normalization,
+    )
+
+    np.testing.assert_allclose(actual, expected, rtol=0.0, atol=1e-5)
+
+
+def test_mlx_cmy_to_log_xyz_direct_custom_kernel_random_inputs() -> None:
+    backend = _mlx_backend_or_skip()
+    rng = np.random.default_rng(20260620)
+    density_cmy = rng.uniform(-0.1, 2.0, size=(6, 8, 3)).astype(np.float32)
+    channel_density = rng.uniform(0.02, 1.2, size=(19, 3)).astype(np.float32)
+    base_density = rng.uniform(0.0, 0.05, size=(19,)).astype(np.float32)
+    scan_illuminant = rng.uniform(0.1, 1.0, size=(19,)).astype(np.float32)
+    cmfs = rng.uniform(0.01, 1.1, size=(19, 3)).astype(np.float32)
+    normalization = float(np.sum(scan_illuminant * cmfs[:, 1], axis=0))
+
+    actual = backend.to_numpy(
+        cmy_to_log_xyz_backend(
+            backend.asarray(density_cmy),
+            backend.asarray(channel_density),
+            backend.asarray(base_density),
+            backend.asarray(scan_illuminant),
+            backend.asarray(cmfs),
+            normalization,
+            backend,
+        )
+    )
+    expected = _reference_mlx_cmy_to_log_xyz_kernel(
+        density_cmy,
+        channel_density,
+        base_density,
+        scan_illuminant,
+        cmfs,
+        normalization,
+    )
+
+    np.testing.assert_allclose(actual, expected, rtol=0.0, atol=1e-5)
+
+
 def test_mlx_cmy_to_log_raw_fused_kernel_matches_cpu_without_readback() -> None:
     backend = _mlx_backend_or_skip()
     density_cmy = np.array(
@@ -291,6 +539,542 @@ def test_mlx_cmy_to_log_raw_fused_kernel_matches_cpu_without_readback() -> None:
     actual = backend.to_numpy(actual_backend)
     assert recorder.unallowed_to_numpy_events() == []
     assert getattr(actual_backend, "dtype", None) == backend.mx.float32
+    np.testing.assert_allclose(actual, expected, rtol=0.0, atol=1e-6)
+
+
+@pytest.mark.parametrize(
+    "case_name,density_cmy",
+    [
+        (
+            "deterministic_small",
+            np.array(
+                [
+                    [[0.10, 0.20, 0.30], [0.35, 0.18, 0.08]],
+                    [[0.05, 0.42, 0.16], [0.62, 0.55, 0.20]],
+                ],
+                dtype=np.float32,
+            ),
+        ),
+        (
+            "non_divisible_thread_count",
+            np.linspace(-0.1, 1.1, 5 * 7 * 3, dtype=np.float32).reshape(5, 7, 3),
+        ),
+        (
+            "zero_density",
+            np.zeros((3, 5, 3), dtype=np.float32),
+        ),
+        (
+            "large_density",
+            np.full((3, 5, 3), 8.0, dtype=np.float32),
+        ),
+        (
+            "negative_density",
+            np.full((3, 5, 3), -2.0, dtype=np.float32),
+        ),
+    ],
+)
+def test_mlx_cmy_to_log_raw_focused_cases_match_kernel_reference(case_name: str, density_cmy: np.ndarray) -> None:
+    backend = _mlx_backend_or_skip()
+    del case_name
+    channel_density = np.array(
+        [
+            [0.80, 0.10, 0.20],
+            [0.20, 0.90, 0.10],
+            [0.05, 0.30, 1.10],
+            [0.40, 0.50, 0.20],
+            [0.25, 0.15, 0.75],
+        ],
+        dtype=np.float32,
+    )
+    base_density = np.array([0.03, 0.04, 0.05, 0.06, 0.02], dtype=np.float32)
+    print_illuminant = np.array([1.0, 0.8, 0.6, 0.4, 0.2], dtype=np.float32)
+    sensitivity = np.array(
+        [
+            [0.5, 0.2, 0.1],
+            [0.1, 0.6, 0.2],
+            [0.2, 0.1, 0.7],
+            [0.4, 0.3, 0.2],
+            [0.3, 0.4, 0.5],
+        ],
+        dtype=np.float32,
+    )
+    exposure_factor = np.array([1.25], dtype=np.float32)
+    preflash = np.array([0.01, 0.02, 0.03], dtype=np.float32)
+
+    actual = backend.to_numpy(
+        backend.cmy_to_log_raw(
+            density_cmy,
+            channel_density,
+            base_density,
+            print_illuminant,
+            sensitivity,
+            exposure_factor,
+            preflash,
+        )
+    )
+    expected = _reference_mlx_cmy_to_log_raw_kernel(
+        density_cmy,
+        channel_density,
+        base_density,
+        print_illuminant,
+        sensitivity,
+        exposure_factor,
+        preflash,
+    )
+
+    np.testing.assert_allclose(actual, expected, rtol=0.0, atol=1e-6)
+
+
+def test_mlx_cmy_to_log_raw_random_inputs_match_kernel_reference() -> None:
+    backend = _mlx_backend_or_skip()
+    rng = np.random.default_rng(20260619)
+    density_cmy = rng.uniform(-0.25, 2.0, size=(6, 8, 3)).astype(np.float32)
+    channel_density = rng.uniform(0.01, 1.4, size=(17, 3)).astype(np.float32)
+    base_density = rng.uniform(0.0, 0.08, size=(17,)).astype(np.float32)
+    print_illuminant = rng.uniform(0.05, 1.2, size=(17,)).astype(np.float32)
+    sensitivity = rng.uniform(0.01, 0.9, size=(17, 3)).astype(np.float32)
+    exposure_factor = np.array([0.85], dtype=np.float32)
+    preflash = np.array([0.0, 0.01, 0.04], dtype=np.float32)
+
+    actual = backend.to_numpy(
+        backend.cmy_to_log_raw(
+            backend.asarray(density_cmy),
+            backend.asarray(channel_density),
+            backend.asarray(base_density),
+            backend.asarray(print_illuminant),
+            backend.asarray(sensitivity),
+            exposure_factor,
+            preflash,
+        )
+    )
+    expected = _reference_mlx_cmy_to_log_raw_kernel(
+        density_cmy,
+        channel_density,
+        base_density,
+        print_illuminant,
+        sensitivity,
+        exposure_factor,
+        preflash,
+    )
+
+    np.testing.assert_allclose(actual, expected, rtol=0.0, atol=1e-6)
+
+
+def test_mlx_cmy_to_log_raw_nan_tables_preserve_current_skip_behavior() -> None:
+    backend = _mlx_backend_or_skip()
+    density_cmy = np.array(
+        [
+            [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]],
+            [[0.7, 0.8, 0.9], [1.0, 1.1, 1.2]],
+        ],
+        dtype=np.float32,
+    )
+    channel_density = np.array(
+        [
+            [0.3, 0.2, 0.1],
+            [0.4, np.nan, 0.2],
+            [0.1, 0.5, 0.7],
+        ],
+        dtype=np.float32,
+    )
+    base_density = np.array([0.02, 0.03, np.nan], dtype=np.float32)
+    print_illuminant = np.array([1.0, 0.5, 0.25], dtype=np.float32)
+    sensitivity = np.array(
+        [
+            [0.5, 0.2, 0.1],
+            [0.2, 0.4, 0.6],
+            [0.7, 0.3, 0.2],
+        ],
+        dtype=np.float32,
+    )
+    exposure_factor = np.array([1.0], dtype=np.float32)
+    preflash = np.zeros((3,), dtype=np.float32)
+
+    actual = backend.to_numpy(
+        backend.cmy_to_log_raw(
+            density_cmy,
+            channel_density,
+            base_density,
+            print_illuminant,
+            sensitivity,
+            exposure_factor,
+            preflash,
+        )
+    )
+    expected = _reference_mlx_cmy_to_log_raw_kernel(
+        density_cmy,
+        channel_density,
+        base_density,
+        print_illuminant,
+        sensitivity,
+        exposure_factor,
+        preflash,
+    )
+
+    assert np.isfinite(actual).all()
+    np.testing.assert_allclose(actual, expected, rtol=0.0, atol=1e-6)
+
+
+@pytest.mark.parametrize(
+    "preflash,exposure_factor",
+    [
+        (np.zeros((3,), dtype=np.float32), np.array([1.0], dtype=np.float32)),
+        (np.array([0.001, 0.002, 0.003], dtype=np.float32), np.array([1.4], dtype=np.float32)),
+        (np.array([0.004, 0.005, 0.006], dtype=np.float32), np.array([0.7, 1.1, 1.6], dtype=np.float32)),
+    ],
+)
+def test_mlx_cmy_to_log_raw_preflash_and_exposure_factor_existing_behavior(
+    preflash: np.ndarray,
+    exposure_factor: np.ndarray,
+) -> None:
+    backend = _mlx_backend_or_skip()
+    density_cmy = np.array([[[0.2, 0.3, 0.4], [0.5, 0.4, 0.3]]], dtype=np.float32)
+    channel_density = np.array(
+        [
+            [0.6, 0.2, 0.1],
+            [0.2, 0.7, 0.3],
+            [0.1, 0.2, 0.8],
+        ],
+        dtype=np.float32,
+    )
+    base_density = np.array([0.01, 0.02, 0.03], dtype=np.float32)
+    print_illuminant = np.array([1.0, 0.6, 0.3], dtype=np.float32)
+    sensitivity = np.array(
+        [
+            [0.3, 0.4, 0.5],
+            [0.5, 0.3, 0.4],
+            [0.4, 0.5, 0.3],
+        ],
+        dtype=np.float32,
+    )
+
+    actual = backend.to_numpy(
+        backend.cmy_to_log_raw(
+            density_cmy,
+            channel_density,
+            base_density,
+            print_illuminant,
+            sensitivity,
+            exposure_factor,
+            preflash,
+        )
+    )
+    expected = _reference_mlx_cmy_to_log_raw_kernel(
+        density_cmy,
+        channel_density,
+        base_density,
+        print_illuminant,
+        sensitivity,
+        exposure_factor,
+        preflash,
+    )
+
+    np.testing.assert_allclose(actual, expected, rtol=0.0, atol=1e-6)
+
+
+def test_mlx_cmy_to_log_raw_pixel_thread_v1_matches_reference_without_readback() -> None:
+    backend = _mlx_backend_or_skip()
+    density_cmy = np.array(
+        [
+            [[0.10, 0.20, 0.30], [0.35, 0.18, 0.08]],
+            [[0.05, 0.42, 0.16], [0.62, 0.55, 0.20]],
+        ],
+        dtype=np.float32,
+    )
+    channel_density = np.array(
+        [
+            [0.80, 0.10, 0.20],
+            [0.20, 0.90, 0.10],
+            [0.05, 0.30, 1.10],
+            [0.40, 0.50, 0.20],
+        ],
+        dtype=np.float32,
+    )
+    base_density = np.array([0.03, np.nan, 0.05, 0.06], dtype=np.float32)
+    print_illuminant = np.array([1.0, 0.8, 0.6, 0.4], dtype=np.float32)
+    sensitivity = np.array(
+        [
+            [0.5, 0.2, 0.1],
+            [0.1, 0.6, 0.2],
+            [0.2, 0.1, 0.7],
+            [0.4, 0.3, 0.2],
+        ],
+        dtype=np.float32,
+    )
+    exposure_factor = np.array([1.25], dtype=np.float32)
+    preflash = np.array([0.01, 0.02, 0.03], dtype=np.float32)
+
+    with record_backend_residency() as recorder:
+        actual_backend = backend.cmy_to_log_raw_pixel_thread_v1(
+            density_cmy,
+            channel_density,
+            base_density,
+            print_illuminant,
+            sensitivity,
+            exposure_factor,
+            preflash,
+        )
+        backend.eval(actual_backend)
+
+    actual = backend.to_numpy(actual_backend)
+    expected = _reference_mlx_cmy_to_log_raw_kernel(
+        density_cmy,
+        channel_density,
+        base_density,
+        print_illuminant,
+        sensitivity,
+        exposure_factor,
+        preflash,
+    )
+
+    assert recorder.unallowed_to_numpy_events() == []
+    assert getattr(actual_backend, "dtype", None) == backend.mx.float32
+    assert actual.shape == density_cmy.shape
+    np.testing.assert_allclose(actual, expected, rtol=0.0, atol=1e-6)
+
+
+@pytest.mark.parametrize(
+    "case_name,density_cmy",
+    [
+        (
+            "deterministic_small",
+            np.array(
+                [
+                    [[0.10, 0.20, 0.30], [0.35, 0.18, 0.08]],
+                    [[0.05, 0.42, 0.16], [0.62, 0.55, 0.20]],
+                ],
+                dtype=np.float32,
+            ),
+        ),
+        (
+            "non_divisible_pixel_count",
+            np.linspace(-0.1, 1.1, 5 * 7 * 3, dtype=np.float32).reshape(5, 7, 3),
+        ),
+        (
+            "zero_density",
+            np.zeros((3, 5, 3), dtype=np.float32),
+        ),
+        (
+            "large_density",
+            np.full((3, 5, 3), 8.0, dtype=np.float32),
+        ),
+        (
+            "negative_density",
+            np.full((3, 5, 3), -2.0, dtype=np.float32),
+        ),
+    ],
+)
+def test_mlx_cmy_to_log_raw_pixel_thread_v1_focused_cases_match_reference(
+    case_name: str,
+    density_cmy: np.ndarray,
+) -> None:
+    backend = _mlx_backend_or_skip()
+    del case_name
+    channel_density = np.array(
+        [
+            [0.80, 0.10, 0.20],
+            [0.20, 0.90, 0.10],
+            [0.05, 0.30, 1.10],
+            [0.40, 0.50, 0.20],
+            [0.25, 0.15, 0.75],
+        ],
+        dtype=np.float32,
+    )
+    base_density = np.array([0.03, 0.04, 0.05, 0.06, 0.02], dtype=np.float32)
+    print_illuminant = np.array([1.0, 0.8, 0.6, 0.4, 0.2], dtype=np.float32)
+    sensitivity = np.array(
+        [
+            [0.5, 0.2, 0.1],
+            [0.1, 0.6, 0.2],
+            [0.2, 0.1, 0.7],
+            [0.4, 0.3, 0.2],
+            [0.3, 0.4, 0.5],
+        ],
+        dtype=np.float32,
+    )
+    exposure_factor = np.array([1.25], dtype=np.float32)
+    preflash = np.array([0.01, 0.02, 0.03], dtype=np.float32)
+
+    actual = backend.to_numpy(
+        backend.cmy_to_log_raw_pixel_thread_v1(
+            density_cmy,
+            channel_density,
+            base_density,
+            print_illuminant,
+            sensitivity,
+            exposure_factor,
+            preflash,
+        )
+    )
+    expected = _reference_mlx_cmy_to_log_raw_kernel(
+        density_cmy,
+        channel_density,
+        base_density,
+        print_illuminant,
+        sensitivity,
+        exposure_factor,
+        preflash,
+    )
+
+    np.testing.assert_allclose(actual, expected, rtol=0.0, atol=1e-6)
+
+
+def test_mlx_cmy_to_log_raw_pixel_thread_v1_random_inputs_match_current_kernel() -> None:
+    backend = _mlx_backend_or_skip()
+    rng = np.random.default_rng(20260621)
+    density_cmy = rng.uniform(-0.25, 2.0, size=(6, 8, 3)).astype(np.float32)
+    channel_density = rng.uniform(0.01, 1.4, size=(17, 3)).astype(np.float32)
+    base_density = rng.uniform(0.0, 0.08, size=(17,)).astype(np.float32)
+    print_illuminant = rng.uniform(0.05, 1.2, size=(17,)).astype(np.float32)
+    sensitivity = rng.uniform(0.01, 0.9, size=(17, 3)).astype(np.float32)
+    exposure_factor = np.array([0.85], dtype=np.float32)
+    preflash = np.array([0.0, 0.01, 0.04], dtype=np.float32)
+
+    current = backend.to_numpy(
+        backend.cmy_to_log_raw(
+            backend.asarray(density_cmy),
+            backend.asarray(channel_density),
+            backend.asarray(base_density),
+            backend.asarray(print_illuminant),
+            backend.asarray(sensitivity),
+            exposure_factor,
+            preflash,
+        )
+    )
+    v1 = backend.to_numpy(
+        backend.cmy_to_log_raw_pixel_thread_v1(
+            backend.asarray(density_cmy),
+            backend.asarray(channel_density),
+            backend.asarray(base_density),
+            backend.asarray(print_illuminant),
+            backend.asarray(sensitivity),
+            exposure_factor,
+            preflash,
+        )
+    )
+    expected = _reference_mlx_cmy_to_log_raw_kernel(
+        density_cmy,
+        channel_density,
+        base_density,
+        print_illuminant,
+        sensitivity,
+        exposure_factor,
+        preflash,
+    )
+
+    np.testing.assert_allclose(v1, expected, rtol=0.0, atol=1e-6)
+    np.testing.assert_allclose(v1, current, rtol=0.0, atol=1e-6)
+
+
+def test_mlx_cmy_to_log_raw_pixel_thread_v1_nan_tables_preserve_current_skip_behavior() -> None:
+    backend = _mlx_backend_or_skip()
+    density_cmy = np.array(
+        [
+            [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]],
+            [[0.7, 0.8, 0.9], [1.0, 1.1, 1.2]],
+        ],
+        dtype=np.float32,
+    )
+    channel_density = np.array(
+        [
+            [0.3, 0.2, 0.1],
+            [0.4, np.nan, 0.2],
+            [0.1, 0.5, 0.7],
+        ],
+        dtype=np.float32,
+    )
+    base_density = np.array([0.02, 0.03, np.nan], dtype=np.float32)
+    print_illuminant = np.array([1.0, 0.5, 0.25], dtype=np.float32)
+    sensitivity = np.array(
+        [
+            [0.5, 0.2, 0.1],
+            [0.2, 0.4, 0.6],
+            [0.7, 0.3, 0.2],
+        ],
+        dtype=np.float32,
+    )
+    exposure_factor = np.array([1.0], dtype=np.float32)
+    preflash = np.zeros((3,), dtype=np.float32)
+
+    actual = backend.to_numpy(
+        backend.cmy_to_log_raw_pixel_thread_v1(
+            density_cmy,
+            channel_density,
+            base_density,
+            print_illuminant,
+            sensitivity,
+            exposure_factor,
+            preflash,
+        )
+    )
+    expected = _reference_mlx_cmy_to_log_raw_kernel(
+        density_cmy,
+        channel_density,
+        base_density,
+        print_illuminant,
+        sensitivity,
+        exposure_factor,
+        preflash,
+    )
+
+    assert np.isfinite(actual).all()
+    np.testing.assert_allclose(actual, expected, rtol=0.0, atol=1e-6)
+
+
+@pytest.mark.parametrize(
+    "preflash,exposure_factor",
+    [
+        (np.zeros((3,), dtype=np.float32), np.array([1.0], dtype=np.float32)),
+        (np.array([0.001, 0.002, 0.003], dtype=np.float32), np.array([1.4], dtype=np.float32)),
+        (np.array([0.004, 0.005, 0.006], dtype=np.float32), np.array([0.7, 1.1, 1.6], dtype=np.float32)),
+    ],
+)
+def test_mlx_cmy_to_log_raw_pixel_thread_v1_preflash_and_exposure_factor_existing_behavior(
+    preflash: np.ndarray,
+    exposure_factor: np.ndarray,
+) -> None:
+    backend = _mlx_backend_or_skip()
+    density_cmy = np.array([[[0.2, 0.3, 0.4], [0.5, 0.4, 0.3]]], dtype=np.float32)
+    channel_density = np.array(
+        [
+            [0.6, 0.2, 0.1],
+            [0.2, 0.7, 0.3],
+            [0.1, 0.2, 0.8],
+        ],
+        dtype=np.float32,
+    )
+    base_density = np.array([0.01, 0.02, 0.03], dtype=np.float32)
+    print_illuminant = np.array([1.0, 0.6, 0.3], dtype=np.float32)
+    sensitivity = np.array(
+        [
+            [0.3, 0.4, 0.5],
+            [0.5, 0.3, 0.4],
+            [0.4, 0.5, 0.3],
+        ],
+        dtype=np.float32,
+    )
+
+    actual = backend.to_numpy(
+        backend.cmy_to_log_raw_pixel_thread_v1(
+            density_cmy,
+            channel_density,
+            base_density,
+            print_illuminant,
+            sensitivity,
+            exposure_factor,
+            preflash,
+        )
+    )
+    expected = _reference_mlx_cmy_to_log_raw_kernel(
+        density_cmy,
+        channel_density,
+        base_density,
+        print_illuminant,
+        sensitivity,
+        exposure_factor,
+        preflash,
+    )
+
     np.testing.assert_allclose(actual, expected, rtol=0.0, atol=1e-6)
 
 
