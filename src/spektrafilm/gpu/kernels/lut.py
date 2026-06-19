@@ -312,6 +312,7 @@ def apply_lut_cubic_2d_backend(lut: Any, image: Any, backend, *, prepared_lut: A
 # ---------------------------------------------------------------------------
 
 _LUT_TRILINEAR_3D_KERNEL = None
+_LUT_TRILINEAR_3D_THREADGROUP_SIZE = 256
 
 
 def _get_lut_trilinear_3d_kernel(mx):
@@ -470,7 +471,13 @@ def apply_lut_trilinear_3d_mlx_ops(lut: Any, image: Any, *, mx=None):
     return c0 + fb * (c1 - c0)
 
 
-def apply_lut_trilinear_3d_mlx(lut: Any, image: Any, *, mx=None):
+def apply_lut_trilinear_3d_mlx(
+    lut: Any,
+    image: Any,
+    *,
+    mx=None,
+    threadgroup_size: int = _LUT_TRILINEAR_3D_THREADGROUP_SIZE,
+):
     """Apply a normalized 3D LUT with the fused MLX/Metal trilinear kernel.
 
     ``apply_lut_trilinear_3d_mlx_ops`` remains available as the legacy MLX
@@ -482,12 +489,14 @@ def apply_lut_trilinear_3d_mlx(lut: Any, image: Any, *, mx=None):
     lut = _as_mlx_array(mx, lut, mx.float32)
     image = _as_mlx_array(mx, image, mx.float32)
     _validate_lut_trilinear_3d_inputs(lut, image)
+    if threadgroup_size <= 0:
+        raise ValueError("threadgroup_size must be positive")
 
     kernel = _get_lut_trilinear_3d_kernel(mx)
     outputs = kernel(
         inputs=[lut, image],
         grid=(int(np.prod(image.shape[:-1]) * 3), 1, 1),
-        threadgroup=(256, 1, 1),
+        threadgroup=(int(threadgroup_size), 1, 1),
         output_shapes=[image.shape],
         output_dtypes=[mx.float32],
     )

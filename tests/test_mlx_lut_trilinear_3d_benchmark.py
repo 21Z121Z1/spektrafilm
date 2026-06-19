@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -15,6 +16,7 @@ def _load_benchmark_module():
     spec = importlib.util.spec_from_file_location("benchmark_mlx_lut_trilinear_3d", script)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
@@ -78,3 +80,71 @@ def test_format_markdown_includes_required_timing_and_memory_fields() -> None:
     assert "Peak memory" in markdown
     assert "metal_kernel" in markdown
     assert "Max diff vs MLX ops baseline" in markdown
+
+
+def test_format_suite_markdown_reports_threadgroup_decisions() -> None:
+    bench = _load_benchmark_module()
+    payload = {
+        "status": "ok",
+        "suite": "threadgroup-sweep",
+        "seed": 1,
+        "runs": [
+            {
+                "status": "ok",
+                "suite": "threadgroup_sweep",
+                "label": "unit_case",
+                "case": {"height": 4, "width": 5, "lut_size": 3, "dtype": "float32", "seed": 1},
+                "warmup": 1,
+                "runs": 2,
+                "compile_setup_excluded": True,
+                "baseline": {
+                    "summary": {"median_ms": 2.0, "p90_ms": 2.5},
+                    "peak_memory_bytes": 8 * 1024 * 1024,
+                },
+                "candidates": [
+                    {
+                        "threadgroup": [128, 1, 1],
+                        "summary": {"median_ms": 1.4, "p90_ms": 1.5, "min_ms": 1.3, "max_ms": 1.6},
+                        "peak_memory_bytes": 4 * 1024 * 1024,
+                        "precision_vs_numpy": {"max_abs_diff": 1e-7},
+                        "precision_vs_mlx_ops_baseline": {"max_abs_diff": 2e-7},
+                    },
+                    {
+                        "threadgroup": [256, 1, 1],
+                        "summary": {"median_ms": 1.6, "p90_ms": 1.7, "min_ms": 1.5, "max_ms": 1.8},
+                        "peak_memory_bytes": 4 * 1024 * 1024,
+                        "precision_vs_numpy": {"max_abs_diff": 1e-7},
+                        "precision_vs_mlx_ops_baseline": {"max_abs_diff": 2e-7},
+                    },
+                ],
+                "decisions": [
+                    {
+                        "threadgroup_size": 128,
+                        "accepted": True,
+                        "baseline": False,
+                        "median_change": 0.125,
+                        "p90_change": -0.1,
+                        "memory_change": 0.0,
+                        "reason": "accepted",
+                    },
+                    {
+                        "threadgroup_size": 256,
+                        "accepted": True,
+                        "baseline": True,
+                        "median_change": 0.0,
+                        "p90_change": 0.0,
+                        "memory_change": 0.0,
+                        "reason": "current accepted implementation",
+                    },
+                ],
+                "accepted_threadgroup_size": 128,
+            }
+        ],
+    }
+
+    markdown = bench.format_markdown(payload)
+
+    assert "Threadgroup" in markdown
+    assert "Accepted threadgroup size: 128" in markdown
+    assert "unit_case" in markdown
+    assert "accepted" in markdown
