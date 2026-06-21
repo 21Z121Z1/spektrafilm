@@ -107,14 +107,42 @@ def test_fft_convolve_same_backend_cpu_fallback_matches_scipy_per_channel() -> N
     np.testing.assert_allclose(actual, expected, rtol=1e-12, atol=1e-12)
 
 
+@pytest.mark.parametrize("image_h,image_w,kernel_h,kernel_w", [(6, 7, 3, 3), (7, 8, 4, 4), (5, 6, 2, 3)])
+def test_fft_convolve_same_mlx_matches_scipy_reference_when_available(image_h, image_w, kernel_h, kernel_w) -> None:
+    from scipy.signal import fftconvolve
+
+    backend = _mlx_backend_or_skip()
+    rng = np.random.default_rng(42)
+    image = rng.random((image_h, image_w, 3), dtype=np.float32)
+    kernel = rng.random((kernel_h, kernel_w, 3), dtype=np.float32)
+
+    actual = fft_convolve_same_backend(backend.asarray(image), backend.asarray(kernel), backend)
+    actual_np = backend.to_numpy(actual)
+
+    expected = np.empty_like(image)
+    for channel in range(3):
+        expected[:, :, channel] = fftconvolve(image[:, :, channel], kernel[:, :, channel], mode="same")
+
+    np.testing.assert_allclose(actual_np, expected, rtol=1e-6, atol=1e-6)
+
+
 def test_fft_convolve_same_mlx_does_not_force_mid_pipeline_sync_or_cache_clear_when_available(monkeypatch) -> None:
     backend = _mlx_backend_or_skip()
     image = backend.asarray(np.ones((6, 7, 3), dtype=np.float32))
-    kernel = np.zeros((3, 3, 3), dtype=np.float32)
-    kernel[1, 1, :] = 1.0
+    kernel_np = np.zeros((3, 3, 3), dtype=np.float32)
+    kernel_np[1, 1, :] = 1.0
+    kernel = backend.asarray(kernel_np)
     eval_calls: list[int] = []
     clear_cache_calls: list[str] = []
 
+    original_asarray = np.asarray
+
+    def guard_asarray(value, dtype=None):
+        if type(value).__module__.startswith("mlx."):
+            raise AssertionError("fft_convolve_same_backend must not call np.asarray on an MLX array")
+        return original_asarray(value, dtype=dtype)
+
+    monkeypatch.setattr(np, "asarray", guard_asarray)
     monkeypatch.setattr(backend.mx, "eval", lambda *values: eval_calls.append(len(values)), raising=False)
     metal = getattr(backend.mx, "metal", None)
     if metal is not None and hasattr(metal, "clear_cache"):
@@ -146,7 +174,18 @@ def test_gaussian_filter_large_mlx_matches_cpu_reference_when_available() -> Non
     actual = gaussian_filter_large_backend(image, sigma, backend)
     expected = fast_gaussian_filter(image, sigma)
 
-    np.testing.assert_allclose(backend.to_numpy(actual), expected, rtol=5e-4, atol=5e-4)
+    np.testing.assert_allclose(backend.to_numpy(actual), expected, rtol=5e-6, atol=5e-6)
+
+
+def test_gaussian_filter_large_mlx_float64_matches_cpu_reference_when_available() -> None:
+    backend = _mlx_backend_or_skip()
+    image = _sample_image().astype(np.float32)
+    sigma = np.array([3.0, 3.5, 4.0], dtype=np.float32)
+
+    actual = gaussian_filter_large_backend(image, sigma, backend, _precision="float64")
+    expected = fast_gaussian_filter(image, sigma)
+
+    np.testing.assert_allclose(backend.to_numpy(actual), expected, rtol=1e-6, atol=1e-6)
 
 
 def test_gaussian_filter_mixed_sigma_mlx_stays_on_device_when_available(monkeypatch) -> None:
@@ -163,7 +202,7 @@ def test_gaussian_filter_mixed_sigma_mlx_stays_on_device_when_available(monkeypa
     backend.eval(actual)
     expected = fast_gaussian_filter(image, sigma)
 
-    np.testing.assert_allclose(np.asarray(actual), expected, rtol=6e-4, atol=6e-4)
+    np.testing.assert_allclose(np.asarray(actual), expected, rtol=5e-6, atol=5e-6)
 
 
 def test_halation_mlx_stays_on_device_when_available(monkeypatch) -> None:
@@ -267,7 +306,7 @@ def test_exponential_filter_backend_matches_cpu_reference(backend_name: str) -> 
     expected = fast_exponential_filter(image.astype(dtype), 9.0)
 
     max_abs_diff = float(np.max(np.abs(result_np - expected)))
-    assert np.allclose(result_np, expected, atol=5e-4), (
+    assert np.allclose(result_np, expected, atol=3e-4), (
         f"backend={backend_name!r} exponential filter mismatch: max_abs_diff={max_abs_diff:.2e}"
     )
 

@@ -157,6 +157,94 @@ def test_mlx_compiled_elementwise_cache_reuses_stable_shape_dtype(monkeypatch) -
     np.testing.assert_allclose(backend.to_numpy(same_compiled(image)), np.full((2, 3), 2.0))
 
 
+def test_mlx_compiled_elementwise_cache_distinguishes_different_functions_same_name(monkeypatch) -> None:
+    try:
+        backend = select_backend("mlx")
+    except BackendUnavailableError as exc:
+        pytest.skip(str(exc))
+
+    compile_calls = []
+
+    def fake_compile(function):
+        compile_calls.append(function)
+
+        def wrapped(*args):
+            return function(*args)
+
+        return wrapped
+
+    monkeypatch.setattr(backend.mx, "compile", fake_compile, raising=False)
+    image = backend.asarray(np.ones((2, 3), dtype=np.float32))
+
+    def chain_a(value):
+        return value + 1.0
+
+    def chain_b(value):
+        return value + 2.0
+
+    compiled_a = backend.compiled_elementwise("tests.same_name", chain_a, image)
+    compiled_b = backend.compiled_elementwise("tests.same_name", chain_b, image)
+
+    assert compiled_a is not compiled_b
+    assert len(compile_calls) == 2
+    np.testing.assert_allclose(backend.to_numpy(compiled_a(image)), np.full((2, 3), 2.0))
+    np.testing.assert_allclose(backend.to_numpy(compiled_b(image)), np.full((2, 3), 3.0))
+
+
+def test_mlx_fmax_ignores_nan() -> None:
+    try:
+        backend = select_backend("mlx")
+    except BackendUnavailableError as exc:
+        pytest.skip(str(exc))
+
+    values = backend.asarray(np.array([np.nan, 1.0, 2.0, np.nan], dtype=np.float32))
+    result = backend.fmax(values, 0.0)
+    expected = np.array([0.0, 1.0, 2.0, 0.0], dtype=np.float32)
+
+    np.testing.assert_allclose(backend.to_numpy(result), expected)
+
+
+def test_mlx_nan_to_num_is_dtype_aware() -> None:
+    try:
+        backend_f16 = select_backend("mlx", precision="float16")
+        backend_f32 = select_backend("mlx", precision="float32")
+    except (BackendUnavailableError, ValueError) as exc:
+        pytest.skip(str(exc))
+
+    values_f16 = backend_f16.asarray(np.array([np.nan, np.inf, -np.inf, 1.0], dtype=np.float16))
+    result_f16 = backend_f16.nan_to_num(values_f16)
+    assert result_f16.dtype == backend_f16.mx.float16
+    assert np.isfinite(backend_f16.to_numpy(result_f16)).all()
+
+    values_f32 = backend_f32.asarray(np.array([np.nan, np.inf, -np.inf, 1.0], dtype=np.float32))
+    result_f32 = backend_f32.nan_to_num(values_f32)
+    expected_f32 = np.array([0.0, np.finfo(np.float32).max, -np.finfo(np.float32).max, 1.0], dtype=np.float32)
+
+    np.testing.assert_allclose(backend_f32.to_numpy(result_f32), expected_f32)
+
+
+def test_mlx_kernel_operations_do_not_implicitly_read_back_via_np_asarray(monkeypatch) -> None:
+    try:
+        backend = select_backend("mlx")
+    except BackendUnavailableError as exc:
+        pytest.skip(str(exc))
+
+    original_asarray = np.asarray
+
+    def trapping_asarray(value, *args, **kwargs):
+        if type(value).__module__.startswith("mlx."):
+            raise AssertionError("np.asarray called on an MLX array (hidden readback)")
+        return original_asarray(value, *args, **kwargs)
+
+    monkeypatch.setattr(np, "asarray", trapping_asarray)
+
+    image = backend.asarray(np.random.default_rng(42).random((8, 8, 3), dtype=np.float32))
+    backend.fmax(image, 0.0)
+    backend.nan_to_num(image)
+    backend.maximum(image, 0.5)
+    backend.exp(image)
+
+
 def test_mlx_backend_rejects_false_positive_metal_availability(monkeypatch) -> None:
     fake_mlx = types.ModuleType("mlx")
     fake_core = types.ModuleType("mlx.core")

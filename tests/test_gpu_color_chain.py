@@ -260,6 +260,43 @@ def test_rgb_to_raw_mallett2019_backend_matches_cpu_reference(
     assert backend.to_numpy_calls == 0
 
 
+@pytest.mark.parametrize("seed", list(range(10)))
+def test_rgb_to_raw_mallett2019_backend_adversarial_stays_within_documented_bound(seed: int) -> None:
+    from spektrafilm.utils.spectral_upsampling import rgb_to_raw_mallett2019
+
+    backend = RecordingNumpyGpuBackend(name="mlx")
+    backend.precision = "float32"
+    rng = np.random.default_rng(seed)
+    rgb = rng.random((5, 7, 3), dtype=np.float32)
+    sensitivity = rng.random((81, 3), dtype=np.float32) + 0.05
+
+    actual = rgb_to_raw_mallett2019_backend(
+        rgb,
+        sensitivity,
+        color_space="ITU-R BT.2020",
+        apply_cctf_decoding=True,
+        reference_illuminant="D65",
+        backend=backend,
+    )
+    expected = rgb_to_raw_mallett2019(
+        rgb,
+        sensitivity,
+        color_space="ITU-R BT.2020",
+        apply_cctf_decoding=True,
+        reference_illuminant="D65",
+    )
+
+    max_abs_diff = float(np.max(np.abs(actual - expected)))
+    # This kernel does not yet meet L1 (1e-6) for adversarial inputs because the
+    # 81-term spectral einsum uses simple float32 accumulation and the final
+    # division by raw_midgray[1] can amplify the residual. The bound below is
+    # measured from 100 random seeds; see docs/mlx-float32-precision-contract.md.
+    assert np.allclose(actual, expected, rtol=2e-4, atol=2e-4), (
+        f"seed={seed} rgb_to_raw_mallett2019 mismatch: max_abs_diff={max_abs_diff:.2e}"
+    )
+    assert backend.to_numpy_calls == 0
+
+
 def test_scanning_stage_cctf_encoding_does_not_call_colour_rgb_to_rgb(monkeypatch) -> None:
     def fail_rgb_to_rgb(*_args, **_kwargs):
         raise AssertionError("GPU CCTF path should use spektrafilm.gpu.kernels.color")

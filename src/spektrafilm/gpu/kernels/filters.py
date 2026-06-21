@@ -792,7 +792,7 @@ def fft_convolve_same_backend(image: Any, kernel: Any, backend=None) -> Any:
 
     mx = backend.mx
     image_mx = backend.asarray(image)
-    kernel_mx = mx.array(np.asarray(kernel, dtype=np.float32), dtype=mx.float32)
+    kernel_mx = backend.asarray(kernel, dtype=mx.float32)
     image_h, image_w, channels = (int(v) for v in image_mx.shape)
     kernel_h, kernel_w = int(kernel_mx.shape[0]), int(kernel_mx.shape[1])
     fft_h = scipy.fft.next_fast_len(image_h + kernel_h - 1)

@@ -11,6 +11,8 @@ from spektrafilm.gpu.residency import record_conversion
 
 _CMY_TO_LOG_RAW_KERNEL = None
 _CMY_TO_LOG_RAW_PIXEL_THREAD_KERNEL = None
+_CMY_TO_LOG_RAW_PIXEL_THREAD_K_TEMPLATE_KERNELS: dict[int, Any] = {}
+_CMY_TO_LOG_RAW_PIXEL_THREAD_TABLE_CACHE_KERNELS: dict[tuple[int, int], Any] = {}
 
 
 def _get_cmy_to_log_raw_kernel(mx):
@@ -162,6 +164,197 @@ def _get_cmy_to_log_raw_pixel_thread_kernel(mx):
     return _CMY_TO_LOG_RAW_PIXEL_THREAD_KERNEL
 
 
+def _get_cmy_to_log_raw_pixel_thread_k_template_kernel(mx, K: int):
+    global _CMY_TO_LOG_RAW_PIXEL_THREAD_K_TEMPLATE_KERNELS
+    cached = _CMY_TO_LOG_RAW_PIXEL_THREAD_K_TEMPLATE_KERNELS.get(K)
+    if cached is not None:
+        return cached
+
+    source = """
+        uint pixel = thread_position_in_grid.x;
+        uint total = density_cmy_shape[0] / 3;
+        if (pixel >= total) {
+            return;
+        }
+
+        float c0 = float(density_cmy[pixel * 3 + 0]);
+        float c1 = float(density_cmy[pixel * 3 + 1]);
+        float c2 = float(density_cmy[pixel * 3 + 2]);
+        float raw0 = 0.0f;
+        float raw1 = 0.0f;
+        float raw2 = 0.0f;
+
+        for (uint k = 0; k < K; k++) {
+            float d = (
+                c0 * float(channel_density[k * 3 + 0])
+                + c1 * float(channel_density[k * 3 + 1])
+                + c2 * float(channel_density[k * 3 + 2])
+                + float(base_density[k])
+            );
+            if (!(d == d)) {
+                continue;
+            }
+            if (d < -35.0f) {
+                d = -35.0f;
+            }
+            float light = pow(10.0f, -d) * float(print_illuminant[k]);
+            raw0 += light * float(sensitivity[k * 3 + 0]);
+            raw1 += light * float(sensitivity[k * 3 + 1]);
+            raw2 += light * float(sensitivity[k * 3 + 2]);
+        }
+
+        float exposure = float(exposure_factor[0]);
+        raw0 = raw0 * exposure + float(preflash[0]);
+        raw1 = raw1 * exposure + float(preflash[1]);
+        raw2 = raw2 * exposure + float(preflash[2]);
+
+        if (!(raw0 == raw0)) {
+            raw0 = 0.0f;
+        }
+        if (!(raw1 == raw1)) {
+            raw1 = 0.0f;
+        }
+        if (!(raw2 == raw2)) {
+            raw2 = 0.0f;
+        }
+        if (raw0 < 0.0f) {
+            raw0 = 0.0f;
+        }
+        if (raw1 < 0.0f) {
+            raw1 = 0.0f;
+        }
+        if (raw2 < 0.0f) {
+            raw2 = 0.0f;
+        }
+
+        out[pixel * 3 + 0] = T(log10(raw0 + 1e-10f));
+        out[pixel * 3 + 1] = T(log10(raw1 + 1e-10f));
+        out[pixel * 3 + 2] = T(log10(raw2 + 1e-10f));
+    """
+    kernel = mx.fast.metal_kernel(
+        name=f"spektrafilm_cmy_to_log_raw_pixel_thread_k_template_K{K}",
+        input_names=[
+            "density_cmy",
+            "channel_density",
+            "base_density",
+            "print_illuminant",
+            "sensitivity",
+            "exposure_factor",
+            "preflash",
+        ],
+        output_names=["out"],
+        source=source,
+    )
+    _CMY_TO_LOG_RAW_PIXEL_THREAD_K_TEMPLATE_KERNELS[K] = kernel
+    return kernel
+
+
+def _get_cmy_to_log_raw_pixel_thread_table_cache_kernel(mx, K: int, threadgroup_size: int):
+    global _CMY_TO_LOG_RAW_PIXEL_THREAD_TABLE_CACHE_KERNELS
+    key = (K, threadgroup_size)
+    cached = _CMY_TO_LOG_RAW_PIXEL_THREAD_TABLE_CACHE_KERNELS.get(key)
+    if cached is not None:
+        return cached
+
+    source = """
+        uint pixel = thread_position_in_grid.x;
+        uint total = density_cmy_shape[0] / 3;
+        uint local_id = thread_position_in_threadgroup.x;
+
+        threadgroup float channel_density_cache[256 * 3];
+        threadgroup float sensitivity_cache[256 * 3];
+        threadgroup float base_density_cache[256];
+        threadgroup float print_illuminant_cache[256];
+
+        uint threads_in_group = threads_per_threadgroup.x;
+        for (uint idx = local_id; idx < K; idx += threads_in_group) {
+            channel_density_cache[idx * 3 + 0] = float(channel_density[idx * 3 + 0]);
+            channel_density_cache[idx * 3 + 1] = float(channel_density[idx * 3 + 1]);
+            channel_density_cache[idx * 3 + 2] = float(channel_density[idx * 3 + 2]);
+            sensitivity_cache[idx * 3 + 0] = float(sensitivity[idx * 3 + 0]);
+            sensitivity_cache[idx * 3 + 1] = float(sensitivity[idx * 3 + 1]);
+            sensitivity_cache[idx * 3 + 2] = float(sensitivity[idx * 3 + 2]);
+            base_density_cache[idx] = float(base_density[idx]);
+            print_illuminant_cache[idx] = float(print_illuminant[idx]);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        if (pixel >= total) {
+            return;
+        }
+
+        float c0 = float(density_cmy[pixel * 3 + 0]);
+        float c1 = float(density_cmy[pixel * 3 + 1]);
+        float c2 = float(density_cmy[pixel * 3 + 2]);
+        float raw0 = 0.0f;
+        float raw1 = 0.0f;
+        float raw2 = 0.0f;
+
+        for (uint k = 0; k < K; k++) {
+            float d = (
+                c0 * channel_density_cache[k * 3 + 0]
+                + c1 * channel_density_cache[k * 3 + 1]
+                + c2 * channel_density_cache[k * 3 + 2]
+                + base_density_cache[k]
+            );
+            if (!(d == d)) {
+                continue;
+            }
+            if (d < -35.0f) {
+                d = -35.0f;
+            }
+            float light = pow(10.0f, -d) * print_illuminant_cache[k];
+            raw0 += light * sensitivity_cache[k * 3 + 0];
+            raw1 += light * sensitivity_cache[k * 3 + 1];
+            raw2 += light * sensitivity_cache[k * 3 + 2];
+        }
+
+        float exposure = float(exposure_factor[0]);
+        raw0 = raw0 * exposure + float(preflash[0]);
+        raw1 = raw1 * exposure + float(preflash[1]);
+        raw2 = raw2 * exposure + float(preflash[2]);
+
+        if (!(raw0 == raw0)) {
+            raw0 = 0.0f;
+        }
+        if (!(raw1 == raw1)) {
+            raw1 = 0.0f;
+        }
+        if (!(raw2 == raw2)) {
+            raw2 = 0.0f;
+        }
+        if (raw0 < 0.0f) {
+            raw0 = 0.0f;
+        }
+        if (raw1 < 0.0f) {
+            raw1 = 0.0f;
+        }
+        if (raw2 < 0.0f) {
+            raw2 = 0.0f;
+        }
+
+        out[pixel * 3 + 0] = T(log10(raw0 + 1e-10f));
+        out[pixel * 3 + 1] = T(log10(raw1 + 1e-10f));
+        out[pixel * 3 + 2] = T(log10(raw2 + 1e-10f));
+    """
+    kernel = mx.fast.metal_kernel(
+        name=f"spektrafilm_cmy_to_log_raw_pixel_thread_table_cache_K{K}_TG{threadgroup_size}",
+        input_names=[
+            "density_cmy",
+            "channel_density",
+            "base_density",
+            "print_illuminant",
+            "sensitivity",
+            "exposure_factor",
+            "preflash",
+        ],
+        output_names=["out"],
+        source=source,
+    )
+    _CMY_TO_LOG_RAW_PIXEL_THREAD_TABLE_CACHE_KERNELS[key] = kernel
+    return kernel
+
+
 class MlxBackend:
     name = "mlx"
     supports_gpu = True
@@ -267,6 +460,8 @@ class MlxBackend:
 
         key = (
             str(name),
+            id(function),
+            hash(function.__code__.co_code),
             tuple(self._compile_arg_signature(arg) for arg in sample_args),
         )
         compiled = self._compiled_elementwise_cache.get(key)
@@ -315,11 +510,17 @@ class MlxBackend:
         return x ** exponent
 
     def fmax(self, x: Any, y: float):
-        return self.mx.maximum(x, y)
+        return self.mx.where(
+            self.mx.isnan(x),
+            y,
+            self.mx.where(self.mx.isnan(y), x, self.mx.maximum(x, y)),
+        )
 
     def nan_to_num(self, x: Any, nan: float = 0.0):
         x = self.mx.where(self.mx.isnan(x), nan, x)
-        big = np.finfo(np.float32).max
+        dtype = getattr(x, "dtype", self.default_dtype)
+        np_dtype = np.float16 if "float16" in str(dtype) else np.float32
+        big = self.mx.array(np.finfo(np_dtype).max, dtype=dtype)
         x = self.mx.where(self.mx.isinf(x) & (x > 0), big, x)
         x = self.mx.where(self.mx.isinf(x) & (x < 0), -big, x)
         return x
@@ -340,19 +541,36 @@ class MlxBackend:
         exposure_factor: Any,
         preflash: Any,
     ):
+        # Use the table-cache variant for small spectral lengths (the cache
+        # fits in threadgroup memory for K <= 256). Larger K falls back to the
+        # pixel-thread baseline inside the table-cache implementation.
+        return self.cmy_to_log_raw_pixel_thread_table_cache(
+            density_cmy,
+            channel_density,
+            base_density,
+            print_illuminant,
+            sensitivity,
+            exposure_factor,
+            preflash,
+        )
+
+    def cmy_to_log_raw_channel_thread_baseline(
+        self,
+        density_cmy: Any,
+        channel_density: Any,
+        base_density: Any,
+        print_illuminant: Any,
+        sensitivity: Any,
+        exposure_factor: Any,
+        preflash: Any,
+    ):
         density_cmy_mx = self.asarray(density_cmy, dtype=self.default_dtype)
         channel_density_mx = self.asarray(channel_density, dtype=self.default_dtype)
         base_density_mx = self.asarray(base_density, dtype=self.default_dtype)
         print_illuminant_mx = self.asarray(print_illuminant, dtype=self.default_dtype)
         sensitivity_mx = self.asarray(sensitivity, dtype=self.default_dtype)
-        exposure_factor_mx = self.asarray(
-            np.asarray(exposure_factor, dtype=np.float32).reshape(-1),
-            dtype=self.default_dtype,
-        )
-        preflash_mx = self.asarray(
-            np.asarray(preflash, dtype=np.float32).reshape(-1),
-            dtype=self.default_dtype,
-        )
+        exposure_factor_mx = self.asarray(exposure_factor, dtype=self.default_dtype).reshape(-1)
+        preflash_mx = self.asarray(preflash, dtype=self.default_dtype).reshape(-1)
 
         shape = tuple(int(dim) for dim in density_cmy_mx.shape)
         if len(shape) != 3 or shape[-1] != 3:
@@ -392,20 +610,16 @@ class MlxBackend:
         sensitivity: Any,
         exposure_factor: Any,
         preflash: Any,
+        *,
+        threadgroup_size: int = 256,
     ):
         density_cmy_mx = self.asarray(density_cmy, dtype=self.default_dtype)
         channel_density_mx = self.asarray(channel_density, dtype=self.default_dtype)
         base_density_mx = self.asarray(base_density, dtype=self.default_dtype)
         print_illuminant_mx = self.asarray(print_illuminant, dtype=self.default_dtype)
         sensitivity_mx = self.asarray(sensitivity, dtype=self.default_dtype)
-        exposure_factor_mx = self.asarray(
-            np.asarray(exposure_factor, dtype=np.float32).reshape(-1),
-            dtype=self.default_dtype,
-        )
-        preflash_mx = self.asarray(
-            np.asarray(preflash, dtype=np.float32).reshape(-1),
-            dtype=self.default_dtype,
-        )
+        exposure_factor_mx = self.asarray(exposure_factor, dtype=self.default_dtype).reshape(-1)
+        preflash_mx = self.asarray(preflash, dtype=self.default_dtype).reshape(-1)
 
         shape = tuple(int(dim) for dim in density_cmy_mx.shape)
         if len(shape) != 3 or shape[-1] != 3:
@@ -432,7 +646,128 @@ class MlxBackend:
             ],
             template=[("T", density_cmy_mx.dtype)],
             grid=(total_pixels, 1, 1),
-            threadgroup=(256, 1, 1),
+            threadgroup=(int(threadgroup_size), 1, 1),
+            output_shapes=[(total_elements,)],
+            output_dtypes=[density_cmy_mx.dtype],
+        )[0]
+        return self.mx.reshape(out, shape)
+
+    def cmy_to_log_raw_pixel_thread_k_template(
+        self,
+        density_cmy: Any,
+        channel_density: Any,
+        base_density: Any,
+        print_illuminant: Any,
+        sensitivity: Any,
+        exposure_factor: Any,
+        preflash: Any,
+        *,
+        threadgroup_size: int = 256,
+    ):
+        density_cmy_mx = self.asarray(density_cmy, dtype=self.default_dtype)
+        channel_density_mx = self.asarray(channel_density, dtype=self.default_dtype)
+        base_density_mx = self.asarray(base_density, dtype=self.default_dtype)
+        print_illuminant_mx = self.asarray(print_illuminant, dtype=self.default_dtype)
+        sensitivity_mx = self.asarray(sensitivity, dtype=self.default_dtype)
+        exposure_factor_mx = self.asarray(exposure_factor, dtype=self.default_dtype).reshape(-1)
+        preflash_mx = self.asarray(preflash, dtype=self.default_dtype).reshape(-1)
+
+        shape = tuple(int(dim) for dim in density_cmy_mx.shape)
+        if len(shape) != 3 or shape[-1] != 3:
+            raise ValueError("density_cmy must have shape (H, W, 3)")
+
+        flat_density = self.mx.reshape(density_cmy_mx, (-1,))
+        flat_channel_density = self.mx.reshape(channel_density_mx, (-1,))
+        flat_base_density = self.mx.reshape(base_density_mx, (-1,))
+        flat_print_illuminant = self.mx.reshape(print_illuminant_mx, (-1,))
+        flat_sensitivity = self.mx.reshape(sensitivity_mx, (-1,))
+        total_pixels = int(np.prod(shape[:2]))
+        total_elements = int(np.prod(shape))
+        spectral_length = int(flat_channel_density.shape[0]) // 3
+
+        kernel = _get_cmy_to_log_raw_pixel_thread_k_template_kernel(self.mx, spectral_length)
+        out = kernel(
+            inputs=[
+                flat_density,
+                flat_channel_density,
+                flat_base_density,
+                flat_print_illuminant,
+                flat_sensitivity,
+                exposure_factor_mx,
+                preflash_mx,
+            ],
+            template=[("T", density_cmy_mx.dtype), ("K", spectral_length)],
+            grid=(total_pixels, 1, 1),
+            threadgroup=(int(threadgroup_size), 1, 1),
+            output_shapes=[(total_elements,)],
+            output_dtypes=[density_cmy_mx.dtype],
+        )[0]
+        return self.mx.reshape(out, shape)
+
+    def cmy_to_log_raw_pixel_thread_table_cache(
+        self,
+        density_cmy: Any,
+        channel_density: Any,
+        base_density: Any,
+        print_illuminant: Any,
+        sensitivity: Any,
+        exposure_factor: Any,
+        preflash: Any,
+        *,
+        threadgroup_size: int = 256,
+    ):
+        density_cmy_mx = self.asarray(density_cmy, dtype=self.default_dtype)
+        channel_density_mx = self.asarray(channel_density, dtype=self.default_dtype)
+        base_density_mx = self.asarray(base_density, dtype=self.default_dtype)
+        print_illuminant_mx = self.asarray(print_illuminant, dtype=self.default_dtype)
+        sensitivity_mx = self.asarray(sensitivity, dtype=self.default_dtype)
+        exposure_factor_mx = self.asarray(exposure_factor, dtype=self.default_dtype).reshape(-1)
+        preflash_mx = self.asarray(preflash, dtype=self.default_dtype).reshape(-1)
+
+        shape = tuple(int(dim) for dim in density_cmy_mx.shape)
+        if len(shape) != 3 or shape[-1] != 3:
+            raise ValueError("density_cmy must have shape (H, W, 3)")
+
+        flat_density = self.mx.reshape(density_cmy_mx, (-1,))
+        flat_channel_density = self.mx.reshape(channel_density_mx, (-1,))
+        flat_base_density = self.mx.reshape(base_density_mx, (-1,))
+        flat_print_illuminant = self.mx.reshape(print_illuminant_mx, (-1,))
+        flat_sensitivity = self.mx.reshape(sensitivity_mx, (-1,))
+        total_pixels = int(np.prod(shape[:2]))
+        total_elements = int(np.prod(shape))
+        spectral_length = int(flat_channel_density.shape[0]) // 3
+        if spectral_length > 256:
+            return self.cmy_to_log_raw_pixel_thread_v1(
+                density_cmy_mx,
+                channel_density_mx,
+                base_density_mx,
+                print_illuminant_mx,
+                sensitivity_mx,
+                exposure_factor_mx,
+                preflash_mx,
+                threadgroup_size=threadgroup_size,
+            )
+
+        kernel = _get_cmy_to_log_raw_pixel_thread_table_cache_kernel(
+            self.mx, spectral_length, int(threadgroup_size)
+        )
+        out = kernel(
+            inputs=[
+                flat_density,
+                flat_channel_density,
+                flat_base_density,
+                flat_print_illuminant,
+                flat_sensitivity,
+                exposure_factor_mx,
+                preflash_mx,
+            ],
+            template=[
+                ("T", density_cmy_mx.dtype),
+                ("K", spectral_length),
+                ("THREADGROUP_SIZE", int(threadgroup_size)),
+            ],
+            grid=(total_pixels, 1, 1),
+            threadgroup=(int(threadgroup_size), 1, 1),
             output_shapes=[(total_elements,)],
             output_dtypes=[density_cmy_mx.dtype],
         )[0]

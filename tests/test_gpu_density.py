@@ -135,6 +135,8 @@ def _reference_mlx_cmy_to_log_xyz_kernel(
                     + c2 * channel_density[k, 2]
                     + base_density[k]
                 )
+                if not bool(d == d):
+                    continue
                 if d < -35.0:
                     d = np.float32(-35.0)
                 light = np.float32(10.0) ** np.float32(-d)
@@ -486,6 +488,59 @@ def test_mlx_cmy_to_log_xyz_direct_custom_kernel_random_inputs() -> None:
     np.testing.assert_allclose(actual, expected, rtol=0.0, atol=1e-5)
 
 
+def test_mlx_cmy_to_log_xyz_nan_tables_preserve_skip_behavior() -> None:
+    backend = _mlx_backend_or_skip()
+    density_cmy = np.array(
+        [
+            [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]],
+            [[0.7, 0.8, 0.9], [1.0, 1.1, 1.2]],
+        ],
+        dtype=np.float32,
+    )
+    channel_density = np.array(
+        [
+            [0.3, 0.2, 0.1],
+            [0.4, np.nan, 0.2],
+            [0.1, 0.5, 0.7],
+        ],
+        dtype=np.float32,
+    )
+    base_density = np.array([0.02, 0.03, np.nan], dtype=np.float32)
+    scan_illuminant = np.array([1.0, 0.5, 0.25], dtype=np.float32)
+    cmfs = np.array(
+        [
+            [0.5, 0.2, 0.1],
+            [0.2, 0.4, 0.6],
+            [0.7, 0.3, 0.2],
+        ],
+        dtype=np.float32,
+    )
+    normalization = float(np.sum(scan_illuminant * cmfs[:, 1], axis=0))
+
+    actual = backend.to_numpy(
+        cmy_to_log_xyz_backend(
+            backend.asarray(density_cmy),
+            backend.asarray(channel_density),
+            backend.asarray(base_density),
+            backend.asarray(scan_illuminant),
+            backend.asarray(cmfs),
+            normalization,
+            backend,
+        )
+    )
+    expected = _reference_mlx_cmy_to_log_xyz_kernel(
+        density_cmy,
+        channel_density,
+        base_density,
+        scan_illuminant,
+        cmfs,
+        normalization,
+    )
+
+    assert np.isfinite(actual).all()
+    np.testing.assert_allclose(actual, expected, rtol=0.0, atol=1e-5)
+
+
 def test_mlx_cmy_to_log_raw_fused_kernel_matches_cpu_without_readback() -> None:
     backend = _mlx_backend_or_skip()
     density_cmy = np.array(
@@ -715,6 +770,43 @@ def test_mlx_cmy_to_log_raw_nan_tables_preserve_current_skip_behavior() -> None:
     np.testing.assert_allclose(actual, expected, rtol=0.0, atol=1e-6)
 
 
+def test_mlx_cmy_to_log_raw_table_cache_matches_pixel_thread_v1() -> None:
+    backend = _mlx_backend_or_skip()
+    rng = np.random.default_rng(20260622)
+    density_cmy = rng.uniform(-0.25, 2.0, size=(6, 8, 3)).astype(np.float32)
+    channel_density = rng.uniform(0.01, 1.4, size=(17, 3)).astype(np.float32)
+    base_density = rng.uniform(0.0, 0.08, size=(17,)).astype(np.float32)
+    print_illuminant = rng.uniform(0.05, 1.2, size=(17,)).astype(np.float32)
+    sensitivity = rng.uniform(0.01, 0.9, size=(17, 3)).astype(np.float32)
+    exposure_factor = np.array([0.85], dtype=np.float32)
+    preflash = np.array([0.0, 0.01, 0.04], dtype=np.float32)
+
+    table_cache = backend.to_numpy(
+        backend.cmy_to_log_raw_pixel_thread_table_cache(
+            backend.asarray(density_cmy),
+            backend.asarray(channel_density),
+            backend.asarray(base_density),
+            backend.asarray(print_illuminant),
+            backend.asarray(sensitivity),
+            exposure_factor,
+            preflash,
+        )
+    )
+    pixel_thread = backend.to_numpy(
+        backend.cmy_to_log_raw_pixel_thread_v1(
+            backend.asarray(density_cmy),
+            backend.asarray(channel_density),
+            backend.asarray(base_density),
+            backend.asarray(print_illuminant),
+            backend.asarray(sensitivity),
+            exposure_factor,
+            preflash,
+        )
+    )
+
+    np.testing.assert_allclose(table_cache, pixel_thread, rtol=0.0, atol=1e-6)
+
+
 @pytest.mark.parametrize(
     "preflash,exposure_factor",
     [
@@ -801,20 +893,31 @@ def test_mlx_cmy_to_log_raw_pixel_thread_v1_matches_reference_without_readback()
         ],
         dtype=np.float32,
     )
-    exposure_factor = np.array([1.25], dtype=np.float32)
-    preflash = np.array([0.01, 0.02, 0.03], dtype=np.float32)
+    exposure_factor = backend.asarray(np.array([1.25], dtype=np.float32))
+    preflash = backend.asarray(np.array([0.01, 0.02, 0.03], dtype=np.float32))
 
-    with record_backend_residency() as recorder:
-        actual_backend = backend.cmy_to_log_raw_pixel_thread_v1(
-            density_cmy,
-            channel_density,
-            base_density,
-            print_illuminant,
-            sensitivity,
-            exposure_factor,
-            preflash,
-        )
-        backend.eval(actual_backend)
+    original_asarray = np.asarray
+
+    def guard_asarray(value, dtype=None):
+        if type(value).__module__.startswith("mlx."):
+            raise AssertionError("cmy_to_log_raw_pixel_thread_v1 must not call np.asarray on an MLX array")
+        return original_asarray(value, dtype=dtype)
+
+    np.asarray = guard_asarray
+    try:
+        with record_backend_residency() as recorder:
+            actual_backend = backend.cmy_to_log_raw_pixel_thread_v1(
+                density_cmy,
+                channel_density,
+                base_density,
+                print_illuminant,
+                sensitivity,
+                exposure_factor,
+                preflash,
+            )
+            backend.eval(actual_backend)
+    finally:
+        np.asarray = original_asarray
 
     actual = backend.to_numpy(actual_backend)
     expected = _reference_mlx_cmy_to_log_raw_kernel(
@@ -1400,6 +1503,9 @@ def test_light_to_raw_matches_cpu_reference(backend_name: str) -> None:
     expected = contract("ijk,kl->ijl", light.astype(dtype), sensitivity.astype(dtype))
 
     max_abs_diff = float(np.max(np.abs(result_np - expected)))
+    # Tolerance is 1e-5 rather than L1's 1e-6 because the current MLX einsum
+    # uses simple float32 accumulation. Measured worst-case error on random
+    # inputs is ~7.6e-6. A compensated-sum kernel is required for L1 parity.
     assert np.allclose(result_np, expected, atol=1e-5), (
         f"backend={backend_name!r} light_to_raw mismatch: max_abs_diff={max_abs_diff:.2e}"
     )

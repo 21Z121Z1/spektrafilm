@@ -208,6 +208,9 @@ def _get_cmy_to_log_xyz_kernel(mx):
             float bd = float(base_density[k]);
 
             float d = c0 * cd0 + c1 * cd1 + c2 * cd2 + bd;
+            if (!(d == d)) {
+                continue;
+            }
             if (d < -35.0f) {
                 d = -35.0f;
             }

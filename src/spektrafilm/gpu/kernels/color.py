@@ -318,9 +318,14 @@ def _signed_power(x: Any, exponent: float, backend) -> Any:
 
 
 def _cctf_encoding_srgb_like(rgb: Any, backend) -> Any:
+    # Use the exact float32 threshold so GPU and CPU float32 references take
+    # the same branch, while keeping the value a plain Python float for
+    # MLX compile compatibility.
+    threshold = float(np.float32(0.0031308))
+
     def _chain(values):
         nonlinear = 1.055 * _signed_power(values, 1.0 / 2.4, backend) - 0.055
-        return backend.where(values <= 0.0031308, values * 12.92, nonlinear)
+        return backend.where(values <= threshold, values * 12.92, nonlinear)
 
     return _run_compiled_elementwise(backend, "cctf_encoding_srgb_like", _chain, rgb)
 
@@ -335,9 +340,10 @@ def _cctf_encoding_romm_rgb(rgb: Any, backend) -> Any:
 
 
 def _cctf_encoding_bt2020(rgb: Any, backend) -> Any:
+    alpha = float(np.float32(1.099))
+    beta = float(np.float32(0.018))
+
     def _chain(values):
-        alpha = 1.099
-        beta = 0.018
         nonlinear = alpha * _signed_power(values, 0.45, backend) - (alpha - 1.0)
         return backend.where(values < beta, values * 4.5, nonlinear)
 
@@ -362,10 +368,12 @@ def _cctf_encoding_dci_p3(rgb: Any, backend) -> Any:
 
 
 def _cctf_decoding_srgb_like(rgb: Any, backend) -> Any:
+    threshold = float(np.float32(0.04045))
+
     def _chain(values):
         linear = values / 12.92
         nonlinear = _signed_power((values + 0.055) / 1.055, 2.4, backend)
-        return backend.where(values <= 0.04045, linear, nonlinear)
+        return backend.where(values <= threshold, linear, nonlinear)
 
     return _run_compiled_elementwise(backend, "cctf_decoding_srgb_like", _chain, rgb)
 
@@ -381,10 +389,12 @@ def _cctf_decoding_romm_rgb(rgb: Any, backend) -> Any:
 
 
 def _cctf_decoding_bt2020(rgb: Any, backend) -> Any:
+    alpha = float(np.float32(1.099))
+    threshold = float(np.float32(0.081))
+
     def _chain(values):
-        alpha = 1.099
         nonlinear = _signed_power((values + (alpha - 1.0)) / alpha, 1.0 / 0.45, backend)
-        return backend.where(values <= 0.081, values / 4.5, nonlinear)
+        return backend.where(values <= threshold, values / 4.5, nonlinear)
 
     return _run_compiled_elementwise(backend, "cctf_decoding_bt2020", _chain, rgb)
 

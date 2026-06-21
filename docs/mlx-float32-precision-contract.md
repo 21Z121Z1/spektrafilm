@@ -215,3 +215,5 @@ The following are not covered by the L1 numerical-parity contract:
 | 2026-06-22 | `MlxBackend.nan_to_num` must use dtype-aware replacement limits | `float16` and `float32` need different finite fill values |
 | 2026-06-22 | `cmy_to_log_xyz` kernel skips NaN spectral table entries | Prevents NaN propagation from malformed lookup tables |
 | 2026-06-22 | CCTF threshold literals must be plain Python `float(np.float32(...))` | `np.float32` scalars inside `mx.compile` closures trigger "Attempting to eval an array during function transformations" |
+| 2026-06-22 | Enable `cmy_to_log_raw_pixel_thread_table_cache` as default for K ≤ 256 | Fixes threadgroup cache load loop to use `threads_per_threadgroup.x` so all K entries are loaded when grid has fewer threads than K |
+| 2026-06-22 | `light_to_raw` and `rgb_to_raw_mallett2019` reclassified as CONDITIONAL | Float32 spectral `einsum` accumulation does not meet L1 (`1e-6`) for adversarial inputs; documented measured bounds |
