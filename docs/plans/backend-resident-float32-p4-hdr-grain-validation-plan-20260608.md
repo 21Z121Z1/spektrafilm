@@ -101,6 +101,17 @@ The honest choices are therefore:
 - implement a custom higher-precision Metal/JzAzBz path, likely via compensated
   float32 arithmetic or another explicitly validated method.
 
+### 2026-06-22 follow-up
+
+A per-exponent specialization pass chose option (a) — keep resident with a documented exception — after reaching the float32 precision floor:
+
+- `inv_m2` in the forward PQ EOTF now uses `exp(exponent * log(x))`, which matches numpy/libm better than Metal `pow` / `exp2(log2)` for this small exponent.
+- The representative worst-case error fell from ~`1.5e-4` to ~`7e-5`.
+- The full-kernel error vs CPU float64 is now ~`5.4e-5`, matching the faithful float32 double-single simulation floor (~`5.5e-5`).
+- Performance is unchanged (~0.18 ms for a 2K frame).
+
+The remaining ~`5e-5` gap to `1e-6` is structural: it comes from the float32 double-single arithmetic itself, not from the transcendental implementation. Apple Silicon Metal does not support `float64`, so closing the gap would require triple-float or another higher-precision scheme. The `xfail` markers and precision-contract NON-COMPLIANT status remain.
+
 ## Gate Status
 
 P1, P2, and P3 are closed:

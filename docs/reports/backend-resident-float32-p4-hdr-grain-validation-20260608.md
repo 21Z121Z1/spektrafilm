@@ -173,6 +173,25 @@ Validation:
 153 passed, 3 warnings in 6.96s
 ```
 
+## JzAzBz Precision Optimization Follow-up - 2026-06-22
+
+A targeted round of per-exponent specialization in `src/spektrafilm/gpu/kernels/gamut_compress.py` closed the remaining slack in the resident JzAzBz path:
+
+- Replaced the first-order `ds_signed_pow` Taylor correction with a second-order expansion.
+- Removed the unused `pq_eotf_derivative_jz` helper.
+- Added `ds_signed_pow_exp_log`, which evaluates `exp(exponent * log(x))` instead of `exp2(exponent * log2(x))`.
+- Wired `ds_signed_pow_exp_log` only for the `inv_m2` exponent (`N^(1/m2)`) in the forward PQ EOTF, because this is the dominant transcendental error source and `exp(log)` matches numpy/libm better than Metal `pow` or `exp2(log2)` for this small exponent.
+- Tightened `ds_safe_div` from `1e-12` to `1e-20`.
+
+Results:
+
+- Representative xfail max absolute error dropped from ~`1.5e-4` to ~`7e-5`.
+- Full-kernel error vs CPU float64 reference is now ~`5.4e-5`, essentially at the faithful float32 double-single simulation floor (~`5.5e-5`).
+- 2K frame JzAzBz kernel median remains ~0.18 ms, with no measurable performance regression.
+- Full non-GUI suite: `1579 passed, 7 skipped, 4 xfailed`.
+
+Root-cause analysis confirmed that the remaining gap to `1e-6` is not a kernel bug but a float32 precision floor: even a faithful Python double-single simulation using numpy transcendentals reaches only ~`5.5e-5` vs the CPU float64 reference. Apple Silicon Metal does not support `double`, so further improvement would require triple-float or another higher-precision arithmetic scheme. The `xfail` markers and NON-COMPLIANT contract status remain in place.
+
 ## Boundaries
 
 - Preview and export still materialize by design after runtime completion.

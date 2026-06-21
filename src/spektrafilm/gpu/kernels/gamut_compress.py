@@ -283,42 +283,29 @@ def _get_jzazbz_chroma_mlx_kernel(mx):
             }
             float mag = precise::exp2(exponent * precise::log2(ax));
             float y = xh < 0.0f ? -mag : mag;
-            float dy = (exponent * y / xh) * x.lo;
-            return ds_add_float(ds_make(y), dy);
+            float dy1 = (exponent * y / xh) * x.lo;
+            float dy2 = (
+                exponent * (exponent - 1.0f) * y / (2.0f * xh * xh)
+            ) * (x.lo * x.lo);
+            return ds_add_float(ds_make(y), dy1 + dy2);
         }
 
-        inline float pq_eotf_derivative_jz(
-            float N,
-            const device float* constants_hi,
-            const device float* constants_lo
-        ) {
-            float c1 = ds_value(ds_const(constants_hi, constants_lo, 13));
-            float c2 = ds_value(ds_const(constants_hi, constants_lo, 14));
-            float c3 = ds_value(ds_const(constants_hi, constants_lo, 15));
-            float inv_m2 = ds_value(ds_const(constants_hi, constants_lo, 16));
-            float inv_m1 = ds_value(ds_const(constants_hi, constants_lo, 17));
-            float y_max = ds_value(ds_const(constants_hi, constants_lo, 2));
-            float abs_N = max(fabs(N), 1.0e-12f);
-            float Vp = (N < 0.0f ? -1.0f : 1.0f) * precise::pow(abs_N, inv_m2);
-            float n = Vp - c1;
-            if (!(n > 0.0f)) {
-                return 1.0e-12f;
+        inline DS ds_signed_pow_exp_log(DS x, float exponent) {
+            float xh = x.hi;
+            float ax = fabs(xh);
+            if (ax < 1.0e-30f) {
+                return ds_make(0.0f);
             }
-            float denominator = c2 - c3 * Vp;
-            float q = n / denominator;
-            if (!(q > 0.0f)) {
-                return 1.0e-12f;
-            }
-            float dVp_dN = inv_m2 * precise::pow(abs_N, inv_m2 - 1.0f);
-            float dq_dVp = (c2 - c3 * c1) / (denominator * denominator);
-            float dC_dN = (
-                y_max
-                * inv_m1
-                * precise::pow(q, inv_m1 - 1.0f)
-                * dq_dVp
-                * dVp_dN
-            );
-            return max(fabs(dC_dN), 1.0e-12f);
+            // For the small exponents used in the forward PQ EOTF, Metal's
+            // exp(y * log(x)) happens to be closer to numpy/libm than either
+            // precise::pow or exp2(y * log2(x)).
+            float mag = precise::exp(exponent * precise::log(ax));
+            float y = xh < 0.0f ? -mag : mag;
+            float dy1 = (exponent * y / xh) * x.lo;
+            float dy2 = (
+                exponent * (exponent - 1.0f) * y / (2.0f * xh * xh)
+            ) * (x.lo * x.lo);
+            return ds_add_float(ds_make(y), dy1 + dy2);
         }
 
         inline DS ds_pq_inverse_jz_basic(
@@ -347,7 +334,7 @@ def _get_jzazbz_chroma_mlx_kernel(mx):
         ) {
             float inv_m2 = ds_value(ds_const(constants_hi, constants_lo, 16));
             float inv_m1 = ds_value(ds_const(constants_hi, constants_lo, 17));
-            DS Vp = ds_signed_pow(N, inv_m2);
+            DS Vp = ds_signed_pow_exp_log(N, inv_m2);
             DS n = ds_sub(Vp, ds_const(constants_hi, constants_lo, 13));
             if (ds_value(n) < 0.0f) {
                 n = ds_make(0.0f);
@@ -356,7 +343,7 @@ def _get_jzazbz_chroma_mlx_kernel(mx):
                 ds_const(constants_hi, constants_lo, 14),
                 ds_mul_const(Vp, constants_hi, constants_lo, 15)
             );
-            DS ratio = ds_safe_div(n, denominator, 1.0e-12f);
+            DS ratio = ds_safe_div(n, denominator, 1.0e-20f);
             return ds_mul_const(
                 ds_signed_pow(ratio, inv_m1),
                 constants_hi,
