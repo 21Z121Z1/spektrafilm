@@ -219,7 +219,7 @@ Dependency direction:
 
 The documentation tree has a curated router at [docs/README.md](docs/README.md). Use it to find current development reports, HDR/color/GPU notes, generated curve-analysis docs, audit snapshots, and archived legacy documents.
 
-MLX/Apple GPU acceleration for postprocessing effects is documented in [docs/dev/2026-05-31-mlx-postprocessing-effects.md](docs/dev/2026-05-31-mlx-postprocessing-effects.md). Halation and diffusion use deterministic backend filters/convolution; grain uses fixed-seed deterministic MLX sampling with statistical, not CPU pixel-identical, parity.
+MLX/Apple GPU acceleration for postprocessing effects is documented in [docs/gpu/mlx-optimization-report-20260530.md](docs/gpu/mlx-optimization-report-20260530.md). Halation and diffusion use deterministic backend filters/convolution; grain uses fixed-seed deterministic MLX sampling with statistical, not CPU pixel-identical, parity.
 
 ## Installation
 

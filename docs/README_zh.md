@@ -53,6 +53,7 @@ spectral_film_simulations.md（英文）和 spectral_film_simulations_zh.md（�
 
 | 路径 | 说明 |
 | --- | --- |
+| [`reports/public-surface-hygiene-report-20260622.md`](reports/public-surface-hygiene-report-20260622.md) | 仓库公开暴露面整理报告。 |
 | [`issue_positive_film_print_exposure.md`](issue_positive_film_print_exposure.md) | 正片打印曝光行为的问题草稿。该缺陷仍存在于 `state.py:342`。 [中文](issue_positive_film_print_exposure_zh.md) |
 
 ## 根目录级项目文档

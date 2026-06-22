@@ -51,6 +51,7 @@ The spectral_film_simulations.md (English) and spectral_film_simulations_zh.md (
 
 | Path | Notes |
 | --- | --- |
+| [`reports/public-surface-hygiene-report-20260622.md`](reports/public-surface-hygiene-report-20260622.md) | Repository Public Surface Hygiene Report. |
 | [`issue_positive_film_print_exposure.md`](issue_positive_film_print_exposure.md) | Issue draft for positive-film print-exposure behavior. Bug still exists in `state.py:342`. [中文](issue_positive_film_print_exposure_zh.md) |
 
 ## Root-Level Project Documents

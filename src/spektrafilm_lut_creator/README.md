@@ -102,7 +102,7 @@ intentionally less expressive than the registry. The expressive side lives here.
 ## Open design notes
 
 Recorded in
-[`spektrafilm-research/studies/a40_lut_system/`](../../../spektrafilm-research/studies/a40_lut_system/):
+[`spektrafilm-research/studies/a40_lut_system/`](https://github.com/andreavolpato/spektrafilm-research/tree/main/studies/a40_lut_system/):
 
 - n010 initial plan, n020 dispatcher design (now in runtime)
 - n030 LUT package design — the structural plan this package follows
