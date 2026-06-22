@@ -119,6 +119,56 @@ def test_execute_simulation_request_keeps_scan_as_export_source_until_display() 
     assert result.memory_estimates['gui.export_source_nbytes'] == scan.nbytes
     assert result.memory_estimates['gui.float_image_nbytes'] == scan.nbytes
     assert result.memory_estimates['gui.display_image_nbytes'] == result.display_image.nbytes
+    assert 'gui.route_master_nbytes' not in result.memory_estimates
+
+
+def test_execute_simulation_request_collects_route_master_when_requested() -> None:
+    route_master = SimpleNamespace(
+        mode='paper',
+        route_linear_rgb=np.zeros((1, 1, 3), dtype=np.float32),
+        route_linear_xyz=np.zeros((1, 1, 3), dtype=np.float32),
+        route_luminance_y=np.zeros((1, 1), dtype=np.float32),
+        sdr_legacy_rgb=np.zeros((1, 1, 3), dtype=np.float32),
+        scene_y_raw=np.zeros((1, 1), dtype=np.float32),
+        post_halation_y=np.zeros((1, 1), dtype=np.float32),
+        density_cmy=np.zeros((1, 1, 3), dtype=np.float32),
+        route_look_chroma=None,
+        material_detail_y=None,
+    )
+    hdr_scene_energy = SimpleNamespace(scene_luminance=np.zeros((1, 1), dtype=np.float32))
+    captured: dict[str, object] = {}
+    request = runtime_module.SimulationRequest(
+        mode_label='Scan',
+        image=np.full((1, 1, 3), 0.25, dtype=np.float32),
+        params=object(),
+        output_color_space='sRGB',
+        use_display_transform=False,
+        require_hdr_metadata=True,
+        require_route_master=True,
+        hdr_mode='paper',
+    )
+
+    def fake_run_simulation(image, params, **kwargs):
+        captured['run_kwargs'] = kwargs
+        return SimpleNamespace(
+            image=np.full((1, 1, 3), 0.5, dtype=np.float32),
+            hdr_scene_energy=hdr_scene_energy,
+            route_master=route_master,
+        )
+
+    result = runtime_module.execute_simulation_request(
+        request,
+        run_simulation_fn=fake_run_simulation,
+        prepare_output_display_image_fn=lambda image, **kwargs: (
+            np.full((1, 1, 3), 127, dtype=np.uint8),
+            'Display transform: disabled',
+        ),
+    )
+
+    assert captured['run_kwargs'] == {'require_route_master': True, 'hdr_mode': 'paper'}
+    assert result.hdr_scene_energy is hdr_scene_energy
+    assert result.route_master is route_master
+    assert result.memory_estimates['gui.route_master_nbytes'] == runtime_module.route_master_nbytes(route_master)
 
 
 def test_materialize_export_image_records_timing_and_dtype() -> None:

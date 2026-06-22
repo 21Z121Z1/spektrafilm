@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+from time import perf_counter
 import warnings
 from pathlib import Path
 from typing import Literal
@@ -13,6 +15,15 @@ from spektrafilm.runtime.route_master import HDRMode, RouteMaster
 from spektrafilm.utils import hdr_photo
 
 LegacyHDRMode = Literal["generic", "profile_aware", "film_scan_aware"]
+
+
+def _save_timing_enabled() -> bool:
+    return os.environ.get("SPEKTRAFILM_LOG_SAVE_TIMINGS", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _log_save_timing(message: str) -> None:
+    if _save_timing_enabled():
+        print(f"[spektrafilm save timing] {message}", flush=True)
 
 
 def normalize_hdr_mode(mode: HDRMode | LegacyHDRMode) -> HDRMode:
@@ -73,11 +84,20 @@ def export_hdr_heic_from_simulator(
     color_space: str,
     quality: float = 0.95,
     gain_map_mode: Literal["luma", "rgb"] = "rgb",
+    master: RouteMaster | None = None,
 ) -> tuple[str, ...]:
     mode = normalize_hdr_mode(hdr_mode)
-    master = simulator.process_master(image, hdr_mode=mode)
+    total_start = perf_counter()
+    process_start = perf_counter()
+    used_cached_master = master is not None
+    if master is None:
+        master = simulator.process_master(image, hdr_mode=mode)
+    process_elapsed = perf_counter() - process_start
+    render_start = perf_counter()
     result = render_hdr_pair_from_master(master, hdr_mode=mode, config=config)
-    return hdr_photo.save_hdr_photo_heic_from_pair(
+    render_elapsed = perf_counter() - render_start
+    encode_start = perf_counter()
+    diagnostics = hdr_photo.save_hdr_photo_heic_from_pair(
         filename,
         np.ascontiguousarray(result.sdr_rgb),
         np.ascontiguousarray(result.hdr_rgb),
@@ -86,6 +106,15 @@ def export_hdr_heic_from_simulator(
         quality=quality,
         gain_map_mode=gain_map_mode,
     )
+    _log_save_timing(
+        "export_hdr_heic_from_simulator "
+        f"cached_master={used_cached_master} "
+        f"process_master={process_elapsed:.4f}s "
+        f"render_pair={render_elapsed:.4f}s "
+        f"encode={perf_counter() - encode_start:.4f}s "
+        f"total={perf_counter() - total_start:.4f}s"
+    )
+    return diagnostics
 
 
 __all__ = [

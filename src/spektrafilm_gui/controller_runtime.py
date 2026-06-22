@@ -34,6 +34,8 @@ class SimulationRequest:
     phase_timings: dict[str, float] = field(default_factory=dict)
     memory_estimates: dict[str, int] = field(default_factory=dict)
     require_hdr_metadata: bool = False
+    require_route_master: bool = False
+    hdr_mode: str = "paper"
 
 
 @dataclass(slots=True)
@@ -46,6 +48,7 @@ class SimulationResult:
     status_message: str
     output_cctf_encoding: bool = True
     hdr_scene_energy: object | None = None
+    route_master: object | None = None
     phase_timings: dict[str, float] = field(default_factory=dict)
     runtime_stage_timings: dict[str, float] = field(default_factory=dict)
     memory_estimates: dict[str, int] = field(default_factory=dict)
@@ -99,6 +102,33 @@ def array_nbytes(value: object | None) -> int:
         return int(np.prod(tuple(int(dim) for dim in shape)) * np.dtype(dtype).itemsize)
     except (TypeError, ValueError):
         return 0
+
+
+def route_master_nbytes(route_master: object | None) -> int:
+    if route_master is None:
+        return 0
+    total = 0
+    seen: set[int] = set()
+    for name in (
+        "route_linear_rgb",
+        "route_linear_xyz",
+        "route_luminance_y",
+        "sdr_legacy_rgb",
+        "scene_y_raw",
+        "post_halation_y",
+        "density_cmy",
+        "route_look_chroma",
+        "material_detail_y",
+    ):
+        value = getattr(route_master, name, None)
+        if value is None:
+            continue
+        identity = id(value)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        total += array_nbytes(value)
+    return total
 
 
 def _shape_tuple(value: object) -> tuple[int, ...] | None:
@@ -500,6 +530,7 @@ def estimate_full_render_memory_bytes(
     params: object,
     *,
     require_hdr_metadata: bool = False,
+    require_route_master: bool = False,
 ) -> dict[str, int]:
     shape = _shape_tuple(image_data)
     if shape is None or len(shape) < 2:
@@ -542,6 +573,8 @@ def estimate_full_render_memory_bytes(
 
     if require_hdr_metadata:
         estimates["hdr_scene_luminance_sidecar"] = y32
+    if require_route_master:
+        estimates["route_master_cache"] = int(rgb32 * 5 + y32 * 4)
 
     return estimates
 
@@ -579,12 +612,14 @@ def full_render_memory_guard_message(
     params: object,
     *,
     require_hdr_metadata: bool = False,
+    require_route_master: bool = False,
     available_bytes: int | None = None,
 ) -> str | None:
     estimates = estimate_full_render_memory_bytes(
         image_data,
         params,
         require_hdr_metadata=require_hdr_metadata,
+        require_route_master=require_route_master,
     )
     if not estimates:
         return None
@@ -620,7 +655,14 @@ def execute_simulation_request(
     start_time = time.perf_counter()
 
     process_start = time.perf_counter()
-    if request.require_hdr_metadata:
+    if request.require_route_master:
+        simulation_output = run_simulation_fn(
+            request.image,
+            request.params,
+            require_route_master=True,
+            hdr_mode=request.hdr_mode,
+        )
+    elif request.require_hdr_metadata:
         simulation_output = run_simulation_fn(
             request.image,
             request.params,
@@ -632,9 +674,12 @@ def execute_simulation_request(
 
     scan = getattr(simulation_output, 'image', simulation_output)
     hdr_scene_energy = getattr(simulation_output, 'hdr_scene_energy', None)
+    route_master = getattr(simulation_output, 'route_master', None)
 
     memory_estimates["gui.export_source_nbytes"] = array_nbytes(scan)
     memory_estimates["gui.float_image_nbytes"] = array_nbytes(scan)
+    if route_master is not None:
+        memory_estimates["gui.route_master_nbytes"] = route_master_nbytes(route_master)
 
     display_start = time.perf_counter()
     scan_display, display_status = prepare_output_display_image_fn(
@@ -673,6 +718,7 @@ def execute_simulation_request(
         use_display_transform=request.use_display_transform,
         status_message=status_message,
         hdr_scene_energy=hdr_scene_energy,
+        route_master=route_master,
         phase_timings=phase_timings,
         runtime_stage_timings=runtime_stage_timings,
         memory_estimates=memory_estimates,

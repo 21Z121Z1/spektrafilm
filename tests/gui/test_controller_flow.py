@@ -1053,6 +1053,54 @@ def test_process_image_with_runtime_collects_metadata_when_requested(monkeypatch
     assert result.hdr_scene_energy is hdr_scene_energy
 
 
+def test_process_image_with_runtime_collects_route_master_when_requested(monkeypatch) -> None:
+    controller = GuiController(viewer=object(), widgets=object())
+    params = object()
+    digested_params = object()
+    image = np.full((2, 2, 3), 0.25, dtype=np.float32)
+    hdr_scene_energy = SimpleNamespace(scene_luminance=np.full((2, 2), 0.8, dtype=np.float32))
+    route_master = SimpleNamespace(mode='paper')
+    captured: dict[str, object] = {'metadata_calls': 0, 'master_calls': []}
+
+    class FakeSimulator:
+        def __init__(self, runtime_params) -> None:
+            assert runtime_params is digested_params
+
+        def process(self, runtime_image):
+            raise AssertionError('RouteMaster request must not use process')
+
+        def process_with_metadata(self, runtime_image):
+            captured['metadata_calls'] += 1
+            raise AssertionError('RouteMaster request must use process_with_master')
+
+        def process_with_master(self, runtime_image, *, hdr_mode):
+            captured['master_calls'].append((np.array(runtime_image, copy=True), hdr_mode))
+            return SimpleNamespace(
+                image=np.asarray(runtime_image) + 0.1,
+                hdr_scene_energy=hdr_scene_energy,
+                route_master=route_master,
+            )
+
+    monkeypatch.setattr(controller_module, 'digest_params', lambda runtime_params, **_kwargs: digested_params)
+    monkeypatch.setattr(controller_module, 'runtime_simulator', lambda runtime_params: FakeSimulator(runtime_params))
+
+    result = controller._process_image_with_runtime(
+        image,
+        params,
+        require_hdr_metadata=True,
+        require_route_master=True,
+        hdr_mode='paper',
+    )
+
+    assert captured['metadata_calls'] == 0
+    assert len(captured['master_calls']) == 1
+    np.testing.assert_allclose(captured['master_calls'][0][0], image)
+    assert captured['master_calls'][0][1] == 'paper'
+    np.testing.assert_allclose(result.image, image + 0.1)
+    assert result.hdr_scene_energy is hdr_scene_energy
+    assert result.route_master is route_master
+
+
 def test_on_simulation_finished_reports_completed_status(monkeypatch) -> None:
     controller = GuiController(viewer=object(), widgets=SimpleNamespace(simulation=SimpleNamespace(preview_button=None, scan_button=None, save_button=None)))
     controller._active_simulation_label = 'Preview'

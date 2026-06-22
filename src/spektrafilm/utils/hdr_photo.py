@@ -11,6 +11,7 @@ import tempfile
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from time import perf_counter
 from typing import Final, Literal
 
 import colour
@@ -67,6 +68,15 @@ _log = logging.getLogger(__name__)
 
 class HDRPhotoExportError(RuntimeError):
     """Raised when the platform HDR photo encoder cannot create a valid file."""
+
+
+def _save_timing_enabled() -> bool:
+    return os.environ.get("SPEKTRAFILM_LOG_SAVE_TIMINGS", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _log_save_timing(message: str) -> None:
+    if _save_timing_enabled():
+        print(f"[spektrafilm save timing] {message}", flush=True)
 
 
 @dataclass(frozen=True, slots=True)
@@ -403,6 +413,7 @@ def save_hdr_photo_heic(
 ) -> tuple[str, ...]:
     """Save a linear RGB HDR image as a macOS/CoreImage gain-map HEIC/HEIF."""
 
+    total_start = perf_counter()
     if platform.system() != "Darwin":
         raise HDRPhotoExportError("HEIC HDR photo export currently requires macOS CoreImage.")
 
@@ -416,6 +427,7 @@ def save_hdr_photo_heic(
         raise ValueError("gain_map_mode must be either 'luma' or 'rgb'.")
     color_space = hdr_photo_color_space(color_space)
 
+    render_start = perf_counter()
     renditions = prepare_hdr_photo_renditions(
         image_data,
         mapping=mapping,
@@ -423,17 +435,17 @@ def save_hdr_photo_heic(
         scene_rgb=scene_rgb,
         output_color_space=color_space,
     )
-    sdr_payload = _rgba_float_payload(renditions.sdr_rgb, headroom=1.0)
-    hdr_payload = _rgba_float_payload(renditions.hdr_rgb, headroom=renditions.headroom)
+    render_elapsed = perf_counter() - render_start
 
     try:
         with tempfile.TemporaryDirectory(prefix="spektrafilm-hdr-heif-") as tmp_dir:
             tmp_path = Path(tmp_dir)
             sdr_raw_path = tmp_path / "sdr-rgba-f32.raw"
             hdr_raw_path = tmp_path / "hdr-rgba-f32.raw"
-            sdr_payload.tofile(sdr_raw_path)
-            hdr_payload.tofile(hdr_raw_path)
-            del sdr_payload, hdr_payload
+            write_start = perf_counter()
+            _write_rgba_payload_to_mmap(sdr_raw_path, renditions.sdr_rgb, headroom=1.0)
+            _write_rgba_payload_to_mmap(hdr_raw_path, renditions.hdr_rgb, headroom=renditions.headroom)
+            write_elapsed = perf_counter() - write_start
 
             command = [
                 *_swift_command(),
@@ -448,6 +460,7 @@ def save_hdr_photo_heic(
                 f"{float(quality):.6g}",
                 gain_map_mode,
             ]
+            encode_start = perf_counter()
             result = subprocess.run(
                 command,
                 check=False,
@@ -455,6 +468,7 @@ def save_hdr_photo_heic(
                 text=True,
                 timeout=300,
             )
+            encode_elapsed = perf_counter() - encode_start
     except FileNotFoundError as exc:
         raise HDRPhotoExportError("Swift toolchain not found; install Xcode Command Line Tools to export HDR HEIC.") from exc
     except subprocess.TimeoutExpired as exc:
@@ -466,6 +480,14 @@ def save_hdr_photo_heic(
         if details:
             message = f"{message}: {details}"
         raise HDRPhotoExportError(message)
+
+    _log_save_timing(
+        "save_hdr_photo_heic "
+        f"render={render_elapsed:.4f}s "
+        f"raw_write={write_elapsed:.4f}s "
+        f"swift_encode={encode_elapsed:.4f}s "
+        f"total={perf_counter() - total_start:.4f}s"
+    )
 
     _validate_coreimage_heic_iso21496(output_path)
     sidecar_metadata = renditions.mastering_metadata
@@ -502,6 +524,7 @@ def save_hdr_photo_heic_from_pair(
     recovery.
     """
 
+    total_start = perf_counter()
     if metadata:
         raise HDRPhotoExportError(
             "HEIC metadata embedding is not supported by save_hdr_photo_heic_from_pair; "
@@ -530,17 +553,16 @@ def save_hdr_photo_heic_from_pair(
         raise ValueError("Pre-rendered HDR pair export requires headroom greater than 1.0.")
     hdr = np.clip(hdr, 0.0, headroom).astype(np.float32, copy=False)
     color_space = hdr_photo_color_space(color_space)
-    sdr_payload = _rgba_float_payload(sdr, headroom=1.0)
-    hdr_payload = _rgba_float_payload(hdr, headroom=headroom)
 
     try:
         with tempfile.TemporaryDirectory(prefix="spektrafilm-hdr-heif-") as tmp_dir:
             tmp_path = Path(tmp_dir)
             sdr_raw_path = tmp_path / "sdr-rgba-f32.raw"
             hdr_raw_path = tmp_path / "hdr-rgba-f32.raw"
-            sdr_payload.tofile(sdr_raw_path)
-            hdr_payload.tofile(hdr_raw_path)
-            del sdr_payload, hdr_payload
+            write_start = perf_counter()
+            _write_rgba_payload_to_mmap(sdr_raw_path, sdr, headroom=1.0)
+            _write_rgba_payload_to_mmap(hdr_raw_path, hdr, headroom=headroom)
+            write_elapsed = perf_counter() - write_start
 
             command = [
                 *_swift_command(),
@@ -555,6 +577,7 @@ def save_hdr_photo_heic_from_pair(
                 f"{float(quality):.6g}",
                 gain_map_mode,
             ]
+            encode_start = perf_counter()
             result = subprocess.run(
                 command,
                 check=False,
@@ -562,6 +585,7 @@ def save_hdr_photo_heic_from_pair(
                 text=True,
                 timeout=300,
             )
+            encode_elapsed = perf_counter() - encode_start
     except FileNotFoundError as exc:
         raise HDRPhotoExportError("Swift toolchain not found; install Xcode Command Line Tools to export HDR HEIC.") from exc
     except subprocess.TimeoutExpired as exc:
@@ -573,6 +597,13 @@ def save_hdr_photo_heic_from_pair(
         if details:
             message = f"{message}: {details}"
         raise HDRPhotoExportError(message)
+
+    _log_save_timing(
+        "save_hdr_photo_heic_from_pair "
+        f"raw_write={write_elapsed:.4f}s "
+        f"swift_encode={encode_elapsed:.4f}s "
+        f"total={perf_counter() - total_start:.4f}s"
+    )
 
     _validate_coreimage_heic_iso21496(output_path)
     sidecar_metadata = build_hdr_photo_standards_metadata(
@@ -1429,6 +1460,17 @@ def _rgba_float_payload(image: np.ndarray, *, headroom: float) -> np.ndarray:
     np.clip(image, 0.0, headroom, out=rgba[..., :3])
     rgba[..., 3] = 1.0
     return np.ascontiguousarray(rgba)
+
+
+def _write_rgba_payload_to_mmap(path: str | Path, image: np.ndarray, *, headroom: float) -> None:
+    height, width = image.shape[:2]
+    payload = np.memmap(path, dtype=np.float32, mode="w+", shape=(height, width, 4))
+    try:
+        np.clip(image, 0.0, headroom, out=payload[..., :3])
+        payload[..., 3] = 1.0
+        payload.flush()
+    finally:
+        del payload
 
 
 def _swift_command() -> list[str]:

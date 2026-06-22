@@ -13,6 +13,7 @@ _EXPORTS = {
     "save_profile": ("spektrafilm.profiles.io", "save_profile"),
     "simulate": ("spektrafilm.runtime.process", "simulate"),
     "simulate_master": ("spektrafilm.runtime.process", "simulate_master"),
+    "simulate_with_master": ("spektrafilm.runtime.process", "simulate_with_master"),
     "simulate_with_metadata": ("spektrafilm.runtime.process", "simulate_with_metadata"),
 }
 

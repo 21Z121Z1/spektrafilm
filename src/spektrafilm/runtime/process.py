@@ -49,6 +49,11 @@ class Simulator:
         with self._runtime_context():
             return self._pipeline.process_master(image, hdr_mode=hdr_mode)
 
+    def process_with_master(self, image, *, hdr_mode: HDRMode = "paper") -> SimulationPipelineResult:
+        """Process the input image once into output image, HDR scene metadata, and RouteMaster."""
+        with self._runtime_context():
+            return self._pipeline.process_with_master(image, hdr_mode=hdr_mode)
+
     def update_params(self, params):
         """Update the parameters of the simulation pipeline."""
         with self._runtime_context():
@@ -127,6 +132,20 @@ def simulate_master(image, params: RuntimePhotoParams, *,
     return result
 
 
+def simulate_with_master(image, params: RuntimePhotoParams, *,
+                         hdr_mode: HDRMode = "paper",
+                         digest_params_first: bool = True,
+                         print_timings: bool = False) -> SimulationPipelineResult:
+    """Run the simulation once and return image output, HDR scene metadata, and RouteMaster."""
+    if digest_params_first:
+        params = digest_params(params)
+    simulator = Simulator(params)
+    result = simulator.process_with_master(image, hdr_mode=hdr_mode)
+    if print_timings:
+        simulator.print_timings()
+    return result
+
+
 def simulate_preview(image, params: RuntimePhotoParams,
                      digest_params_first: bool = True,
                      print_timings: bool = False):
@@ -171,6 +190,7 @@ __all__ = [
     "simulate",
     "simulate_with_metadata",
     "simulate_master",
+    "simulate_with_master",
     "simulate_preview",
     "AgXPhoto", # legacy for ART
     "photo_params", # legacy for ART

@@ -330,6 +330,46 @@ def test_no_duplicate_scan_when_exporting_hdr(monkeypatch, tmp_path) -> None:
     assert fake.count == 1
 
 
+def test_export_hdr_heic_from_simulator_uses_cached_master(monkeypatch, tmp_path) -> None:
+    output_path = tmp_path / "out.heic"
+    cached_master = _master()
+    captured: dict[str, object] = {}
+
+    class FakeSimulator:
+        def process_master(self, image, *, hdr_mode):
+            del image, hdr_mode
+            raise AssertionError("cached RouteMaster export must not call process_master")
+
+    def fake_save(filename, sdr_rgb, hdr_rgb, **kwargs):
+        captured["filename"] = filename
+        captured["sdr_rgb"] = np.array(sdr_rgb, copy=True)
+        captured["hdr_rgb"] = np.array(hdr_rgb, copy=True)
+        captured["kwargs"] = kwargs
+        return ("cached_master_saved",)
+
+    monkeypatch.setattr(hdr_photo, "save_hdr_photo_heic_from_pair", fake_save)
+
+    diagnostics = export_hdr_heic_from_simulator(
+        FakeSimulator(),
+        "frame",
+        output_path,
+        hdr_mode="paper",
+        config=HDRProjectionConfig(max_headroom=2.0),
+        color_space="Display P3",
+        master=cached_master,
+    )
+
+    assert diagnostics == ("cached_master_saved",)
+    assert captured["filename"] == output_path
+    assert captured["kwargs"]["color_space"] == "Display P3"
+    expected_pair = render_hdr_pair_from_master(
+        cached_master,
+        hdr_mode="paper",
+        config=HDRProjectionConfig(max_headroom=2.0),
+    )
+    np.testing.assert_allclose(captured["sdr_rgb"], expected_pair.sdr_rgb)
+
+
 def test_heic_encoder_accepts_pre_rendered_pair(monkeypatch, tmp_path) -> None:
     sdr, hdr = _pair()
     output_path = tmp_path / "pair.heic"

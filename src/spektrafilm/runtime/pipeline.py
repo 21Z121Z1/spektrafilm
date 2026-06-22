@@ -37,6 +37,7 @@ class HDRSceneEnergyMetadata:
 class SimulationPipelineResult:
     image: Any
     hdr_scene_energy: HDRSceneEnergyMetadata | None = None
+    route_master: RouteMaster | None = None
 
 
 def _backend_cache_key(backend):
@@ -180,6 +181,13 @@ class SimulationPipeline:
 
     def process_master(self, image, *, hdr_mode: HDRMode) -> RouteMaster:
         """Process one full-resolution route into a RouteMaster."""
+        result = self.process_with_master(image, hdr_mode=hdr_mode)
+        if result.route_master is None:
+            raise RuntimeError("RouteMaster processing completed without a RouteMaster.")
+        return result.route_master
+
+    def process_with_master(self, image, *, hdr_mode: HDRMode) -> SimulationPipelineResult:
+        """Process one route and return output image, HDR scene metadata, and RouteMaster."""
         if hdr_mode not in ("light_table", "paper"):
             raise ValueError("hdr_mode must be 'light_table' or 'paper'.")
         desired_scan_film = hdr_mode == "light_table"
@@ -187,12 +195,12 @@ class SimulationPipeline:
             route_params = copy.deepcopy(self._params)
             route_params.io.scan_film = desired_scan_film
             route_pipeline = SimulationPipeline(route_params)
-            master = route_pipeline.process_master(image, hdr_mode=hdr_mode)
+            result = route_pipeline.process_with_master(image, hdr_mode=hdr_mode)
             self.timings.clear()
             self.timings.update(route_pipeline.timings)
             self._last_elapsed_time = route_pipeline.get_total_elapsed_time()
-            return master
-        return self._process_master_result(image, hdr_mode=hdr_mode)
+            return result
+        return self._process_with_master_result(image, hdr_mode=hdr_mode)
 
     def _process_result(self, image, *, include_metadata: bool) -> SimulationPipelineResult:
         self.timings.clear()
@@ -212,12 +220,14 @@ class SimulationPipeline:
                 self.timings["SimulationPipeline.mlx_cleanup"] = perf_counter() - cleanup_start
             self._last_elapsed_time = perf_counter() - start
 
-    def _process_master_result(self, image, *, hdr_mode: HDRMode) -> RouteMaster:
+    def _process_with_master_result(self, image, *, hdr_mode: HDRMode) -> SimulationPipelineResult:
         self.timings.clear()
         start = perf_counter()
 
         try:
-            return self._pipeline_master(image, hdr_mode=hdr_mode)
+            result = self._pipeline_with_master(image, hdr_mode=hdr_mode)
+            self._run_gpu_validate(image, result.image)
+            return result
         finally:
             if self._should_cleanup_after_process():
                 cleanup_start = perf_counter()
@@ -498,7 +508,17 @@ class SimulationPipeline:
         )
 
     def _pipeline_master(self, image, *, hdr_mode: HDRMode) -> RouteMaster:
-        image = self._record_stage_timing("preprocess", self._preprocess, image)
+        result = self._pipeline_with_master(image, hdr_mode=hdr_mode)
+        if result.route_master is None:
+            raise RuntimeError("RouteMaster pipeline completed without a RouteMaster.")
+        return result.route_master
+
+    def _pipeline_with_master(self, image, *, hdr_mode: HDRMode) -> SimulationPipelineResult:
+        image, hdr_scene_energy = self._record_stage_timing(
+            "preprocess",
+            self._preprocess_with_metadata,
+            image,
+        )
         exposure = self._record_stage_timing(
             "filming.expose",
             self._filming_stage.expose_with_metadata,
@@ -530,7 +550,7 @@ class SimulationPipeline:
                     exposure.scene_y_raw,
                 )
                 diagnostics.update(render_diagnostics)
-            return self._build_route_master(
+            route_master = self._build_route_master(
                 hdr_mode=hdr_mode,
                 route_kind="film_scan",
                 scan_master=scan_master,
@@ -538,6 +558,11 @@ class SimulationPipeline:
                 scene_y_raw=exposure.scene_y_raw,
                 post_halation_y=exposure.post_halation_y,
                 diagnostics=diagnostics,
+            )
+            return SimulationPipelineResult(
+                image=self._materialize_output(sdr_legacy_rgb),
+                hdr_scene_energy=hdr_scene_energy,
+                route_master=route_master,
             )
 
         log_raw_print = self._record_stage_timing(
@@ -562,7 +587,7 @@ class SimulationPipeline:
         )
         diagnostics.update(scan_master.diagnostics)
         diagnostics["profile_kind"] = "print_scan"
-        return self._build_route_master(
+        route_master = self._build_route_master(
             hdr_mode=hdr_mode,
             route_kind="print_scan",
             scan_master=scan_master,
@@ -570,6 +595,11 @@ class SimulationPipeline:
             scene_y_raw=exposure.scene_y_raw,
             post_halation_y=exposure.post_halation_y,
             diagnostics=diagnostics,
+        )
+        return SimulationPipelineResult(
+            image=self._materialize_output(sdr_legacy_rgb),
+            hdr_scene_energy=hdr_scene_energy,
+            route_master=route_master,
         )
     
     def _preprocess(self, image):

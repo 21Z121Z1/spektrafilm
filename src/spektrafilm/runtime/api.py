@@ -10,6 +10,7 @@ from spektrafilm.runtime.process import (
     Simulator,
     simulate,
     simulate_master,
+    simulate_with_master,
     simulate_with_metadata,
     simulate_preview,
 )
@@ -22,6 +23,7 @@ __all__ = [
     "RouteMaster",
     "simulate",
     "simulate_master",
+    "simulate_with_master",
     "simulate_with_metadata",
     "simulate_preview",
     "RuntimePhotoParams",

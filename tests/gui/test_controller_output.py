@@ -13,6 +13,7 @@ from spektrafilm_gui.controller import (
     OUTPUT_DISPLAY_TRANSFORM_KEY,
     OUTPUT_FLOAT_DATA_KEY,
     OUTPUT_PHASE_TIMINGS_KEY,
+    OUTPUT_ROUTE_MASTER_KEY,
 )
 
 from .helpers import FakeLayer, StubToggle, make_test_controller_gui_state
@@ -417,7 +418,7 @@ def test_save_output_layer_passes_paper_hdr_mode_when_heic_gain_map_enabled(monk
 
     from spektrafilm.hdr import routemaster_export
     def fake_export_hdr_heic_from_simulator(
-        simulator, image, filename, *, hdr_mode, config, color_space, quality, gain_map_mode
+        simulator, image, filename, *, hdr_mode, config, color_space, quality, gain_map_mode, master=None
     ):
         captured['heic_export'] = {
             'hdr_mode': hdr_mode,
@@ -425,6 +426,7 @@ def test_save_output_layer_passes_paper_hdr_mode_when_heic_gain_map_enabled(monk
             'color_space': color_space,
             'quality': quality,
             'gain_map_mode': gain_map_mode,
+            'master': master,
         }
         return (str(filename),)
 
@@ -480,7 +482,7 @@ def test_save_output_layer_passes_paper_hdr_config(monkeypatch) -> None:
 
     from spektrafilm.hdr import routemaster_export
     def fake_export_hdr_heic_from_simulator(
-        simulator, image, filename, *, hdr_mode, config, color_space, quality, gain_map_mode
+        simulator, image, filename, *, hdr_mode, config, color_space, quality, gain_map_mode, master=None
     ):
         captured['heic_export'] = {
             'hdr_mode': hdr_mode,
@@ -488,6 +490,7 @@ def test_save_output_layer_passes_paper_hdr_config(monkeypatch) -> None:
             'color_space': color_space,
             'quality': quality,
             'gain_map_mode': gain_map_mode,
+            'master': master,
         }
         return (str(filename),)
 
@@ -509,6 +512,104 @@ def test_save_output_layer_passes_paper_hdr_config(monkeypatch) -> None:
     assert config.diffuse_white_scene_anchor == 0.9
     assert config.output_diffuse_white == 1.25
     assert config.gain_map_mode == 'rgb'
+
+
+def test_save_output_layer_reuses_route_master_from_scan(monkeypatch) -> None:
+    float_image = np.full((1, 2, 3), 1.4, dtype=np.float32)
+    route_master = SimpleNamespace(mode='paper')
+    output_layer = _make_output_layer(
+        float_image,
+        output_color_space='Display P3',
+        output_cctf_encoding=False,
+    )
+    output_layer.metadata[OUTPUT_ROUTE_MASTER_KEY] = route_master
+    controller = GuiController(viewer=object(), widgets=object())
+    controller._current_input_image = float_image
+    captured: dict[str, object] = {}
+    gui_state = make_test_controller_gui_state()
+    gui_state.hdr.hdr_heic_gain_map_enabled = True
+    gui_state.hdr.hdr_mapping_mode = 'paper'
+    gui_state.simulation.workflow.saving_color_space = 'Display P3'
+    gui_state.simulation.workflow.saving_cctf_encoding = False
+
+    _configure_save_output(monkeypatch, controller, output_layer, gui_state, captured)
+    monkeypatch.setattr(
+        controller_module.QFileDialog,
+        'getSaveFileName',
+        staticmethod(lambda *args, **kwargs: ('output.heic', 'Images (*.heic)')),
+    )
+    _capture_saved_output(monkeypatch, captured)
+
+    from spektrafilm.hdr import routemaster_export
+
+    def fake_export_hdr_heic_from_simulator(
+        simulator, image, filename, *, hdr_mode, config, color_space, quality, gain_map_mode, master=None
+    ):
+        captured['heic_export'] = {
+            'hdr_mode': hdr_mode,
+            'master': master,
+        }
+        return (str(filename),)
+
+    monkeypatch.setattr(
+        routemaster_export,
+        'export_hdr_heic_from_simulator',
+        fake_export_hdr_heic_from_simulator,
+    )
+
+    controller.save_output_layer()
+
+    assert captured['heic_export']['hdr_mode'] == 'paper'
+    assert captured['heic_export']['master'] is route_master
+
+
+def test_save_output_layer_ignores_cached_route_master_when_mode_differs(monkeypatch) -> None:
+    float_image = np.full((1, 2, 3), 1.4, dtype=np.float32)
+    route_master = SimpleNamespace(mode='light_table')
+    output_layer = _make_output_layer(
+        float_image,
+        output_color_space='Display P3',
+        output_cctf_encoding=False,
+    )
+    output_layer.metadata[OUTPUT_ROUTE_MASTER_KEY] = route_master
+    controller = GuiController(viewer=object(), widgets=object())
+    controller._current_input_image = float_image
+    captured: dict[str, object] = {}
+    gui_state = make_test_controller_gui_state()
+    gui_state.hdr.hdr_heic_gain_map_enabled = True
+    gui_state.hdr.hdr_mapping_mode = 'paper'
+    gui_state.simulation.workflow.saving_color_space = 'Display P3'
+    gui_state.simulation.workflow.saving_cctf_encoding = False
+
+    _configure_save_output(monkeypatch, controller, output_layer, gui_state, captured)
+    monkeypatch.setattr(
+        controller_module.QFileDialog,
+        'getSaveFileName',
+        staticmethod(lambda *args, **kwargs: ('output.heic', 'Images (*.heic)')),
+    )
+    _capture_saved_output(monkeypatch, captured)
+
+    from spektrafilm.hdr import routemaster_export
+
+    def fake_export_hdr_heic_from_simulator(
+        simulator, image, filename, *, hdr_mode, config, color_space, quality, gain_map_mode, master=None
+    ):
+        captured['heic_export'] = {
+            'hdr_mode': hdr_mode,
+            'master': master,
+        }
+        return (str(filename),)
+
+    monkeypatch.setattr(
+        routemaster_export,
+        'export_hdr_heic_from_simulator',
+        fake_export_hdr_heic_from_simulator,
+    )
+
+    controller.save_output_layer()
+
+    assert captured['heic_export']['hdr_mode'] == 'paper'
+    assert captured['heic_export']['master'] is None
 
 
 @pytest.mark.parametrize(
@@ -595,7 +696,7 @@ def test_save_output_layer_passes_light_table_hdr_mode(monkeypatch) -> None:
 
     from spektrafilm.hdr import routemaster_export
     def fake_export_hdr_heic_from_simulator(
-        simulator, image, filename, *, hdr_mode, config, color_space, quality, gain_map_mode
+        simulator, image, filename, *, hdr_mode, config, color_space, quality, gain_map_mode, master=None
     ):
         captured['heic_export'] = {
             'hdr_mode': hdr_mode,
@@ -603,6 +704,7 @@ def test_save_output_layer_passes_light_table_hdr_mode(monkeypatch) -> None:
             'color_space': color_space,
             'quality': quality,
             'gain_map_mode': gain_map_mode,
+            'master': master,
         }
         return (str(filename),)
 

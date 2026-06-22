@@ -96,8 +96,8 @@ func main() throws {
         throw EncoderError.unsupportedColorSpace(colorSpaceName)
     }
 
-    let sdrData = try Data(contentsOf: sdrInputURL)
-    let hdrData = try Data(contentsOf: hdrInputURL)
+    let sdrData = try Data(contentsOf: sdrInputURL, options: .mappedIfSafe)
+    let hdrData = try Data(contentsOf: hdrInputURL, options: .mappedIfSafe)
     let expectedSize = width * height * 4 * MemoryLayout<Float>.size
     guard sdrData.count == expectedSize else {
         throw EncoderError.badInputSize(label: "SDR", expected: expectedSize, actual: sdrData.count)

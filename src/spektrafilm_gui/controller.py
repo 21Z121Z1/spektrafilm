@@ -36,6 +36,7 @@ OUTPUT_COLOR_SPACE_KEY = 'pipeline_output_color_space'
 OUTPUT_CCTF_ENCODING_KEY = 'pipeline_output_cctf_encoding'
 OUTPUT_DISPLAY_TRANSFORM_KEY = 'pipeline_use_display_transform'
 OUTPUT_HDR_SCENE_ENERGY_KEY = 'pipeline_hdr_scene_energy'
+OUTPUT_ROUTE_MASTER_KEY = 'pipeline_route_master'
 OUTPUT_PHASE_TIMINGS_KEY = 'pipeline_phase_timings'
 PROFILE_SYNC_SECTION_NAMES = profile_sync.PROFILE_SYNC_SECTION_NAMES
 if TYPE_CHECKING:
@@ -446,16 +447,21 @@ class GuiController:
                 self._next_runtime_digest_applies_stock_specifics = False
 
                 config = hdr_projection_config_from_settings(hdr_settings)
+                hdr_mode = normalize_hdr_mapping_mode(hdr_settings.hdr_mapping_mode)
+                cached_route_master = output_layer.metadata.get(OUTPUT_ROUTE_MASTER_KEY)
+                if getattr(cached_route_master, "mode", None) != hdr_mode:
+                    cached_route_master = None
 
                 export_hdr_heic_from_simulator(
                     self._runtime_simulator,
                     self._current_input_image,
                     filepath,
-                    hdr_mode=normalize_hdr_mapping_mode(hdr_settings.hdr_mapping_mode),
+                    hdr_mode=hdr_mode,
                     config=config,
                     color_space=saving_color_space,
                     quality=float(hdr_settings.heic_quality),
                     gain_map_mode=hdr_settings.gain_map_mode,
+                    master=cached_route_master,
                 )
             except Exception as exc:
                 QMessageBox.critical(
@@ -617,6 +623,7 @@ class GuiController:
         output_cctf_encoding: bool,
         use_display_transform: bool,
         hdr_scene_energy: object | None = None,
+        route_master: object | None = None,
     ) -> NapariImageLayer | None:
         self._layers.set_or_add_output_layer(
             image,
@@ -629,6 +636,10 @@ class GuiController:
         output_layer = self._output_layer()
         if output_layer is not None:
             output_layer.metadata[OUTPUT_HDR_SCENE_ENERGY_KEY] = hdr_scene_energy
+            if route_master is None:
+                output_layer.metadata.pop(OUTPUT_ROUTE_MASTER_KEY, None)
+            else:
+                output_layer.metadata[OUTPUT_ROUTE_MASTER_KEY] = route_master
         return output_layer
 
     def _set_or_add_input_stack(
@@ -791,6 +802,8 @@ class GuiController:
         params,
         *,
         require_hdr_metadata: bool = False,
+        require_route_master: bool = False,
+        hdr_mode: str = "paper",
     ) -> object:
         apply_stocks_specifics = (
             self._runtime_simulator is None
@@ -806,7 +819,12 @@ class GuiController:
             else:
                 self._runtime_simulator.update_params(digested_params)
             self._next_runtime_digest_applies_stock_specifics = False
-            if require_hdr_metadata:
+            if require_route_master:
+                result = self._runtime_simulator.process_with_master(
+                    image_data,
+                    hdr_mode=hdr_mode,
+                )
+            elif require_hdr_metadata:
                 result = self._runtime_simulator.process_with_metadata(image_data)
             else:
                 result = self._runtime_simulator.process(image_data)
@@ -880,12 +898,18 @@ class GuiController:
             source_layer_name=source_layer_name,
         )
         require_hdr_metadata = _requires_hdr_metadata_for_state(state)
+        require_route_master = require_hdr_metadata and source_layer_name == INPUT_LAYER_NAME
+        hdr_mode = "paper"
+        hdr_state = getattr(state, "hdr", None)
+        if hdr_state is not None:
+            hdr_mode = normalize_hdr_mapping_mode(getattr(hdr_state, "hdr_mapping_mode", "paper"))
         memory_warning_shown = False
         if source_layer_name == INPUT_LAYER_NAME:
             memory_message = runtime.full_render_memory_guard_message(
                 image_data,
                 params,
                 require_hdr_metadata=require_hdr_metadata,
+                require_route_master=require_route_master,
             )
             if memory_message is not None:
                 warning_message = (
@@ -918,6 +942,8 @@ class GuiController:
             phase_timings=phase_timings,
             memory_estimates=memory_estimates,
             require_hdr_metadata=require_hdr_metadata,
+            require_route_master=require_route_master,
+            hdr_mode=hdr_mode,
         )
 
         worker = runtime.SimulationWorker(request, execute_request=self._execute_simulation_request)
@@ -945,6 +971,7 @@ class GuiController:
             output_cctf_encoding=result.output_cctf_encoding,
             use_display_transform=result.use_display_transform,
             hdr_scene_energy=result.hdr_scene_energy,
+            route_master=result.route_master,
         )
         result.phase_timings['gui.layer_update'] = time.perf_counter() - layer_start
         if output_layer is not None and hasattr(output_layer, "metadata"):
@@ -988,15 +1015,19 @@ class GuiController:
 
         image, _phase_timings, _memory_estimates = _prepare_simulation_input_image(image_data, params)
         if _requires_hdr_metadata_for_state(state):
+            hdr_mode = normalize_hdr_mapping_mode(getattr(state.hdr, "hdr_mapping_mode", "paper"))
             simulation_output = self._process_image_with_runtime(
                 image,
                 params,
                 require_hdr_metadata=True,
+                require_route_master=source_layer_name == INPUT_LAYER_NAME,
+                hdr_mode=hdr_mode,
             )
         else:
             simulation_output = self._process_image_with_runtime(image, params)
         scan = getattr(simulation_output, 'image', simulation_output)
         hdr_scene_energy = getattr(simulation_output, 'hdr_scene_energy', None)
+        route_master = getattr(simulation_output, 'route_master', None)
         scan_display, display_status = self._prepare_output_display_image(
             scan,
             output_color_space=state.simulation.io.output_color_space,
@@ -1010,5 +1041,6 @@ class GuiController:
             output_cctf_encoding=state.simulation.io.output_cctf_encoding,
             use_display_transform=state.gui_only.display.use_display_transform,
             hdr_scene_energy=hdr_scene_energy,
+            route_master=route_master,
         )
         set_status(self._viewer, display_status)
