@@ -554,7 +554,7 @@ Before marking this goal complete, the implementation report must answer:
 
 This addendum was written before the ISO/HEIC compliance hardening edits. The
 authoritative standard references checked for this pass are the local files in
-`/Users/retriedstormtrooper/Documents/Projects/Active/proxdrtest/docs/reference/standards/`.
+`docs/reference/standards/`.
 The standards README says to search by clause or keyword instead of loading the
 full standards into context.
 

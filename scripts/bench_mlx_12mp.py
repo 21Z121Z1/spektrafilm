@@ -22,7 +22,7 @@ from __future__ import annotations
 import time
 import numpy as np
 
-INPUT_IMAGE = "/Users/retriedstormtrooper/Documents/OPPO 互联/IMG20260530191638.dng"
+INPUT_IMAGE = "IMG20260530191638.dng"
 FILM_PROFILE = "kodak_portra_400"
 PRINT_PROFILE = "kodak_portra_endura"
 

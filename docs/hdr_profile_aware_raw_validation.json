@@ -78,7 +78,7 @@
       "paired_exports": [
         "IMG_1476_preview.jpg"
       ],
-      "path": "/Users/retriedstormtrooper/Downloads/03_\u56fe\u7247\u7d20\u6750/RAW_DNG\u7167\u7247/RAW_DNG_JPEG_\u6279\u91cf\u5bfc\u51fa/IMG_1476_converted.DNG",
+      "path": "RAW_DNG_JPEG_\u6279\u91cf\u5bfc\u51fa/IMG_1476_converted.DNG",
       "process_vs_metadata_max_abs": 2.98013209665271e-08,
       "raw_diagnostics": {
         "confidence": "medium",
@@ -428,7 +428,7 @@
       "paired_exports": [
         "IMG_0847_preview.jpg"
       ],
-      "path": "/Users/retriedstormtrooper/Downloads/03_\u56fe\u7247\u7d20\u6750/RAW_DNG\u7167\u7247/RAW_DNG_JPEG_\u6279\u91cf\u5bfc\u51fa/IMG_0847_converted.DNG",
+      "path": "RAW_DNG_JPEG_\u6279\u91cf\u5bfc\u51fa/IMG_0847_converted.DNG",
       "process_vs_metadata_max_abs": 2.9802256773514557e-08,
       "raw_diagnostics": {
         "confidence": "low",
@@ -867,7 +867,7 @@
         }
       },
       "paired_exports": [],
-      "path": "/Users/retriedstormtrooper/Downloads/03_\u56fe\u7247\u7d20\u6750/RAW_DNG\u7167\u7247/RAW_DNG_JPEG_\u6279\u91cf\u5bfc\u51fa/IMG_9071_converted.DNG",
+      "path": "RAW_DNG_JPEG_\u6279\u91cf\u5bfc\u51fa/IMG_9071_converted.DNG",
       "process_vs_metadata_max_abs": 2.980175284328368e-08,
       "raw_diagnostics": {
         "confidence": "medium",
@@ -1293,7 +1293,7 @@
         }
       },
       "paired_exports": [],
-      "path": "/Users/retriedstormtrooper/Downloads/03_\u56fe\u7247\u7d20\u6750/RAW_DNG\u7167\u7247/RAW_DNG_JPEG_\u6279\u91cf\u5bfc\u51fa/IMG_9131_converted.DNG",
+      "path": "RAW_DNG_JPEG_\u6279\u91cf\u5bfc\u51fa/IMG_9131_converted.DNG",
       "process_vs_metadata_max_abs": 2.9801322076750125e-08,
       "raw_diagnostics": {
         "confidence": "medium",
@@ -1607,7 +1607,7 @@
       "width": 4032
     }
   ],
-  "sample_dir": "/Users/retriedstormtrooper/Downloads/03_\u56fe\u7247\u7d20\u6750/RAW_DNG\u7167\u7247/RAW_DNG_JPEG_\u6279\u91cf\u5bfc\u51fa",
+  "sample_dir": "RAW_DNG_JPEG_\u6279\u91cf\u5bfc\u51fa",
   "selected": [
     {
       "filename": "IMG_1476_converted.DNG",
@@ -1615,7 +1615,7 @@
       "paired_exports": [
         "IMG_1476_preview.jpg"
       ],
-      "path": "/Users/retriedstormtrooper/Downloads/03_\u56fe\u7247\u7d20\u6750/RAW_DNG\u7167\u7247/RAW_DNG_JPEG_\u6279\u91cf\u5bfc\u51fa/IMG_1476_converted.DNG",
+      "path": "RAW_DNG_JPEG_\u6279\u91cf\u5bfc\u51fa/IMG_1476_converted.DNG",
       "raw_sensor_black_level": 0.0,
       "raw_sensor_clip_fraction": 1.230237465356513e-07,
       "raw_sensor_normalized_max": 1.0,
@@ -1632,7 +1632,7 @@
       "paired_exports": [
         "IMG_0847_preview.jpg"
       ],
-      "path": "/Users/retriedstormtrooper/Downloads/03_\u56fe\u7247\u7d20\u6750/RAW_DNG\u7167\u7247/RAW_DNG_JPEG_\u6279\u91cf\u5bfc\u51fa/IMG_0847_converted.DNG",
+      "path": "RAW_DNG_JPEG_\u6279\u91cf\u5bfc\u51fa/IMG_0847_converted.DNG",
       "raw_sensor_black_level": 0.0,
       "raw_sensor_clip_fraction": 6.151187326782565e-08,
       "raw_sensor_normalized_max": 1.0,
@@ -1647,7 +1647,7 @@
       "filename": "IMG_9071_converted.DNG",
       "height": 3024,
       "paired_exports": [],
-      "path": "/Users/retriedstormtrooper/Downloads/03_\u56fe\u7247\u7d20\u6750/RAW_DNG\u7167\u7247/RAW_DNG_JPEG_\u6279\u91cf\u5bfc\u51fa/IMG_9071_converted.DNG",
+      "path": "RAW_DNG_JPEG_\u6279\u91cf\u5bfc\u51fa/IMG_9071_converted.DNG",
       "raw_sensor_black_level": 2112.0,
       "raw_sensor_clip_fraction": 0.0018244421611237087,
       "raw_sensor_normalized_max": 1.0574131463056597,
@@ -1662,7 +1662,7 @@
       "filename": "IMG_9131_converted.DNG",
       "height": 3024,
       "paired_exports": [],
-      "path": "/Users/retriedstormtrooper/Downloads/03_\u56fe\u7247\u7d20\u6750/RAW_DNG\u7167\u7247/RAW_DNG_JPEG_\u6279\u91cf\u5bfc\u51fa/IMG_9131_converted.DNG",
+      "path": "RAW_DNG_JPEG_\u6279\u91cf\u5bfc\u51fa/IMG_9131_converted.DNG",
       "raw_sensor_black_level": 2112.0,
       "raw_sensor_clip_fraction": 0.0024311132632065173,
       "raw_sensor_normalized_max": 1.0090686674278257,

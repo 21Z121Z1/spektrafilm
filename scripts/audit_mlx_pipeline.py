@@ -225,7 +225,7 @@ def run_audit():
     print("=" * 80)
 
     # ---- Load input image ----
-    dng_path = "/Users/retriedstormtrooper/Documents/OPPO 互联/IMG20260530191638.dng"
+    dng_path = "IMG20260530191638.dng"
     if not os.path.exists(dng_path):
         print(f"ERROR: DNG file not found: {dng_path}")
         sys.exit(1)

@@ -1,7 +1,7 @@
 # Profile-Aware HDR ProRAW Validation
 
-Command: `uv run python tools/validate_profile_aware_hdr_raw_samples.py --sample-dir "/Users/retriedstormtrooper/Downloads/03_图片素材/RAW_DNG照片/RAW_DNG_JPEG_批量导出" --max-samples 4 --output docs/hdr_profile_aware_raw_validation.md --diagnostic-scan-limit 32`
-Sample directory: `/Users/retriedstormtrooper/Downloads/03_图片素材/RAW_DNG照片/RAW_DNG_JPEG_批量导出`
+Command: `uv run python tools/validate_profile_aware_hdr_raw_samples.py --sample-dir "RAW_DNG_JPEG_批量导出" --max-samples 4 --output docs/hdr_profile_aware_raw_validation.md --diagnostic-scan-limit 32`
+Sample directory: `RAW_DNG_JPEG_批量导出`
 Discovered DNG files: 365
 DNG files inspected for selection diagnostics: 32
 

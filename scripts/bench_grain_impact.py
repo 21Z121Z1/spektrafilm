@@ -11,7 +11,7 @@ from spektrafilm.utils.io import load_image_oiio
 from spektrafilm.runtime.params_builder import init_params, digest_params
 from spektrafilm.runtime.process import Simulator
 
-DNG_PATH = '/Users/retriedstormtrooper/Documents/OPPO 互联/IMG20260530191638.dng'
+DNG_PATH = 'IMG20260530191638.dng'
 TARGET_SIZE = (1536, 2048)  # H, W
 
 def load_and_resize_dng(path, target_hw):

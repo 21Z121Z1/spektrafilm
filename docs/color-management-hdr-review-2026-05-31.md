@@ -93,7 +93,7 @@
 
 真实样张结果：
 
-- 样张目录：`/Users/retriedstormtrooper/Downloads/03_图片素材/RAW_DNG照片/RAW_DNG_JPEG_批量导出`
+- 样张目录：`RAW_DNG_JPEG_批量导出`
 - 发现 DNG：365 个；本轮抽样验证 4 个，覆盖普通曝光、低调、强高光、近白裁剪样张。
 - 最新报告：`docs/hdr_profile_aware_raw_validation.md`
 - 所有 4 个样张均通过 sidecar finite/nonnegative、process parity、auto-exposure scale-invariant、Android container、ISO metadata roundtrip、JPEG metadata/gain-map probe、EXR attribute tracking 检查。
@@ -170,7 +170,7 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /usr/bin/perl -e 'alarm shift; exec @ARGV' 900 
 ```bash
 /usr/bin/perl -e 'alarm shift; exec @ARGV' 900 \
   uv run python tools/validate_profile_aware_hdr_raw_samples.py \
-  --sample-dir "/Users/retriedstormtrooper/Downloads/03_图片素材/RAW_DNG照片/RAW_DNG_JPEG_批量导出" \
+  --sample-dir "RAW_DNG_JPEG_批量导出" \
   --max-samples 4 \
   --diagnostic-scan-limit 32 \
   --output docs/hdr_profile_aware_raw_validation.md

@@ -2,17 +2,14 @@
 
 # Spektrafilm 文档索引
 
-这是本工作区 Markdown 文档的权威路由表。在使用较旧的评审记录、实施计划或生成的报告作为当前依据之前，请先查阅此文档。
+这是本工作区 Markdown 文档的权威路由表。
 
 ## 首先阅读
 
 | 路径 | 用途 |
 | --- | --- |
 | [`../README.md`](../README.md) | 项目概述、安装/运行说明、包结构以及面向用户的上下文。 |
-| [`dev/README.md`](dev/README.md) | 当前开发报告、活跃的协调文档、GPU/MLX/Halide 笔记、Android 开发工作以及较旧的评审轮次。 |
-| [`agent_audit/README.md`](agent_audit/README.md) | 2026-05-28 审计入口、已接受的发现、评审维度、约定和验证矩阵。 |
 | [`curve_analysis/README.md`](curve_analysis/README.md) | 生成的胶片+相纸 HDR 曲线分析语料库和汇总报告。 |
-| [`archive/README.md`](archive/README.md) | 保留的遗留文档快照。归档文档作为证据存在，不是当前的权威信息来源。 |
 
 ## 双语文档
 
@@ -26,42 +23,37 @@ spectral_film_simulations.md（英文）和 spectral_film_simulations_zh.md（�
 
 | 路径 | 说明 |
 | --- | --- |
-| [`dev/2026-05-31-autonomous-session-coordination-plan.md`](dev/2026-05-31-autonomous-session-coordination-plan.md) | 当前针对脏工作区和并发 GPU/MLX/Halide 工作的协调保护措施。 [中文](dev/2026-05-31-autonomous-session-coordination-plan_zh.md) |
-| [`dev/2026-05-31-markdown-documentation-audit.md`](dev/2026-05-31-markdown-documentation-audit.md) | 本工作区 Markdown 审计：清单、分类、合并变更和验证证据。 [中文](dev/2026-05-31-markdown-documentation-audit_zh.md) |
 | [`halide-mlx-parity-plan-20260531.md`](halide-mlx-parity-plan-20260531.md) | 当前 Halide/MLX 对等计划、基准测试约定、验收标准和自查问题。 [中文](halide-mlx-parity-plan-20260531_zh.md) |
-| [`dev/2026-05-30-adversarial-code-review-v5.md`](dev/2026-05-30-adversarial-code-review-v5.md) | 最新对抗性评审快照：已确认的中/低级别发现和评审缺口。 |
 | [`upstream-sync-plan-20260602.md`](upstream-sync-plan-20260602.md) | 当前上游同步计划。 [中文](upstream-sync-plan-20260602_zh.md) |
-| [`dev/2026-06-01-upstream-main-sync-report.md`](dev/2026-06-01-upstream-main-sync-report.md) | 最新上游同步完成报告。 [中文](dev/2026-06-01-upstream-main-sync-report_zh.md) |
-| [`dev/2026-05-31-sdr-parity-goal-plan.md`](dev/2026-05-31-sdr-parity-goal-plan.md) | 当前 SDR 对等验证计划。 [中文](dev/2026-05-31-sdr-parity-goal-plan_zh.md) |
 
 ## HDR、色彩、GPU 与导出
 
 | 路径 | 说明 |
 | --- | --- |
-| [`color-management-hdr-review-2026-05-31.md`](color-management-hdr-review-2026-05-31.md) | 当前 2026-05-31 色彩管理/HDR 代码评审、修复说明、验证状态和剩余风险。 [英文](color-management-hdr-review-2026-05-31.en.md) |
+| [`color-management-hdr-review-2026-05-31.md`](color-management-hdr-review-2026-05-31.md) | 当前色彩管理/HDR 代码评审、修复说明、验证状态和剩余风险。 [英文](color-management-hdr-review-2026-05-31.en.md) |
 | [`hdr_profile_aware_raw_validation.md`](hdr_profile_aware_raw_validation.md) | 用于配置感知 HDR 导出的真实 ProRAW 验证；配套 JSON 文件为 `hdr_profile_aware_raw_validation.json`。 [英文](hdr_profile_aware_raw_validation.en.md) |
 | [`film-scan-aware-hdr.md`](film-scan-aware-hdr.md) | 规范的 `film_scan_aware` 正片扫描 HDR 语义、负片原始诊断拆分、采样约定和限制。 |
 | [`film-scan-aware-negative-positive-plan.md`](film-scan-aware-negative-positive-plan.md) | 负片原始数据与正片扫描 HDR 路由分离的实施计划。 |
 | [`hdr-film-scan-aware.md`](hdr-film-scan-aware.md) | 指向规范胶片扫描感知 HDR 文档的兼容性入口。 [中文](hdr-film-scan-aware_zh.md) |
 | [`hdr_exr_output_plan.md`](hdr_exr_output_plan.md) | 用于未裁剪 HDR 存档的场景线性 EXR 导出计划。 [英文](hdr_exr_output_plan.en.md) |
-| [`dev/2026-06-03-natural-hdr-film-simulation-research.md`](dev/2026-06-03-natural-hdr-film-simulation-research.md) | 当前自然 HDR 胶片模拟研究、术语定义、模式分类、架构和最小原型验证。 |
-| [`dev/2026-05-31-mlx-postprocessing-effects.md`](dev/2026-05-31-mlx-postprocessing-effects.md) | MLX 可行性、实施说明以及光晕、扩散、颗粒和相关后处理滤镜的测试。 [中文](dev/2026-05-31-mlx-postprocessing-effects_zh.md) |
-| [`dev/mlx-optimization-report-20260530.md`](dev/mlx-optimization-report-20260530.md) | MLX 后端性能优化报告。 |
-| [`dev/gpu-benchmark-20260530.md`](dev/gpu-benchmark-20260530.md) | GPU 后端基准测试和原始计时附录。 [中文](dev/gpu-benchmark-20260530_zh.md) |
-| [`dev/halide-backend-implementation.md`](dev/halide-backend-implementation.md) | 已验证的 Halide 后端状态。 [中文](dev/halide-backend-implementation_zh.md) |
-| [`dev/halide-deep-research.md`](dev/halide-deep-research.md) | Halide Android 移植的深度研究。 |
-| [`dev/halide-android-port-plan.md`](dev/halide-android-port-plan.md) | Halide Android 移植计划。 [中文](dev/halide-android-port-plan_zh.md) |
-| [`dev/research-halide-port.md`](dev/research-halide-port.md) | Halide 重写可行性研究。 [中文](dev/research-halide-port_zh.md) |
-| [`dev/research-gpu-color-management.md`](dev/research-gpu-color-management.md) | GPU 加速和色彩管理研究。 [中文](dev/research-gpu-color-management_zh.md) |
-| [`dev/gain-map-HDR分析报告.md`](dev/gain-map-HDR分析报告.md) | ISO 21496-1 增益图 HDR 集成分析。 [英文](dev/gain-map-HDR-analysis-report.en.md) |
-| [`dev/modern_recovery_peak_budget_plan.md`](dev/modern_recovery_peak_budget_plan.md) | 配置保持的 HDR 恢复峰值预算计划。 [中文](dev/modern_recovery_peak_budget_plan_zh.md) |
+| [`hdr/gain-map-HDR分析报告.md`](hdr/gain-map-HDR分析报告.md) | ISO 21496-1 增益图 HDR 集成分析。 [英文](hdr/gain-map-HDR-analysis-report.en.md) |
+| [`hdr/research-gui-color-hdr.md`](hdr/research-gui-color-hdr.md) | GUI 色彩和 HDR 渲染研究。 |
+| [`heic-iso21496-compliance.md`](heic-iso21496-compliance.md) | 当前 ISO 21496-1 / HEIC `tmap` 验证器、CoreImage 编码后修复、故障静默导出行为以及 Mac 打开性校验。 |
+| [`hdr-export-pipeline.md`](hdr-export-pipeline.md) | 当前 RouteMaster 预渲染 SDR/HDR 对导出边界和 ISO/Mac HEIC 验证合同。 |
+| [`hdr-routemaster-rewrite-implementation-report.md`](hdr-routemaster-rewrite-implementation-report.md) | RouteMaster 重写完成报告，包括 SDR 等效性、两种 HDR 模式、成对导出以及 ISO/HEIC 硬化证据。 |
+| [`gpu/research-gpu-color-management.md`](gpu/research-gpu-color-management.md) | GPU 加速和色彩管理研究。 [中文](gpu/research-gpu-color-management_zh.md) |
+| [`gpu/mlx-optimization-report-20260530.md`](gpu/mlx-optimization-report-20260530.md) | MLX 后端性能优化报告。 [英文](gpu/mlx-optimization-report-20260530.en.md) |
+| [`gpu/halide-backend-implementation.md`](gpu/halide-backend-implementation.md) | 已验证的 Halide 后端状态。 [中文](gpu/halide-backend-implementation_zh.md) |
+| [`gpu/halide-deep-research.md`](gpu/halide-deep-research.md) | Halide Android 移植的深度研究。 [中文](gpu/halide-deep-research_zh.md) |
+| [`architecture/research-memory-management.md`](architecture/research-memory-management.md) | 内存管理和内存泄露检测研究。 [中文](architecture/research-memory-management_zh.md) |
+| [`architecture/research-android-app-architecture.md`](architecture/research-android-app-architecture.md) | Android 端口架构研究。 [中文](architecture/research-android-app-architecture_zh.md) |
+| [`reports/android-port-status-20260528.md`](reports/android-port-status-20260528.md) | Android 端口状态报告。 [中文](reports/android-port-status-20260528_zh.md) |
 
 ## 开发报告与计划
 
 | 路径 | 说明 |
 | --- | --- |
-| [`dev/README.md`](dev/README.md) | `docs/dev/` 下直接文件的完整索引。 |
-| [`superpowers/plans/README.md`](superpowers/plans/README.md) | 智能实施计划索引。1 个活跃计划（ACES 色彩管理）；33 个已完成计划已归档。 |
+| [`reports/public-surface-hygiene-report-20260622.md`](reports/public-surface-hygiene-report-20260622.md) | 仓库公开暴露面整理报告。 |
 | [`issue_positive_film_print_exposure.md`](issue_positive_film_print_exposure.md) | 正片打印曝光行为的问题草稿。该缺陷仍存在于 `state.py:342`。 [中文](issue_positive_film_print_exposure_zh.md) |
 
 ## 根目录级项目文档
@@ -70,8 +62,6 @@ spectral_film_simulations.md（英文）和 spectral_film_simulations_zh.md（�
 | --- | --- |
 | [`../CHANGELOG.md`](../CHANGELOG.md) | 发布和变更历史。 |
 | [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | 贡献工作流程和期望。 |
-| [`../CLAUDE.md`](../CLAUDE.md) | 用于实施和评审工作的本地智能体指令。 |
-| [`../CLAUDE-RESEARCH.md`](../CLAUDE-RESEARCH.md) | 用于 GPU 和色彩管理研究工作的本地智能体指令。 |
 
 ## 研究源材料
 
@@ -87,29 +77,3 @@ spectral_film_simulations.md（英文）和 spectral_film_simulations_zh.md（�
 | [`curve_analysis/`](curve_analysis/) | 生成的曲线分析语料库：1 份汇总报告加上 160 份按胶片+相纸组合分类的报告。 |
 | [`../src/spektrafilm/data/hdr_curve_profiles/README.md`](../src/spektrafilm/data/hdr_curve_profiles/README.md) | 运行时 HDR 曲线配置数据约定。 |
 | [`../src/spektrafilm/data/icc/README.md`](../src/spektrafilm/data/icc/README.md) | 捆绑的 ICC 配置文件说明。 |
-
-## 归档策略
-
-归档文档被保留是因为较旧的计划、评审轮次和重复快照对溯源有价值。在未与以下内容进行比对之前，请勿将归档文件视为当前的实施指导：
-
-1. 当前源代码和测试，
-2. 本文档索引，
-3. 最新的相关 `docs/dev/` 报告，
-4. 最新的相关 `docs/superpowers/plans/` 计划。
-
-### 2026-06-02 归档整理
-
-以下分组在 2026-06-02 经过与当前代码和测试的交叉比对后被归档：
-
-- **根目录级色彩/HDR 评审**（5 个文件）：被 `color-management-hdr-review-2026-05-31.md` 取代
-- **根目录级 GPU 评审**（4 个文件）：被 `dev/` GPU 文档和 `halide-mlx-parity-plan-20260531.md` 取代
-- **根目录级计划/迁移**（5 个文件）：已完成或被上游同步报告取代
-- **dev/ 对抗性评审**（6 个文件）：被 `2026-05-30-adversarial-code-review-v5.md` 取代
-- **dev/ 已完成计划**（4 个文件）：全部标记为已完成
-- **dev/ 代码质量轮次**（14 个文件）：全部为历史评审轮次
-- **dev/ 过期 GPU 报告**（4 个文件）：被 2026-05-31 GPU 报告取代
-- **superpowers/plans/ 已完成计划**（33 个文件）：所有已完成计划移至 `superpowers/plans/archive/`
-
-共计归档：77 个文件移至 `archive/`、`archive/dev/` 和 `superpowers/plans/archive/`。
-
-原 `docs-2-legacy-20260531/` 目录在 2026-06-02 确认所有唯一文件已保存在 `archive/dev/` 中后被移除。
