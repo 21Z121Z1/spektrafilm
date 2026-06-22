@@ -2,7 +2,7 @@
 
 - **整理日期**: 2026-06-22
 - **分支名称**: `chore/public-surface-hygiene`
-- **主要目的**: 规范 Spektrafilm 开发 fork 的公开代码结构，抹除敏感的本地路径（如 `retriedstormtrooper`），归档和移除不必要的内部 Agent 执行历史文件与脚本，确保核心功能完整与测试全通。
+- **主要目的**: 规范 Spektrafilm 开发 fork 的公开代码结构，抹除敏感的本地绝对路径与开发者用户名，归档和移除不必要的内部 Agent 执行历史文件与脚本，确保核心功能完整与测试全通。
 
 ---
 
@@ -40,19 +40,19 @@
 
 - **扫描命令**:
   ```bash
-  git grep -n -I -E "api[_-]?key|secret|token|password|Authorization|Bearer|/Users/|/home/|retriedstormtrooper|Z121Z121" -- .
+  git grep -n -I -E "api[_-]?key|secret|token|password|Authorization|Bearer|/Users/|/home/|<local-username>|<machine-user>" -- . || true
   ```
 - **命中摘要**:
   经过扫描，发现：
-  1. `docs/hdr_profile_aware_raw_validation.md` / `docs/hdr_profile_aware_raw_validation.en.md` / `docs/hdr_profile_aware_raw_validation.json` 包含本地绝对路径（`Users/retriedstormtrooper/...`）。
+  1. `docs/hdr_profile_aware_raw_validation.md` / `docs/hdr_profile_aware_raw_validation.en.md` / `docs/hdr_profile_aware_raw_validation.json` 包含本地绝对路径（包含 `<local-home>/<local-username>/...`）。
   2. `docs/heic-iso21496-compliance.md` 与 `docs/hdr-routemaster-rewrite-plan.md` 中包含本地标准文档绝对路径。
   3. `docs/profile-aware-hdr-audit-report.md` 包含本地 Python 绝对运行路径。
-  4. `scripts/` 下的一系列 benchmark 和调试脚本硬编码了 `/Users/retriedstormtrooper/Documents/OPPO 互联/...` 的绝对路径。
+  4. `scripts/` 下的一系列 benchmark 和调试脚本硬编码了包含 `<local-home>/<local-username>/<local-sample-directory>/...` 的绝对路径。
 - **已处理**:
   - `scripts/` 下的硬编码路径已全部重构为相对路径 `Path("IMG20260530191638.dng")`，可在本地运行时使用同名文件或参数传入。
   - 所有 markdown 报告及配套 json 里的绝对路径前缀均已被清除或修改为相对示范路径（例如 `RAW_DNG_JPEG_批量导出/`）。
 - **需要人工决定项**:
-  - 扫描中命中的 `/home/paul/...`、`/home/andrew/...` 等路径属于上游引用的第三方公共讨论和日志片段，不包含当前用户隐私，无泄露风险。
+  - 扫描中命中的 `/home/<third-party-user>/...` 等路径属于上游引用的第三方公共讨论和日志片段，不包含当前用户隐私，无泄露风险。
   - 过去提交历史中可能存在上述敏感绝对路径。如果不希望这些路径存在于 Git 历史记录中，建议由**人工决定**是否使用 `git-filter-repo` 重写历史（本任务为了低风险和可测试性，默认不重写 Git 历史）。
 
 ---
