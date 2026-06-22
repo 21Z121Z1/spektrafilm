@@ -5,6 +5,10 @@ from spektrafilm.model.density_curves import interp_density_cmy_layers
 from spektrafilm.runtime.params_schema import GrainParams
 from spektrafilm.utils.fast_stats import fast_binomial, fast_poisson, fast_lognormal_from_mean_std
 from spektrafilm.utils.fast_gaussian_filter import fast_gaussian_filter
+from spektrafilm.gpu.kernels.tile_utils import (
+    process_spatial_rows_tiled,
+    resolve_spatial_tile_rows,
+)
 
 
 def _backend_supports_gpu(backend) -> bool:
@@ -206,6 +210,7 @@ def apply_grain_to_density(density_cmy,
                            n_sub_layers=1,
                            fixed_seed=None,
                            backend=None,
+                           settings=None,
                            ):
     if n_sub_layers < 1:
         raise ValueError(f"n_sub_layers must be >= 1, got {n_sub_layers}")
@@ -237,6 +242,7 @@ def apply_grain_to_density(density_cmy,
             n_sub_layers=n_sub_layers,
             seed=seed,
             backend=backend,
+            settings=settings,
         )
 
     # --- CPU path (unchanged) ---
@@ -268,7 +274,8 @@ def _apply_grain_to_density_gpu(density_cmy,
                                 sigma_blur_pixel,
                                 n_sub_layers,
                                 seed,
-                                backend):
+                                backend,
+                                settings=None):
     """GPU-accelerated grain application to density channels."""
     from spektrafilm.gpu.kernels.filters import gaussian_filter_backend
 
@@ -296,7 +303,23 @@ def _apply_grain_to_density_gpu(density_cmy,
     density_cmy_out = density_cmy_out - density_min_mx
 
     if sigma_blur_pixel > 0.4:
-        density_cmy_out = gaussian_filter_backend(density_cmy_out, sigma_blur_pixel, backend)
+        overlap = int(np.ceil(3.0 * sigma_blur_pixel))
+        tile_rows = resolve_spatial_tile_rows(
+            density_cmy_out.shape[0], overlap, backend=backend, settings=settings
+        )
+        if tile_rows is not None:
+            def _blur_tile(tile_ext):
+                return gaussian_filter_backend(tile_ext, sigma_blur_pixel, backend)
+
+            density_cmy_out = process_spatial_rows_tiled(
+                density_cmy_out,
+                _blur_tile,
+                backend,
+                overlap=overlap,
+                tile_rows=tile_rows,
+            )
+        else:
+            density_cmy_out = gaussian_filter_backend(density_cmy_out, sigma_blur_pixel, backend)
 
     return density_cmy_out
 
@@ -316,6 +339,7 @@ def apply_grain_to_density_layers(density_cmy_layers, # x,y,sublayers,rgb
                                   fixed_seed=None,
                                   use_fast_stats=False,
                                   backend=None,
+                                  settings=None,
                                   ):
     density_max_total = np.sum(density_max_layers, axis=0) # [sublayers,rgb]
     density_max_fractions = density_max_layers/density_max_total[None,:]
@@ -349,6 +373,7 @@ def apply_grain_to_density_layers(density_cmy_layers, # x,y,sublayers,rgb
             pixel_size_um=pixel_size_um,
             seed=seed,
             backend=backend,
+            settings=settings,
         )
 
     # --- CPU path (unchanged) ---
@@ -387,7 +412,8 @@ def _apply_grain_to_density_layers_gpu(density_cmy_layers,
                                        density_min,
                                        pixel_size_um,
                                        seed,
-                                       backend):
+                                       backend,
+                                       settings=None):
     """GPU-accelerated layered grain application."""
     from spektrafilm.gpu.kernels.filters import gaussian_filter_backend
 
@@ -420,7 +446,23 @@ def _apply_grain_to_density_layers_gpu(density_cmy_layers,
     density_min_mx = backend.asarray(np.asarray(density_min, dtype=np.float32))
     density_cmy_out = density_cmy_out - density_min_mx
     if grain_blur > 0:
-        density_cmy_out = gaussian_filter_backend(density_cmy_out, grain_blur, backend)
+        overlap = int(np.ceil(3.0 * grain_blur))
+        tile_rows = resolve_spatial_tile_rows(
+            density_cmy_out.shape[0], overlap, backend=backend, settings=settings
+        )
+        if tile_rows is not None:
+            def _blur_tile(tile_ext):
+                return gaussian_filter_backend(tile_ext, grain_blur, backend)
+
+            density_cmy_out = process_spatial_rows_tiled(
+                density_cmy_out,
+                _blur_tile,
+                backend,
+                overlap=overlap,
+                tile_rows=tile_rows,
+            )
+        else:
+            density_cmy_out = gaussian_filter_backend(density_cmy_out, grain_blur, backend)
 
     return density_cmy_out
 
@@ -435,6 +477,7 @@ def apply_grain(
     bypass_grain=False,
     use_fast_stats=False,
     backend=None,
+    settings=None,
 ):
     if not grain.active or bypass_grain:
         return density_cmy
@@ -457,6 +500,7 @@ def apply_grain(
             grain_blur=grain.blur,
             n_sub_layers=grain.n_sub_layers,
             backend=grain_backend,
+            settings=settings,
         )
 
     grain_backend = backend
@@ -495,6 +539,7 @@ def apply_grain(
         grain_micro_structure=grain.micro_structure,
         use_fast_stats=use_fast_stats,
         backend=grain_backend,
+        settings=settings,
     )
 
 # TODO: make grain parameter with RMS granularity

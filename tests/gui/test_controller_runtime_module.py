@@ -242,6 +242,25 @@ def test_full_render_memory_guard_reports_large_mlx_render() -> None:
     assert message is not None
     assert 'Full-resolution render is likely to exceed the memory budget' in message
     assert 'spatial_filter_transients' in message
+    assert 'spectral_chain_transient' in message
+
+
+def test_full_render_memory_estimate_includes_spectral_chain() -> None:
+    class LargeImage:
+        shape = (3072, 4096, 3)
+        dtype = np.dtype(np.float32)
+        nbytes = int(np.prod(shape) * dtype.itemsize)
+
+    params = SimpleNamespace(
+        settings=SimpleNamespace(compute_backend='mlx', gpu_precision='float32'),
+        io=SimpleNamespace(input_color_space='ProPhoto RGB'),
+        film_render=SimpleNamespace(grain=SimpleNamespace(active=True, sublayers_active=True)),
+    )
+
+    estimates = runtime_module.estimate_full_render_memory_bytes(LargeImage(), params)
+    assert 'spectral_chain_transient' in estimates
+    pixels = 3072 * 4096
+    assert estimates['spectral_chain_transient'] == pixels * 81 * 4 * 2
 
 
 def test_full_render_memory_guard_can_be_disabled_by_env(monkeypatch) -> None:
@@ -277,7 +296,7 @@ def test_full_render_memory_guard_uses_budget_env_override(monkeypatch) -> None:
         film_render=SimpleNamespace(grain=SimpleNamespace(active=False, sublayers_active=False)),
     )
 
-    monkeypatch.setenv('SPEKTRAFILM_RENDER_MEMORY_BUDGET_MB', '8')
+    monkeypatch.setenv('SPEKTRAFILM_RENDER_MEMORY_BUDGET_MB', '64')
     under_budget = runtime_module.full_render_memory_guard_message(
         SmallImage(),
         params,

@@ -246,6 +246,10 @@ class SettingsParams:
     gpu_validation_tolerance: float | None = None
     gpu_aggressive_cleanup: bool = False
     gpu_cleanup_cache_threshold_mb: float | None = 8192.0
+    gpu_tile_rows: int | None = None
+    gpu_disable_spectral_tiling: bool = False
+    gpu_spatial_tile_rows: int | None = None
+    gpu_disable_spatial_tiling: bool = False
 
 
 @dataclass

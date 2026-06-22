@@ -485,3 +485,17 @@ def test_gaussian_filter_iir_systematic_bias_bounded(backend_name: str) -> None:
         f"backend={backend_name!r} Gaussian IIR bias {max_abs_diff:.2e} "
         f"exceeds tolerance {tolerance:.2e}"
     )
+
+
+def test_diffusion_gpu_psf_cache_can_be_cleared() -> None:
+    from spektrafilm.model.diffusion import (
+        _DIFFUSION_GPU_PSF_CACHE,
+        _DIFFUSION_GPU_PSF_CACHE_LIMIT,
+        clear_diffusion_gpu_psf_cache,
+    )
+
+    assert _DIFFUSION_GPU_PSF_CACHE_LIMIT == 8
+    _DIFFUSION_GPU_PSF_CACHE["dummy_key"] = object()
+    assert len(_DIFFUSION_GPU_PSF_CACHE) >= 1
+    clear_diffusion_gpu_psf_cache()
+    assert len(_DIFFUSION_GPU_PSF_CACHE) == 0

@@ -80,6 +80,9 @@ class CupyBackend:
         if self._pinned_mempool is not None:
             self._pinned_mempool.free_all_blocks()
 
+    def zeros(self, shape: tuple[int, ...], dtype: Any | None = None) -> Any:
+        return self.cp.zeros(shape, dtype=dtype or self.default_dtype)
+
     def exp(self, x: Any):
         return self.cp.exp(x)
 

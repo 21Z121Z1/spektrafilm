@@ -60,6 +60,7 @@ def develop(
     use_fast_stats: bool = False,
     *,
     backend=None,
+    settings=None,
 ) -> FloatArray:
     density_curves = np.asarray(density_curves)
     if density_curves.ndim != 2 or density_curves.shape[1] != 3:
@@ -99,6 +100,7 @@ def develop(
         bypass_grain=bypass_grain,
         use_fast_stats=use_fast_stats,
         backend=backend,
+        settings=settings,
     )
 
     return density_cmy

@@ -532,6 +532,14 @@ def estimate_full_render_memory_bytes(
     if bool(getattr(grain, "active", False)):
         estimates["grain_layers"] = int(pixels * 9 * 4) if bool(getattr(grain, "sublayers_active", True)) else rgb32
 
+    # Spectral chain transient memory: density_spectral (H×W×K) and light
+    # (H×W×K) coexist during both the printing.expose and scanning.scan
+    # stages. They are freed before/after each stage, so the peak is one
+    # stage's worth, not both summed. K=81 for the fixed 380-780 nm @ 5 nm
+    # spectral shape used throughout the pipeline.
+    spectral_samples = 81
+    estimates["spectral_chain_transient"] = int(pixels * spectral_samples * 4 * 2)
+
     if require_hdr_metadata:
         estimates["hdr_scene_luminance_sidecar"] = y32
 

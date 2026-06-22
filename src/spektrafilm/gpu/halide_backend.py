@@ -109,6 +109,9 @@ class HalideBackend:
         self._cmy_to_log_xyz_pipelines.clear()
         self._cmy_to_log_raw_pipelines.clear()
 
+    def zeros(self, shape: tuple[int, ...], dtype: Any | None = None) -> np.ndarray:
+        return np.zeros(shape, dtype=dtype or self.default_dtype)
+
     def exp(self, x: Any) -> np.ndarray:
         return np.exp(x)
 

@@ -36,6 +36,9 @@ class NumpyBackend:
     def cleanup(self) -> None:
         return None
 
+    def zeros(self, shape: tuple[int, ...], dtype: Any | None = None) -> np.ndarray:
+        return np.zeros(shape, dtype=dtype)
+
     def exp(self, x: Any) -> np.ndarray:
         return np.exp(x)
 

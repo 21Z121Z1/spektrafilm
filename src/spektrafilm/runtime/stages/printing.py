@@ -15,6 +15,10 @@ from spektrafilm.gpu.kernels.density import (
     light_to_raw as light_to_raw_backend,
     safe_log10_backend,
 )
+from spektrafilm.gpu.kernels.tile_utils import (
+    default_tile_rows,
+    process_rows_tiled,
+)
 from spektrafilm.utils.morph_curves import apply_print_curves_morph
 
 
@@ -73,6 +77,21 @@ class PrintingStage:
         self._backend_base_density = self._backend.asarray(base_density)
         self._backend_print_illuminant = self._backend.asarray(print_illuminant)
         self._backend_sensitivity = self._backend.asarray(sensitivity)
+
+    def _resolve_tile_rows(self, height: int) -> int | None:
+        """Return the number of rows per spectral tile, or None to disable tiling."""
+        if self._backend is None or not getattr(self._backend, "supports_gpu", False):
+            return None
+        if getattr(self._backend, "name", None) != "mlx":
+            return None
+        if getattr(self._backend, "precision", None) != "float32":
+            return None
+        if getattr(self._settings, "gpu_disable_spectral_tiling", False):
+            return None
+        explicit = getattr(self._settings, "gpu_tile_rows", None)
+        if explicit is not None:
+            return int(explicit)
+        return default_tile_rows(height)
 
     # public methods
 
@@ -192,33 +211,45 @@ class PrintingStage:
                     return raw
                 return self._backend.to_numpy(raw)
 
-            # Use pre-computed backend arrays — no numpy→backend transfer needed
-            density_spectral = compute_density_spectral_backend(
-                self._backend_channel_density,
-                self._backend.asarray(cmy_film_density),
-                base_density=self._backend_base_density,
-                backend=self._backend,
-            )
-            light = density_to_light_backend(
-                density_spectral, self._backend_print_illuminant, self._backend,
-            )
-            raw = light_to_raw_backend(
-                light, self._backend_sensitivity, self._backend,
-            )
-            # Exposure factor and preflash use small arrays; compute on CPU and transfer
+            # Exposure factor and preflash use small arrays; compute on CPU once.
             sensitivity = 10 ** self._print.data.log_sensitivity
             sensitivity = np.nan_to_num(sensitivity)
             enlarger_light_source = standard_illuminant(self._enlarger.illuminant)
             print_illuminant = self._enlarger_service.enlarger_filtered_illuminant(enlarger_light_source)
-            exp_factor = self._compute_exposure_factor_midgray(sensitivity, print_illuminant)
-            raw = raw * self._backend.asarray(exp_factor)
-            raw = raw + self._backend.asarray(
+            exp_factor = self._backend.asarray(
+                self._compute_exposure_factor_midgray(sensitivity, print_illuminant)
+            )
+            preflash = self._backend.asarray(
                 self._compute_raw_preflash(enlarger_light_source, sensitivity)
             )
-            raw = safe_log10_backend(raw, self._backend)
+
+            def _unfused_chain(tile):
+                density_spectral = compute_density_spectral_backend(
+                    self._backend_channel_density,
+                    tile,
+                    base_density=self._backend_base_density,
+                    backend=self._backend,
+                )
+                light = density_to_light_backend(
+                    density_spectral, self._backend_print_illuminant, self._backend,
+                )
+                raw = light_to_raw_backend(
+                    light, self._backend_sensitivity, self._backend,
+                )
+                raw = raw * exp_factor
+                raw = raw + preflash
+                return safe_log10_backend(raw, self._backend)
+
+            tile_rows = self._resolve_tile_rows(cmy_film_density.shape[0])
+            log_raw = process_rows_tiled(
+                self._backend.asarray(cmy_film_density),
+                _unfused_chain,
+                self._backend,
+                tile_rows=tile_rows,
+            )
             if return_backend:
-                return raw
-            return self._backend.to_numpy(raw)
+                return log_raw
+            return self._backend.to_numpy(log_raw)
         else:
             sensitivity = 10 ** self._print.data.log_sensitivity
             sensitivity = np.nan_to_num(sensitivity)

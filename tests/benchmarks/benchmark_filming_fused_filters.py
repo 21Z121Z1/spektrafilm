@@ -19,10 +19,11 @@ from spektrafilm.gpu.backend import select_backend
 from spektrafilm.model.diffusion import (
     apply_diffusion_filter_um,
     apply_fused_filming_filters,
+    apply_fused_filming_filters_tiled,
     apply_gaussian_blur_um,
     apply_halation_um,
 )
-from spektrafilm.runtime.params_schema import DiffusionFilterParams, HalationParams
+from spektrafilm.runtime.params_schema import DiffusionFilterParams, HalationParams, SettingsParams
 
 
 def _reset_peak_memory(mx) -> None:
@@ -139,29 +140,59 @@ def main() -> None:
     parser.add_argument("--reference", choices=("full", "small", "none"), default="full")
     parser.add_argument("--reference-height", type=int, default=256)
     parser.add_argument("--reference-width", type=int, default=256)
+    parser.add_argument("--enable-spatial-tiling", action="store_true")
+    parser.add_argument("--spatial-tile-rows", type=int, default=None)
+    parser.add_argument("--disable-spatial-tiling", action="store_true")
     args = parser.parse_args()
+    if args.enable_spatial_tiling and args.disable_spatial_tiling:
+        parser.error("--enable-spatial-tiling and --disable-spatial-tiling are mutually exclusive")
 
     backend = select_backend("mlx")
     rng = np.random.default_rng(args.seed)
     image = rng.random((args.height, args.width, 3), dtype=np.float32) + np.float32(0.1)
     diffusion, lens_blur_um, halation, pixel_size_um = _params()
+    settings = SettingsParams(
+        compute_backend="mlx",
+        gpu_precision="float32",
+        gpu_spatial_tile_rows=args.spatial_tile_rows,
+        gpu_disable_spatial_tiling=args.disable_spatial_tiling,
+    )
 
     image_mlx = backend.asarray(image)
 
     def serial_mlx():
-        raw = apply_diffusion_filter_um(image_mlx, diffusion, pixel_size_um, backend=backend)
-        raw = apply_gaussian_blur_um(raw, lens_blur_um, pixel_size_um, backend=backend)
-        return apply_halation_um(raw, halation, pixel_size_um, backend=backend)
+        raw = apply_diffusion_filter_um(
+            image_mlx, diffusion, pixel_size_um, backend=backend, settings=settings
+        )
+        raw = apply_gaussian_blur_um(
+            raw, lens_blur_um, pixel_size_um, backend=backend, settings=settings
+        )
+        return apply_halation_um(
+            raw, halation, pixel_size_um, backend=backend, settings=settings
+        )
 
-    def fused_mlx():
+    def _apply_fused(raw, *, backend_arg):
+        if args.enable_spatial_tiling:
+            return apply_fused_filming_filters_tiled(
+                raw,
+                diffusion_filter=diffusion,
+                lens_blur_um=lens_blur_um,
+                halation=halation,
+                pixel_size_um=pixel_size_um,
+                backend=backend_arg,
+                settings=settings,
+            )
         return apply_fused_filming_filters(
-            image_mlx,
+            raw,
             diffusion_filter=diffusion,
             lens_blur_um=lens_blur_um,
             halation=halation,
             pixel_size_um=pixel_size_um,
-            backend=backend,
+            backend=backend_arg,
         )
+
+    def fused_mlx():
+        return _apply_fused(image_mlx, backend_arg=backend)
 
     outputs: dict[str, Any] = {}
     results: list[dict[str, Any]] = []
@@ -196,6 +227,7 @@ def main() -> None:
             lens_blur_um=lens_blur_um,
             halation=halation,
             pixel_size_um=pixel_size_um,
+            backend=None,
         )
         if args.reference == "full":
             for result in results:
@@ -206,14 +238,7 @@ def main() -> None:
                 )
         else:
             reference_mlx = backend.asarray(reference_image)
-            fused_small = apply_fused_filming_filters(
-                reference_mlx,
-                diffusion_filter=diffusion,
-                lens_blur_um=lens_blur_um,
-                halation=halation,
-                pixel_size_um=pixel_size_um,
-                backend=backend,
-            )
+            fused_small = _apply_fused(reference_mlx, backend_arg=backend)
             _sync(backend, fused_small)
             for result in results:
                 if result["name"] == "fused_mlx":
@@ -227,6 +252,9 @@ def main() -> None:
         "shape": [args.height, args.width, 3],
         "path": args.path,
         "reference": args.reference,
+        "fused_operator": "tiled" if args.enable_spatial_tiling else "whole_frame",
+        "spatial_tile_rows": args.spatial_tile_rows,
+        "disable_spatial_tiling": args.disable_spatial_tiling,
         "results": results,
     }
     print(json.dumps(payload, indent=2, sort_keys=True))

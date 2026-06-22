@@ -110,13 +110,16 @@ class FilmingStage:
                 self._camera.diffusion_filter,
                 pixel_size_um=self._resize_service.pixel_size_um,
                 backend=self._backend,
+                settings=self._settings,
             )
             raw = apply_gaussian_blur_um(raw, self._camera.lens_blur_um,
                                          self._resize_service.pixel_size_um,
-                                         backend=self._backend)
+                                         backend=self._backend,
+                                         settings=self._settings)
             raw = apply_halation_um(raw, self._film_render.halation,
                                     self._resize_service.pixel_size_um,
-                                    backend=self._backend)
+                                    backend=self._backend,
+                                    settings=self._settings)
         raw *= self._color_reference_service.black_white_filming_exposure_correction()
         post_halation_y = self._raw_luminance_y(raw)
         if self._backend is not None and self._backend.supports_gpu:
@@ -143,6 +146,7 @@ class FilmingStage:
             gamma_factor=self._film_render.density_curve_gamma,
             use_fast_stats=self._settings.use_fast_stats,
             backend=self._backend,
+            settings=self._settings,
         )
 
     # private methods

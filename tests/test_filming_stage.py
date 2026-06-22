@@ -266,6 +266,7 @@ def _make_expose_dispatch_stage(*, backend) -> filming_module.FilmingStage:
         black_white_filming_exposure_correction=lambda: 1.0,
     ))
     setattr(stage, '_io', SimpleNamespace(input_color_space='sRGB', input_cctf_decoding=False))
+    setattr(stage, '_settings', SimpleNamespace())
 
     def fake_rgb_to_film_raw(image, *, color_space, apply_cctf_decoding):
         del color_space, apply_cctf_decoding
@@ -289,8 +290,6 @@ def test_expose_with_metadata_cpu_runtime_keeps_serial_spatial_chain(monkeypatch
         return raw
 
     monkeypatch.setattr(filming_module, 'boost_highlights', fake_boost)
-    monkeypatch.setattr(filming_module, 'supports_fused_filming_filters', lambda backend: False)
-    monkeypatch.setattr(filming_module, 'apply_fused_filming_filters', lambda *args, **kwargs: calls.append('fused'))
 
     def serial_step(name):
         def _step(raw, *_args, **_kwargs):
@@ -327,10 +326,16 @@ def test_expose_with_metadata_mlx_capable_runtime_uses_fused_spatial_chain(monke
         assert kwargs['backend'] is backend
         return raw
 
+    def serial_step(name):
+        def _step(raw, *_args, **_kwargs):
+            calls.append(name)
+            return raw
+        return _step
+
     monkeypatch.setattr(filming_module, 'apply_fused_filming_filters', fake_fused)
-    monkeypatch.setattr(filming_module, 'apply_diffusion_filter_um', lambda *args, **kwargs: calls.append('diffusion'))
-    monkeypatch.setattr(filming_module, 'apply_gaussian_blur_um', lambda *args, **kwargs: calls.append('lens'))
-    monkeypatch.setattr(filming_module, 'apply_halation_um', lambda *args, **kwargs: calls.append('halation'))
+    monkeypatch.setattr(filming_module, 'apply_diffusion_filter_um', serial_step('diffusion'))
+    monkeypatch.setattr(filming_module, 'apply_gaussian_blur_um', serial_step('lens'))
+    monkeypatch.setattr(filming_module, 'apply_halation_um', serial_step('halation'))
 
     result = stage.expose_with_metadata(image)
 

@@ -11,6 +11,10 @@ from spektrafilm.gpu.kernels.color import (
     xyz_to_rgb as xyz_to_rgb_backend,
 )
 from spektrafilm.gpu.kernels.density import cmy_to_log_xyz_backend
+from spektrafilm.gpu.kernels.tile_utils import (
+    default_tile_rows,
+    process_rows_tiled,
+)
 from spektrafilm.model.diffusion import apply_gaussian_blur, apply_unsharp_mask
 from spektrafilm.model.develop import compute_density_spectral
 from spektrafilm.model.glare import add_glare
@@ -52,6 +56,21 @@ class ScanningStage:
         # communicate to the color reference service the callable to convert cmy densities to log xyz
         self._color_reference_service.cmy_to_log_xyz = self.cmy_to_log_xyz
         
+    def _resolve_tile_rows(self, height: int) -> int | None:
+        """Return the number of rows per spectral tile, or None to disable tiling."""
+        if self._backend is None or not getattr(self._backend, "supports_gpu", False):
+            return None
+        if getattr(self._backend, "name", None) != "mlx":
+            return None
+        if getattr(self._backend, "precision", None) != "float32":
+            return None
+        if getattr(self._settings, "gpu_disable_spectral_tiling", False):
+            return None
+        explicit = getattr(self._settings, "gpu_tile_rows", None)
+        if explicit is not None:
+            return int(explicit)
+        return default_tile_rows(height)
+
     # public methods
 
     @timeit("scan")
@@ -188,6 +207,25 @@ class ScanningStage:
 
         def cmy_to_log_xyz(density_cmy: np.ndarray) -> np.ndarray:
             if _gpu:
+                tile_rows = self._resolve_tile_rows(density_cmy.shape[0])
+                if tile_rows is not None:
+                    def _tile_fn(tile):
+                        return cmy_to_log_xyz_backend(
+                            tile,
+                            _backend_channel_density,
+                            _backend_base_density,
+                            _backend_scan_illuminant,
+                            _backend_cmfs,
+                            normalization,
+                            self._backend,
+                        )
+
+                    return process_rows_tiled(
+                        self._backend.asarray(density_cmy),
+                        _tile_fn,
+                        self._backend,
+                        tile_rows=tile_rows,
+                    )
                 return cmy_to_log_xyz_backend(
                     density_cmy, _backend_channel_density, _backend_base_density,
                     _backend_scan_illuminant, _backend_cmfs, normalization,
@@ -204,10 +242,14 @@ class ScanningStage:
         return cmy_to_log_xyz
 
     def _apply_blur_and_unsharp(self, rgb: np.ndarray) -> np.ndarray:
-        rgb = apply_gaussian_blur(rgb, self._scanner.lens_blur, backend=self._backend)
+        rgb = apply_gaussian_blur(
+            rgb, self._scanner.lens_blur, backend=self._backend, settings=self._settings
+        )
         sigma, amount = self._scanner.unsharp_mask
         if sigma > 0 and amount > 0:
-            rgb = apply_unsharp_mask(rgb, sigma=sigma, amount=amount, backend=self._backend)
+            rgb = apply_unsharp_mask(
+                rgb, sigma=sigma, amount=amount, backend=self._backend, settings=self._settings
+            )
         return rgb
 
     def _apply_cctf_encoding_and_clip(self, rgb: np.ndarray, encoding=None) -> np.ndarray:

@@ -18,6 +18,10 @@ import numpy as np
 import scipy.fft
 
 from spektrafilm.utils.fast_gaussian_filter import _EXPONENTIAL_GAUSSIAN_FITS
+from spektrafilm.gpu.kernels.tile_utils import (
+    process_spatial_rows_tiled,
+    resolve_spatial_tile_rows,
+)
 
 
 _GAUSSIAN_SUPPORT_SIGMAS = 8.0
@@ -42,7 +46,7 @@ def supports_fused_filming_filters(backend: Any) -> bool:
     if mx is None:
         return False
     fft = getattr(mx, "fft", None)
-    return callable(getattr(fft, "fft2", None)) and callable(getattr(fft, "ifft2", None))
+    return callable(getattr(fft, "rfft2", None)) and callable(getattr(fft, "irfft2", None))
 
 
 def _clear_mlx_cache(backend) -> None:
@@ -866,4 +870,74 @@ def apply_fused_filming_filters(
         halation=halation,
         pixel_size_um=pixel_size_um,
         backend=backend,
+    )
+
+
+def apply_fused_filming_filters_tiled(
+    raw,
+    *,
+    diffusion_filter,
+    lens_blur_um: float,
+    halation,
+    pixel_size_um: float,
+    backend=None,
+    settings=None,
+):
+    """Tiled wrapper around :func:`apply_fused_filming_filters`.
+
+    Processes the image in overlapping horizontal strips so the per-tile FFT
+    working set is bounded.  The overlap equals the full-image spatial support
+    radius, which guarantees that each tile's internal reflect padding sees the
+    same neighbourhood as the whole-image path.
+    """
+    if backend is None or not supports_fused_filming_filters(backend):
+        return apply_fused_filming_filters(
+            raw,
+            diffusion_filter=diffusion_filter,
+            lens_blur_um=lens_blur_um,
+            halation=halation,
+            pixel_size_um=pixel_size_um,
+            backend=backend,
+        )
+
+    shape = tuple(int(s) for s in raw.shape)
+    support_radius, _ = _spatial_support_radius(
+        shape,
+        diffusion_filter=diffusion_filter,
+        lens_blur_um=lens_blur_um,
+        halation=halation,
+        pixel_size_um=pixel_size_um,
+    )
+    if support_radius <= 0:
+        return raw
+
+    tile_rows = resolve_spatial_tile_rows(
+        shape[0], support_radius, backend=backend, settings=settings
+    )
+    if tile_rows is None:
+        return apply_fused_filming_filters(
+            raw,
+            diffusion_filter=diffusion_filter,
+            lens_blur_um=lens_blur_um,
+            halation=halation,
+            pixel_size_um=pixel_size_um,
+            backend=backend,
+        )
+
+    def _process_tile(tile_ext):
+        return apply_fused_filming_filters(
+            tile_ext,
+            diffusion_filter=diffusion_filter,
+            lens_blur_um=lens_blur_um,
+            halation=halation,
+            pixel_size_um=pixel_size_um,
+            backend=backend,
+        )
+
+    return process_spatial_rows_tiled(
+        backend.asarray(raw),
+        _process_tile,
+        backend,
+        overlap=support_radius,
+        tile_rows=tile_rows,
     )

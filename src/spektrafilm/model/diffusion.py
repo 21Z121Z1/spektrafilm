@@ -4,8 +4,12 @@ import numpy as np
 import scipy.ndimage
 from spektrafilm.utils.fast_gaussian_filter import fast_exponential_filter, fast_gaussian_filter
 from spektrafilm.utils.numba_boost_highlights import boost_highlights
+from spektrafilm.gpu.kernels.tile_utils import (
+    process_spatial_rows_tiled,
+    resolve_spatial_tile_rows,
+)
 
-def apply_unsharp_mask(image, sigma=0.0, amount=0.0, *, backend=None):
+def apply_unsharp_mask(image, sigma=0.0, amount=0.0, *, backend=None, settings=None):
     """
     Apply an unsharp mask to an image.
 
@@ -14,21 +18,65 @@ def apply_unsharp_mask(image, sigma=0.0, amount=0.0, *, backend=None):
     sigma (float, optional): The standard deviation for the Gaussian sharp filter. Leave 0 if not wanted.
     amount (float, optional): The strength of the sharpening effect. Leave 0 if not wanted.
     backend: Optional GPU backend for accelerated filtering.
+    settings: Optional runtime settings to control spatial tiling.
 
     Returns:
     ndarray: The processed image after applying the unsharp mask.
     """
-    # image_blur = scipy.ndimage.gaussian_filter(image, sigma=(sigma, sigma, 0))
-    if backend is not None and getattr(backend, "supports_gpu", False):
-        from spektrafilm.gpu.kernels.filters import gaussian_filter_backend as _gauss_backend
-        image_blur = _gauss_backend(image, sigma, backend)
-    else:
-        image_blur = fast_gaussian_filter(image, sigma)
-    image_sharp = image + amount * (image - image_blur)
-    return image_sharp
+    if sigma <= 0 or amount == 0.0:
+        return image
+
+    _gpu = backend is not None and getattr(backend, "supports_gpu", False)
+
+    def _unsharp_tile(tile_ext):
+        if _gpu:
+            from spektrafilm.gpu.kernels.filters import gaussian_filter_backend as _gauss_backend
+            tile_blur = _gauss_backend(tile_ext, sigma, backend)
+        else:
+            tile_blur = fast_gaussian_filter(tile_ext, sigma)
+        return tile_ext + amount * (tile_ext - tile_blur)
+
+    if _gpu:
+        overlap = _gaussian_overlap(sigma)
+        tile_rows = resolve_spatial_tile_rows(
+            image.shape[0], overlap, backend=backend, settings=settings
+        )
+        if tile_rows is not None:
+            return process_spatial_rows_tiled(
+                backend.asarray(image), _unsharp_tile, backend, overlap=overlap, tile_rows=tile_rows
+            )
+    return _unsharp_tile(image)
 
 
-def apply_halation_um(raw, halation, pixel_size_um, *, backend=None):
+def _halation_overlap_px(halation, pixel_size_um) -> int:
+    """Return the vertical overlap needed to tile ``apply_halation_um``.
+
+    Supports are conservative: 3 sigma for Gaussians and 8 lambda for the
+    exponential tail (same truncation budget used by diffusion filters).
+    """
+    overlap = 0.0
+    s_amount = float(halation.scatter_amount)
+    s_scale = float(halation.scatter_spatial_scale)
+    if s_amount > 0:
+        sigma_c_px = np.asarray(halation.scatter_core_um, dtype=np.float64) * s_scale / pixel_size_um
+        lambda_t_px = np.asarray(halation.scatter_tail_um, dtype=np.float64) * s_scale / pixel_size_um
+        if np.any(sigma_c_px > 0):
+            overlap = max(overlap, 3.0 * np.max(sigma_c_px))
+        if np.any(lambda_t_px > 0):
+            overlap = max(overlap, 8.0 * np.max(lambda_t_px))
+
+    h_amount = float(halation.halation_amount)
+    h_scale = float(halation.halation_spatial_scale)
+    N = int(halation.halation_n_bounces)
+    a_tot = np.asarray(halation.halation_strength, dtype=np.float64) * h_amount
+    sigma_h_px = np.asarray(halation.halation_first_sigma_um, dtype=np.float64) * h_scale / pixel_size_um
+    if h_amount > 0 and N >= 1 and np.any(a_tot > 0) and np.any(sigma_h_px > 0):
+        overlap = max(overlap, 3.0 * np.max(sigma_h_px) * np.sqrt(N))
+
+    return int(np.ceil(overlap))
+
+
+def apply_halation_um(raw, halation, pixel_size_um, *, backend=None, settings=None):
     """Apply highlight boost, in-emulsion scatter, and back-reflection halation.
 
     Ordering is boost -> scatter -> halation: the boost reconstructs pre-clip
@@ -43,95 +91,118 @@ def apply_halation_um(raw, halation, pixel_size_um, *, backend=None):
     if not halation.active:
         return raw
 
-    # 1. Scatter pass — energy-preserving mixture of a Gaussian core and an
-    #    exponential tail (matching measured film MTFs), blended with the
-    #    identity by scatter_amount to model the fraction of photons that
-    #    actually scatter:
-    #    E1 = (1 - s) * E0  +  s * [(1 - w_s) * G(sigma_c) * E0 + w_s * Exp(lambda_t) * E0]
-    #    where s = scatter_amount. sigma_c and lambda_t are both scaled by
-    #    scatter_spatial_scale; lambda_t is the decay constant of the
-    #    exponential, dispatched internally to a Gaussian mixture.
-    s_amount = float(halation.scatter_amount)
-    s_scale = float(halation.scatter_spatial_scale)
-    w_s = np.asarray(halation.scatter_tail_weight, dtype=np.float64)
-    sigma_c_px = np.asarray(halation.scatter_core_um, dtype=np.float64) * s_scale / pixel_size_um
-    lambda_t_px = np.asarray(halation.scatter_tail_um, dtype=np.float64) * s_scale / pixel_size_um
     _gpu = backend is not None and getattr(backend, "supports_gpu", False)
-    if s_amount > 0 and (np.any(sigma_c_px > 0) or np.any(lambda_t_px > 0)):
-        from spektrafilm.gpu.kernels.filters import (
-            exponential_filter_backend as _exp_backend,
-            gaussian_filter_backend as _gauss_backend,
-        )
-        sigma_c_safe = np.maximum(sigma_c_px, 1e-6)
-        lambda_t_safe = np.maximum(lambda_t_px, 1e-6)
-        if _gpu:
-            core = _gauss_backend(raw, sigma_c_safe, backend)
-            tail = _exp_backend(raw, lambda_t_safe, backend)
-            # Explicitly move coefficients to GPU to avoid implicit
-            # numpy-to-device conversion and potential CPU sync.
-            w_s_gpu = backend.asarray(w_s)
-            scattered = (1.0 - w_s_gpu) * core + w_s_gpu * tail
-        else:
-            core = fast_gaussian_filter(raw, sigma_c_safe)
-            tail = fast_exponential_filter(raw, lambda_t_safe)
-            scattered = (1.0 - w_s) * core + w_s * tail
-        raw = (1.0 - s_amount) * raw + s_amount * scattered
 
-    # 2. Halation pass — additive multi-bounce sum scaled by halation_amount:
-    #    E2 = E1 + halation_amount * Σ_{k=1..N} a_k * G(sigma_h * sqrt(k)) * E1
-    #    with a_k = a_tot * ρ^(k-1) / Σ_j ρ^(j-1) and sigmas scaled by
-    #    halation_spatial_scale.
-    h_amount = float(halation.halation_amount)
-    h_scale = float(halation.halation_spatial_scale)
-    a_tot = np.asarray(halation.halation_strength, dtype=np.float64) * h_amount
-    sigma_h_px = np.asarray(halation.halation_first_sigma_um, dtype=np.float64) * h_scale / pixel_size_um
-    N = int(halation.halation_n_bounces)
-    rho = float(halation.halation_bounce_decay)
-    if N >= 1 and np.any(a_tot > 0) and np.any(sigma_h_px > 0):
-        from spektrafilm.gpu.kernels.filters import gaussian_filter_backend as _gauss_backend
-        decay = np.array([rho ** (k - 1) for k in range(1, N + 1)], dtype=np.float64)
-        decay /= decay.sum()
-        # Lazy initialisation: avoid the expensive `raw * 0.0` allocation
-        # which creates a full-size GPU tensor just to fill it with zeros.
-        halation_blur = None
-        for k, wk in zip(range(1, N + 1), decay):
-            sigma_k_px = np.maximum(sigma_h_px * np.sqrt(k), 1e-6)
+    def _halation_tile(tile_ext):
+        # 1. Scatter pass — energy-preserving mixture of a Gaussian core and an
+        #    exponential tail (matching measured film MTFs), blended with the
+        #    identity by scatter_amount to model the fraction of photons that
+        #    actually scatter.
+        s_amount = float(halation.scatter_amount)
+        s_scale = float(halation.scatter_spatial_scale)
+        w_s = np.asarray(halation.scatter_tail_weight, dtype=np.float64)
+        sigma_c_px = np.asarray(halation.scatter_core_um, dtype=np.float64) * s_scale / pixel_size_um
+        lambda_t_px = np.asarray(halation.scatter_tail_um, dtype=np.float64) * s_scale / pixel_size_um
+        if s_amount > 0 and (np.any(sigma_c_px > 0) or np.any(lambda_t_px > 0)):
+            from spektrafilm.gpu.kernels.filters import (
+                exponential_filter_backend as _exp_backend,
+                gaussian_filter_backend as _gauss_backend,
+            )
+            sigma_c_safe = np.maximum(sigma_c_px, 1e-6)
+            lambda_t_safe = np.maximum(lambda_t_px, 1e-6)
             if _gpu:
-                component = wk * _gauss_backend(raw, sigma_k_px, backend)
+                core = _gauss_backend(tile_ext, sigma_c_safe, backend)
+                tail = _exp_backend(tile_ext, lambda_t_safe, backend)
+                w_s_gpu = backend.asarray(w_s)
+                scattered = (1.0 - w_s_gpu) * core + w_s_gpu * tail
             else:
-                component = wk * fast_gaussian_filter(raw, sigma_k_px)
-            if halation_blur is None:
-                halation_blur = component
-            else:
-                halation_blur += component
-        if _gpu:
-            # Move coefficient array to device so the final element-wise
-            # multiply stays fully on-GPU without implicit sync.
-            a_tot_gpu = backend.asarray(a_tot)
-            raw = raw + a_tot_gpu * halation_blur
-        else:
-            raw = raw + a_tot * halation_blur
-        if halation.halation_renormalize:
-            if _gpu:
-                raw = raw / (1.0 + a_tot_gpu)
-            else:
-                raw = raw / (1.0 + a_tot)
+                core = fast_gaussian_filter(tile_ext, sigma_c_safe)
+                tail = fast_exponential_filter(tile_ext, lambda_t_safe)
+                scattered = (1.0 - w_s) * core + w_s * tail
+            tile_ext = (1.0 - s_amount) * tile_ext + s_amount * scattered
 
-    return raw
-
-def apply_gaussian_blur(data, sigma, *, backend=None):
-    if sigma > 0:
-        # return scipy.ndimage.gaussian_filter(data, (sigma, sigma, 0))
-        # data = np.double(data)
-        # data = np.ascontiguousarray(data)
-        if backend is not None and getattr(backend, "supports_gpu", False):
+        # 2. Halation pass — additive multi-bounce sum scaled by halation_amount.
+        h_amount = float(halation.halation_amount)
+        h_scale = float(halation.halation_spatial_scale)
+        a_tot = np.asarray(halation.halation_strength, dtype=np.float64) * h_amount
+        sigma_h_px = np.asarray(halation.halation_first_sigma_um, dtype=np.float64) * h_scale / pixel_size_um
+        N = int(halation.halation_n_bounces)
+        rho = float(halation.halation_bounce_decay)
+        if h_amount > 0 and N >= 1 and np.any(a_tot > 0) and np.any(sigma_h_px > 0):
             from spektrafilm.gpu.kernels.filters import gaussian_filter_backend as _gauss_backend
-            return _gauss_backend(data, sigma, backend)
-        return fast_gaussian_filter(data, sigma)
+            decay = np.array([rho ** (k - 1) for k in range(1, N + 1)], dtype=np.float64)
+            decay /= decay.sum()
+            halation_blur = None
+            for k, wk in zip(range(1, N + 1), decay):
+                sigma_k_px = np.maximum(sigma_h_px * np.sqrt(k), 1e-6)
+                if _gpu:
+                    component = wk * _gauss_backend(tile_ext, sigma_k_px, backend)
+                else:
+                    component = wk * fast_gaussian_filter(tile_ext, sigma_k_px)
+                if halation_blur is None:
+                    halation_blur = component
+                else:
+                    halation_blur += component
+            if _gpu:
+                a_tot_gpu = backend.asarray(a_tot)
+                tile_ext = tile_ext + a_tot_gpu * halation_blur
+            else:
+                tile_ext = tile_ext + a_tot * halation_blur
+            if halation.halation_renormalize:
+                if _gpu:
+                    tile_ext = tile_ext / (1.0 + a_tot_gpu)
+                else:
+                    tile_ext = tile_ext / (1.0 + a_tot)
+
+        return tile_ext
+
+    if _gpu:
+        overlap = _halation_overlap_px(halation, pixel_size_um)
+        tile_rows = resolve_spatial_tile_rows(
+            raw.shape[0], overlap, backend=backend, settings=settings
+        )
+        if tile_rows is not None:
+            return process_spatial_rows_tiled(
+                backend.asarray(raw), _halation_tile, backend, overlap=overlap, tile_rows=tile_rows
+            )
+
+    return _halation_tile(raw)
+
+def _gaussian_overlap(sigma: float) -> int:
+    """Return the row overlap needed to tile a Gaussian of standard deviation ``sigma``.
+
+    The backend Gaussian filters truncate their FIR kernels at 3 sigma; the
+    IIR path is effectively infinite but decays rapidly, so the same 3-sigma
+    halo is sufficient in practice.
+    """
+    return int(np.ceil(3.0 * sigma)) if sigma > 0 else 0
+
+
+def apply_gaussian_blur(data, sigma, *, backend=None, settings=None):
+    if sigma > 0:
+        _gpu = backend is not None and getattr(backend, "supports_gpu", False)
+
+        def _blur_tile(tile_ext):
+            if _gpu:
+                from spektrafilm.gpu.kernels.filters import gaussian_filter_backend as _gauss_backend
+                return _gauss_backend(tile_ext, sigma, backend)
+            return fast_gaussian_filter(tile_ext, sigma)
+
+        if _gpu:
+            overlap = _gaussian_overlap(sigma)
+            tile_rows = resolve_spatial_tile_rows(
+                data.shape[0], overlap, backend=backend, settings=settings
+            )
+            if tile_rows is not None:
+                return process_spatial_rows_tiled(
+                    backend.asarray(data), _blur_tile, backend, overlap=overlap, tile_rows=tile_rows
+                )
+        return _blur_tile(data)
     else:
         return data
-    
-def apply_gaussian_blur_um(data, sigma_um, pixel_size_um, *, backend=None):
+
+
+def apply_gaussian_blur_um(data, sigma_um, pixel_size_um, *, backend=None, settings=None):
     # Spatial-off short-circuit: when sigma_um is 0 (e.g. under
     # debug.lut_mode, which disables all spatial effects), pixel_size_um
     # is irrelevant. Early-return so callers that haven't run preprocess
@@ -141,10 +212,24 @@ def apply_gaussian_blur_um(data, sigma_um, pixel_size_um, *, backend=None):
         return data
     sigma = sigma_um / pixel_size_um
     if sigma > 0:
-        if backend is not None and getattr(backend, "supports_gpu", False):
-            from spektrafilm.gpu.kernels.filters import gaussian_filter_backend as _gauss_backend
-            return _gauss_backend(data, sigma, backend)
-        return fast_gaussian_filter(data, sigma)
+        _gpu = backend is not None and getattr(backend, "supports_gpu", False)
+
+        def _blur_tile(tile_ext):
+            if _gpu:
+                from spektrafilm.gpu.kernels.filters import gaussian_filter_backend as _gauss_backend
+                return _gauss_backend(tile_ext, sigma, backend)
+            return fast_gaussian_filter(tile_ext, sigma)
+
+        if _gpu:
+            overlap = _gaussian_overlap(sigma)
+            tile_rows = resolve_spatial_tile_rows(
+                data.shape[0], overlap, backend=backend, settings=settings
+            )
+            if tile_rows is not None:
+                return process_spatial_rows_tiled(
+                    backend.asarray(data), _blur_tile, backend, overlap=overlap, tile_rows=tile_rows
+                )
+        return _blur_tile(data)
     return data
 
 
@@ -174,6 +259,32 @@ def apply_fused_filming_filters(
         halation=halation,
         pixel_size_um=pixel_size_um,
         backend=backend,
+    )
+
+
+def apply_fused_filming_filters_tiled(
+    raw,
+    *,
+    diffusion_filter,
+    lens_blur_um: float,
+    halation,
+    pixel_size_um: float,
+    backend=None,
+    settings=None,
+):
+    """Tiled model-level entry point for the fused filming spatial chain."""
+    from spektrafilm.gpu.kernels.fused_ops import (
+        apply_fused_filming_filters_tiled as _apply_tiled,
+    )
+
+    return _apply_tiled(
+        raw,
+        diffusion_filter=diffusion_filter,
+        lens_blur_um=lens_blur_um,
+        halation=halation,
+        pixel_size_um=pixel_size_um,
+        backend=backend,
+        settings=settings,
     )
 
 def apply_diffusion_filter_mm(data, diffusion_filter_params, pixel_size_um):
@@ -686,11 +797,20 @@ def diffusion_filter_psf(
 
 # Module-level cache for GPU-resident PSF arrays.  Keyed by a tuple of
 # the PSF's hashable construction parameters plus the backend id, so the
-# same PSF numpy array is uploaded to the device only once.
+# same PSF numpy array is uploaded to the device only once.  The bound is
+# kept small: a single render typically uses only a handful of distinct
+# diffusion filters, and each cached PSF can be tens of MB at full
+# resolution (e.g. a 2000×2000×3 float32 kernel is ~48 MB).
 _DIFFUSION_GPU_PSF_CACHE: dict[tuple, object] = {}
+_DIFFUSION_GPU_PSF_CACHE_LIMIT = 8
 
 
-def apply_diffusion_filter_um(image, diffusion_filter, pixel_size_um, *, backend=None):
+def clear_diffusion_gpu_psf_cache() -> None:
+    """Clear the GPU-resident diffusion-filter PSF cache."""
+    _DIFFUSION_GPU_PSF_CACHE.clear()
+
+
+def apply_diffusion_filter_um(image, diffusion_filter, pixel_size_um, *, backend=None, settings=None):
     """Apply a diffusion-filter PSF to an RGB image.
 
     Implements the energy-conserving convex combination
@@ -698,6 +818,10 @@ def apply_diffusion_filter_um(image, diffusion_filter, pixel_size_um, *, backend
     with p_s derived from `strength` and `filter_family`. K_s is per-channel
     because the halo is colour-tinted via an energy-conserving redistribution
     across its sub-components; total scatter energy per channel = p_s.
+
+    ``settings`` is optional. When provided and the backend is MLX float32,
+    the image is processed in overlapping horizontal strips to reduce peak
+    memory. Set ``settings.gpu_disable_spatial_tiling`` to disable this.
     """
     if not diffusion_filter.active:
         return image
@@ -750,24 +874,35 @@ def apply_diffusion_filter_um(image, diffusion_filter, pixel_size_um, *, backend
         if psf_gpu is None:
             psf_gpu = backend.asarray(psf_per_channel)
             # Bound cache size to prevent unbounded growth.
-            if len(_DIFFUSION_GPU_PSF_CACHE) >= 32:
+            if len(_DIFFUSION_GPU_PSF_CACHE) >= _DIFFUSION_GPU_PSF_CACHE_LIMIT:
                 _DIFFUSION_GPU_PSF_CACHE.clear()
             _DIFFUSION_GPU_PSF_CACHE[gpu_psf_key] = psf_gpu
 
-    if _gpu:
-        from spektrafilm.gpu.kernels.filters import reflect_pad_hw_backend as _reflect_pad
-        padded = _reflect_pad(image, radius, backend)
-    else:
-        padded = np.pad(image, ((radius, radius), (radius, radius), (0, 0)), mode='reflect')
-    if _gpu:
-        from spektrafilm.gpu.kernels.filters import fft_convolve_same_backend as _fft_conv
-        blurred = _fft_conv(padded, psf_gpu, backend)
-    else:
-        blurred = np.empty_like(padded)
-        for channel in range(image.shape[2]):
-            blurred[:, :, channel] = fftconvolve(
-                padded[:, :, channel], psf_per_channel[..., channel], mode='same',
+    def _filter_tile(tile_ext):
+        if _gpu:
+            from spektrafilm.gpu.kernels.filters import reflect_pad_hw_backend as _reflect_pad
+            from spektrafilm.gpu.kernels.filters import fft_convolve_same_backend as _fft_conv
+            padded = _reflect_pad(tile_ext, radius, backend)
+            blurred = _fft_conv(padded, psf_gpu, backend)
+        else:
+            padded = np.pad(
+                tile_ext, ((radius, radius), (radius, radius), (0, 0)), mode='reflect'
             )
-    blurred = blurred[radius:-radius, radius:-radius, :]
+            blurred = np.empty_like(padded)
+            for channel in range(tile_ext.shape[2]):
+                blurred[:, :, channel] = fftconvolve(
+                    padded[:, :, channel], psf_per_channel[..., channel], mode='same',
+                )
+        blurred = blurred[radius:-radius, radius:-radius, :]
+        return (1.0 - p_s) * tile_ext + p_s * blurred
 
-    return (1.0 - p_s) * image + p_s * blurred
+    if _gpu:
+        tile_rows = resolve_spatial_tile_rows(
+            image.shape[0], radius, backend=backend, settings=settings
+        )
+        if tile_rows is not None:
+            return process_spatial_rows_tiled(
+                backend.asarray(image), _filter_tile, backend, overlap=radius, tile_rows=tile_rows
+            )
+
+    return _filter_tile(image)

@@ -439,6 +439,9 @@ class MlxBackend:
         if callable(clear_cache):
             clear_cache()
 
+    def zeros(self, shape: tuple[int, ...], dtype: Any | None = None) -> Any:
+        return self.mx.zeros(shape, dtype=dtype or self.default_dtype)
+
     def _compile_arg_signature(self, value: Any) -> tuple[Any, ...]:
         if self._is_mlx_array(value):
             return (
