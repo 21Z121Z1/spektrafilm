@@ -243,3 +243,96 @@ def test_rgb_to_film_raw_non_mlx_gpu_uses_backend_tc_path(monkeypatch) -> None:
     assert calls['backend'][0] is rgb
     assert calls['backend'][4] is backend
     assert calls['prepared_lut'] == "prepared-lut"
+
+
+def _make_expose_dispatch_stage(*, backend) -> filming_module.FilmingStage:
+    stage = object.__new__(filming_module.FilmingStage)
+    setattr(stage, '_backend', backend)
+    setattr(stage, '_camera', SimpleNamespace(
+        exposure_compensation_ev=0.0,
+        diffusion_filter=SimpleNamespace(active=True),
+        lens_blur_um=4.0,
+    ))
+    setattr(stage, '_film_render', SimpleNamespace(
+        halation=SimpleNamespace(
+            active=True,
+            boost_ev=0.0,
+            boost_range=0.3,
+            protect_ev=4.0,
+        ),
+    ))
+    setattr(stage, '_resize_service', SimpleNamespace(pixel_size_um=4.0))
+    setattr(stage, '_color_reference_service', SimpleNamespace(
+        black_white_filming_exposure_correction=lambda: 1.0,
+    ))
+    setattr(stage, '_io', SimpleNamespace(input_color_space='sRGB', input_cctf_decoding=False))
+
+    def fake_rgb_to_film_raw(image, *, color_space, apply_cctf_decoding):
+        del color_space, apply_cctf_decoding
+        return np.asarray(image, dtype=np.float32).copy()
+
+    setattr(stage, '_rgb_to_film_raw', fake_rgb_to_film_raw)
+    setattr(stage, '_raw_luminance_y', lambda raw: np.sum(np.asarray(raw), axis=2))
+    return stage
+
+
+def test_expose_with_metadata_cpu_runtime_keeps_serial_spatial_chain(monkeypatch) -> None:
+    stage = _make_expose_dispatch_stage(backend=None)
+    image = np.full((3, 4, 3), 0.5, dtype=np.float32)
+    calls: list[str] = []
+
+    def fake_boost(raw, *_args, out=None):
+        calls.append('boost_cpu')
+        if out is not None:
+            out[...] = raw
+            return out
+        return raw
+
+    monkeypatch.setattr(filming_module, 'boost_highlights', fake_boost)
+    monkeypatch.setattr(filming_module, 'supports_fused_filming_filters', lambda backend: False)
+    monkeypatch.setattr(filming_module, 'apply_fused_filming_filters', lambda *args, **kwargs: calls.append('fused'))
+
+    def serial_step(name):
+        def _step(raw, *_args, **_kwargs):
+            calls.append(name)
+            return raw
+        return _step
+
+    monkeypatch.setattr(filming_module, 'apply_diffusion_filter_um', serial_step('diffusion'))
+    monkeypatch.setattr(filming_module, 'apply_gaussian_blur_um', serial_step('lens'))
+    monkeypatch.setattr(filming_module, 'apply_halation_um', serial_step('halation'))
+
+    result = stage.expose_with_metadata(image)
+
+    assert result.log_raw.shape == image.shape
+    assert calls == ['boost_cpu', 'diffusion', 'lens', 'halation']
+
+
+def test_expose_with_metadata_mlx_capable_runtime_uses_fused_spatial_chain(monkeypatch) -> None:
+    backend = _FakeGpuBackend(name="mlx", precision="float32")
+    stage = _make_expose_dispatch_stage(backend=backend)
+    image = np.full((3, 4, 3), 0.5, dtype=np.float32)
+    calls: list[str] = []
+
+    monkeypatch.setattr(
+        filming_module,
+        'boost_highlights_backend',
+        lambda raw, *_args: calls.append('boost_gpu') or raw,
+    )
+    monkeypatch.setattr(filming_module, 'safe_log10_backend', lambda raw, _backend: np.log10(np.fmax(raw, 0.0) + 1e-10))
+    monkeypatch.setattr(filming_module, 'supports_fused_filming_filters', lambda _backend: True)
+
+    def fake_fused(raw, **kwargs):
+        calls.append('fused')
+        assert kwargs['backend'] is backend
+        return raw
+
+    monkeypatch.setattr(filming_module, 'apply_fused_filming_filters', fake_fused)
+    monkeypatch.setattr(filming_module, 'apply_diffusion_filter_um', lambda *args, **kwargs: calls.append('diffusion'))
+    monkeypatch.setattr(filming_module, 'apply_gaussian_blur_um', lambda *args, **kwargs: calls.append('lens'))
+    monkeypatch.setattr(filming_module, 'apply_halation_um', lambda *args, **kwargs: calls.append('halation'))
+
+    result = stage.expose_with_metadata(image)
+
+    assert result.log_raw.shape == image.shape
+    assert calls == ['boost_gpu', 'fused']

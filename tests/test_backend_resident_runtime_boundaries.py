@@ -105,7 +105,7 @@ def test_mlx_scanner_lut_apply_path_has_no_unallowed_full_size_to_numpy() -> Non
     assert not unallowed, _format_events(unallowed)
 
 
-def test_mlx_spectral_lut_requests_use_exact_backend_direct_fallback() -> None:
+def test_mlx_spectral_lut_uses_backend_trilinear_path() -> None:
     _mlx_backend_or_skip()
     image = _image()
 
@@ -115,13 +115,16 @@ def test_mlx_spectral_lut_requests_use_exact_backend_direct_fallback() -> None:
 
     params = _params(use_scanner_lut=True)
     params.settings.use_enlarger_lut = True
+    params.settings.lut_resolution = 65
     pipeline = SimulationPipeline(params)
     backend_result = pipeline.process(image)
     result = pipeline._backend.to_numpy(backend_result)
 
-    np.testing.assert_allclose(result, cpu_direct, rtol=0.0, atol=1e-5)
-    assert "PrintingStage.gpu_lut_direct_fallback" in pipeline.timings
-    assert "SpectralLUTService.gpu_lut_direct_fallback" in pipeline.timings
+    # GPU trilinear LUT at res=65 approximates direct spectral within ~5e-4;
+    # allow a margin for float32 accumulation through the full pipeline.
+    np.testing.assert_allclose(result, cpu_direct, rtol=0.0, atol=5e-4)
+    assert "PrintingStage.gpu_lut_direct_fallback" not in pipeline.timings
+    assert "SpectralLUTService.gpu_lut_direct_fallback" not in pipeline.timings
 
 
 def test_mlx_soft_update_enlarger_filters_matches_rebuilt_pipeline() -> None:

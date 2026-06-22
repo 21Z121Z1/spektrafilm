@@ -69,7 +69,7 @@ def test_evaluate_raw_pixel_thread_acceptance_requires_wall_share_and_ratio() ->
                         "results": [
                             {
                                 "name": "cmy_to_log_raw_pixel_thread_v1",
-                                "precision_vs_current_fused_metal": {"max_abs_diff": 5e-7},
+                                "precision_vs_channel_thread_baseline": {"max_abs_diff": 5e-7},
                             }
                         ],
                     }
@@ -107,7 +107,7 @@ def test_evaluate_raw_pixel_thread_acceptance_rejects_low_wall_share() -> None:
                         "results": [
                             {
                                 "name": "cmy_to_log_raw_pixel_thread_v1",
-                                "precision_vs_current_fused_metal": {"max_abs_diff": 2e-7},
+                                "precision_vs_channel_thread_baseline": {"max_abs_diff": 2e-7},
                             }
                         ],
                     }
@@ -141,14 +141,14 @@ def test_evaluate_raw_pixel_thread_acceptance_uses_medium_and_full_sizes_for_v1_
             "kernels": {
                 "cmy_to_log_raw": {
                     "results": [
-                        {
-                            "name": "cmy_to_log_raw_pixel_thread_v1",
-                            "precision_vs_current_fused_metal": {"max_abs_diff": 5e-7},
-                        }
-                    ],
-                }
-            },
-        }
+                            {
+                                "name": "cmy_to_log_raw_pixel_thread_v1",
+                                "precision_vs_channel_thread_baseline": {"max_abs_diff": 5e-7},
+                            }
+                        ],
+                    }
+                },
+            }
 
     payload = {
         "kernel_runs": [
@@ -198,7 +198,7 @@ def test_format_markdown_includes_kernel_report_and_recommendation() -> None:
             "median_speedup_raw_pixel_thread_v1": 1.35,
             "p90_speedup_raw_pixel_thread_v1": 1.1,
             "peak_memory_ratio_raw_pixel_thread_v1": 1.0,
-            "max_diff_raw_pixel_thread_v1_vs_current": 4e-7,
+            "max_diff_raw_pixel_thread_v1_vs_channel_thread_baseline": 4e-7,
         },
         "kernel_runs": [
             {

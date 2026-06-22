@@ -234,7 +234,7 @@ class SettingsParams:
     spectral_gaussian_blur: float = 0.0
     use_enlarger_lut: bool = False
     use_scanner_lut: bool = False
-    lut_resolution: int = 17
+    lut_resolution: int = 65
     use_fast_stats: bool = False
     preview_max_size: int = 640
     preview_mode: bool = False

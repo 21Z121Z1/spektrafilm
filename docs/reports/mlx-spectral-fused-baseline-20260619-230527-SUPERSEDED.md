@@ -1,5 +1,10 @@
 # MLX Spectral Fused Kernel Baseline + Raw Pixel-Thread v1
 
+> **SUPERSEDED** — This report used an incorrect peak-memory measurement that
+> did not account for readback allocation. The corrected measurement is in
+> `mlx-spectral-fused-baseline-20260619-231003.md` and subsequent reports.
+> Retained only for historical reference; do not use for production decisions.
+
 - Suite: mlx_spectral_fused_baseline
 - Seed: 20260619
 - Status: ok

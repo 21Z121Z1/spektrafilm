@@ -225,7 +225,7 @@ def test_lut_path_stays_close_to_direct_path(default_params) -> None:
 
     default_params.settings.use_enlarger_lut = True
     default_params.settings.use_scanner_lut = True
-    default_params.settings.lut_resolution = 17
+    default_params.settings.lut_resolution = 65
     result_lut = simulate(gray, default_params)
 
     _assert_valid_output(result_lut, shape=(4, 4, 3))

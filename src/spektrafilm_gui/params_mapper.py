@@ -104,5 +104,5 @@ def _apply_settings(params: RuntimePhotoParams, state: GuiState) -> None:
     params.settings.preview_max_size = state.gui_only.display.settings.preview_max_size
     params.settings.use_enlarger_lut = True
     params.settings.use_scanner_lut = True
-    params.settings.lut_resolution = 17
+    params.settings.lut_resolution = 65
     params.settings.use_fast_stats = True

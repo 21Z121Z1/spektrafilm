@@ -4,7 +4,14 @@ import numpy as np
 
 from spektrafilm.model.illuminants import standard_illuminant
 from spektrafilm.model.color_filters import compute_band_pass_filter
-from spektrafilm.model.diffusion import apply_diffusion_filter_um, apply_gaussian_blur_um, apply_halation_um, boost_highlights
+from spektrafilm.model.diffusion import (
+    apply_diffusion_filter_um,
+    apply_fused_filming_filters,
+    apply_gaussian_blur_um,
+    apply_halation_um,
+    boost_highlights,
+    supports_fused_filming_filters,
+)
 from spektrafilm.model.develop import compute_density_spectral, develop, develop_simple
 from spektrafilm.gpu.kernels.color import (
     boost_highlights_backend,
@@ -88,18 +95,28 @@ class FilmingStage:
             boost_highlights(raw, self._film_render.halation.boost_ev,
                              self._film_render.halation.boost_range,
                              self._film_render.halation.protect_ev, out=raw)
-        raw = apply_diffusion_filter_um(
-            raw,
-            self._camera.diffusion_filter,
-            pixel_size_um=self._resize_service.pixel_size_um,
-            backend=self._backend,
-        )
-        raw = apply_gaussian_blur_um(raw, self._camera.lens_blur_um,
-                                     self._resize_service.pixel_size_um,
-                                     backend=self._backend)
-        raw = apply_halation_um(raw, self._film_render.halation,
-                                self._resize_service.pixel_size_um,
-                                backend=self._backend)
+        if supports_fused_filming_filters(self._backend):
+            raw = apply_fused_filming_filters(
+                raw,
+                diffusion_filter=self._camera.diffusion_filter,
+                lens_blur_um=self._camera.lens_blur_um,
+                halation=self._film_render.halation,
+                pixel_size_um=self._resize_service.pixel_size_um,
+                backend=self._backend,
+            )
+        else:
+            raw = apply_diffusion_filter_um(
+                raw,
+                self._camera.diffusion_filter,
+                pixel_size_um=self._resize_service.pixel_size_um,
+                backend=self._backend,
+            )
+            raw = apply_gaussian_blur_um(raw, self._camera.lens_blur_um,
+                                         self._resize_service.pixel_size_um,
+                                         backend=self._backend)
+            raw = apply_halation_um(raw, self._film_render.halation,
+                                    self._resize_service.pixel_size_um,
+                                    backend=self._backend)
         raw *= self._color_reference_service.black_white_filming_exposure_correction()
         post_halation_y = self._raw_luminance_y(raw)
         if self._backend is not None and self._backend.supports_gpu:

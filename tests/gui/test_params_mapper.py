@@ -189,7 +189,7 @@ def test_build_params_uses_preview_tuned_lut_settings() -> None:
 
     assert params.settings.use_enlarger_lut is True
     assert params.settings.use_scanner_lut is True
-    assert params.settings.lut_resolution == 17
+    assert params.settings.lut_resolution == 65
     assert params.settings.use_fast_stats is True
 
 

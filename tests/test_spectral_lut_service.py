@@ -137,34 +137,30 @@ def test_spectral_compute_gpu_direct_path_keeps_backend_array_resident() -> None
     assert result is value
 
 
-def test_spectral_compute_gpu_lut_path_uses_exact_direct_backend_fallback(monkeypatch) -> None:
-    class FakeGpuArray:
-        def __array__(self, dtype=None):
-            del dtype
-            raise AssertionError("unexpected GPU array to NumPy transfer")
+def test_spectral_compute_gpu_lut_path_uses_trilinear_backend(monkeypatch) -> None:
+    """When use_lut=True on a GPU backend, the trilinear backend sampler runs."""
+
+    apply_calls: list[tuple[tuple, dict]] = []
+    sentinel = np.full((2, 2, 3), 0.75, dtype=np.float32)
+
+    def fake_apply_lut_trilinear(lut, image, backend, *, prepared_lut=None):
+        apply_calls.append(((lut, image, backend), {"prepared_lut": prepared_lut}))
+        return sentinel
+
+    monkeypatch.setattr(
+        spectral_lut_compute_module,
+        "apply_lut_trilinear_3d_backend",
+        fake_apply_lut_trilinear,
+    )
 
     class FakeGpuBackend:
         supports_gpu = True
 
         def asarray(self, value):
-            del value
-            return backend_input
+            return np.asarray(value)
 
-    backend_input = FakeGpuArray()
-    expected = FakeGpuArray()
-
-    def spectral_calculation(value):
-        assert value is backend_input
-        return expected
-
-    def fake_apply_lut(*_args, **_kwargs):
-        raise AssertionError("GPU spectral LUT must not use approximate trilinear apply")
-
-    monkeypatch.setattr(
-        spectral_lut_compute_module,
-        "apply_lut_trilinear_3d_backend",
-        fake_apply_lut,
-    )
+        def to_numpy(self, value):
+            return np.asarray(value)
 
     service = spectral_lut_compute_module.SpectralLUTService(
         lut_resolution=5,
@@ -176,16 +172,18 @@ def test_spectral_compute_gpu_lut_path_uses_exact_direct_backend_fallback(monkey
     service._scanner_test_results_memory = (
         hash(np.asarray(data_min).tobytes()),
         hash(np.asarray(data_max).tobytes()),
-        id(spectral_calculation),
+        id(lambda x: x),
     )
 
+    input_data = np.full((2, 2, 3), 0.25, dtype=np.float32)
     result = service.spectral_compute_scanner(
-        np.full((2, 2, 3), 0.25, dtype=np.float32),
-        spectral_calculation=spectral_calculation,
+        input_data,
+        spectral_calculation=lambda x: x,
         data_min=data_min,
         data_max=data_max,
         use_lut=True,
     )
 
-    assert result is expected
-    assert "SpectralLUTService.gpu_lut_direct_fallback" in service.timings
+    assert result is sentinel
+    assert len(apply_calls) == 1
+    assert "SpectralLUTService.gpu_lut_direct_fallback" not in service.timings

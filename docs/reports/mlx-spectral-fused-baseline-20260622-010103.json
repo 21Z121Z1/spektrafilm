@@ -1,0 +1,1513 @@
+{
+  "status": "ok",
+  "suite": "mlx_spectral_fused_baseline",
+  "seed": 20260619,
+  "kernel_runs": [
+    {
+      "status": "ok",
+      "label": "preview_256x256",
+      "case": {
+        "height": 256,
+        "width": 256,
+        "dtype": "float32",
+        "seed": 20260619,
+        "film_profile": "kodak_portra_400",
+        "print_profile": "kodak_portra_endura",
+        "spectral_length": 81,
+        "compile_setup_excluded": true,
+        "static_table_conversion_excluded": true,
+        "numpy_reference_computed": true
+      },
+      "warmup": 3,
+      "runs": 10,
+      "kernels": {
+        "cmy_to_log_raw": {
+          "results": [
+            {
+              "name": "cmy_to_log_raw_unfused_backend_chain",
+              "summary": {
+                "runs": 10,
+                "median_ms": 1.7784164811018854,
+                "p90_ms": 2.9412951960694027,
+                "min_ms": 1.5479999710805714,
+                "max_ms": 6.378207996021956
+              },
+              "timings_ms": [
+                6.378207996021956,
+                1.9076670287176967,
+                1.5479999710805714,
+                2.528417040593922,
+                1.6634170315228403,
+                1.5514580300077796,
+                1.7456249915994704,
+                1.7390419961884618,
+                2.5594159960746765,
+                1.8112079706043005
+              ],
+              "peak_memory_bytes": 28513397,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_channel_thread_baseline": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 2.8100981842397548e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "precision_vs_current_fused_metal": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 2.8100981842397548e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "speedup_vs_current": 0.6215034466788614,
+              "p90_speedup_vs_current": 0.6095259671215294,
+              "peak_memory_ratio_vs_current": 4.528325262408293,
+              "speedup_vs_channel_thread_baseline": 0.794796380220085,
+              "p90_speedup_vs_channel_thread_baseline": 0.8603834381354949,
+              "peak_memory_ratio_vs_channel_thread_baseline": 4.528325262408293,
+              "precision_vs_numpy": {
+                "max_abs_diff": 1.7881393432617188e-07,
+                "mean_abs_diff": 2.6783961934913798e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              }
+            },
+            {
+              "name": "cmy_to_log_raw_channel_thread_baseline",
+              "summary": {
+                "runs": 10,
+                "median_ms": 1.4134789817035198,
+                "p90_ms": 2.5306416733656074,
+                "min_ms": 0.9729170124046504,
+                "max_ms": 3.049416991416365
+              },
+              "timings_ms": [
+                2.472999971359968,
+                2.088707988150418,
+                1.4922500122338533,
+                3.049416991416365,
+                1.3347079511731863,
+                1.0043749934993684,
+                0.9729170124046504,
+                2.1142089972272515,
+                1.2767920270562172,
+                1.0634170030243695
+              ],
+              "peak_memory_bytes": 6296676,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 2.8100981842397548e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "precision_vs_channel_thread_baseline": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_current_fused_metal": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "speedup_vs_current": 0.7819656230779038,
+              "p90_speedup_vs_current": 0.7084352628200404,
+              "peak_memory_ratio_vs_current": 1.0,
+              "speedup_vs_channel_thread_baseline": 1.0,
+              "p90_speedup_vs_channel_thread_baseline": 1.0,
+              "peak_memory_ratio_vs_channel_thread_baseline": 1.0,
+              "precision_vs_numpy": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 3.7474624424438385e-08,
+                "p90_abs_diff": 7.450580596923828e-08
+              }
+            },
+            {
+              "name": "cmy_to_log_raw_pixel_thread_v1",
+              "summary": {
+                "runs": 10,
+                "median_ms": 1.1052919726353139,
+                "p90_ms": 1.792795798974111,
+                "min_ms": 0.6419160054065287,
+                "max_ms": 3.3828330342657864
+              },
+              "timings_ms": [
+                0.765874981880188,
+                0.9760839748196304,
+                0.6419160054065287,
+                0.8228339720517397,
+                1.435459009371698,
+                0.7985829724930227,
+                3.3828330342657864,
+                1.6161249950528145,
+                1.2344999704509974,
+                1.5596250304952264
+              ],
+              "peak_memory_bytes": 6296676,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 2.8100981842397548e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "precision_vs_channel_thread_baseline": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_current_fused_metal": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "speedup_vs_current": 1.0,
+              "p90_speedup_vs_current": 1.0,
+              "peak_memory_ratio_vs_current": 1.0,
+              "speedup_vs_channel_thread_baseline": 1.278828596152205,
+              "p90_speedup_vs_channel_thread_baseline": 1.411561581532996,
+              "peak_memory_ratio_vs_channel_thread_baseline": 1.0,
+              "precision_vs_numpy": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 3.7474624424438385e-08,
+                "p90_abs_diff": 7.450580596923828e-08
+              }
+            },
+            {
+              "name": "cmy_to_log_raw_pixel_thread_v1_tg64",
+              "summary": {
+                "runs": 10,
+                "median_ms": 0.7547709974460304,
+                "p90_ms": 1.2311708007473492,
+                "min_ms": 0.5963750299997628,
+                "max_ms": 3.0608330271206796
+              },
+              "timings_ms": [
+                0.9971249965019524,
+                1.0278749978169799,
+                3.0608330271206796,
+                0.9764590067788959,
+                0.758709036745131,
+                0.7508329581469297,
+                0.6768329767510295,
+                0.6373330252245069,
+                0.5963750299997628,
+                0.6015420076437294
+              ],
+              "peak_memory_bytes": 6296676,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 2.8100981842397548e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "precision_vs_channel_thread_baseline": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_current_fused_metal": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "speedup_vs_current": 1.4644070537624856,
+              "p90_speedup_vs_current": 1.456171473434752,
+              "peak_memory_ratio_vs_current": 1.0,
+              "speedup_vs_channel_thread_baseline": 1.872725616758466,
+              "p90_speedup_vs_channel_thread_baseline": 2.0554757080247916,
+              "peak_memory_ratio_vs_channel_thread_baseline": 1.0,
+              "precision_vs_numpy": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 3.7474624424438385e-08,
+                "p90_abs_diff": 7.450580596923828e-08
+              }
+            },
+            {
+              "name": "cmy_to_log_raw_pixel_thread_v1_tg128",
+              "summary": {
+                "runs": 10,
+                "median_ms": 0.6973335111979395,
+                "p90_ms": 1.1055666138418017,
+                "min_ms": 0.5399579531513155,
+                "max_ms": 1.5077909920364618
+              },
+              "timings_ms": [
+                1.0608750162646174,
+                0.6899170111864805,
+                0.7047500112093985,
+                0.8301669731736183,
+                1.5077909920364618,
+                0.6127079832367599,
+                0.6537080043926835,
+                0.9460000437684357,
+                0.5958339897915721,
+                0.5399579531513155
+              ],
+              "peak_memory_bytes": 6296676,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 2.8100981842397548e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "precision_vs_channel_thread_baseline": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_current_fused_metal": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "speedup_vs_current": 1.5850263251174437,
+              "p90_speedup_vs_current": 1.6216081206940705,
+              "peak_memory_ratio_vs_current": 1.0,
+              "speedup_vs_channel_thread_baseline": 2.026976990214229,
+              "p90_speedup_vs_channel_thread_baseline": 2.2889997234736716,
+              "peak_memory_ratio_vs_channel_thread_baseline": 1.0,
+              "precision_vs_numpy": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 3.7474624424438385e-08,
+                "p90_abs_diff": 7.450580596923828e-08
+              }
+            },
+            {
+              "name": "cmy_to_log_raw_pixel_thread_v1_tg512",
+              "summary": {
+                "runs": 10,
+                "median_ms": 0.9899584983941168,
+                "p90_ms": 3.64507115446031,
+                "min_ms": 0.8700829930603504,
+                "max_ms": 5.8008330524899065
+              },
+              "timings_ms": [
+                0.9660000214353204,
+                0.9089999948628247,
+                0.8781249634921551,
+                0.9264579857699573,
+                0.8700829930603504,
+                3.4055420546792448,
+                1.2202090001665056,
+                1.0139169753529131,
+                2.803957962896675,
+                5.8008330524899065
+              ],
+              "peak_memory_bytes": 6296676,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 2.8100981842397548e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "precision_vs_channel_thread_baseline": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_current_fused_metal": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "speedup_vs_current": 1.1165033427444564,
+              "p90_speedup_vs_current": 0.4918410980209117,
+              "peak_memory_ratio_vs_current": 1.0,
+              "speedup_vs_channel_thread_baseline": 1.4278164024011373,
+              "p90_speedup_vs_channel_thread_baseline": 0.6942639981853234,
+              "peak_memory_ratio_vs_channel_thread_baseline": 1.0,
+              "precision_vs_numpy": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 3.7474624424438385e-08,
+                "p90_abs_diff": 7.450580596923828e-08
+              }
+            },
+            {
+              "name": "cmy_to_log_raw_pixel_thread_k_template",
+              "summary": {
+                "runs": 10,
+                "median_ms": 0.7230835035443306,
+                "p90_ms": 1.919041346991434,
+                "min_ms": 0.6240840302780271,
+                "max_ms": 3.5532910260371864
+              },
+              "timings_ms": [
+                3.5532910260371864,
+                1.3972920132800937,
+                0.7913329754956067,
+                0.727917009498924,
+                0.7182499975897372,
+                0.6670420407317579,
+                0.6240840302780271,
+                1.7374580493196845,
+                0.6429170025512576,
+                0.6731670000590384
+              ],
+              "peak_memory_bytes": 6296676,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 2.8100981842397548e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "precision_vs_channel_thread_baseline": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_current_fused_metal": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "speedup_vs_current": 1.528581370225591,
+              "p90_speedup_vs_current": 0.9342142636920024,
+              "peak_memory_ratio_vs_current": 1.0,
+              "speedup_vs_channel_thread_baseline": 1.9547935677900066,
+              "p90_speedup_vs_channel_thread_baseline": 1.3187009635477662,
+              "peak_memory_ratio_vs_channel_thread_baseline": 1.0,
+              "precision_vs_numpy": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 3.7474624424438385e-08,
+                "p90_abs_diff": 7.450580596923828e-08
+              }
+            },
+            {
+              "name": "cmy_to_log_raw_pixel_thread_table_cache",
+              "summary": {
+                "runs": 10,
+                "median_ms": 0.8433960028924048,
+                "p90_ms": 2.5299288914538915,
+                "min_ms": 0.6876250263303518,
+                "max_ms": 3.7840420263819396
+              },
+              "timings_ms": [
+                0.7981249946169555,
+                2.390582987572998,
+                0.7505840039812028,
+                1.0491250432096422,
+                0.9057919960469007,
+                0.6876250263303518,
+                0.7357909926213324,
+                0.8466250146739185,
+                0.8401669911108911,
+                3.7840420263819396
+              ],
+              "peak_memory_bytes": 6296676,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 2.8100981842397548e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "precision_vs_channel_thread_baseline": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_current_fused_metal": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "speedup_vs_current": 1.3105255050352902,
+              "p90_speedup_vs_current": 0.7086348572998163,
+              "peak_memory_ratio_vs_current": 1.0,
+              "speedup_vs_channel_thread_baseline": 1.6759374918259395,
+              "p90_speedup_vs_channel_thread_baseline": 1.0002817398995378,
+              "peak_memory_ratio_vs_channel_thread_baseline": 1.0,
+              "precision_vs_numpy": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 3.7474624424438385e-08,
+                "p90_abs_diff": 7.450580596923828e-08
+              }
+            }
+          ],
+          "median_speedup_fused_vs_unfused": 1.609001535460048,
+          "median_speedup_pixel_thread_v1_vs_current": 1.278828596152205,
+          "p90_speedup_pixel_thread_v1_vs_current": 1.411561581532996,
+          "peak_memory_ratio_pixel_thread_v1_vs_current": 1.0,
+          "production_path": "cmy_to_log_raw_pixel_thread_v1",
+          "channel_thread_baseline_path": "cmy_to_log_raw_channel_thread_baseline"
+        },
+        "cmy_to_log_xyz": {
+          "results": [
+            {
+              "name": "cmy_to_log_xyz_unfused_backend_chain",
+              "summary": {
+                "runs": 10,
+                "median_ms": 1.8580205214675516,
+                "p90_ms": 2.8575916949193916,
+                "min_ms": 1.5280420193448663,
+                "max_ms": 4.773166961967945
+              },
+              "timings_ms": [
+                2.439750009216368,
+                1.8956660060212016,
+                1.6827500076033175,
+                2.6447499985806644,
+                1.8203750369139016,
+                1.5280420193448663,
+                1.7582919681444764,
+                2.2794579854235053,
+                4.773166961967945,
+                1.6622919938527048
+              ],
+              "peak_memory_bytes": 28513385,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_numpy": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 3.814208563805247e-08,
+                "p90_abs_diff": 1.1920928955078125e-07
+              }
+            },
+            {
+              "name": "cmy_to_log_xyz_fused_metal",
+              "summary": {
+                "runs": 10,
+                "median_ms": 0.6289165175985545,
+                "p90_ms": 0.9959961287677286,
+                "min_ms": 0.589667004533112,
+                "max_ms": 1.6975830076262355
+              },
+              "timings_ms": [
+                0.9180420311167836,
+                1.6975830076262355,
+                0.710874970536679,
+                0.806500029284507,
+                0.6373330252245069,
+                0.589667004533112,
+                0.6205000099726021,
+                0.6069170194678009,
+                0.6018339772708714,
+                0.608125003054738
+              ],
+              "peak_memory_bytes": 6296664,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 3.179320628987625e-08,
+                "p90_abs_diff": 1.1920928955078125e-07
+              },
+              "precision_vs_numpy": {
+                "max_abs_diff": 3.5762786865234375e-07,
+                "mean_abs_diff": 6.092523108236492e-08,
+                "p90_abs_diff": 1.1920928955078125e-07
+              }
+            }
+          ],
+          "median_speedup_fused_vs_unfused": 2.954319801556794
+        }
+      },
+      "raw_fused_to_xyz_fused_median_ratio": 1.7574541957583565,
+      "raw_channel_thread_to_xyz_fused_median_ratio": 2.2474826819634615,
+      "raw_pixel_thread_v1_median_speedup_vs_current": 1.278828596152205,
+      "raw_pixel_thread_v1_p90_speedup_vs_current": 1.411561581532996,
+      "raw_pixel_thread_v1_peak_memory_ratio_vs_current": 1.0
+    },
+    {
+      "status": "ok",
+      "label": "medium_768x1024",
+      "case": {
+        "height": 768,
+        "width": 1024,
+        "dtype": "float32",
+        "seed": 20260619,
+        "film_profile": "kodak_portra_400",
+        "print_profile": "kodak_portra_endura",
+        "spectral_length": 81,
+        "compile_setup_excluded": true,
+        "static_table_conversion_excluded": true,
+        "numpy_reference_computed": true
+      },
+      "warmup": 3,
+      "runs": 10,
+      "kernels": {
+        "cmy_to_log_raw": {
+          "results": [
+            {
+              "name": "cmy_to_log_raw_unfused_backend_chain",
+              "summary": {
+                "runs": 10,
+                "median_ms": 19.786645978456363,
+                "p90_ms": 20.88876221096143,
+                "min_ms": 17.96770899090916,
+                "max_ms": 21.12662501167506
+              },
+              "timings_ms": [
+                20.029540988616645,
+                20.86233301088214,
+                17.96770899090916,
+                19.107041007373482,
+                19.907041976694018,
+                21.12662501167506,
+                19.66624998021871,
+                18.712334043812007,
+                19.920916995033622,
+                19.56229197094217
+              ],
+              "peak_memory_bytes": 342103177,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_channel_thread_baseline": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 2.8225456651784715e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "precision_vs_current_fused_metal": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 2.8225456651784715e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "speedup_vs_current": 0.14617394077293805,
+              "p90_speedup_vs_current": 0.17062822808227102,
+              "peak_memory_ratio_vs_current": 4.5310063514026755,
+              "speedup_vs_channel_thread_baseline": 0.39015475476455563,
+              "p90_speedup_vs_channel_thread_baseline": 0.4813443429362878,
+              "peak_memory_ratio_vs_channel_thread_baseline": 4.5310063514026755,
+              "precision_vs_numpy": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 2.6746151914897275e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              }
+            },
+            {
+              "name": "cmy_to_log_raw_channel_thread_baseline",
+              "summary": {
+                "runs": 10,
+                "median_ms": 7.719854009337723,
+                "p90_ms": 10.054687521187589,
+                "min_ms": 6.847832992207259,
+                "max_ms": 10.63350000185892
+              },
+              "timings_ms": [
+                7.249707996379584,
+                9.990375023335218,
+                8.06837499840185,
+                7.371333020273596,
+                6.932749995030463,
+                8.970166963990778,
+                8.366875001229346,
+                10.63350000185892,
+                6.847832992207259,
+                7.114665990229696
+              ],
+              "peak_memory_bytes": 75502692,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 2.8225456651784715e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "precision_vs_channel_thread_baseline": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_current_fused_metal": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "speedup_vs_current": 0.3746563100612442,
+              "p90_speedup_vs_current": 0.35448267043382675,
+              "peak_memory_ratio_vs_current": 1.0,
+              "speedup_vs_channel_thread_baseline": 1.0,
+              "p90_speedup_vs_channel_thread_baseline": 1.0,
+              "peak_memory_ratio_vs_channel_thread_baseline": 1.0,
+              "precision_vs_numpy": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 3.73211122850563e-08,
+                "p90_abs_diff": 7.450580596923828e-08
+              }
+            },
+            {
+              "name": "cmy_to_log_raw_pixel_thread_v1",
+              "summary": {
+                "runs": 10,
+                "median_ms": 2.8922920173499733,
+                "p90_ms": 3.5642124828882507,
+                "min_ms": 2.5242079864256084,
+                "max_ms": 5.0814999849535525
+              },
+              "timings_ms": [
+                2.905417000874877,
+                2.8791670338250697,
+                5.0814999849535525,
+                3.3956249826587737,
+                2.5242079864256084,
+                2.787875011563301,
+                2.7525420300662518,
+                3.158791980240494,
+                2.7069160132668912,
+                2.9142919811420143
+              ],
+              "peak_memory_bytes": 75502692,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 2.8225456651784715e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "precision_vs_channel_thread_baseline": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_current_fused_metal": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "speedup_vs_current": 1.0,
+              "p90_speedup_vs_current": 1.0,
+              "peak_memory_ratio_vs_current": 1.0,
+              "speedup_vs_channel_thread_baseline": 2.669112926021538,
+              "p90_speedup_vs_channel_thread_baseline": 2.821012374952404,
+              "peak_memory_ratio_vs_channel_thread_baseline": 1.0,
+              "precision_vs_numpy": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 3.73211122850563e-08,
+                "p90_abs_diff": 7.450580596923828e-08
+              }
+            },
+            {
+              "name": "cmy_to_log_raw_pixel_thread_v1_tg64",
+              "summary": {
+                "runs": 10,
+                "median_ms": 2.8397499991115183,
+                "p90_ms": 3.4740165923722075,
+                "min_ms": 2.5780830183066428,
+                "max_ms": 5.782665975857526
+              },
+              "timings_ms": [
+                3.2174999942071736,
+                2.663708000909537,
+                2.5780830183066428,
+                2.9900000081397593,
+                2.6860000216402113,
+                2.9194579692557454,
+                5.782665975857526,
+                2.660791971720755,
+                2.760042028967291,
+                2.925209002569318
+              ],
+              "peak_memory_bytes": 75502692,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 2.8225456651784715e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "precision_vs_channel_thread_baseline": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_current_fused_metal": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "speedup_vs_current": 1.0185023393801897,
+              "p90_speedup_vs_current": 1.0259629993460835,
+              "peak_memory_ratio_vs_current": 1.0,
+              "speedup_vs_channel_thread_baseline": 2.7184977592228394,
+              "p90_speedup_vs_channel_thread_baseline": 2.894254317398587,
+              "peak_memory_ratio_vs_channel_thread_baseline": 1.0,
+              "precision_vs_numpy": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 3.73211122850563e-08,
+                "p90_abs_diff": 7.450580596923828e-08
+              }
+            },
+            {
+              "name": "cmy_to_log_raw_pixel_thread_v1_tg128",
+              "summary": {
+                "runs": 10,
+                "median_ms": 2.9093545163050294,
+                "p90_ms": 3.802490996895358,
+                "min_ms": 2.5269999750889838,
+                "max_ms": 4.120416007936001
+              },
+              "timings_ms": [
+                2.5269999750889838,
+                3.04079195484519,
+                2.5352920056320727,
+                4.120416007936001,
+                3.76716599566862,
+                3.1302080024033785,
+                2.6640829746611416,
+                2.9366250382736325,
+                2.8820839943364263,
+                2.6359999901615083
+              ],
+              "peak_memory_bytes": 75502692,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 2.8225456651784715e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "precision_vs_channel_thread_baseline": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_current_fused_metal": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "speedup_vs_current": 0.9941352974141061,
+              "p90_speedup_vs_current": 0.9373362056079407,
+              "peak_memory_ratio_vs_current": 1.0,
+              "speedup_vs_channel_thread_baseline": 2.6534593725422564,
+              "p90_speedup_vs_channel_thread_baseline": 2.6442370355109315,
+              "peak_memory_ratio_vs_channel_thread_baseline": 1.0,
+              "precision_vs_numpy": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 3.73211122850563e-08,
+                "p90_abs_diff": 7.450580596923828e-08
+              }
+            },
+            {
+              "name": "cmy_to_log_raw_pixel_thread_v1_tg512",
+              "summary": {
+                "runs": 10,
+                "median_ms": 2.7653540018945932,
+                "p90_ms": 3.344999981345608,
+                "min_ms": 2.5200829841196537,
+                "max_ms": 4.610624979250133
+              },
+              "timings_ms": [
+                2.5200829841196537,
+                3.2043749815784395,
+                4.610624979250133,
+                3.115625004284084,
+                2.6152089703828096,
+                2.657375007402152,
+                2.9168750043027103,
+                2.689874963834882,
+                2.8408330399543047,
+                2.528291952330619
+              ],
+              "peak_memory_bytes": 75502692,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 2.8225456651784715e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "precision_vs_channel_thread_baseline": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_current_fused_metal": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "speedup_vs_current": 1.0459029894069305,
+              "p90_speedup_vs_current": 1.0655343804978017,
+              "peak_memory_ratio_vs_current": 1.0,
+              "speedup_vs_channel_thread_baseline": 2.7916331883906054,
+              "p90_speedup_vs_channel_thread_baseline": 3.005885673321542,
+              "peak_memory_ratio_vs_channel_thread_baseline": 1.0,
+              "precision_vs_numpy": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 3.73211122850563e-08,
+                "p90_abs_diff": 7.450580596923828e-08
+              }
+            },
+            {
+              "name": "cmy_to_log_raw_pixel_thread_k_template",
+              "summary": {
+                "runs": 10,
+                "median_ms": 2.6999169785995036,
+                "p90_ms": 3.208291408373042,
+                "min_ms": 2.482375013642013,
+                "max_ms": 6.1047920025885105
+              },
+              "timings_ms": [
+                2.6565000298433006,
+                2.8864580090157688,
+                2.8734999941661954,
+                2.742209006100893,
+                2.521249989513308,
+                2.6576249510981143,
+                2.483709016814828,
+                2.482375013642013,
+                6.1047920025885105,
+                2.8207089635543525
+              ],
+              "peak_memory_bytes": 75502692,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 2.8225456651784715e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "precision_vs_channel_thread_baseline": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_current_fused_metal": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "speedup_vs_current": 1.0712522052623479,
+              "p90_speedup_vs_current": 1.1109378884930219,
+              "peak_memory_ratio_vs_current": 1.0,
+              "speedup_vs_channel_thread_baseline": 2.85929310809481,
+              "p90_speedup_vs_channel_thread_baseline": 3.1339695312423084,
+              "peak_memory_ratio_vs_channel_thread_baseline": 1.0,
+              "precision_vs_numpy": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 3.73211122850563e-08,
+                "p90_abs_diff": 7.450580596923828e-08
+              }
+            },
+            {
+              "name": "cmy_to_log_raw_pixel_thread_table_cache",
+              "summary": {
+                "runs": 10,
+                "median_ms": 3.064312506467104,
+                "p90_ms": 3.760604379931464,
+                "min_ms": 2.653208968695253,
+                "max_ms": 6.085416011046618
+              },
+              "timings_ms": [
+                3.038875001948327,
+                3.160208056215197,
+                2.653208968695253,
+                6.085416011046618,
+                3.089750010985881,
+                3.2428749836981297,
+                2.920542028732598,
+                2.6861249934881926,
+                3.5022919764742255,
+                2.7137090219184756
+              ],
+              "peak_memory_bytes": 75502692,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 2.8225456651784715e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "precision_vs_channel_thread_baseline": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_current_fused_metal": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "speedup_vs_current": 0.9438632682684652,
+              "p90_speedup_vs_current": 0.9477765068585087,
+              "peak_memory_ratio_vs_current": 1.0,
+              "speedup_vs_channel_thread_baseline": 2.519277649732295,
+              "p90_speedup_vs_channel_thread_baseline": 2.673689254537015,
+              "peak_memory_ratio_vs_channel_thread_baseline": 1.0,
+              "precision_vs_numpy": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 3.73211122850563e-08,
+                "p90_abs_diff": 7.450580596923828e-08
+              }
+            }
+          ],
+          "median_speedup_fused_vs_unfused": 6.8411646748538315,
+          "median_speedup_pixel_thread_v1_vs_current": 2.669112926021538,
+          "p90_speedup_pixel_thread_v1_vs_current": 2.821012374952404,
+          "peak_memory_ratio_pixel_thread_v1_vs_current": 1.0,
+          "production_path": "cmy_to_log_raw_pixel_thread_v1",
+          "channel_thread_baseline_path": "cmy_to_log_raw_channel_thread_baseline"
+        },
+        "cmy_to_log_xyz": {
+          "results": [
+            {
+              "name": "cmy_to_log_xyz_unfused_backend_chain",
+              "summary": {
+                "runs": 10,
+                "median_ms": 19.360791542567313,
+                "p90_ms": 20.346850017085668,
+                "min_ms": 16.898375004529953,
+                "max_ms": 20.819124998524785
+              },
+              "timings_ms": [
+                19.430333049967885,
+                19.165542034897953,
+                20.294375019147992,
+                16.916833992581815,
+                19.29125003516674,
+                20.819124998524785,
+                19.592042022850364,
+                16.898375004529953,
+                19.234374980442226,
+                19.770000013522804
+              ],
+              "peak_memory_bytes": 342103145,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_numpy": {
+                "max_abs_diff": 2.384185791015625e-07,
+                "mean_abs_diff": 3.809833831130365e-08,
+                "p90_abs_diff": 1.1920928955078125e-07
+              }
+            },
+            {
+              "name": "cmy_to_log_xyz_fused_metal",
+              "summary": {
+                "runs": 10,
+                "median_ms": 3.0410629988182336,
+                "p90_ms": 3.4742537827696647,
+                "min_ms": 2.741375006735325,
+                "max_ms": 5.041790951509029
+              },
+              "timings_ms": [
+                3.0235409503802657,
+                2.8395000263117254,
+                2.741375006735325,
+                5.041790951509029,
+                3.11129103647545,
+                3.300082986243069,
+                3.047166974283755,
+                3.036542038898915,
+                2.9833329608663917,
+                3.045583958737552
+              ],
+              "peak_memory_bytes": 75502680,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 2.980232238769531e-07,
+                "mean_abs_diff": 3.1768072024836634e-08,
+                "p90_abs_diff": 1.1920928955078125e-07
+              },
+              "precision_vs_numpy": {
+                "max_abs_diff": 3.5762786865234375e-07,
+                "mean_abs_diff": 6.094679368591945e-08,
+                "p90_abs_diff": 1.1920928955078125e-07
+              }
+            }
+          ],
+          "median_speedup_fused_vs_unfused": 6.366455265836642
+        }
+      },
+      "raw_fused_to_xyz_fused_median_ratio": 0.9510792832880893,
+      "raw_channel_thread_to_xyz_fused_median_ratio": 2.538538008695539,
+      "raw_pixel_thread_v1_median_speedup_vs_current": 2.669112926021538,
+      "raw_pixel_thread_v1_p90_speedup_vs_current": 2.821012374952404,
+      "raw_pixel_thread_v1_peak_memory_ratio_vs_current": 1.0
+    },
+    {
+      "status": "ok",
+      "label": "full_3024x4032",
+      "case": {
+        "height": 3024,
+        "width": 4032,
+        "dtype": "float32",
+        "seed": 20260619,
+        "film_profile": "kodak_portra_400",
+        "print_profile": "kodak_portra_endura",
+        "spectral_length": 81,
+        "compile_setup_excluded": true,
+        "static_table_conversion_excluded": true,
+        "numpy_reference_computed": false
+      },
+      "warmup": 2,
+      "runs": 5,
+      "kernels": {
+        "cmy_to_log_raw": {
+          "results": [
+            {
+              "name": "cmy_to_log_raw_unfused_backend_chain",
+              "summary": {
+                "runs": 5,
+                "median_ms": 309.5104999956675,
+                "p90_ms": 319.3561003776267,
+                "min_ms": 275.5322500015609,
+                "max_ms": 323.1533339712769
+              },
+              "timings_ms": [
+                297.89425001945347,
+                275.5322500015609,
+                323.1533339712769,
+                313.6602499871515,
+                309.5104999956675
+              ],
+              "peak_memory_bytes": 5303981193,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_channel_thread_baseline": {
+                "max_abs_diff": 2.980232238769531e-07,
+                "mean_abs_diff": 2.8225717696132638e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "precision_vs_current_fused_metal": {
+                "max_abs_diff": 2.980232238769531e-07,
+                "mean_abs_diff": 2.8225717696132638e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "speedup_vs_current": 0.14167626299302286,
+              "p90_speedup_vs_current": 0.138244868270102,
+              "peak_memory_ratio_vs_current": 4.530957861419671,
+              "speedup_vs_channel_thread_baseline": 0.3893975325209655,
+              "p90_speedup_vs_channel_thread_baseline": 0.3798145707418939,
+              "peak_memory_ratio_vs_channel_thread_baseline": 4.530957861419671,
+              "precision_vs_numpy": null
+            },
+            {
+              "name": "cmy_to_log_raw_channel_thread_baseline",
+              "summary": {
+                "runs": 5,
+                "median_ms": 120.52262498764321,
+                "p90_ms": 121.29610017873347,
+                "min_ms": 118.36054100422189,
+                "max_ms": 121.77916697692126
+              },
+              "timings_ms": [
+                120.57149998145178,
+                120.52262498764321,
+                121.77916697692126,
+                120.2397079905495,
+                118.36054100422189
+              ],
+              "peak_memory_bytes": 1170609252,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 2.980232238769531e-07,
+                "mean_abs_diff": 2.8225717696132638e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "precision_vs_channel_thread_baseline": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_current_fused_metal": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "speedup_vs_current": 0.363834516556406,
+              "p90_speedup_vs_current": 0.3639798968219348,
+              "peak_memory_ratio_vs_current": 1.0,
+              "speedup_vs_channel_thread_baseline": 1.0,
+              "p90_speedup_vs_channel_thread_baseline": 1.0,
+              "peak_memory_ratio_vs_channel_thread_baseline": 1.0,
+              "precision_vs_numpy": null
+            },
+            {
+              "name": "cmy_to_log_raw_pixel_thread_v1",
+              "summary": {
+                "runs": 5,
+                "median_ms": 43.850290996488184,
+                "p90_ms": 44.149342027958475,
+                "min_ms": 40.89529195334762,
+                "max_ms": 44.33929204242304
+              },
+              "timings_ms": [
+                42.94295801082626,
+                43.86441700626165,
+                44.33929204242304,
+                40.89529195334762,
+                43.850290996488184
+              ],
+              "peak_memory_bytes": 1170609252,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 2.980232238769531e-07,
+                "mean_abs_diff": 2.8225717696132638e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "precision_vs_channel_thread_baseline": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_current_fused_metal": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "speedup_vs_current": 1.0,
+              "p90_speedup_vs_current": 1.0,
+              "peak_memory_ratio_vs_current": 1.0,
+              "speedup_vs_channel_thread_baseline": 2.748502284678007,
+              "p90_speedup_vs_channel_thread_baseline": 2.747404482311882,
+              "peak_memory_ratio_vs_channel_thread_baseline": 1.0,
+              "precision_vs_numpy": null
+            },
+            {
+              "name": "cmy_to_log_raw_pixel_thread_v1_tg64",
+              "summary": {
+                "runs": 5,
+                "median_ms": 42.78504097601399,
+                "p90_ms": 43.60150017309934,
+                "min_ms": 38.07433298788965,
+                "max_ms": 43.76066697295755
+              },
+              "timings_ms": [
+                43.76066697295755,
+                38.07433298788965,
+                43.36274997331202,
+                42.78504097601399,
+                41.28062498057261
+              ],
+              "peak_memory_bytes": 1170609252,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 2.980232238769531e-07,
+                "mean_abs_diff": 2.8225717696132638e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "precision_vs_channel_thread_baseline": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_current_fused_metal": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "speedup_vs_current": 1.024897721170149,
+              "p90_speedup_vs_current": 1.0125647478340007,
+              "peak_memory_ratio_vs_current": 1.0,
+              "speedup_vs_channel_thread_baseline": 2.8169337281974376,
+              "p90_speedup_vs_channel_thread_baseline": 2.7819249268301345,
+              "peak_memory_ratio_vs_channel_thread_baseline": 1.0,
+              "precision_vs_numpy": null
+            },
+            {
+              "name": "cmy_to_log_raw_pixel_thread_v1_tg128",
+              "summary": {
+                "runs": 5,
+                "median_ms": 43.32504200283438,
+                "p90_ms": 43.45836619613692,
+                "min_ms": 40.531457983888686,
+                "max_ms": 43.52783301146701
+              },
+              "timings_ms": [
+                43.32504200283438,
+                43.35416597314179,
+                40.531457983888686,
+                43.52783301146701,
+                42.53408301156014
+              ],
+              "peak_memory_bytes": 1170609252,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 2.980232238769531e-07,
+                "mean_abs_diff": 2.8225717696132638e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "precision_vs_channel_thread_baseline": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_current_fused_metal": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "speedup_vs_current": 1.0121234503043168,
+              "p90_speedup_vs_current": 1.0158997194856114,
+              "peak_memory_ratio_vs_current": 1.0,
+              "speedup_vs_channel_thread_baseline": 2.7818236155376024,
+              "p90_speedup_vs_channel_thread_baseline": 2.791087442894152,
+              "peak_memory_ratio_vs_channel_thread_baseline": 1.0,
+              "precision_vs_numpy": null
+            },
+            {
+              "name": "cmy_to_log_raw_pixel_thread_v1_tg512",
+              "summary": {
+                "runs": 5,
+                "median_ms": 42.158666998147964,
+                "p90_ms": 43.76230799825862,
+                "min_ms": 39.75091699976474,
+                "max_ms": 44.63120800210163
+              },
+              "timings_ms": [
+                42.458957992494106,
+                40.26041703764349,
+                42.158666998147964,
+                44.63120800210163,
+                39.75091699976474
+              ],
+              "peak_memory_bytes": 1170609252,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 2.980232238769531e-07,
+                "mean_abs_diff": 2.8225717696132638e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "precision_vs_channel_thread_baseline": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_current_fused_metal": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "speedup_vs_current": 1.040125177544502,
+              "p90_speedup_vs_current": 1.0088440040620175,
+              "peak_memory_ratio_vs_current": 1.0,
+              "speedup_vs_channel_thread_baseline": 2.858786426832181,
+              "p90_speedup_vs_channel_thread_baseline": 2.771702538713453,
+              "peak_memory_ratio_vs_channel_thread_baseline": 1.0,
+              "precision_vs_numpy": null
+            },
+            {
+              "name": "cmy_to_log_raw_pixel_thread_k_template",
+              "summary": {
+                "runs": 5,
+                "median_ms": 40.9357079770416,
+                "p90_ms": 41.57730001024902,
+                "min_ms": 38.79541700007394,
+                "max_ms": 41.61800001747906
+              },
+              "timings_ms": [
+                39.58491701632738,
+                41.51624999940395,
+                40.9357079770416,
+                38.79541700007394,
+                41.61800001747906
+              ],
+              "peak_memory_bytes": 1170609252,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 2.980232238769531e-07,
+                "mean_abs_diff": 2.8225717696132638e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "precision_vs_channel_thread_baseline": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_current_fused_metal": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "speedup_vs_current": 1.0711990377955891,
+              "p90_speedup_vs_current": 1.0618616893611523,
+              "peak_memory_ratio_vs_current": 1.0,
+              "speedup_vs_channel_thread_baseline": 2.944193002726059,
+              "p90_speedup_vs_channel_thread_baseline": 2.917363564946097,
+              "peak_memory_ratio_vs_channel_thread_baseline": 1.0,
+              "precision_vs_numpy": null
+            },
+            {
+              "name": "cmy_to_log_raw_pixel_thread_table_cache",
+              "summary": {
+                "runs": 5,
+                "median_ms": 45.55100004654378,
+                "p90_ms": 46.142341184895486,
+                "min_ms": 43.07704197708517,
+                "max_ms": 46.322207956109196
+              },
+              "timings_ms": [
+                45.55100004654378,
+                46.322207956109196,
+                44.25549996085465,
+                43.07704197708517,
+                45.87254102807492
+              ],
+              "peak_memory_bytes": 1170609252,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 2.980232238769531e-07,
+                "mean_abs_diff": 2.8225717696132638e-08,
+                "p90_abs_diff": 5.960464477539063e-08
+              },
+              "precision_vs_channel_thread_baseline": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_current_fused_metal": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "speedup_vs_current": 0.9626636287168708,
+              "p90_speedup_vs_current": 0.956807584839466,
+              "peak_memory_ratio_vs_current": 1.0,
+              "speedup_vs_channel_thread_baseline": 2.6458831829047402,
+              "p90_speedup_vs_channel_thread_baseline": 2.628737447297955,
+              "peak_memory_ratio_vs_channel_thread_baseline": 1.0,
+              "precision_vs_numpy": null
+            }
+          ],
+          "median_speedup_fused_vs_unfused": 7.058345405745542,
+          "median_speedup_pixel_thread_v1_vs_current": 2.748502284678007,
+          "p90_speedup_pixel_thread_v1_vs_current": 2.747404482311882,
+          "peak_memory_ratio_pixel_thread_v1_vs_current": 1.0,
+          "production_path": "cmy_to_log_raw_pixel_thread_v1",
+          "channel_thread_baseline_path": "cmy_to_log_raw_channel_thread_baseline"
+        },
+        "cmy_to_log_xyz": {
+          "results": [
+            {
+              "name": "cmy_to_log_xyz_unfused_backend_chain",
+              "summary": {
+                "runs": 5,
+                "median_ms": 294.86904200166464,
+                "p90_ms": 297.89150016149506,
+                "min_ms": 291.88704199623317,
+                "max_ms": 298.2001669588499
+              },
+              "timings_ms": [
+                297.42849996546283,
+                294.86904200166464,
+                298.2001669588499,
+                291.88704199623317,
+                292.79658396262676
+              ],
+              "peak_memory_bytes": 5303981161,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 0.0,
+                "mean_abs_diff": 0.0,
+                "p90_abs_diff": 0.0
+              },
+              "precision_vs_numpy": null
+            },
+            {
+              "name": "cmy_to_log_xyz_fused_metal",
+              "summary": {
+                "runs": 5,
+                "median_ms": 46.29841702990234,
+                "p90_ms": 46.99174982961267,
+                "min_ms": 44.637167011387646,
+                "max_ms": 47.100833035074174
+              },
+              "timings_ms": [
+                46.29841702990234,
+                46.82812502142042,
+                47.100833035074174,
+                44.75712502608076,
+                44.637167011387646
+              ],
+              "peak_memory_bytes": 1170609240,
+              "precision_vs_unfused_backend_chain": {
+                "max_abs_diff": 3.5762786865234375e-07,
+                "mean_abs_diff": 3.1755746621656785e-08,
+                "p90_abs_diff": 1.1920928955078125e-07
+              },
+              "precision_vs_numpy": null
+            }
+          ],
+          "median_speedup_fused_vs_unfused": 6.368879562582458
+        }
+      },
+      "raw_fused_to_xyz_fused_median_ratio": 0.9471228998643084,
+      "raw_channel_thread_to_xyz_fused_median_ratio": 2.6031694541479107,
+      "raw_pixel_thread_v1_median_speedup_vs_current": 2.748502284678007,
+      "raw_pixel_thread_v1_p90_speedup_vs_current": 2.747404482311882,
+      "raw_pixel_thread_v1_peak_memory_ratio_vs_current": 1.0
+    }
+  ],
+  "end_to_end_attribution": {
+    "status": "ok",
+    "image_shape": [
+      768,
+      1024,
+      3
+    ],
+    "warmup": 1,
+    "runs": 3,
+    "wall_seconds": [
+      0.06086704198969528,
+      0.04295783396810293,
+      0.04068787500727922
+    ],
+    "wall_summary": {
+      "runs": 3,
+      "median_ms": 42.95783396810293,
+      "p90_ms": 57.28520038537681,
+      "min_ms": 40.68787500727922,
+      "max_ms": 60.86704198969528
+    },
+    "kernel_trace": {
+      "cmy_to_log_raw": {
+        "calls": 9,
+        "total_seconds": 0.036306293099187315,
+        "shapes": {
+          "1x1x3": 6,
+          "768x1024x3": 3
+        },
+        "call_seconds": [
+          0.0009506249916739762,
+          0.0006350420298986137,
+          0.01139950001379475,
+          0.0012455839896574616,
+          0.0006115410360507667,
+          0.008360292005818337,
+          0.000938250042963773,
+          0.00039491697680205107,
+          0.011770542012527585
+        ],
+        "wall_percent": 25.12324542763773,
+        "median_ms": 0.9506249916739762,
+        "p90_ms": 11.473708413541317
+      },
+      "cmy_to_log_xyz": {
+        "calls": 3,
+        "total_seconds": 0.021326832938939333,
+        "shapes": {
+          "768x1024x3": 3
+        },
+        "call_seconds": [
+          0.012108624971006066,
+          0.004806332988664508,
+          0.0044118749792687595
+        ],
+        "wall_percent": 14.75775168385876,
+        "median_ms": 4.806332988664508,
+        "p90_ms": 10.648166574537754
+      }
+    },
+    "stage_totals": {
+      "PrintingStage.expose": 0.04014929197728634,
+      "PrintingStage.develop": 0.00125662493519485,
+      "ScanningStage.scan": 0.02499154198449105,
+      "SpectralLUTService.spectral_compute_enlarger": 0.0,
+      "SpectralLUTService.spectral_compute_scanner": 0.02138728997670114
+    },
+    "stage_wall_percent": {
+      "PrintingStage.expose": 27.782525562044498,
+      "PrintingStage.develop": 0.869559901671599,
+      "ScanningStage.scan": 17.29365873778878,
+      "SpectralLUTService.spectral_compute_enlarger": 0.0,
+      "SpectralLUTService.spectral_compute_scanner": 14.799586772705986
+    }
+  },
+  "recommendation": {
+    "accept_raw_pixel_thread_v1": true,
+    "replace_production_recommended": true,
+    "reason": "accepted: pixel-thread v1 preserves channel-thread baseline output and materially improves a meaningful full-render contributor",
+    "raw_wall_percent": 25.12324542763773,
+    "max_raw_fused_to_xyz_fused_median_ratio": 1.7574541957583565,
+    "median_speedup_raw_pixel_thread_v1": 2.669112926021538,
+    "p90_speedup_raw_pixel_thread_v1": 2.747404482311882,
+    "peak_memory_ratio_raw_pixel_thread_v1": 1.0,
+    "max_diff_raw_pixel_thread_v1_vs_channel_thread_baseline": 0.0,
+    "wall_threshold_percent": 10.0,
+    "median_speedup_threshold": 1.25,
+    "p90_slowdown_limit": 1.05,
+    "memory_increase_limit": 1.05,
+    "precision_atol": 1e-06,
+    "pixel_thread_v1_acceptance_sizes": [
+      [
+        768,
+        1024
+      ],
+      [
+        3024,
+        4032
+      ]
+    ],
+    "pixel_thread_v1_decision_case_count": 2
+  }
+}

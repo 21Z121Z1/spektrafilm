@@ -1,3 +1,5 @@
+import functools
+
 import numpy as np
 import scipy.ndimage
 from spektrafilm.utils.fast_gaussian_filter import fast_exponential_filter, fast_gaussian_filter
@@ -65,10 +67,14 @@ def apply_halation_um(raw, halation, pixel_size_um, *, backend=None):
         if _gpu:
             core = _gauss_backend(raw, sigma_c_safe, backend)
             tail = _exp_backend(raw, lambda_t_safe, backend)
+            # Explicitly move coefficients to GPU to avoid implicit
+            # numpy-to-device conversion and potential CPU sync.
+            w_s_gpu = backend.asarray(w_s)
+            scattered = (1.0 - w_s_gpu) * core + w_s_gpu * tail
         else:
             core = fast_gaussian_filter(raw, sigma_c_safe)
             tail = fast_exponential_filter(raw, lambda_t_safe)
-        scattered = (1.0 - w_s) * core + w_s * tail
+            scattered = (1.0 - w_s) * core + w_s * tail
         raw = (1.0 - s_amount) * raw + s_amount * scattered
 
     # 2. Halation pass — additive multi-bounce sum scaled by halation_amount:
@@ -85,16 +91,31 @@ def apply_halation_um(raw, halation, pixel_size_um, *, backend=None):
         from spektrafilm.gpu.kernels.filters import gaussian_filter_backend as _gauss_backend
         decay = np.array([rho ** (k - 1) for k in range(1, N + 1)], dtype=np.float64)
         decay /= decay.sum()
-        halation_blur = raw * 0.0  # Same backend type as raw (numpy or GPU)
+        # Lazy initialisation: avoid the expensive `raw * 0.0` allocation
+        # which creates a full-size GPU tensor just to fill it with zeros.
+        halation_blur = None
         for k, wk in zip(range(1, N + 1), decay):
             sigma_k_px = np.maximum(sigma_h_px * np.sqrt(k), 1e-6)
             if _gpu:
-                halation_blur += wk * _gauss_backend(raw, sigma_k_px, backend)
+                component = wk * _gauss_backend(raw, sigma_k_px, backend)
             else:
-                halation_blur += wk * fast_gaussian_filter(raw, sigma_k_px)
-        raw = raw + a_tot * halation_blur
+                component = wk * fast_gaussian_filter(raw, sigma_k_px)
+            if halation_blur is None:
+                halation_blur = component
+            else:
+                halation_blur += component
+        if _gpu:
+            # Move coefficient array to device so the final element-wise
+            # multiply stays fully on-GPU without implicit sync.
+            a_tot_gpu = backend.asarray(a_tot)
+            raw = raw + a_tot_gpu * halation_blur
+        else:
+            raw = raw + a_tot * halation_blur
         if halation.halation_renormalize:
-            raw = raw / (1.0 + a_tot)
+            if _gpu:
+                raw = raw / (1.0 + a_tot_gpu)
+            else:
+                raw = raw / (1.0 + a_tot)
 
     return raw
 
@@ -125,6 +146,35 @@ def apply_gaussian_blur_um(data, sigma_um, pixel_size_um, *, backend=None):
             return _gauss_backend(data, sigma, backend)
         return fast_gaussian_filter(data, sigma)
     return data
+
+
+def supports_fused_filming_filters(backend=None) -> bool:
+    """Return whether *backend* supports the fused filming spatial chain."""
+    from spektrafilm.gpu.kernels.fused_ops import supports_fused_filming_filters as _supports
+
+    return _supports(backend)
+
+
+def apply_fused_filming_filters(
+    raw,
+    *,
+    diffusion_filter,
+    lens_blur_um: float,
+    halation,
+    pixel_size_um: float,
+    backend=None,
+):
+    """Model-level entry point for the fused filming spatial chain."""
+    from spektrafilm.gpu.kernels.fused_ops import apply_fused_filming_filters as _apply
+
+    return _apply(
+        raw,
+        diffusion_filter=diffusion_filter,
+        lens_blur_um=lens_blur_um,
+        halation=halation,
+        pixel_size_um=pixel_size_um,
+        backend=backend,
+    )
 
 def apply_diffusion_filter_mm(data, diffusion_filter_params, pixel_size_um):
     diffusion_fraction, sigma_mm, iterations, growth, decay = diffusion_filter_params
@@ -565,24 +615,22 @@ def diffusion_filter_radial_profile(
     }
 
 
-def diffusion_filter_psf(
+@functools.lru_cache(maxsize=16)
+def _diffusion_filter_psf_cached(
     kernel_shape: tuple[int, int],
-    *,
     family: str,
     spatial_scale: float,
     pixel_size_um: float,
-    halo_warmth: float = 0.0,
-    overrides: dict | None = None,
+    halo_warmth: float,
+    overrides_key: tuple[tuple[str, float], ...] | None,
 ) -> np.ndarray:
-    """Per-channel 2D PSF for a diffusion filter.
+    """LRU-cached inner implementation of `diffusion_filter_psf`.
 
-    Returns shape (height, width, 3), each channel sum-normalised on the
-    grid. The PSF is per-channel because halo weights vary per channel
-    via the energy-conserving warmth redistribution; core and bloom
-    contributions are channel-independent and shared across the three.
-    `overrides` accepts the same per-group multiplier keys as
-    `_resolve_family_cfg`.
+    All arguments are hashable so `lru_cache` can work.  The public
+    wrapper `diffusion_filter_psf` normalises the `overrides` dict
+    into a sorted tuple of items before calling here.
     """
+    overrides = dict(overrides_key) if overrides_key is not None else None
     if family not in _DIFFUSION_FILTER_SHAPES:
         raise ValueError(f"Unknown diffusion filter family: {family!r}; "
                          f"available: {list(_DIFFUSION_FILTER_SHAPES)}")
@@ -606,6 +654,40 @@ def diffusion_filter_psf(
         psf[..., c] = parts['core'] + parts['halo'][c] + parts['bloom']
         psf[..., c] /= psf[..., c].sum()
     return psf
+
+
+def diffusion_filter_psf(
+    kernel_shape: tuple[int, int],
+    *,
+    family: str,
+    spatial_scale: float,
+    pixel_size_um: float,
+    halo_warmth: float = 0.0,
+    overrides: dict | None = None,
+) -> np.ndarray:
+    """Per-channel 2D PSF for a diffusion filter.
+
+    Returns shape (height, width, 3), each channel sum-normalised on the
+    grid. The PSF is per-channel because halo weights vary per channel
+    via the energy-conserving warmth redistribution; core and bloom
+    contributions are channel-independent and shared across the three.
+    `overrides` accepts the same per-group multiplier keys as
+    `_resolve_family_cfg`.
+
+    Results are cached via `lru_cache` — repeated calls with the same
+    parameters return the same array without recomputation.
+    """
+    overrides_key = tuple(sorted(overrides.items())) if overrides is not None else None
+    return _diffusion_filter_psf_cached(
+        kernel_shape, family, spatial_scale, pixel_size_um,
+        halo_warmth, overrides_key,
+    )
+
+
+# Module-level cache for GPU-resident PSF arrays.  Keyed by a tuple of
+# the PSF's hashable construction parameters plus the backend id, so the
+# same PSF numpy array is uploaded to the device only once.
+_DIFFUSION_GPU_PSF_CACHE: dict[tuple, object] = {}
 
 
 def apply_diffusion_filter_um(image, diffusion_filter, pixel_size_um, *, backend=None):
@@ -655,6 +737,23 @@ def apply_diffusion_filter_um(image, diffusion_filter, pixel_size_um, *, backend
     )
 
     _gpu = backend is not None and getattr(backend, "supports_gpu", False)
+
+    # On GPU paths, cache the device-resident PSF to avoid repeated
+    # host-to-device uploads across frames with identical filter params.
+    if _gpu:
+        overrides_key = tuple(sorted(overrides.items())) if overrides is not None else None
+        gpu_psf_key = (
+            psf_shape, family, diffusion_filter.spatial_scale,
+            pixel_size_um, halo_warmth, overrides_key, id(backend),
+        )
+        psf_gpu = _DIFFUSION_GPU_PSF_CACHE.get(gpu_psf_key)
+        if psf_gpu is None:
+            psf_gpu = backend.asarray(psf_per_channel)
+            # Bound cache size to prevent unbounded growth.
+            if len(_DIFFUSION_GPU_PSF_CACHE) >= 32:
+                _DIFFUSION_GPU_PSF_CACHE.clear()
+            _DIFFUSION_GPU_PSF_CACHE[gpu_psf_key] = psf_gpu
+
     if _gpu:
         from spektrafilm.gpu.kernels.filters import reflect_pad_hw_backend as _reflect_pad
         padded = _reflect_pad(image, radius, backend)
@@ -662,7 +761,7 @@ def apply_diffusion_filter_um(image, diffusion_filter, pixel_size_um, *, backend
         padded = np.pad(image, ((radius, radius), (radius, radius), (0, 0)), mode='reflect')
     if _gpu:
         from spektrafilm.gpu.kernels.filters import fft_convolve_same_backend as _fft_conv
-        blurred = _fft_conv(padded, psf_per_channel, backend)
+        blurred = _fft_conv(padded, psf_gpu, backend)
     else:
         blurred = np.empty_like(padded)
         for channel in range(image.shape[2]):
@@ -672,4 +771,3 @@ def apply_diffusion_filter_um(image, diffusion_filter, pixel_size_um, *, backend
     blurred = blurred[radius:-radius, radius:-radius, :]
 
     return (1.0 - p_s) * image + p_s * blurred
-

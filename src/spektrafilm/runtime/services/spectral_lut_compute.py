@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Callable
 import numpy as np
-from time import perf_counter
 
 from spektrafilm.profiles.io import Hanatos2025SensitivityAdaptation
 from spektrafilm.utils.gamut_compression import InputGamutCompressSpec
@@ -152,20 +151,6 @@ class SpectralLUTService:
         xmax = _as_channel_bounds(data_max)
         if np.any(xmax <= xmin):
             raise ValueError('xmax must be greater than xmin')
-
-        if _gpu:
-            # CPU LUT application uses the project PCHIP LUT path. The current
-            # backend 3D LUT kernel is trilinear, so use exact backend spectral
-            # calculation rather than accepting an approximate GPU LUT result.
-            fallback_start = perf_counter()
-            try:
-                cmy_data = self._backend.asarray(cmy_data)
-                return spectral_calculation(cmy_data)
-            finally:
-                self.timings["SpectralLUTService.gpu_lut_direct_fallback"] = (
-                    self.timings.get("SpectralLUTService.gpu_lut_direct_fallback", 0.0)
-                    + (perf_counter() - fallback_start)
-                )
 
         def _to_numpy(value):
             if _gpu and hasattr(self._backend, 'to_numpy'):

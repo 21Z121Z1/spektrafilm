@@ -289,6 +289,43 @@ def test_pipeline_processes_small_image_with_mlx_lut_backend() -> None:
     )
 
 
+def test_mlx_lut_65_approximation_is_bounded() -> None:
+    """GPU trilinear LUT at resolution 65 must approximate direct spectral.
+
+    This isolates the LUT sampling error from float32-vs-float64 differences
+    by comparing the same MLX backend with and without LUT.
+    """
+    _require_mlx_backend()
+
+    rng = np.random.default_rng(42)
+    image = rng.random((16, 16, 3), dtype=np.float64) * 0.8 + 0.1
+
+    # Direct spectral reference on MLX (LUT disabled)
+    direct_params = make_fast_test_params()
+    direct_params.settings.compute_backend = "mlx"
+    direct_params.settings.gpu_precision = "float32"
+    direct_params.settings.use_enlarger_lut = False
+    direct_params.settings.use_scanner_lut = False
+    direct = SimulationPipeline(direct_params).process(image)
+
+    # LUT path on MLX at the new default resolution
+    lut_params = make_fast_test_params()
+    lut_params.settings.compute_backend = "mlx"
+    lut_params.settings.gpu_precision = "float32"
+    lut_params.settings.use_enlarger_lut = True
+    lut_params.settings.use_scanner_lut = True
+    lut_params.settings.lut_resolution = 65
+    lut = SimulationPipeline(lut_params).process(image)
+
+    max_abs_diff = float(np.max(np.abs(lut - direct)))
+    # Empirically the per-sampling LUT error at res=65 is ~2e-5; allow a
+    # generous margin for full-pipeline float32 accumulation.
+    assert max_abs_diff <= 5e-4, (
+        f"MLX LUT (res=65) diverges from direct spectral: "
+        f"max_abs_diff={max_abs_diff:.2e}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Parametrized pipeline parity: gray ramp
 # ---------------------------------------------------------------------------

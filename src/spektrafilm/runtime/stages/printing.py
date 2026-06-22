@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import numpy as np
-from time import perf_counter
 from opt_einsum import contract
 
 from spektrafilm.model.diffusion import apply_diffusion_filter_um
@@ -131,17 +130,13 @@ class PrintingStage:
         if not use_lut:
             return self._film_cmy_to_print_log_raw(cmy_film_density, return_backend=True)
 
-        # CPU LUT application uses the project PCHIP LUT path. The current
-        # backend 3D LUT kernel is trilinear, so use exact backend spectral
-        # calculation rather than accepting an approximate GPU LUT result.
-        fallback_start = perf_counter()
-        try:
-            return self._film_cmy_to_print_log_raw(cmy_film_density, return_backend=True)
-        finally:
-            self.timings["PrintingStage.gpu_lut_direct_fallback"] = (
-                self.timings.get("PrintingStage.gpu_lut_direct_fallback", 0.0)
-                    + (perf_counter() - fallback_start)
-                )
+        return self._lut_service.spectral_compute_enlarger(
+            cmy_film_density,
+            spectral_calculation=self._film_cmy_to_print_log_raw,
+            data_min=-np.array(self._film_render.grain.density_min),
+            data_max=np.nanmax(self._film.data.density_curves, axis=0),
+            use_lut=True,
+        )
 
     @timeit("develop")
     def develop(self, log_raw: np.ndarray) -> np.ndarray:

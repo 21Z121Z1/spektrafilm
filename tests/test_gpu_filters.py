@@ -14,7 +14,11 @@ from spektrafilm.gpu.kernels.filters import (
     reflect_pad_hw_backend,
 )
 from spektrafilm.gpu.numpy_backend import NumpyBackend
-from spektrafilm.model.diffusion import apply_diffusion_filter_um, apply_halation_um
+from spektrafilm.model.diffusion import (
+    apply_diffusion_filter_um,
+    apply_fused_filming_filters,
+    apply_halation_um,
+)
 from spektrafilm.runtime.params_schema import DiffusionFilterParams, HalationParams
 from spektrafilm.utils.fast_gaussian_filter import (
     fast_exponential_filter,
@@ -265,6 +269,148 @@ def test_diffusion_filter_mlx_stays_on_device_when_available(monkeypatch) -> Non
     assert backend._is_mlx_array(actual)
     assert actual_np.shape == image.shape
     assert np.isfinite(actual_np).all()
+
+
+def _fused_halation_params() -> HalationParams:
+    return HalationParams(
+        active=True,
+        scatter_amount=0.4,
+        scatter_spatial_scale=1.0,
+        halation_amount=0.2,
+        halation_spatial_scale=1.0,
+        scatter_core_um=(2.0, 3.0, 4.0),
+        scatter_tail_um=(5.0, 6.0, 7.0),
+        scatter_tail_weight=(0.2, 0.3, 0.4),
+        halation_strength=(0.05, 0.02, 0.01),
+        halation_first_sigma_um=(8.0, 6.0, 4.0),
+        halation_n_bounces=2,
+        halation_bounce_decay=0.5,
+        halation_renormalize=True,
+    )
+
+
+def _fused_diffusion_params() -> DiffusionFilterParams:
+    return DiffusionFilterParams(
+        active=True,
+        filter_family="glimmerglass",
+        strength=0.125,
+        spatial_scale=0.2,
+        halo_warmth=0.1,
+    )
+
+
+def test_fused_filming_filters_inactive_returns_input_object() -> None:
+    image = _sample_image().astype(np.float32)
+
+    actual = apply_fused_filming_filters(
+        image,
+        diffusion_filter=DiffusionFilterParams(active=False),
+        lens_blur_um=0.0,
+        halation=HalationParams(active=False),
+        pixel_size_um=4.0,
+    )
+
+    assert actual is image
+
+
+@pytest.mark.parametrize(
+    ("case", "diffusion_filter", "lens_blur_um", "halation"),
+    [
+        ("lens", DiffusionFilterParams(active=False), 8.0, HalationParams(active=False)),
+        ("halation", DiffusionFilterParams(active=False), 0.0, _fused_halation_params()),
+        ("diffusion", _fused_diffusion_params(), 0.0, HalationParams(active=False)),
+        ("combined", _fused_diffusion_params(), 8.0, _fused_halation_params()),
+    ],
+)
+def test_fused_filming_filters_preserve_constant_images(
+    case: str,
+    diffusion_filter: DiffusionFilterParams,
+    lens_blur_um: float,
+    halation: HalationParams,
+) -> None:
+    del case
+    image = np.full((32, 37, 3), 0.7, dtype=np.float32)
+
+    actual = apply_fused_filming_filters(
+        image,
+        diffusion_filter=diffusion_filter,
+        lens_blur_um=lens_blur_um,
+        halation=halation,
+        pixel_size_um=4.0,
+    )
+
+    np.testing.assert_allclose(actual, image, rtol=0.0, atol=1e-6)
+
+
+def test_fused_filming_filters_lens_and_halation_do_not_broadcast_crash() -> None:
+    image = _sample_image().astype(np.float32) + 0.1
+
+    actual = apply_fused_filming_filters(
+        image,
+        diffusion_filter=DiffusionFilterParams(active=False),
+        lens_blur_um=4.0,
+        halation=_fused_halation_params(),
+        pixel_size_um=4.0,
+    )
+
+    assert actual.shape == image.shape
+    assert actual.dtype == np.float32
+    assert np.isfinite(actual).all()
+
+
+@pytest.mark.parametrize(
+    ("diffusion_filter", "lens_blur_um", "halation"),
+    [
+        (DiffusionFilterParams(active=False), 4.0, HalationParams(active=False)),
+        (_fused_diffusion_params(), 0.0, HalationParams(active=False)),
+    ],
+)
+def test_fused_filming_filters_impulse_response_stays_centered(
+    diffusion_filter: DiffusionFilterParams,
+    lens_blur_um: float,
+    halation: HalationParams,
+) -> None:
+    image = np.zeros((33, 35, 3), dtype=np.float32)
+    center = (image.shape[0] // 2, image.shape[1] // 2)
+    image[center[0], center[1], :] = 1.0
+
+    actual = apply_fused_filming_filters(
+        image,
+        diffusion_filter=diffusion_filter,
+        lens_blur_um=lens_blur_um,
+        halation=halation,
+        pixel_size_um=4.0,
+    )
+
+    for channel in range(3):
+        peak = np.unravel_index(np.argmax(actual[:, :, channel]), actual.shape[:2])
+        assert peak == center
+
+
+def test_fused_filming_filters_mlx_matches_numpy_reference_when_available() -> None:
+    backend = _mlx_backend_or_skip()
+    rng = np.random.default_rng(123)
+    image = rng.random((20, 21, 3), dtype=np.float32) + 0.1
+
+    expected = apply_fused_filming_filters(
+        image,
+        diffusion_filter=_fused_diffusion_params(),
+        lens_blur_um=4.0,
+        halation=_fused_halation_params(),
+        pixel_size_um=4.0,
+    )
+    actual = apply_fused_filming_filters(
+        backend.asarray(image),
+        diffusion_filter=_fused_diffusion_params(),
+        lens_blur_um=4.0,
+        halation=_fused_halation_params(),
+        pixel_size_um=4.0,
+        backend=backend,
+    )
+    backend.eval(actual)
+
+    assert backend._is_mlx_array(actual)
+    np.testing.assert_allclose(backend.to_numpy(actual), expected, rtol=1e-6, atol=1e-6)
 
 
 def test_fft_convolve_same_cupy_matches_scipy_reference_when_available() -> None:

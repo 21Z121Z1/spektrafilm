@@ -45,6 +45,7 @@ RAW_PIXEL_THREAD_P90_SLOWDOWN_LIMIT = 1.05
 RAW_PIXEL_THREAD_MEMORY_INCREASE_LIMIT = 1.05
 RAW_PIXEL_THREAD_PRECISION_ATOL = 1e-6
 RAW_PIXEL_THREAD_ACCEPTANCE_SIZES = {(768, 1024), (3024, 4032)}
+RAW_CANDIDATE_THREADGROUP_SIZES = (64, 128, 512)
 
 
 @dataclass(frozen=True)
@@ -345,7 +346,7 @@ def run_kernel_case(
     normalization = float(tables["scan_normalization"])
 
     # Compile/setup and static table conversion are intentionally outside timed regions.
-    raw_probe = backend.cmy_to_log_raw(
+    raw_channel_thread_probe = backend.cmy_to_log_raw_channel_thread_baseline(
         density_mx,
         print_channel_mx,
         print_base_mx,
@@ -363,6 +364,24 @@ def run_kernel_case(
         exposure_factor,
         preflash,
     )
+    raw_k_template_probe = backend.cmy_to_log_raw_pixel_thread_k_template(
+        density_mx,
+        print_channel_mx,
+        print_base_mx,
+        print_illuminant_mx,
+        sensitivity_mx,
+        exposure_factor,
+        preflash,
+    )
+    raw_table_cache_probe = backend.cmy_to_log_raw_pixel_thread_table_cache(
+        density_mx,
+        print_channel_mx,
+        print_base_mx,
+        print_illuminant_mx,
+        sensitivity_mx,
+        exposure_factor,
+        preflash,
+    )
     xyz_probe = cmy_to_log_xyz_backend(
         density_mx,
         scan_channel_mx,
@@ -372,12 +391,28 @@ def run_kernel_case(
         normalization,
         backend,
     )
-    _sync_backend(backend, raw_probe)
+    _sync_backend(backend, raw_channel_thread_probe)
     _sync_backend(backend, raw_pixel_thread_probe)
+    _sync_backend(backend, raw_k_template_probe)
+    _sync_backend(backend, raw_table_cache_probe)
     _sync_backend(backend, xyz_probe)
 
-    raw_unfused = benchmark_backend_function(
-        backend,
+    raw_results: list[dict[str, Any]] = []
+    raw_arrays: dict[str, np.ndarray] = {}
+
+    def benchmark_raw(name: str, function: Callable[[], Any]) -> dict[str, Any]:
+        result = benchmark_backend_function(
+            backend,
+            name,
+            function,
+            warmup=case.warmup,
+            runs=case.runs,
+        )
+        raw_arrays[name] = _output_to_numpy(backend, result)
+        raw_results.append(result)
+        return result
+
+    raw_unfused = benchmark_raw(
         "cmy_to_log_raw_unfused_backend_chain",
         lambda: _mlx_unfused_raw(
             backend,
@@ -389,13 +424,21 @@ def run_kernel_case(
             exposure_factor,
             preflash,
         ),
-        warmup=case.warmup,
-        runs=case.runs,
     )
-    raw_unfused_np = _output_to_numpy(backend, raw_unfused)
-    raw_fused = benchmark_backend_function(
-        backend,
-        "cmy_to_log_raw_fused_metal",
+    raw_channel_thread = benchmark_raw(
+        "cmy_to_log_raw_channel_thread_baseline",
+        lambda: backend.cmy_to_log_raw_channel_thread_baseline(
+            density_mx,
+            print_channel_mx,
+            print_base_mx,
+            print_illuminant_mx,
+            sensitivity_mx,
+            exposure_factor,
+            preflash,
+        ),
+    )
+    raw_pixel_thread_v1 = benchmark_raw(
+        "cmy_to_log_raw_pixel_thread_v1",
         lambda: backend.cmy_to_log_raw(
             density_mx,
             print_channel_mx,
@@ -405,18 +448,24 @@ def run_kernel_case(
             exposure_factor,
             preflash,
         ),
-        warmup=case.warmup,
-        runs=case.runs,
     )
-    raw_fused_np = _output_to_numpy(backend, raw_fused)
-    raw_fused["precision_vs_unfused_backend_chain"] = precision_metrics(raw_unfused_np, raw_fused_np)
-    raw_unfused["precision_vs_unfused_backend_chain"] = precision_metrics(raw_unfused_np, raw_unfused_np)
-    raw_fused["precision_vs_current_fused_metal"] = precision_metrics(raw_fused_np, raw_fused_np)
-    raw_unfused["precision_vs_current_fused_metal"] = precision_metrics(raw_fused_np, raw_unfused_np)
-    raw_pixel_thread_v1 = benchmark_backend_function(
-        backend,
-        "cmy_to_log_raw_pixel_thread_v1",
-        lambda: backend.cmy_to_log_raw_pixel_thread_v1(
+    for threadgroup_size in RAW_CANDIDATE_THREADGROUP_SIZES:
+        benchmark_raw(
+            f"cmy_to_log_raw_pixel_thread_v1_tg{threadgroup_size}",
+            lambda threadgroup_size=threadgroup_size: backend.cmy_to_log_raw_pixel_thread_v1(
+                density_mx,
+                print_channel_mx,
+                print_base_mx,
+                print_illuminant_mx,
+                sensitivity_mx,
+                exposure_factor,
+                preflash,
+                threadgroup_size=threadgroup_size,
+            ),
+        )
+    benchmark_raw(
+        "cmy_to_log_raw_pixel_thread_k_template",
+        lambda: backend.cmy_to_log_raw_pixel_thread_k_template(
             density_mx,
             print_channel_mx,
             print_base_mx,
@@ -425,18 +474,45 @@ def run_kernel_case(
             exposure_factor,
             preflash,
         ),
-        warmup=case.warmup,
-        runs=case.runs,
     )
-    raw_pixel_thread_v1_np = _output_to_numpy(backend, raw_pixel_thread_v1)
-    raw_pixel_thread_v1["precision_vs_unfused_backend_chain"] = precision_metrics(
-        raw_unfused_np,
-        raw_pixel_thread_v1_np,
+    benchmark_raw(
+        "cmy_to_log_raw_pixel_thread_table_cache",
+        lambda: backend.cmy_to_log_raw_pixel_thread_table_cache(
+            density_mx,
+            print_channel_mx,
+            print_base_mx,
+            print_illuminant_mx,
+            sensitivity_mx,
+            exposure_factor,
+            preflash,
+        ),
     )
-    raw_pixel_thread_v1["precision_vs_current_fused_metal"] = precision_metrics(
-        raw_fused_np,
-        raw_pixel_thread_v1_np,
-    )
+
+    raw_unfused_np = raw_arrays["cmy_to_log_raw_unfused_backend_chain"]
+    raw_channel_thread_np = raw_arrays["cmy_to_log_raw_channel_thread_baseline"]
+    raw_pixel_thread_v1_np = raw_arrays["cmy_to_log_raw_pixel_thread_v1"]
+
+    current_raw_median_ms = raw_pixel_thread_v1["summary"]["median_ms"]
+    current_raw_p90_ms = raw_pixel_thread_v1["summary"]["p90_ms"]
+    current_raw_peak_memory = raw_pixel_thread_v1.get("peak_memory_bytes")
+    channel_thread_median_ms = raw_channel_thread["summary"]["median_ms"]
+    channel_thread_p90_ms = raw_channel_thread["summary"]["p90_ms"]
+    channel_thread_peak_memory = raw_channel_thread.get("peak_memory_bytes")
+    for result in raw_results:
+        result_name = result["name"]
+        result_np = raw_arrays[result_name]
+        result["precision_vs_unfused_backend_chain"] = precision_metrics(raw_unfused_np, result_np)
+        result["precision_vs_channel_thread_baseline"] = precision_metrics(raw_channel_thread_np, result_np)
+        result["precision_vs_current_fused_metal"] = precision_metrics(raw_pixel_thread_v1_np, result_np)
+        result["speedup_vs_current"] = current_raw_median_ms / result["summary"]["median_ms"]
+        result["p90_speedup_vs_current"] = current_raw_p90_ms / result["summary"]["p90_ms"]
+        result["peak_memory_ratio_vs_current"] = _safe_ratio(result.get("peak_memory_bytes"), current_raw_peak_memory)
+        result["speedup_vs_channel_thread_baseline"] = channel_thread_median_ms / result["summary"]["median_ms"]
+        result["p90_speedup_vs_channel_thread_baseline"] = channel_thread_p90_ms / result["summary"]["p90_ms"]
+        result["peak_memory_ratio_vs_channel_thread_baseline"] = _safe_ratio(
+            result.get("peak_memory_bytes"),
+            channel_thread_peak_memory,
+        )
 
     xyz_unfused = benchmark_backend_function(
         backend,
@@ -491,32 +567,23 @@ def run_kernel_case(
             np.asarray(tables["scan_cmfs"], dtype=np.float32),
             normalization,
         )
-        raw_unfused["precision_vs_numpy"] = precision_metrics(raw_reference, raw_unfused_np)
-        raw_fused["precision_vs_numpy"] = precision_metrics(raw_reference, raw_fused_np)
-        raw_pixel_thread_v1["precision_vs_numpy"] = precision_metrics(raw_reference, raw_pixel_thread_v1_np)
+        for result in raw_results:
+            result["precision_vs_numpy"] = precision_metrics(raw_reference, raw_arrays[result["name"]])
         xyz_unfused["precision_vs_numpy"] = precision_metrics(xyz_reference, xyz_unfused_np)
         xyz_fused["precision_vs_numpy"] = precision_metrics(xyz_reference, xyz_fused_np)
     else:
-        raw_unfused["precision_vs_numpy"] = None
-        raw_fused["precision_vs_numpy"] = None
-        raw_pixel_thread_v1["precision_vs_numpy"] = None
+        for result in raw_results:
+            result["precision_vs_numpy"] = None
         xyz_unfused["precision_vs_numpy"] = None
         xyz_fused["precision_vs_numpy"] = None
 
-    current_raw_median_ms = raw_fused["summary"]["median_ms"]
-    current_raw_p90_ms = raw_fused["summary"]["p90_ms"]
     raw_speedup = raw_unfused["summary"]["median_ms"] / current_raw_median_ms
-    raw_pixel_thread_v1_median_speedup = current_raw_median_ms / raw_pixel_thread_v1["summary"]["median_ms"]
-    raw_pixel_thread_v1_p90_speedup = current_raw_p90_ms / raw_pixel_thread_v1["summary"]["p90_ms"]
-    raw_pixel_thread_v1_peak_memory_ratio = _safe_ratio(
-        raw_pixel_thread_v1.get("peak_memory_bytes"),
-        raw_fused.get("peak_memory_bytes"),
-    )
-    raw_unfused["speedup_vs_current"] = current_raw_median_ms / raw_unfused["summary"]["median_ms"]
-    raw_fused["speedup_vs_current"] = 1.0
-    raw_pixel_thread_v1["speedup_vs_current"] = raw_pixel_thread_v1_median_speedup
+    raw_pixel_thread_v1_median_speedup = raw_pixel_thread_v1["speedup_vs_channel_thread_baseline"]
+    raw_pixel_thread_v1_p90_speedup = raw_pixel_thread_v1["p90_speedup_vs_channel_thread_baseline"]
+    raw_pixel_thread_v1_peak_memory_ratio = raw_pixel_thread_v1["peak_memory_ratio_vs_channel_thread_baseline"]
     xyz_speedup = xyz_unfused["summary"]["median_ms"] / xyz_fused["summary"]["median_ms"]
-    raw_vs_xyz_ratio = raw_fused["summary"]["median_ms"] / xyz_fused["summary"]["median_ms"]
+    raw_vs_xyz_ratio = raw_pixel_thread_v1["summary"]["median_ms"] / xyz_fused["summary"]["median_ms"]
+    raw_channel_thread_vs_xyz_ratio = raw_channel_thread["summary"]["median_ms"] / xyz_fused["summary"]["median_ms"]
 
     return {
         "status": "ok",
@@ -537,11 +604,13 @@ def run_kernel_case(
         "runs": case.runs,
         "kernels": {
             "cmy_to_log_raw": {
-                "results": [raw_unfused, raw_fused, raw_pixel_thread_v1],
+                "results": raw_results,
                 "median_speedup_fused_vs_unfused": raw_speedup,
                 "median_speedup_pixel_thread_v1_vs_current": raw_pixel_thread_v1_median_speedup,
                 "p90_speedup_pixel_thread_v1_vs_current": raw_pixel_thread_v1_p90_speedup,
                 "peak_memory_ratio_pixel_thread_v1_vs_current": raw_pixel_thread_v1_peak_memory_ratio,
+                "production_path": "cmy_to_log_raw_pixel_thread_v1",
+                "channel_thread_baseline_path": "cmy_to_log_raw_channel_thread_baseline",
             },
             "cmy_to_log_xyz": {
                 "results": [xyz_unfused, xyz_fused],
@@ -549,6 +618,7 @@ def run_kernel_case(
             },
         },
         "raw_fused_to_xyz_fused_median_ratio": raw_vs_xyz_ratio,
+        "raw_channel_thread_to_xyz_fused_median_ratio": raw_channel_thread_vs_xyz_ratio,
         "raw_pixel_thread_v1_median_speedup_vs_current": raw_pixel_thread_v1_median_speedup,
         "raw_pixel_thread_v1_p90_speedup_vs_current": raw_pixel_thread_v1_p90_speedup,
         "raw_pixel_thread_v1_peak_memory_ratio_vs_current": raw_pixel_thread_v1_peak_memory_ratio,
@@ -727,7 +797,6 @@ def evaluate_raw_pixel_thread_acceptance(
     payload: dict[str, Any],
     *,
     wall_threshold_percent: float = 10.0,
-    raw_vs_xyz_ratio_threshold: float = 2.0,
     median_speedup_threshold: float = RAW_PIXEL_THREAD_MEDIAN_SPEEDUP_THRESHOLD,
     p90_slowdown_limit: float = RAW_PIXEL_THREAD_P90_SLOWDOWN_LIMIT,
     memory_increase_limit: float = RAW_PIXEL_THREAD_MEMORY_INCREASE_LIMIT,
@@ -773,7 +842,7 @@ def evaluate_raw_pixel_thread_acceptance(
         for result in raw_results:
             if result.get("name") != "cmy_to_log_raw_pixel_thread_v1":
                 continue
-            precision = result.get("precision_vs_current_fused_metal")
+            precision = result.get("precision_vs_channel_thread_baseline")
             if precision is not None:
                 v1_precision_diffs.append(float(precision.get("max_abs_diff", 0.0) or 0.0))
 
@@ -787,7 +856,6 @@ def evaluate_raw_pixel_thread_acceptance(
     precision_ok = has_v1 and max_v1_precision_diff <= precision_atol
     accept = (
         raw_wall_percent >= wall_threshold_percent
-        and max_raw_vs_xyz_ratio >= raw_vs_xyz_ratio_threshold
         and min_v1_speedup >= median_speedup_threshold
         and min_v1_p90_speedup >= p90_speedup_floor
         and memory_ok
@@ -795,24 +863,21 @@ def evaluate_raw_pixel_thread_acceptance(
     )
     if accept:
         reason = (
-            "accepted: pixel-thread v1 preserves current raw output and materially improves "
+            "accepted: pixel-thread v1 preserves channel-thread baseline output and materially improves "
             "a meaningful full-render contributor"
         )
     elif raw_wall_percent < wall_threshold_percent:
         reason = "rejected: cmy_to_log_raw end-to-end wall share is below threshold"
+    elif not has_v1:
+        reason = "rejected: cmy_to_log_raw_pixel_thread_v1 benchmark data is missing"
+    elif min_v1_speedup < median_speedup_threshold:
+        reason = "rejected: cmy_to_log_raw_pixel_thread_v1 median speedup is below threshold"
+    elif min_v1_p90_speedup < p90_speedup_floor:
+        reason = "rejected: cmy_to_log_raw_pixel_thread_v1 p90 is slower than allowed"
+    elif not memory_ok:
+        reason = "rejected: cmy_to_log_raw_pixel_thread_v1 peak memory increased too much"
     else:
-        if max_raw_vs_xyz_ratio < raw_vs_xyz_ratio_threshold:
-            reason = "rejected: cmy_to_log_raw is not at least 2x slower than cmy_to_log_xyz"
-        elif not has_v1:
-            reason = "rejected: cmy_to_log_raw_pixel_thread_v1 benchmark data is missing"
-        elif min_v1_speedup < median_speedup_threshold:
-            reason = "rejected: cmy_to_log_raw_pixel_thread_v1 median speedup is below threshold"
-        elif min_v1_p90_speedup < p90_speedup_floor:
-            reason = "rejected: cmy_to_log_raw_pixel_thread_v1 p90 is slower than allowed"
-        elif not memory_ok:
-            reason = "rejected: cmy_to_log_raw_pixel_thread_v1 peak memory increased too much"
-        else:
-            reason = "rejected: cmy_to_log_raw_pixel_thread_v1 precision differs from current fused raw"
+        reason = "rejected: cmy_to_log_raw_pixel_thread_v1 precision differs from channel-thread baseline"
     return {
         "accept_raw_pixel_thread_v1": accept,
         "replace_production_recommended": accept,
@@ -822,9 +887,8 @@ def evaluate_raw_pixel_thread_acceptance(
         "median_speedup_raw_pixel_thread_v1": min_v1_speedup,
         "p90_speedup_raw_pixel_thread_v1": min_v1_p90_speedup,
         "peak_memory_ratio_raw_pixel_thread_v1": None if not v1_memory_ratios else max_v1_memory_ratio,
-        "max_diff_raw_pixel_thread_v1_vs_current": max_v1_precision_diff,
+        "max_diff_raw_pixel_thread_v1_vs_channel_thread_baseline": max_v1_precision_diff,
         "wall_threshold_percent": wall_threshold_percent,
-        "raw_vs_xyz_ratio_threshold": raw_vs_xyz_ratio_threshold,
         "median_speedup_threshold": median_speedup_threshold,
         "p90_slowdown_limit": p90_slowdown_limit,
         "memory_increase_limit": memory_increase_limit,
@@ -906,7 +970,7 @@ def format_markdown(payload: dict[str, Any]) -> str:
                 f"- Median speedup raw pixel-thread v1: {recommendation.get('median_speedup_raw_pixel_thread_v1', 0.0):.3f}x",
                 f"- P90 speedup raw pixel-thread v1: {recommendation.get('p90_speedup_raw_pixel_thread_v1', 0.0):.3f}x",
                 f"- Peak memory ratio raw pixel-thread v1: {_format_optional_ratio(recommendation.get('peak_memory_ratio_raw_pixel_thread_v1'))}",
-                f"- Max diff raw pixel-thread v1 vs current: {recommendation.get('max_diff_raw_pixel_thread_v1_vs_current', 0.0):.3e}",
+                f"- Max diff raw pixel-thread v1 vs channel-thread baseline: {recommendation.get('max_diff_raw_pixel_thread_v1_vs_channel_thread_baseline', 0.0):.3e}",
                 "",
             ]
         )

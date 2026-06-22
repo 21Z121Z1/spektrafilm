@@ -8,6 +8,8 @@ LUT remap shape and end-effects).
 """
 from __future__ import annotations
 
+import inspect
+
 import numpy as np
 import pytest
 
@@ -403,6 +405,16 @@ class TestCompressRgbDispatcher:
 
 
 class TestBackendOutputGamutCompression:
+    def test_jzazbz_mlx_kernel_uses_second_order_pq_ds_helpers(self) -> None:
+        source = inspect.getsource(gamut_backend._get_jzazbz_chroma_mlx_kernel)
+
+        assert "float dy1 = (exponent * y / xh) * x.lo;" in source
+        assert "float dy2 = (" in source
+        assert "exponent * (exponent - 1.0f) * y / (2.0f * xh * xh)" in source
+        assert "return ds_add_float(ds_make(y), dy1 + dy2);" in source
+        assert "ds_safe_div(n, denominator, 1.0e-20f)" in source
+        assert "pq_eotf_derivative_jz" not in source
+
     def test_jzazbz_mlx_capable_backend_dispatches_custom_kernel(self, monkeypatch) -> None:
         sentinel = object()
         calls = []

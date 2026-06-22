@@ -106,7 +106,7 @@ class TestInitParamsDefaults:
         assert params.settings.rgb_to_raw_method == 'hanatos2025'
         assert params.settings.use_enlarger_lut is False
         assert params.settings.use_scanner_lut is False
-        assert params.settings.lut_resolution == 17
+        assert params.settings.lut_resolution == 65
         assert params.settings.use_fast_stats is False
         assert params.settings.preview_max_size == 640
 
