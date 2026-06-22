@@ -3,7 +3,7 @@ import os
 import numpy as np
 
 # Load the data
-with open('/Users/retriedstormtrooper/Documents/spektrafilm-main/curve_analysis.json') as f:
+with open('curve_analysis.json') as f:
     results = json.load(f)
 
 # Calculate global stats to provide relative context
@@ -20,7 +20,7 @@ median_mc = np.median(all_midtone_contrast)
 median_ss = np.median(all_shoulder_spread)
 median_hc = np.median(all_highlight_contrast)
 
-output_dir = "/Users/retriedstormtrooper/Documents/spektrafilm-main/docs/curve_analysis"
+output_dir = "docs/curve_analysis"
 os.makedirs(output_dir, exist_ok=True)
 
 for r in results:

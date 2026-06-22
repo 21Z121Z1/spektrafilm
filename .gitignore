@@ -208,3 +208,19 @@ android/.kotlin/
 
 # GUI runtime state
 gui_state.json
+
+# Public Surface Hygiene - Ignore Agent and temporary data
+/CLAUDE.md
+/CLAUDE-RESEARCH.md
+/AGENTS.private.md
+/AGENTS.local.md
+/autonomous-loop.sh
+/scratch_*.py
+/verify_*.py
+/output.*
+/docs/internal/
+/docs/private/
+/docs/agent_runs/
+/docs/dev/benchmark-artifacts/
+/scratch/
+*.log

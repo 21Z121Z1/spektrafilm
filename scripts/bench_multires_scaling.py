@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 from spektrafilm.runtime.params_builder import digest_params, init_params
 from spektrafilm.runtime.process import Simulator
 
-DNG_PATH = "/Users/retriedstormtrooper/Documents/OPPO 互联/IMG20260530191638.dng"
+DNG_PATH = "IMG20260530191638.dng"
 
 # Target resolutions (width x height) — portrait orientation
 TARGETS = [

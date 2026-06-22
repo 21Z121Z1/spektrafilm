@@ -6,7 +6,7 @@ Date: 2026-06-08
 
 The local standards references for this pass are under:
 
-`/Users/retriedstormtrooper/Documents/Projects/Active/proxdrtest/docs/reference/standards/`
+`docs/reference/standards/`
 
 The standards README says to search by clause or keyword rather than loading the
 entire standards into context. The implementation was checked against:

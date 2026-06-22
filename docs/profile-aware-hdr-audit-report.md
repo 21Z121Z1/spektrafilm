@@ -37,7 +37,7 @@ Recommendation: keep using `profile_aware` for default exports after documenting
 - Result: both commands produced no pytest output for more than two minutes and were terminated. Exit after termination: `143`.
 - Environment check: `.venv/bin/python -c "print(...)"` / Homebrew Python 3.13 hung in this execution environment; `/opt/homebrew/bin/python3.12` was killed with `-9`. This is an environment/runtime issue, not an implementation failure.
 - Alternative evidence command:
-  - `/Users/retriedstormtrooper/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 -m py_compile src/spektrafilm/utils/hdr_photo.py src/spektrafilm/utils/hdr_curve_profiles.py tests/test_hdr_photo.py tests/test_hdr_curve_profiles.py`
+  - `.venv/bin/python -m py_compile src/spektrafilm/utils/hdr_photo.py src/spektrafilm/utils/hdr_curve_profiles.py tests/test_hdr_photo.py tests/test_hdr_curve_profiles.py`
   - Result: passed.
 
 ### Minimal Experiments

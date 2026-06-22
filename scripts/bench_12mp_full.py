@@ -20,7 +20,7 @@ from spektrafilm.runtime.params_builder import init_params, digest_params
 from spektrafilm.runtime.process import Simulator
 from spektrafilm.gpu.backend import select_backend
 
-DNG_PATH = "/Users/retriedstormtrooper/Documents/OPPO 互联/IMG20260530191638.dng"
+DNG_PATH = "IMG20260530191638.dng"
 
 # Baseline numbers (pre-optimization)
 BASELINE = {

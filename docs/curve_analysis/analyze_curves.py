@@ -101,7 +101,7 @@ for film in films:
             pass
 
 # Output to JSON for further reading
-with open("/Users/retriedstormtrooper/Documents/spektrafilm-main/curve_analysis.json", "w") as f:
+with open("curve_analysis.json", "w") as f:
     json.dump(results, f, indent=2)
 
 print(f"Analyzed {len(results)} combinations.")

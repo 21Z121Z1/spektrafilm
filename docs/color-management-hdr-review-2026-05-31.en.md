@@ -95,7 +95,7 @@ Fixes in this round:
 
 Real sample results:
 
-- Sample directory: `/Users/retriedstormtrooper/Downloads/03_图片素材/RAW_DNG照片/RAW_DNG_JPEG_批量导出`
+- Sample directory: `RAW_DNG_JPEG_批量导出`
 - DNG files found: 365; 4 sampled for validation in this round, covering normal exposure, low-key, strong highlight, and near-white clipping samples.
 - Latest report: `docs/hdr_profile_aware_raw_validation.md`
 - All 4 samples passed sidecar finite/nonnegative, process parity, auto-exposure scale-invariant, Android container, ISO metadata roundtrip, JPEG metadata/gain-map probe, and EXR attribute tracking checks.
@@ -172,7 +172,7 @@ Result: `875 passed, 7 skipped, 1 warning in 52.84s`
 ```bash
 /usr/bin/perl -e 'alarm shift; exec @ARGV' 900 \
   uv run python tools/validate_profile_aware_hdr_raw_samples.py \
-  --sample-dir "/Users/retriedstormtrooper/Downloads/03_图片素材/RAW_DNG照片/RAW_DNG_JPEG_批量导出" \
+  --sample-dir "RAW_DNG_JPEG_批量导出" \
   --max-samples 4 \
   --diagnostic-scan-limit 32 \
   --output docs/hdr_profile_aware_raw_validation.md

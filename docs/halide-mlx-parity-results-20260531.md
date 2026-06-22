@@ -14,7 +14,7 @@ Implemented changes in this working tree:
 
 ## Main Results
 
-Input: `/Users/retriedstormtrooper/Documents/OPPO 互联/IMG20260530191638.dng`
+Input: `IMG20260530191638.dng`
 
 Main config: `kodak_portra_400` / `kodak_portra_endura`, grain OFF, halation ON, direct spectral mode (`use_lut=False`).
 

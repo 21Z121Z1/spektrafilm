@@ -12,7 +12,7 @@ import numpy as np
 # ---------------------------------------------------------------------------
 # Load input image (once)
 # ---------------------------------------------------------------------------
-INPUT_PATH = "/Users/retriedstormtrooper/Documents/OPPO 互联/IMG20260530191638.dng"
+INPUT_PATH = "IMG20260530191638.dng"
 
 from spektrafilm.utils.raw_file_processor import load_and_process_raw_file
 

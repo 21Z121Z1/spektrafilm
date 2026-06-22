@@ -22,7 +22,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-DEFAULT_DNG = Path("/Users/retriedstormtrooper/Documents/OPPO 互联/IMG20260530191638.dng")
+DEFAULT_DNG = Path("IMG20260530191638.dng")
 DEFAULT_OUT_DIR = ROOT / "docs" / "dev" / "benchmark-artifacts" / "halide_mlx_parity_20260531"
 
 
