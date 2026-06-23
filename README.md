@@ -4,7 +4,7 @@ Languages: English | [简体中文](README.zh-CN.md)
 
 > [!WARNING]
 >
-> **I love building spektrafilm**, and I invested already hundreds of hours in it. Right now it’s a nights-and-weekends project. If it will help pay some bills, I can keep improving it for everyone. 🙂 Any **support** is really appreciated: [Buy me a coffee](https://buymeacoffee.com/andreavolpato)
+> **I love building spektrafilm**, and I invested already hundreds of hours in it. Right now it’s a nights-and-weeks project. If it will help pay some bills, I can keep improving it for everyone. 🙂 Any **support** is really appreciated: [Buy me a coffee](https://buymeacoffee.com/andreavolpato)
 >
 > **2026/05/28 big git history cleanup** (140MB -> 45MB) --> please reclone!
 > 
@@ -430,6 +430,34 @@ video](https://github.com/user-attachments/assets/534746b5-87ec-4bd0-96c9-5214ef
   scaling.
 - Based on my experience building the profiles, Fujifilm data are less
   self-consistent than Kodak data.
+
+## Extensions in this fork
+
+This fork extends upstream `spektrafilm` with experimental work around Apple Silicon acceleration, HDR image export, and display-oriented color management. The intent is to keep the upstream SDR film simulation behavior as the reference path while adding opt-in infrastructure for faster local rendering and more robust HDR output experiments.
+
+### Apple Silicon MLX / Metal acceleration
+
+The runtime pipeline includes an opt-in MLX backend for Apple Silicon systems. The default backend remains CPU, so the reference SDR path is not changed unless GPU computation is explicitly selected. The MLX path is designed to keep intermediate stage data resident on the backend where possible and to avoid unnecessary CPU/GPU round trips during spectral computation, density interpolation, LUT application, filtering, CCTF encode/decode, and matrix color transforms.
+
+The current acceleration work is focused on practical Apple Silicon rendering through MLX and Metal-backed operations. CPU output remains the primary correctness reference, and GPU paths are treated as acceleration paths that must preserve the film simulation semantics within the expected float32 precision envelope.
+
+CuPy and Halide-related code is retained as experimental backend research. These paths are not the primary tested configuration for this fork and should not be treated as production-ready without separate local validation.
+
+### HDR projection and gain-map export
+
+This fork adds ongoing HDR work built around a RouteMaster-style separation between the photographic simulation route and the final output projection. The long-term goal is to render the photographic material state once, then derive SDR and HDR projections from that shared state instead of reconstructing HDR data from an already-rendered SDR image.
+
+The currently most useful direction is the idealized HDR paper projection: preserving the authored SDR print look around normal diffuse-white output, while extending selected highlight energy into HDR headroom above that base. This is best understood as a digital HDR projection inspired by the print route, not as a claim that physical photographic paper itself is HDR.
+
+The light-table HDR route remains active work and should be considered under development rather than a completed, semantically final mode.
+
+For HDR file output, this fork includes gain-map based HEIC export work using a pre-rendered SDR/HDR pair. The encoder boundary is intentionally narrow: it receives the already-rendered SDR and HDR images, writes the file, and validates the resulting gain-map structure. The export path includes ISO 21496-1 / HEIC `tmap` validation and fail-closed behavior for hard structural errors, so the project does not silently claim successful HDR export when the produced file does not match the expected container structure.
+
+### Color management and macOS display preview
+
+This fork also refines the boundary between runtime output, file saving, and display preview. The default SDR behavior remains `sRGB + CCTF + clip`, preserving compatibility with the upstream-style SDR rendering path. Scene-linear and ACES-oriented workflows are handled more explicitly, including separate runtime output encoding and save encoding controls.
+
+On macOS, the GUI/bridge display-preview path includes a more explicit display transform for scene-linear and ACES-style previews. Instead of clipping scene highlights before display rendering, the preview path can preserve values above 1.0 until the display transform stage, then produce a viewable SDR preview. This is not a full replacement for an OCIO/CTL-grade ACES Output Transform, but it makes the preview behavior clearer, more testable, and better aligned with HDR-aware scene-linear rendering experiments.
 
 ## Support
 
