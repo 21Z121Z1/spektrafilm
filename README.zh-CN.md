@@ -107,8 +107,8 @@
 from spektrafilm import init_params, simulate
 
 params = init_params(
-	film_profile="kodak_portra_400",
-	print_profile="kodak_portra_endura",
+    film_profile="kodak_portra_400",
+    print_profile="kodak_portra_endura",
 )
 result = simulate(image, params)
 ```
@@ -120,15 +120,15 @@ from spektrafilm_lut_creator.builders import BundleBuilder
 from spektrafilm_lut_creator.bundles import BundleSpec
 
 spec = BundleSpec(
-      film_profile="kodak_portra_400",
-      print_profiles=("kodak_portra_endura",),
-      input_color_space="Panasonic V-Log",
-      output_color_space="sRGB",
-      topology="1lut",
-      resolution=33,
-      ocio_config=True,   # 选择启用：同时输出一个独立 OCIO 2 配置
-      qa=True,            # 选择启用：运行 QA 套件并输出 report.html
-      target="lumix_reatlime_vlog",  # 用于 Lumix realtime 的特殊 .cube 文件
+    film_profile="kodak_portra_400",
+    print_profiles=("kodak_portra_endura",),
+    input_color_space="Panasonic V-Log",
+    output_color_space="sRGB",
+    topology="1lut",
+    resolution=33,
+    ocio_config=True,   # 选择启用：同时输出一个独立 OCIO 2 配置
+    qa=True,            # 选择启用：运行 QA 套件并输出 report.html
+    target="lumix_realtime_vlog",  # 用于 Lumix realtime 的特殊 .cube 文件
 )
 builder = BundleBuilder(spec)
 builder.write(builder.build())   # 输出到 build/lut_bundles/<auto-name>/
@@ -138,14 +138,14 @@ builder.write(builder.build())   # 输出到 build/lut_bundles/<auto-name>/
 
 ```bash
 spektrafilm-lut build \
-	--film kodak_portra_400 \
-	--print kodak_portra_endura \
-	--input vlog --output srgb \
-	--topology 1lut \
-   --resolution 33 \
-	--qa \
-   --ocio-config \
-	--out ./build/lut_bundles/
+    --film kodak_portra_400 \
+    --print kodak_portra_endura \
+    --input vlog --output srgb \
+    --topology 1lut \
+    --resolution 33 \
+    --qa \
+    --ocio-config \
+    --out ./build/lut_bundles/
 
 spektrafilm-lut list film         # 查看已注册的胶片配置
 spektrafilm-lut list print        # 查看已注册的相纸配置
