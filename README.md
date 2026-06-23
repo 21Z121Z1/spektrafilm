@@ -4,7 +4,7 @@ Languages: English | [简体中文](README.zh-CN.md)
 
 > [!WARNING]
 >
-> **I love building spektrafilm**, and I invested already hundreds of hours in it. Right now it’s a nights-and-weeks project. If it will help pay some bills, I can keep improving it for everyone. 🙂 Any **support** is really appreciated: [Buy me a coffee](https://buymeacoffee.com/andreavolpato)
+> **I love building spektrafilm**, and I invested already hundreds of hours in it. Right now it’s a nights-and-weekends project. If it will help pay some bills, I can keep improving it for everyone. 🙂 Any **support** is really appreciated: [Buy me a coffee](https://buymeacoffee.com/andreavolpato)
 >
 > **2026/05/28 big git history cleanup** (140MB -> 45MB) --> please reclone!
 > 
