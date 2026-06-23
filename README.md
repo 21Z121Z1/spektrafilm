@@ -159,8 +159,8 @@ Minimal runtime API:
 from spektrafilm import init_params, simulate
 
 params = init_params(
-	film_profile="kodak_portra_400",
-	print_profile="kodak_portra_endura",
+    film_profile="kodak_portra_400",
+    print_profile="kodak_portra_endura",
 )
 result = simulate(image, params)
 ```
@@ -172,15 +172,15 @@ from spektrafilm_lut_creator.builders import BundleBuilder
 from spektrafilm_lut_creator.bundles import BundleSpec
 
 spec = BundleSpec(
-      film_profile="kodak_portra_400",
-      print_profiles=("kodak_portra_endura",),
-      input_color_space="Panasonic V-Log",
-      output_color_space="sRGB",
-      topology="1lut",
-      resolution=33,
-      ocio_config=True,   # opt-in: also emit a standalone OCIO 2 config
-      qa=True,            # opt-in: run the QA suite and emit report.html
-      target="lumix_reatlime_vlog",  # special .cube files for lumix realtime
+    film_profile="kodak_portra_400",
+    print_profiles=("kodak_portra_endura",),
+    input_color_space="Panasonic V-Log",
+    output_color_space="sRGB",
+    topology="1lut",
+    resolution=33,
+    ocio_config=True,   # opt-in: also emit a standalone OCIO 2 config
+    qa=True,            # opt-in: run the QA suite and emit report.html
+    target="lumix_realtime_vlog",  # special .cube files for lumix realtime
 )
 builder = BundleBuilder(spec)
 builder.write(builder.build())   # lands in build/lut_bundles/<auto-name>/
@@ -191,14 +191,14 @@ registry names or `short_tag` slugs (`vlog`, `srgb`, `acescg`, ...):
 
 ```bash
 spektrafilm-lut build \
-	--film kodak_portra_400 \
-	--print kodak_portra_endura \
-	--input vlog --output srgb \
-	--topology 1lut \
-   --resolution 33 \
-	--qa \
-   --ocio-config \
-	--out ./build/lut_bundles/
+    --film kodak_portra_400 \
+    --print kodak_portra_endura \
+    --input vlog --output srgb \
+    --topology 1lut \
+    --resolution 33 \
+    --qa \
+    --ocio-config \
+    --out ./build/lut_bundles/
 
 spektrafilm-lut list film         # discover registered profiles
 spektrafilm-lut list print        # discover registered profiles
