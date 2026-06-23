@@ -1,0 +1,95 @@
+name: SDR Upstream Conformance
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      run_apple_backends:
+        description: Run self-hosted Apple Silicon backend alignment
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      core_changed: ${{ steps.diff.outputs.core_changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}" > changed.txt
+          else
+            git ls-files > changed.txt
+          fi
+          if grep -E '^(src/spektrafilm/(model|runtime|gpu|profiles|data)/|tools/sdr_alignment/|tests/alignment/|pyproject.toml|uv.lock|\.github/workflows/sdr-upstream-conformance.yml)' changed.txt >/dev/null; then
+            echo "core_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "core_changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  quick:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install uv
+        run: python -m pip install --upgrade uv
+      - name: Install dependencies
+        run: uv sync --extra dev
+      - name: Run alignment contract schema
+        run: uv run python -m pytest -q tests/alignment/test_alignment_contract_schema.py
+      - name: Run quick CPU upstream conformance
+        run: uv run python -m tools.sdr_alignment.run_alignment --mode upstream_compat --suite quick --backend cpu --output-dir artifacts/sdr_alignment/quick-cpu
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sdr-alignment-quick
+          path: artifacts/sdr_alignment/
+          if-no-files-found: ignore
+
+  full:
+    needs: changes
+    if: needs.changes.outputs.core_changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install uv
+        run: python -m pip install --upgrade uv
+      - name: Install dependencies
+        run: uv sync --extra dev
+      - name: Run full CPU upstream conformance
+        run: uv run python -m tools.sdr_alignment.run_alignment --mode upstream_compat --suite full --backend cpu --output-dir artifacts/sdr_alignment/full-cpu
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sdr-alignment-full-cpu
+          path: artifacts/sdr_alignment/full-cpu/
+          if-no-files-found: error
+
+  apple-backends:
+    if: (github.event_name == 'workflow_dispatch' && inputs.run_apple_backends) || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'run-apple-backend'))
+    runs-on: [self-hosted, macOS, ARM64]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: uv sync --extra dev --extra gpu-apple
+      - name: Run MLX/Metal upstream conformance
+        run: uv run python -m tools.sdr_alignment.run_alignment --mode upstream_compat --suite quick --backend mlx --output-dir artifacts/sdr_alignment/apple-mlx
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sdr-alignment-apple-mlx
+          path: artifacts/sdr_alignment/apple-mlx/
+          if-no-files-found: error

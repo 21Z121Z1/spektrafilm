@@ -420,49 +420,63 @@ class GuiController:
                 )
                 return
 
-            if self._current_input_image is None:
-                QMessageBox.warning(
-                    dialog_parent(self._viewer),
-                    'Save output',
-                    'No input image available for HDR HEIC export. Please load an image first.'
-                )
-                return
-
             try:
                 from spektrafilm.hdr.routemaster_export import export_hdr_heic_from_simulator
 
-                params = build_params_from_state(gui_state)
-                apply_stocks_specifics = (
-                    self._runtime_simulator is None
-                    or self._next_runtime_digest_applies_stock_specifics
-                )
-                digested_params = digest_params(
-                    params,
-                    apply_stocks_specifics=apply_stocks_specifics,
-                )
-                if self._runtime_simulator is None:
-                    self._runtime_simulator = runtime_simulator(digested_params)
-                else:
-                    self._runtime_simulator.update_params(digested_params)
-                self._next_runtime_digest_applies_stock_specifics = False
-
-                config = hdr_projection_config_from_settings(hdr_settings)
                 hdr_mode = normalize_hdr_mapping_mode(hdr_settings.hdr_mapping_mode)
                 cached_route_master = output_layer.metadata.get(OUTPUT_ROUTE_MASTER_KEY)
                 if getattr(cached_route_master, "mode", None) != hdr_mode:
                     cached_route_master = None
 
-                export_hdr_heic_from_simulator(
-                    self._runtime_simulator,
-                    self._current_input_image,
-                    filepath,
-                    hdr_mode=hdr_mode,
-                    config=config,
-                    color_space=saving_color_space,
-                    quality=float(hdr_settings.heic_quality),
-                    gain_map_mode=hdr_settings.gain_map_mode,
-                    master=cached_route_master,
-                )
+                if cached_route_master is None and self._current_input_image is None:
+                    QMessageBox.warning(
+                        dialog_parent(self._viewer),
+                        'Save output',
+                        'No input image available for HDR HEIC export. Please load an image first.'
+                    )
+                    return
+
+                config = hdr_projection_config_from_settings(hdr_settings)
+
+                if cached_route_master is not None:
+                    export_hdr_heic_from_simulator(
+                        None,
+                        None,
+                        filepath,
+                        hdr_mode=hdr_mode,
+                        config=config,
+                        color_space=saving_color_space,
+                        quality=float(hdr_settings.heic_quality),
+                        gain_map_mode=hdr_settings.gain_map_mode,
+                        master=cached_route_master,
+                    )
+                else:
+                    params = build_params_from_state(gui_state)
+                    apply_stocks_specifics = (
+                        self._runtime_simulator is None
+                        or self._next_runtime_digest_applies_stock_specifics
+                    )
+                    digested_params = digest_params(
+                        params,
+                        apply_stocks_specifics=apply_stocks_specifics,
+                    )
+                    if self._runtime_simulator is None:
+                        self._runtime_simulator = runtime_simulator(digested_params)
+                    else:
+                        self._runtime_simulator.update_params(digested_params)
+                    self._next_runtime_digest_applies_stock_specifics = False
+
+                    export_hdr_heic_from_simulator(
+                        self._runtime_simulator,
+                        self._current_input_image,
+                        filepath,
+                        hdr_mode=hdr_mode,
+                        config=config,
+                        color_space=saving_color_space,
+                        quality=float(hdr_settings.heic_quality),
+                        gain_map_mode=hdr_settings.gain_map_mode,
+                        master=None,
+                    )
             except Exception as exc:
                 QMessageBox.critical(
                     dialog_parent(self._viewer),

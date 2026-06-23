@@ -524,7 +524,6 @@ def test_save_output_layer_reuses_route_master_from_scan(monkeypatch) -> None:
     )
     output_layer.metadata[OUTPUT_ROUTE_MASTER_KEY] = route_master
     controller = GuiController(viewer=object(), widgets=object())
-    controller._current_input_image = float_image
     captured: dict[str, object] = {}
     gui_state = make_test_controller_gui_state()
     gui_state.hdr.hdr_heic_gain_map_enabled = True
@@ -540,6 +539,31 @@ def test_save_output_layer_reuses_route_master_from_scan(monkeypatch) -> None:
     )
     _capture_saved_output(monkeypatch, captured)
 
+    def fail_build_params(*_args, **_kwargs):
+        raise AssertionError("cached RouteMaster save must not rebuild params")
+
+    def fail_digest_params(*_args, **_kwargs):
+        raise AssertionError("cached RouteMaster save must not digest params")
+
+    def fail_runtime_simulator(*_args, **_kwargs):
+        raise AssertionError("cached RouteMaster save must not initialize runtime")
+
+    monkeypatch.setattr(
+        controller_module,
+        'build_params_from_state',
+        fail_build_params,
+    )
+    monkeypatch.setattr(
+        controller_module,
+        'digest_params',
+        fail_digest_params,
+    )
+    monkeypatch.setattr(
+        controller_module,
+        'runtime_simulator',
+        fail_runtime_simulator,
+    )
+
     from spektrafilm.hdr import routemaster_export
 
     def fake_export_hdr_heic_from_simulator(
@@ -547,7 +571,9 @@ def test_save_output_layer_reuses_route_master_from_scan(monkeypatch) -> None:
     ):
         captured['heic_export'] = {
             'hdr_mode': hdr_mode,
+            'image': image,
             'master': master,
+            'simulator': simulator,
         }
         return (str(filename),)
 
@@ -560,7 +586,9 @@ def test_save_output_layer_reuses_route_master_from_scan(monkeypatch) -> None:
     controller.save_output_layer()
 
     assert captured['heic_export']['hdr_mode'] == 'paper'
+    assert captured['heic_export']['image'] is None
     assert captured['heic_export']['master'] is route_master
+    assert captured['heic_export']['simulator'] is None
 
 
 def test_save_output_layer_ignores_cached_route_master_when_mode_differs(monkeypatch) -> None:

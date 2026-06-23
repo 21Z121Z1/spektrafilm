@@ -1,0 +1,17 @@
+{
+  "contract_version": 1,
+  "upstream": {
+    "repo": "https://github.com/andreavolpato/spektrafilm",
+    "ref": "3bb2c2d2801ff68b92019cf1dbcbb133d60832bc",
+    "pyproject_sha256": "2683ef714f8566e8977411827b2c748afdbe3630269d85e38ad098eb6f2cd2a9"
+  },
+  "candidate": {
+    "uv_lock_sha256": "725eda9857677bf3288f4dd40fadc2651d36b54a6f8750f0f0c47fcb45eb3748",
+    "python": "~=3.13"
+  },
+  "bootstrap": {
+    "cache_dir": ".cache/sdr_alignment",
+    "reference_venv": "python -m venv",
+    "reference_install": "subprocess venv with current dependency site-packages on PYTHONPATH and locked upstream src first"
+  }
+}

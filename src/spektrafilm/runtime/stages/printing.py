@@ -68,9 +68,7 @@ class PrintingStage:
         enlarger_light_source = standard_illuminant(self._enlarger.illuminant)
         print_illuminant = self._enlarger_service.enlarger_filtered_illuminant(enlarger_light_source)
 
-        channel_density = np.nan_to_num(
-            self._film.data.channel_density, nan=0.0, posinf=0.0, neginf=0.0,
-        )
+        channel_density = self._film.data.channel_density
         base_density = self._film.data.base_density
 
         self._backend_channel_density = self._backend.asarray(channel_density)
