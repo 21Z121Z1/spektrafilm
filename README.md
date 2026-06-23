@@ -1,5 +1,7 @@
 ![spektrafilm banner](img/readme/banner.jpg)
 
+Languages: English | [简体中文](README.zh-CN.md)
+
 > [!WARNING]
 >
 > **I love building spektrafilm**, and I invested already hundreds of hours in it. Right now it’s a nights-and-weekends project. If it will help pay some bills, I can keep improving it for everyone. 🙂 Any **support** is really appreciated: [Buy me a coffee](https://buymeacoffee.com/andreavolpato)
