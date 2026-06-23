@@ -313,6 +313,34 @@ pytest 运行期间绝不会自动更新快照文件。
 - 对于全分辨率图像，该模拟相当慢。在我的笔记本上，处理 6MP 图像大约需要 10 秒。我通常用 `PREVIEW` 调整大多数数值。需要最终图像时，使用 `SCAN`，它会绕过图像缩放。
 - 根据我构建配置时的经验，Fujifilm 数据不如 Kodak 数据自洽。
 
+## 本 fork 的扩展工作
+
+这个 fork 在上游 `spektrafilm` 的基础上，加入了围绕 Apple Silicon 加速、HDR 图像导出和面向显示的色彩管理的一组实验性工作。整体目标是继续以上游 SDR 胶片模拟行为作为参考路径，同时提供可选的本地加速基础设施，以及更稳健的 HDR 输出实验路径。
+
+### Apple Silicon MLX / Metal 加速
+
+运行时管线加入了面向 Apple Silicon 的可选 MLX 后端。默认后端仍然是 CPU，因此除非用户明确选择 GPU 计算，否则参考 SDR 路径不会改变。MLX 路径的设计目标是在可能的情况下让中间阶段数据保留在后端上，减少 spectral computation、density interpolation、LUT application、filtering、CCTF encode/decode 和矩阵色彩变换中的 CPU/GPU 往返。
+
+当前加速工作主要集中在通过 MLX 和 Metal-backed operations 改善 Apple Silicon 上的实际渲染性能。CPU 输出仍然是主要正确性参考；GPU 路径被视为加速路径，必须在预期 float32 精度范围内保持胶片模拟语义。
+
+CuPy 和 Halide 相关代码目前保留为实验性后端研究方向。它们不是这个 fork 的主要测试配置，不能在没有单独本地验证的情况下视为生产可用路径。
+
+### HDR 投影与 gain-map 导出
+
+这个 fork 加入了围绕 RouteMaster 思路展开的 HDR 工作，用于把摄影模拟 route 与最终输出投影拆分开。长期目标是只渲染一次摄影材料状态，然后从同一个状态派生 SDR 与 HDR 投影，而不是从已经渲染好的 SDR 图像重新推测 HDR 数据。
+
+目前最有实际意义的方向是 idealized HDR paper projection：在普通漫反射白附近保留已创作的 SDR 印相观感，同时把部分高光能量扩展到 HDR headroom 中。这更适合理解为一种受 print route 启发的数字 HDR 投影，而不是声称物理摄影相纸本身具有 HDR 能力。
+
+light-table HDR route 仍处于开发中，应视为正在推进的工作，而不是已经完成且语义稳定的模式。
+
+在 HDR 文件输出方面，这个 fork 包含基于 gain map 的 HEIC 导出工作，输入是预先渲染好的 SDR/HDR pair。编码边界被刻意收窄：导出层只接收已经渲染好的 SDR 和 HDR 图像，负责写入文件并验证 gain-map 结构。导出路径包含 ISO 21496-1 / HEIC `tmap` 验证，并对硬结构错误采用 fail-closed 行为，避免在文件结构不符合预期时仍然声称 HDR 导出成功。
+
+### 色彩管理与 macOS 显示预览
+
+这个 fork 也细化了 runtime output、file saving 和 display preview 之间的边界。默认 SDR 行为仍保持 `sRGB + CCTF + clip`，以维持与上游式 SDR 渲染路径的兼容。scene-linear 和 ACES-oriented workflow 则采用更明确的处理方式，包括拆分 runtime output encoding 与 save encoding 控制。
+
+在 macOS 上，GUI/bridge 的显示预览路径为 scene-linear 和 ACES-style 预览加入了更明确的 display transform。预览阶段不再在显示渲染前简单裁掉大于 1.0 的 scene highlights，而是可以把这些高光保留到 display transform 阶段，再生成可观看的 SDR preview。这还不是 OCIO/CTL 级 ACES Output Transform 的完整替代，但它让预览行为更清晰、更可测试，也更适合 HDR-aware scene-linear rendering 实验。
+
 ## 支持
 
 spektrafilm 是我在业余时间开发的，经常是在 KTH 的研究工作结束后的深夜。如果你想支持持续开发，并为下一次通宵编码补充燃料，可以考虑[请我喝杯咖啡](https://buymeacoffee.com/andreavolpato)。你的贡献能帮助我投入更多时间到这个项目，并回馈 [pixls.us](https://discuss.pixls.us/) 社区。
