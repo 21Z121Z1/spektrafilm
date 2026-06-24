@@ -10,7 +10,6 @@ from spektrafilm.utils.gamut_compression import (
 from spektrafilm.utils.morph_curves import PrintCurvesMorphParams
 
 
-
 @dataclass
 class DiffusionFilterParams:
     active: bool = False
@@ -21,22 +20,9 @@ class DiffusionFilterParams:
     strength: float = 0.5
     # multiplier on image-plane PSF widths (all per-group lambdas)
     spatial_scale: float = 1.0
-    # additive bias to the family's halo warmth axis. The halo is energy-
-    # conservingly redistributed across its sub-components per channel:
-    # warmth > 0 pushes warm light (R + slight G) toward the OUTER halo
-    # and cool light (B) toward the inner halo (and vice versa for
-    # warmth < 0). 0 = use family default. Effective warmth is soft-
-    # clamped to [-1.5, +1.5].
+    # additive bias to the family's halo warmth axis.
     halo_warmth: float = 0.0
-    # Per-group fine-tune multipliers (advanced). Default 1.0 = use the
-    # family preset unchanged. `*_intensity` scales the corresponding
-    # group weight (w_c / w_h / w_b); the three weights are then
-    # renormalized so they still sum to 1, i.e. the kernel stays
-    # unit-normalised and the strength → p_s mapping is unchanged. So
-    # these knobs reshuffle the relative split of energy between core,
-    # halo and bloom, not the total deflected fraction. `*_size` scales
-    # each group's lambda_um uniformly (all sub-components in that group
-    # stretched by the same factor).
+    # Per-group fine-tune multipliers (advanced).
     core_intensity: float = 1.0
     core_size: float = 1.0
     halo_intensity: float = 1.0
@@ -109,22 +95,16 @@ class GrainParams:
 @dataclass
 class HalationParams:
     active: bool = True
-    # high-level scalars (default 1.0 preserves the physical low-level defaults)
     scatter_amount: float = 1.0
     scatter_spatial_scale: float = 1.0
     halation_amount: float = 1.0
     halation_spatial_scale: float = 1.0
-    # in-emulsion scatter — energy-preserving mixture: Gaussian core + exponential
-    # tail (scatter_tail_um is the exponential decay constant, internally
-    # dispatched to a Gaussian mixture by fast_exponential_filter)
     scatter_core_um: tuple[float, float, float] = (2.2, 2.0, 1.6)
     scatter_tail_um: tuple[float, float, float] = (9.3, 9.7, 9.1)
     scatter_tail_weight: tuple[float, float, float] = (0.78, 0.65, 0.67)
-    # highlight boost — reconstructs pre-clip irradiance before propagation
     boost_ev: float = 0.0
     boost_range: float = 0.3
     protect_ev: float = 4.0
-    # back-reflection halation — additive sum of N Gaussians with sqrt(k) widths
     halation_strength: tuple[float, float, float] = (0.05, 0.015, 0.0)
     halation_first_sigma_um: tuple[float, float, float] = (65.0, 65.0, 65.0)
     halation_n_bounces: int = 3
@@ -179,20 +159,7 @@ class IOParams:
     output_cctf_encoding: bool = True
     output_clip_min: bool = True
     output_clip_max: bool = True
-    # Input gamut compression: smoothly pulls input chromaticities that
-    # fall outside the visible spectral locus back inside (where Hanatos
-    # 2025's spectral upsampling is well-defined). Baked into the
-    # per-film tc_lut at build time so the per-pixel hot path is
-    # untouched. See spektrafilm-research/studies/a00/a40_lut_system/n100
-    # for the design.
     input_gamut_compress: InputGamutCompressSpec = field(default_factory=InputGamutCompressSpec)
-    # Output gamut compression: smoothly compresses out-of-output-gamut
-    # chromaticities (via the chroma knee) and above-white lightnesses
-    # (via lightness_compression, a one-sided soft roll-off that leaves
-    # black at 0) into the output primaries cube. With both engaged the
-    # simulation output is guaranteed in [0, 1] and no downstream clip
-    # is needed. See spektrafilm-research/studies/a00/a40_lut_system/n110
-    # for the design and b40 for the smoothness analysis.
     output_gamut_compress: OutputGamutCompressSpec = field(default_factory=OutputGamutCompressSpec)
     crop: bool = False
     crop_center: tuple[float, float] = (0.5, 0.5)
@@ -207,20 +174,14 @@ class DebugParams:
     deactivate_stochastic_effects: bool = False
     print_timings: bool = False
     # When True, the pipeline behaves as a deterministic per-pixel transform
-    # suitable for LUT sampling: spatial effects, stochastic effects,
-    # auto-exposure, and scanner white/black/unsharp corrections are all
-    # forced off, regardless of the underlying settings.
+    # suitable for LUT sampling.
     lut_mode: bool = False
 
 
 @dataclass
 class TapsParams:
-    """Pipeline tap configuration.
+    """Pipeline tap configuration."""
 
-    ``inject`` and ``collect`` name the entry and exit points in the
-    pipeline topology. Defaults of None mean "normal end-to-end run"
-    (inject at rgb_in, collect at rgb_out).
-    """
     inject: str | None = None
     collect: str | None = None
 
@@ -251,6 +212,9 @@ class SettingsParams:
     gpu_disable_spectral_tiling: bool = False
     gpu_spatial_tile_rows: int | None = None
     gpu_disable_spatial_tiling: bool = False
+    gpu_peak_budget_mb: float | None = None
+    gpu_budget_policy: str = "off"
+    gpu_resize_policy: str = "cpu_fallback"
 
 
 @dataclass
@@ -288,5 +252,11 @@ class RuntimePhotoParams:
             raise ValueError(
                 "materialize_policy must be one of: 'numpy_float64', 'numpy_float32', 'backend'"
             )
-        if self.settings.hdr_route_sidecar_policy not in {"minimal", "full"}:
-            raise ValueError("hdr_route_sidecar_policy must be either 'minimal' or 'full'")
+        if self.settings.hdr_route_sidecar_policy not in {"minimal", "full", "on_demand"}:
+            raise ValueError("hdr_route_sidecar_policy must be one of: 'minimal', 'full', 'on_demand'")
+        if self.settings.gpu_budget_policy not in {"off", "warn", "soft_enforce", "fail"}:
+            raise ValueError("gpu_budget_policy must be one of: 'off', 'warn', 'soft_enforce', 'fail'")
+        if self.settings.gpu_resize_policy not in {"cpu_fallback", "warn", "fail", "native_if_available"}:
+            raise ValueError("gpu_resize_policy must be one of: 'cpu_fallback', 'warn', 'fail', 'native_if_available'")
+        if self.settings.gpu_peak_budget_mb is not None and self.settings.gpu_peak_budget_mb <= 0:
+            raise ValueError("gpu_peak_budget_mb must be positive when set")
