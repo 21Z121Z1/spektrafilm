@@ -710,6 +710,10 @@ class SimulationPipeline:
         if self.io.upscale_factor != 1.0:
             fallback_start = perf_counter()
             self._resize_service.pixel_size_um /= self.io.upscale_factor
+            breaks_backend_residency = (
+                getattr(self._backend, "name", None) == "mlx"
+                and getattr(self.settings, "materialize_policy", None) == "backend"
+            )
             image_np = self._backend.to_numpy(image)
             image_np = rescale(
                 image_np,
@@ -719,10 +723,19 @@ class SimulationPipeline:
             )
             dtype = getattr(self._backend, "default_dtype", np.float32)
             image = self._backend.asarray(image_np, dtype=dtype)
+            fallback_elapsed = perf_counter() - fallback_start
             self.timings["SimulationPipeline.preprocess.resize_cpu_fallback"] = (
                 self.timings.get("SimulationPipeline.preprocess.resize_cpu_fallback", 0.0)
-                + (perf_counter() - fallback_start)
+                + fallback_elapsed
             )
+            if breaks_backend_residency:
+                self.timings["SimulationPipeline.preprocess.resize_breaks_backend_residency"] = (
+                    self.timings.get(
+                        "SimulationPipeline.preprocess.resize_breaks_backend_residency",
+                        0.0,
+                    )
+                    + fallback_elapsed
+                )
         return image
 
     def _scene_luminance(self, image: np.ndarray) -> np.ndarray:

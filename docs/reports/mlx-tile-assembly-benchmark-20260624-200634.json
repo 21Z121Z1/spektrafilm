@@ -1,0 +1,3092 @@
+{
+  "environment": {
+    "backend": "mlx",
+    "backend_precision": "float32",
+    "machine": "arm64",
+    "metal_available": true,
+    "mlx": "0.31.2",
+    "mlx_available": true,
+    "mlx_unavailable_reason": null,
+    "numpy": "2.4.4",
+    "peak_memory_api": true,
+    "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+    "processor": "arm",
+    "python": "3.13.1"
+  },
+  "real_pipeline": null,
+  "recommendation": {
+    "checks": [
+      {
+        "parity_ok": true,
+        "peak_memory_ratio": 0.9999999932363524,
+        "qualifies": false,
+        "size": "12mp",
+        "wall_clock_improvement": 0.08386665251962308
+      },
+      {
+        "parity_ok": true,
+        "peak_memory_ratio": 0.9999999964928371,
+        "qualifies": false,
+        "size": "24mp",
+        "wall_clock_improvement": 0.07971479544737992
+      }
+    ],
+    "default_strategy_recommendation": "keep_at_add",
+    "reason": "Keep .at.add default unless concat satisfies all 12MP/24MP wall-clock, memory, and parity gates.",
+    "should_change_write_tile_default": false,
+    "winners": {
+      "12mp": "concat",
+      "24mp": "concat"
+    }
+  },
+  "records": [
+    {
+      "checksum": 18880332.0,
+      "error": null,
+      "max_seconds": 0.048423416999867186,
+      "max_value": 0.7502325773239136,
+      "mean": 0.5001580119132996,
+      "median_seconds": 0.040144541999325156,
+      "min_seconds": 0.03867816699494142,
+      "overlap": null,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 432.00000381469727,
+      "peak_memory_mib": [
+        432.00000381469727,
+        432.00000381469727,
+        432.00000381469727
+      ],
+      "run_seconds": [
+        0.040144541999325156,
+        0.048423416999867186,
+        0.03867816699494142
+      ],
+      "scenario": "spectral",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "at_add",
+      "tile_rows": 256
+    },
+    {
+      "checksum": 18880332.0,
+      "error": null,
+      "max_seconds": 0.0407942500023637,
+      "max_value": 0.7502325773239136,
+      "mean": 0.5001580119132996,
+      "median_seconds": 0.03618758299853653,
+      "min_seconds": 0.03616454199072905,
+      "overlap": null,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 432.0,
+      "peak_memory_mib": [
+        432.0,
+        432.0,
+        432.0
+      ],
+      "run_seconds": [
+        0.03616454199072905,
+        0.03618758299853653,
+        0.0407942500023637
+      ],
+      "scenario": "spectral",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "concat",
+      "tile_rows": 256
+    },
+    {
+      "checksum": null,
+      "error": "infeasible: MLX fast.metal_kernel allocates declared outputs and does not expose a supported in-place write into an existing full-frame array. A scatter prototype would need one full-frame output per tile before combining, which defeats the residency/memory goal.",
+      "max_seconds": null,
+      "max_value": null,
+      "mean": null,
+      "median_seconds": null,
+      "min_seconds": null,
+      "overlap": null,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "peak_memory_mib": [],
+      "run_seconds": [],
+      "scenario": "spectral",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter",
+      "tile_rows": 256
+    },
+    {
+      "checksum": 18880332.0,
+      "error": null,
+      "max_seconds": 0.04143866700178478,
+      "max_value": 0.7502325773239136,
+      "mean": 0.5001580119132996,
+      "median_seconds": 0.03882858299766667,
+      "min_seconds": 0.03786033399228472,
+      "overlap": null,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 432.00000381469727,
+      "peak_memory_mib": [
+        432.00000381469727,
+        432.00000381469727,
+        432.00000381469727
+      ],
+      "run_seconds": [
+        0.04143866700178478,
+        0.03786033399228472,
+        0.03882858299766667
+      ],
+      "scenario": "spectral",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "at_add",
+      "tile_rows": 384
+    },
+    {
+      "checksum": 18880332.0,
+      "error": null,
+      "max_seconds": 0.039651999992202036,
+      "max_value": 0.7502325773239136,
+      "mean": 0.5001580119132996,
+      "median_seconds": 0.03896237499429844,
+      "min_seconds": 0.038864500005729496,
+      "overlap": null,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 432.0,
+      "peak_memory_mib": [
+        432.0,
+        432.0,
+        432.0
+      ],
+      "run_seconds": [
+        0.03896237499429844,
+        0.039651999992202036,
+        0.038864500005729496
+      ],
+      "scenario": "spectral",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "concat",
+      "tile_rows": 384
+    },
+    {
+      "checksum": null,
+      "error": "infeasible: MLX fast.metal_kernel allocates declared outputs and does not expose a supported in-place write into an existing full-frame array. A scatter prototype would need one full-frame output per tile before combining, which defeats the residency/memory goal.",
+      "max_seconds": null,
+      "max_value": null,
+      "mean": null,
+      "median_seconds": null,
+      "min_seconds": null,
+      "overlap": null,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "peak_memory_mib": [],
+      "run_seconds": [],
+      "scenario": "spectral",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter",
+      "tile_rows": 384
+    },
+    {
+      "checksum": 18880332.0,
+      "error": null,
+      "max_seconds": 0.041258790995925665,
+      "max_value": 0.7502325773239136,
+      "mean": 0.5001580119132996,
+      "median_seconds": 0.03995595799642615,
+      "min_seconds": 0.036417957991943695,
+      "overlap": null,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 432.00000381469727,
+      "peak_memory_mib": [
+        432.00000381469727,
+        432.00000381469727,
+        432.00000381469727
+      ],
+      "run_seconds": [
+        0.036417957991943695,
+        0.03995595799642615,
+        0.041258790995925665
+      ],
+      "scenario": "spectral",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "at_add",
+      "tile_rows": 512
+    },
+    {
+      "checksum": 18880332.0,
+      "error": null,
+      "max_seconds": 0.03640408400679007,
+      "max_value": 0.7502325773239136,
+      "mean": 0.5001580119132996,
+      "median_seconds": 0.036195082997437567,
+      "min_seconds": 0.03553891699993983,
+      "overlap": null,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 432.0,
+      "peak_memory_mib": [
+        432.0,
+        432.0,
+        432.0
+      ],
+      "run_seconds": [
+        0.03640408400679007,
+        0.036195082997437567,
+        0.03553891699993983
+      ],
+      "scenario": "spectral",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "concat",
+      "tile_rows": 512
+    },
+    {
+      "checksum": null,
+      "error": "infeasible: MLX fast.metal_kernel allocates declared outputs and does not expose a supported in-place write into an existing full-frame array. A scatter prototype would need one full-frame output per tile before combining, which defeats the residency/memory goal.",
+      "max_seconds": null,
+      "max_value": null,
+      "mean": null,
+      "median_seconds": null,
+      "min_seconds": null,
+      "overlap": null,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "peak_memory_mib": [],
+      "run_seconds": [],
+      "scenario": "spectral",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter",
+      "tile_rows": 512
+    },
+    {
+      "checksum": 18880332.0,
+      "error": null,
+      "max_seconds": 0.05284137499984354,
+      "max_value": 0.7502325773239136,
+      "mean": 0.5001580119132996,
+      "median_seconds": 0.03704349999316037,
+      "min_seconds": 0.033699042003718205,
+      "overlap": null,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 480.00001525878906,
+      "peak_memory_mib": [
+        480.00001525878906,
+        480.00001525878906,
+        432.00000381469727
+      ],
+      "run_seconds": [
+        0.05284137499984354,
+        0.03704349999316037,
+        0.033699042003718205
+      ],
+      "scenario": "spectral",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "at_add",
+      "tile_rows": 1024
+    },
+    {
+      "checksum": 18880332.0,
+      "error": null,
+      "max_seconds": 0.03661991599074099,
+      "max_value": 0.7502325773239136,
+      "mean": 0.5001580119132996,
+      "median_seconds": 0.03433854199829511,
+      "min_seconds": 0.03375729199615307,
+      "overlap": null,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 432.0,
+      "peak_memory_mib": [
+        432.0,
+        432.0,
+        432.0
+      ],
+      "run_seconds": [
+        0.03375729199615307,
+        0.03433854199829511,
+        0.03661991599074099
+      ],
+      "scenario": "spectral",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "concat",
+      "tile_rows": 1024
+    },
+    {
+      "checksum": null,
+      "error": "infeasible: MLX fast.metal_kernel allocates declared outputs and does not expose a supported in-place write into an existing full-frame array. A scatter prototype would need one full-frame output per tile before combining, which defeats the residency/memory goal.",
+      "max_seconds": null,
+      "max_value": null,
+      "mean": null,
+      "median_seconds": null,
+      "min_seconds": null,
+      "overlap": null,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "peak_memory_mib": [],
+      "run_seconds": [],
+      "scenario": "spectral",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter",
+      "tile_rows": 1024
+    },
+    {
+      "checksum": 18880332.0,
+      "error": null,
+      "max_seconds": 0.044027209005435,
+      "max_value": 0.7502325773239136,
+      "mean": 0.5001580119132996,
+      "median_seconds": 0.043174708989681676,
+      "min_seconds": 0.042298708998714574,
+      "overlap": null,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 432.00000381469727,
+      "peak_memory_mib": [
+        432.00000381469727,
+        432.00000381469727,
+        432.00000381469727
+      ],
+      "run_seconds": [
+        0.043174708989681676,
+        0.044027209005435,
+        0.042298708998714574
+      ],
+      "scenario": "spectral",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "at_add",
+      "tile_rows": 2048
+    },
+    {
+      "checksum": 18880332.0,
+      "error": null,
+      "max_seconds": 0.04626075000851415,
+      "max_value": 0.7502325773239136,
+      "mean": 0.5001580119132996,
+      "median_seconds": 0.04251554199436214,
+      "min_seconds": 0.04201470898988191,
+      "overlap": null,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 432.0000114440918,
+      "peak_memory_mib": [
+        432.0000114440918,
+        432.0,
+        432.0
+      ],
+      "run_seconds": [
+        0.04626075000851415,
+        0.04251554199436214,
+        0.04201470898988191
+      ],
+      "scenario": "spectral",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "concat",
+      "tile_rows": 2048
+    },
+    {
+      "checksum": null,
+      "error": "infeasible: MLX fast.metal_kernel allocates declared outputs and does not expose a supported in-place write into an existing full-frame array. A scatter prototype would need one full-frame output per tile before combining, which defeats the residency/memory goal.",
+      "max_seconds": null,
+      "max_value": null,
+      "mean": null,
+      "median_seconds": null,
+      "min_seconds": null,
+      "overlap": null,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "peak_memory_mib": [],
+      "run_seconds": [],
+      "scenario": "spectral",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter",
+      "tile_rows": 2048
+    },
+    {
+      "checksum": 18874670.0,
+      "error": null,
+      "max_seconds": 0.06891166600689758,
+      "max_value": 0.749992311000824,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.06562737500644289,
+      "min_seconds": 0.06418600000324659,
+      "overlap": 16,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 448.50000381469727,
+      "peak_memory_mib": [
+        448.50000381469727,
+        448.50000381469727,
+        448.50000381469727
+      ],
+      "run_seconds": [
+        0.06418600000324659,
+        0.06891166600689758,
+        0.06562737500644289
+      ],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "at_add",
+      "tile_rows": 256
+    },
+    {
+      "checksum": 18874670.0,
+      "error": null,
+      "max_seconds": 0.07096708299650345,
+      "max_value": 0.749992311000824,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.06276324999635108,
+      "min_seconds": 0.061832082996261306,
+      "overlap": 16,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 448.5,
+      "peak_memory_mib": [
+        448.5,
+        448.5,
+        448.5
+      ],
+      "run_seconds": [
+        0.06276324999635108,
+        0.061832082996261306,
+        0.07096708299650345
+      ],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "concat",
+      "tile_rows": 256
+    },
+    {
+      "checksum": null,
+      "error": "infeasible: MLX fast.metal_kernel allocates declared outputs and does not expose a supported in-place write into an existing full-frame array. A scatter prototype would need one full-frame output per tile before combining, which defeats the residency/memory goal.",
+      "max_seconds": null,
+      "max_value": null,
+      "mean": null,
+      "median_seconds": null,
+      "min_seconds": null,
+      "overlap": 16,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "peak_memory_mib": [],
+      "run_seconds": [],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter",
+      "tile_rows": 256
+    },
+    {
+      "checksum": 18874670.0,
+      "error": null,
+      "max_seconds": 0.07123083299666177,
+      "max_value": 0.749992311000824,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.06226599999354221,
+      "min_seconds": 0.06171850000100676,
+      "overlap": 16,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 439.50000381469727,
+      "peak_memory_mib": [
+        439.50000381469727,
+        439.50000381469727,
+        439.50000381469727
+      ],
+      "run_seconds": [
+        0.06226599999354221,
+        0.06171850000100676,
+        0.07123083299666177
+      ],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "at_add",
+      "tile_rows": 512
+    },
+    {
+      "checksum": 18874670.0,
+      "error": null,
+      "max_seconds": 0.05468458399991505,
+      "max_value": 0.749992311000824,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.054204667001613416,
+      "min_seconds": 0.05292754099355079,
+      "overlap": 16,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 439.5,
+      "peak_memory_mib": [
+        439.5,
+        439.5,
+        439.5
+      ],
+      "run_seconds": [
+        0.05292754099355079,
+        0.05468458399991505,
+        0.054204667001613416
+      ],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "concat",
+      "tile_rows": 512
+    },
+    {
+      "checksum": null,
+      "error": "infeasible: MLX fast.metal_kernel allocates declared outputs and does not expose a supported in-place write into an existing full-frame array. A scatter prototype would need one full-frame output per tile before combining, which defeats the residency/memory goal.",
+      "max_seconds": null,
+      "max_value": null,
+      "mean": null,
+      "median_seconds": null,
+      "min_seconds": null,
+      "overlap": 16,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "peak_memory_mib": [],
+      "run_seconds": [],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter",
+      "tile_rows": 512
+    },
+    {
+      "checksum": 18874670.0,
+      "error": null,
+      "max_seconds": 0.06174379101139493,
+      "max_value": 0.749992311000824,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.058582166995620355,
+      "min_seconds": 0.0562529590097256,
+      "overlap": 16,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 437.2500190734863,
+      "peak_memory_mib": [
+        437.2500190734863,
+        437.2500190734863,
+        437.2500190734863
+      ],
+      "run_seconds": [
+        0.058582166995620355,
+        0.0562529590097256,
+        0.06174379101139493
+      ],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "at_add",
+      "tile_rows": 1024
+    },
+    {
+      "checksum": 18874670.0,
+      "error": null,
+      "max_seconds": 0.05922804199508391,
+      "max_value": 0.749992311000824,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.057572042001993395,
+      "min_seconds": 0.05469508399255574,
+      "overlap": 16,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 437.25001525878906,
+      "peak_memory_mib": [
+        437.25001525878906,
+        437.25001525878906,
+        437.25001525878906
+      ],
+      "run_seconds": [
+        0.05469508399255574,
+        0.05922804199508391,
+        0.057572042001993395
+      ],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "concat",
+      "tile_rows": 1024
+    },
+    {
+      "checksum": null,
+      "error": "infeasible: MLX fast.metal_kernel allocates declared outputs and does not expose a supported in-place write into an existing full-frame array. A scatter prototype would need one full-frame output per tile before combining, which defeats the residency/memory goal.",
+      "max_seconds": null,
+      "max_value": null,
+      "mean": null,
+      "median_seconds": null,
+      "min_seconds": null,
+      "overlap": 16,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "peak_memory_mib": [],
+      "run_seconds": [],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter",
+      "tile_rows": 1024
+    },
+    {
+      "checksum": 18874670.0,
+      "error": null,
+      "max_seconds": 0.06644691698602401,
+      "max_value": 0.749992311000824,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.0655022499995539,
+      "min_seconds": 0.0648974170035217,
+      "overlap": 16,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 531.0000152587891,
+      "peak_memory_mib": [
+        531.0000152587891,
+        531.0000152587891,
+        531.0000152587891
+      ],
+      "run_seconds": [
+        0.0655022499995539,
+        0.06644691698602401,
+        0.0648974170035217
+      ],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "at_add",
+      "tile_rows": 2048
+    },
+    {
+      "checksum": 18874670.0,
+      "error": null,
+      "max_seconds": 0.059205208002822474,
+      "max_value": 0.749992311000824,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.05704395900829695,
+      "min_seconds": 0.05475941598706413,
+      "overlap": 16,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 531.0000152587891,
+      "peak_memory_mib": [
+        531.0000152587891,
+        531.0000152587891,
+        531.0000152587891
+      ],
+      "run_seconds": [
+        0.05704395900829695,
+        0.05475941598706413,
+        0.059205208002822474
+      ],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "concat",
+      "tile_rows": 2048
+    },
+    {
+      "checksum": null,
+      "error": "infeasible: MLX fast.metal_kernel allocates declared outputs and does not expose a supported in-place write into an existing full-frame array. A scatter prototype would need one full-frame output per tile before combining, which defeats the residency/memory goal.",
+      "max_seconds": null,
+      "max_value": null,
+      "mean": null,
+      "median_seconds": null,
+      "min_seconds": null,
+      "overlap": 16,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "peak_memory_mib": [],
+      "run_seconds": [],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter",
+      "tile_rows": 2048
+    },
+    {
+      "checksum": 18874670.0,
+      "error": null,
+      "max_seconds": 0.07612391600559931,
+      "max_value": 0.749992311000824,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.06947170899366029,
+      "min_seconds": 0.06840483400446828,
+      "overlap": 64,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 498.00000381469727,
+      "peak_memory_mib": [
+        498.00000381469727,
+        498.00000381469727,
+        498.00000381469727
+      ],
+      "run_seconds": [
+        0.06947170899366029,
+        0.06840483400446828,
+        0.07612391600559931
+      ],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "at_add",
+      "tile_rows": 256
+    },
+    {
+      "checksum": 18874670.0,
+      "error": null,
+      "max_seconds": 0.06576404201041441,
+      "max_value": 0.749992311000824,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.06464316700294148,
+      "min_seconds": 0.06271416699746624,
+      "overlap": 64,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 498.0,
+      "peak_memory_mib": [
+        498.0,
+        498.0,
+        498.0
+      ],
+      "run_seconds": [
+        0.06576404201041441,
+        0.06271416699746624,
+        0.06464316700294148
+      ],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "concat",
+      "tile_rows": 256
+    },
+    {
+      "checksum": null,
+      "error": "infeasible: MLX fast.metal_kernel allocates declared outputs and does not expose a supported in-place write into an existing full-frame array. A scatter prototype would need one full-frame output per tile before combining, which defeats the residency/memory goal.",
+      "max_seconds": null,
+      "max_value": null,
+      "mean": null,
+      "median_seconds": null,
+      "min_seconds": null,
+      "overlap": 64,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "peak_memory_mib": [],
+      "run_seconds": [],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter",
+      "tile_rows": 256
+    },
+    {
+      "checksum": 18874670.0,
+      "error": null,
+      "max_seconds": 0.07310016600240488,
+      "max_value": 0.749992311000824,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.06827620799595024,
+      "min_seconds": 0.06388437500572763,
+      "overlap": 64,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 462.00000381469727,
+      "peak_memory_mib": [
+        462.00000381469727,
+        462.00000381469727,
+        462.00000381469727
+      ],
+      "run_seconds": [
+        0.06827620799595024,
+        0.07310016600240488,
+        0.06388437500572763
+      ],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "at_add",
+      "tile_rows": 512
+    },
+    {
+      "checksum": 18874670.0,
+      "error": null,
+      "max_seconds": 0.05886758299311623,
+      "max_value": 0.749992311000824,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.05575449999014381,
+      "min_seconds": 0.05294283300463576,
+      "overlap": 64,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 462.0,
+      "peak_memory_mib": [
+        462.0,
+        462.0,
+        462.0
+      ],
+      "run_seconds": [
+        0.05886758299311623,
+        0.05575449999014381,
+        0.05294283300463576
+      ],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "concat",
+      "tile_rows": 512
+    },
+    {
+      "checksum": null,
+      "error": "infeasible: MLX fast.metal_kernel allocates declared outputs and does not expose a supported in-place write into an existing full-frame array. A scatter prototype would need one full-frame output per tile before combining, which defeats the residency/memory goal.",
+      "max_seconds": null,
+      "max_value": null,
+      "mean": null,
+      "median_seconds": null,
+      "min_seconds": null,
+      "overlap": 64,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "peak_memory_mib": [],
+      "run_seconds": [],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter",
+      "tile_rows": 512
+    },
+    {
+      "checksum": 18874670.0,
+      "error": null,
+      "max_seconds": 0.06313299998873845,
+      "max_value": 0.749992311000824,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.05891962499299552,
+      "min_seconds": 0.058016124996356666,
+      "overlap": 64,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 453.0000190734863,
+      "peak_memory_mib": [
+        453.0000190734863,
+        453.0000190734863,
+        453.0000190734863
+      ],
+      "run_seconds": [
+        0.06313299998873845,
+        0.058016124996356666,
+        0.05891962499299552
+      ],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "at_add",
+      "tile_rows": 1024
+    },
+    {
+      "checksum": 18874670.0,
+      "error": null,
+      "max_seconds": 0.09219300000404473,
+      "max_value": 0.749992311000824,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.05590087499876972,
+      "min_seconds": 0.05477079199044965,
+      "overlap": 64,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 453.00001525878906,
+      "peak_memory_mib": [
+        453.00001525878906,
+        453.00001525878906,
+        453.00001525878906
+      ],
+      "run_seconds": [
+        0.05477079199044965,
+        0.05590087499876972,
+        0.09219300000404473
+      ],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "concat",
+      "tile_rows": 1024
+    },
+    {
+      "checksum": null,
+      "error": "infeasible: MLX fast.metal_kernel allocates declared outputs and does not expose a supported in-place write into an existing full-frame array. A scatter prototype would need one full-frame output per tile before combining, which defeats the residency/memory goal.",
+      "max_seconds": null,
+      "max_value": null,
+      "mean": null,
+      "median_seconds": null,
+      "min_seconds": null,
+      "overlap": 64,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "peak_memory_mib": [],
+      "run_seconds": [],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter",
+      "tile_rows": 1024
+    },
+    {
+      "checksum": 18874670.0,
+      "error": null,
+      "max_seconds": 0.0659765839955071,
+      "max_value": 0.749992311000824,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.06425949999538716,
+      "min_seconds": 0.06194379099179059,
+      "overlap": 64,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 540.0000152587891,
+      "peak_memory_mib": [
+        540.0000152587891,
+        540.0000152587891,
+        540.0000152587891
+      ],
+      "run_seconds": [
+        0.06425949999538716,
+        0.0659765839955071,
+        0.06194379099179059
+      ],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "at_add",
+      "tile_rows": 2048
+    },
+    {
+      "checksum": 18874670.0,
+      "error": null,
+      "max_seconds": 0.07720400000107475,
+      "max_value": 0.749992311000824,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.06736154099053238,
+      "min_seconds": 0.05955983301100787,
+      "overlap": 64,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 540.0000152587891,
+      "peak_memory_mib": [
+        540.0000152587891,
+        540.0000152587891,
+        540.0000152587891
+      ],
+      "run_seconds": [
+        0.05955983301100787,
+        0.06736154099053238,
+        0.07720400000107475
+      ],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "concat",
+      "tile_rows": 2048
+    },
+    {
+      "checksum": null,
+      "error": "infeasible: MLX fast.metal_kernel allocates declared outputs and does not expose a supported in-place write into an existing full-frame array. A scatter prototype would need one full-frame output per tile before combining, which defeats the residency/memory goal.",
+      "max_seconds": null,
+      "max_value": null,
+      "mean": null,
+      "median_seconds": null,
+      "min_seconds": null,
+      "overlap": 64,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "peak_memory_mib": [],
+      "run_seconds": [],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter",
+      "tile_rows": 2048
+    },
+    {
+      "checksum": 18874670.0,
+      "error": null,
+      "max_seconds": 0.1175768329994753,
+      "max_value": 0.749992311000824,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.11560145899420604,
+      "min_seconds": 0.11545258399564773,
+      "overlap": 128,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 564.0000038146973,
+      "peak_memory_mib": [
+        564.0000038146973,
+        564.0000038146973,
+        564.0000038146973
+      ],
+      "run_seconds": [
+        0.1175768329994753,
+        0.11545258399564773,
+        0.11560145899420604
+      ],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "at_add",
+      "tile_rows": 256
+    },
+    {
+      "checksum": 18874670.0,
+      "error": null,
+      "max_seconds": 0.11027075001038611,
+      "max_value": 0.749992311000824,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.10980966700299177,
+      "min_seconds": 0.10168387500743847,
+      "overlap": 128,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 564.0,
+      "peak_memory_mib": [
+        564.0,
+        564.0,
+        564.0
+      ],
+      "run_seconds": [
+        0.10168387500743847,
+        0.11027075001038611,
+        0.10980966700299177
+      ],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "concat",
+      "tile_rows": 256
+    },
+    {
+      "checksum": null,
+      "error": "infeasible: MLX fast.metal_kernel allocates declared outputs and does not expose a supported in-place write into an existing full-frame array. A scatter prototype would need one full-frame output per tile before combining, which defeats the residency/memory goal.",
+      "max_seconds": null,
+      "max_value": null,
+      "mean": null,
+      "median_seconds": null,
+      "min_seconds": null,
+      "overlap": 128,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "peak_memory_mib": [],
+      "run_seconds": [],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter",
+      "tile_rows": 256
+    },
+    {
+      "checksum": 18874670.0,
+      "error": null,
+      "max_seconds": 0.0767077079945011,
+      "max_value": 0.749992311000824,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.06878962500195485,
+      "min_seconds": 0.06845350000367034,
+      "overlap": 128,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 492.00000381469727,
+      "peak_memory_mib": [
+        492.00000381469727,
+        492.00000381469727,
+        492.00000381469727
+      ],
+      "run_seconds": [
+        0.0767077079945011,
+        0.06845350000367034,
+        0.06878962500195485
+      ],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "at_add",
+      "tile_rows": 512
+    },
+    {
+      "checksum": 18874670.0,
+      "error": null,
+      "max_seconds": 0.07265391699911561,
+      "max_value": 0.749992311000824,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.06759908400999848,
+      "min_seconds": 0.06678587499482092,
+      "overlap": 128,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 492.0,
+      "peak_memory_mib": [
+        492.0,
+        492.0,
+        492.0
+      ],
+      "run_seconds": [
+        0.06759908400999848,
+        0.07265391699911561,
+        0.06678587499482092
+      ],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "concat",
+      "tile_rows": 512
+    },
+    {
+      "checksum": null,
+      "error": "infeasible: MLX fast.metal_kernel allocates declared outputs and does not expose a supported in-place write into an existing full-frame array. A scatter prototype would need one full-frame output per tile before combining, which defeats the residency/memory goal.",
+      "max_seconds": null,
+      "max_value": null,
+      "mean": null,
+      "median_seconds": null,
+      "min_seconds": null,
+      "overlap": 128,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "peak_memory_mib": [],
+      "run_seconds": [],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter",
+      "tile_rows": 512
+    },
+    {
+      "checksum": 18874670.0,
+      "error": null,
+      "max_seconds": 0.06356850000156555,
+      "max_value": 0.749992311000824,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.06130587500229012,
+      "min_seconds": 0.06113562500104308,
+      "overlap": 128,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 474.0000190734863,
+      "peak_memory_mib": [
+        474.0000190734863,
+        474.0000190734863,
+        474.0000190734863
+      ],
+      "run_seconds": [
+        0.06356850000156555,
+        0.06130587500229012,
+        0.06113562500104308
+      ],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "at_add",
+      "tile_rows": 1024
+    },
+    {
+      "checksum": 18874670.0,
+      "error": null,
+      "max_seconds": 0.07617012500122655,
+      "max_value": 0.749992311000824,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.07042050000745803,
+      "min_seconds": 0.06961720799154136,
+      "overlap": 128,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 474.00001525878906,
+      "peak_memory_mib": [
+        474.00001525878906,
+        474.00001525878906,
+        474.00001525878906
+      ],
+      "run_seconds": [
+        0.06961720799154136,
+        0.07042050000745803,
+        0.07617012500122655
+      ],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "concat",
+      "tile_rows": 1024
+    },
+    {
+      "checksum": null,
+      "error": "infeasible: MLX fast.metal_kernel allocates declared outputs and does not expose a supported in-place write into an existing full-frame array. A scatter prototype would need one full-frame output per tile before combining, which defeats the residency/memory goal.",
+      "max_seconds": null,
+      "max_value": null,
+      "mean": null,
+      "median_seconds": null,
+      "min_seconds": null,
+      "overlap": 128,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "peak_memory_mib": [],
+      "run_seconds": [],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter",
+      "tile_rows": 1024
+    },
+    {
+      "checksum": 18874670.0,
+      "error": null,
+      "max_seconds": 0.0807215420063585,
+      "max_value": 0.749992311000824,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.07802808299311437,
+      "min_seconds": 0.07426387499435805,
+      "overlap": 128,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 552.0000152587891,
+      "peak_memory_mib": [
+        552.0000152587891,
+        552.0000152587891,
+        552.0000152587891
+      ],
+      "run_seconds": [
+        0.07802808299311437,
+        0.0807215420063585,
+        0.07426387499435805
+      ],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "at_add",
+      "tile_rows": 2048
+    },
+    {
+      "checksum": 18874670.0,
+      "error": null,
+      "max_seconds": 0.06424512500234414,
+      "max_value": 0.749992311000824,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.06090325000695884,
+      "min_seconds": 0.05947454200941138,
+      "overlap": 128,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 552.0000152587891,
+      "peak_memory_mib": [
+        552.0000152587891,
+        552.0000152587891,
+        552.0000152587891
+      ],
+      "run_seconds": [
+        0.05947454200941138,
+        0.06090325000695884,
+        0.06424512500234414
+      ],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "concat",
+      "tile_rows": 2048
+    },
+    {
+      "checksum": null,
+      "error": "infeasible: MLX fast.metal_kernel allocates declared outputs and does not expose a supported in-place write into an existing full-frame array. A scatter prototype would need one full-frame output per tile before combining, which defeats the residency/memory goal.",
+      "max_seconds": null,
+      "max_value": null,
+      "mean": null,
+      "median_seconds": null,
+      "min_seconds": null,
+      "overlap": 128,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "peak_memory_mib": [],
+      "run_seconds": [],
+      "scenario": "spatial",
+      "shape": [
+        3072,
+        4096,
+        3
+      ],
+      "size": "12mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter",
+      "tile_rows": 2048
+    },
+    {
+      "checksum": 36011376.0,
+      "error": null,
+      "max_seconds": 0.09305812499951571,
+      "max_value": 0.7502325773239136,
+      "mean": 0.5001580119132996,
+      "median_seconds": 0.08938699999998789,
+      "min_seconds": 0.086419167011627,
+      "overlap": null,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 824.0156288146973,
+      "peak_memory_mib": [
+        824.0156288146973,
+        824.0156288146973,
+        824.0156288146973
+      ],
+      "run_seconds": [
+        0.09305812499951571,
+        0.086419167011627,
+        0.08938699999998789
+      ],
+      "scenario": "spectral",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "at_add",
+      "tile_rows": 256
+    },
+    {
+      "checksum": 36011376.0,
+      "error": null,
+      "max_seconds": 0.14483379099692684,
+      "max_value": 0.7502325773239136,
+      "mean": 0.5001580119132996,
+      "median_seconds": 0.08352495799772441,
+      "min_seconds": 0.07828979199985042,
+      "overlap": null,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 824.015625,
+      "peak_memory_mib": [
+        824.015625,
+        824.015625,
+        824.015625
+      ],
+      "run_seconds": [
+        0.08352495799772441,
+        0.14483379099692684,
+        0.07828979199985042
+      ],
+      "scenario": "spectral",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "concat",
+      "tile_rows": 256
+    },
+    {
+      "checksum": null,
+      "error": "infeasible: MLX fast.metal_kernel allocates declared outputs and does not expose a supported in-place write into an existing full-frame array. A scatter prototype would need one full-frame output per tile before combining, which defeats the residency/memory goal.",
+      "max_seconds": null,
+      "max_value": null,
+      "mean": null,
+      "median_seconds": null,
+      "min_seconds": null,
+      "overlap": null,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "peak_memory_mib": [],
+      "run_seconds": [],
+      "scenario": "spectral",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter",
+      "tile_rows": 256
+    },
+    {
+      "checksum": 36011376.0,
+      "error": null,
+      "max_seconds": 0.08981379200122319,
+      "max_value": 0.7502325773239136,
+      "mean": 0.5001580119132996,
+      "median_seconds": 0.08612449999782257,
+      "min_seconds": 0.08409345899417531,
+      "overlap": null,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 824.0937538146973,
+      "peak_memory_mib": [
+        824.0937538146973,
+        824.0937538146973,
+        824.0937538146973
+      ],
+      "run_seconds": [
+        0.08409345899417531,
+        0.08981379200122319,
+        0.08612449999782257
+      ],
+      "scenario": "spectral",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "at_add",
+      "tile_rows": 500
+    },
+    {
+      "checksum": 36011376.0,
+      "error": null,
+      "max_seconds": 0.08759754100174177,
+      "max_value": 0.7502325773239136,
+      "mean": 0.5001580119132996,
+      "median_seconds": 0.07843212499574292,
+      "min_seconds": 0.06051737500820309,
+      "overlap": null,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 824.09375,
+      "peak_memory_mib": [
+        824.09375,
+        824.09375,
+        824.09375
+      ],
+      "run_seconds": [
+        0.06051737500820309,
+        0.08759754100174177,
+        0.07843212499574292
+      ],
+      "scenario": "spectral",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "concat",
+      "tile_rows": 500
+    },
+    {
+      "checksum": null,
+      "error": "infeasible: MLX fast.metal_kernel allocates declared outputs and does not expose a supported in-place write into an existing full-frame array. A scatter prototype would need one full-frame output per tile before combining, which defeats the residency/memory goal.",
+      "max_seconds": null,
+      "max_value": null,
+      "mean": null,
+      "median_seconds": null,
+      "min_seconds": null,
+      "overlap": null,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "peak_memory_mib": [],
+      "run_seconds": [],
+      "scenario": "spectral",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter",
+      "tile_rows": 500
+    },
+    {
+      "checksum": 36011376.0,
+      "error": null,
+      "max_seconds": 0.09353166600340046,
+      "max_value": 0.7502325773239136,
+      "mean": 0.5001580119132996,
+      "median_seconds": 0.08861683300347067,
+      "min_seconds": 0.08742733400140423,
+      "overlap": null,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 824.0156288146973,
+      "peak_memory_mib": [
+        824.0156288146973,
+        824.0156288146973,
+        824.0156288146973
+      ],
+      "run_seconds": [
+        0.09353166600340046,
+        0.08742733400140423,
+        0.08861683300347067
+      ],
+      "scenario": "spectral",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "at_add",
+      "tile_rows": 512
+    },
+    {
+      "checksum": 36011376.0,
+      "error": null,
+      "max_seconds": 0.0858684999984689,
+      "max_value": 0.7502325773239136,
+      "mean": 0.5001580119132996,
+      "median_seconds": 0.06015550000302028,
+      "min_seconds": 0.059702958998968825,
+      "overlap": null,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 824.015625,
+      "peak_memory_mib": [
+        824.015625,
+        824.015625,
+        824.015625
+      ],
+      "run_seconds": [
+        0.0858684999984689,
+        0.059702958998968825,
+        0.06015550000302028
+      ],
+      "scenario": "spectral",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "concat",
+      "tile_rows": 512
+    },
+    {
+      "checksum": null,
+      "error": "infeasible: MLX fast.metal_kernel allocates declared outputs and does not expose a supported in-place write into an existing full-frame array. A scatter prototype would need one full-frame output per tile before combining, which defeats the residency/memory goal.",
+      "max_seconds": null,
+      "max_value": null,
+      "mean": null,
+      "median_seconds": null,
+      "min_seconds": null,
+      "overlap": null,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "peak_memory_mib": [],
+      "run_seconds": [],
+      "scenario": "spectral",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter",
+      "tile_rows": 512
+    },
+    {
+      "checksum": 36011376.0,
+      "error": null,
+      "max_seconds": 0.08456441700400319,
+      "max_value": 0.7502325773239136,
+      "mean": 0.5001580119132996,
+      "median_seconds": 0.07720291599980555,
+      "min_seconds": 0.07666695800435264,
+      "overlap": null,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 824.0156288146973,
+      "peak_memory_mib": [
+        824.0156288146973,
+        824.0156288146973,
+        824.0156288146973
+      ],
+      "run_seconds": [
+        0.07666695800435264,
+        0.07720291599980555,
+        0.08456441700400319
+      ],
+      "scenario": "spectral",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "at_add",
+      "tile_rows": 1024
+    },
+    {
+      "checksum": 36011376.0,
+      "error": null,
+      "max_seconds": 0.07032320799771696,
+      "max_value": 0.7502325773239136,
+      "mean": 0.5001580119132996,
+      "median_seconds": 0.05987541700596921,
+      "min_seconds": 0.05607599999348167,
+      "overlap": null,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 824.015625,
+      "peak_memory_mib": [
+        824.015625,
+        824.015625,
+        824.015625
+      ],
+      "run_seconds": [
+        0.05987541700596921,
+        0.07032320799771696,
+        0.05607599999348167
+      ],
+      "scenario": "spectral",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "concat",
+      "tile_rows": 1024
+    },
+    {
+      "checksum": null,
+      "error": "infeasible: MLX fast.metal_kernel allocates declared outputs and does not expose a supported in-place write into an existing full-frame array. A scatter prototype would need one full-frame output per tile before combining, which defeats the residency/memory goal.",
+      "max_seconds": null,
+      "max_value": null,
+      "mean": null,
+      "median_seconds": null,
+      "min_seconds": null,
+      "overlap": null,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "peak_memory_mib": [],
+      "run_seconds": [],
+      "scenario": "spectral",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter",
+      "tile_rows": 1024
+    },
+    {
+      "checksum": 36011376.0,
+      "error": null,
+      "max_seconds": 0.07484983299218584,
+      "max_value": 0.7502325773239136,
+      "mean": 0.5001580119132996,
+      "median_seconds": 0.07387595898762811,
+      "min_seconds": 0.06958358400152065,
+      "overlap": null,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 824.0156288146973,
+      "peak_memory_mib": [
+        824.0156288146973,
+        824.0156288146973,
+        824.0156288146973
+      ],
+      "run_seconds": [
+        0.06958358400152065,
+        0.07484983299218584,
+        0.07387595898762811
+      ],
+      "scenario": "spectral",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "at_add",
+      "tile_rows": 2048
+    },
+    {
+      "checksum": 36011376.0,
+      "error": null,
+      "max_seconds": 0.0704266670072684,
+      "max_value": 0.7502325773239136,
+      "mean": 0.5001580119132996,
+      "median_seconds": 0.06823058299778495,
+      "min_seconds": 0.06817029201192781,
+      "overlap": null,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 824.015625,
+      "peak_memory_mib": [
+        824.015625,
+        824.015625,
+        824.015625
+      ],
+      "run_seconds": [
+        0.06823058299778495,
+        0.06817029201192781,
+        0.0704266670072684
+      ],
+      "scenario": "spectral",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "concat",
+      "tile_rows": 2048
+    },
+    {
+      "checksum": null,
+      "error": "infeasible: MLX fast.metal_kernel allocates declared outputs and does not expose a supported in-place write into an existing full-frame array. A scatter prototype would need one full-frame output per tile before combining, which defeats the residency/memory goal.",
+      "max_seconds": null,
+      "max_value": null,
+      "mean": null,
+      "median_seconds": null,
+      "min_seconds": null,
+      "overlap": null,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "peak_memory_mib": [],
+      "run_seconds": [],
+      "scenario": "spectral",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter",
+      "tile_rows": 2048
+    },
+    {
+      "checksum": 36000576.0,
+      "error": null,
+      "max_seconds": 0.1450958749919664,
+      "max_value": 0.7499985694885254,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.11986166599672288,
+      "min_seconds": 0.1158789170003729,
+      "overlap": 16,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 857.0625038146973,
+      "peak_memory_mib": [
+        857.0625038146973,
+        857.0625038146973,
+        857.0625038146973
+      ],
+      "run_seconds": [
+        0.1158789170003729,
+        0.11986166599672288,
+        0.1450958749919664
+      ],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "at_add",
+      "tile_rows": 256
+    },
+    {
+      "checksum": 36000576.0,
+      "error": null,
+      "max_seconds": 0.13250770799641032,
+      "max_value": 0.7499985694885254,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.12292412499664351,
+      "min_seconds": 0.1109639999922365,
+      "overlap": 16,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 857.0625,
+      "peak_memory_mib": [
+        857.0625,
+        857.0625,
+        857.0625
+      ],
+      "run_seconds": [
+        0.13250770799641032,
+        0.12292412499664351,
+        0.1109639999922365
+      ],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "concat",
+      "tile_rows": 256
+    },
+    {
+      "checksum": null,
+      "error": "infeasible: MLX fast.metal_kernel allocates declared outputs and does not expose a supported in-place write into an existing full-frame array. A scatter prototype would need one full-frame output per tile before combining, which defeats the residency/memory goal.",
+      "max_seconds": null,
+      "max_value": null,
+      "mean": null,
+      "median_seconds": null,
+      "min_seconds": null,
+      "overlap": 16,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "peak_memory_mib": [],
+      "run_seconds": [],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter",
+      "tile_rows": 256
+    },
+    {
+      "checksum": 36000576.0,
+      "error": null,
+      "max_seconds": 0.1101717080018716,
+      "max_value": 0.7499985694885254,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.10675749999063555,
+      "min_seconds": 0.10124950000317767,
+      "overlap": 16,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 839.4375038146973,
+      "peak_memory_mib": [
+        839.4375038146973,
+        839.4375038146973,
+        839.4375038146973
+      ],
+      "run_seconds": [
+        0.10124950000317767,
+        0.10675749999063555,
+        0.1101717080018716
+      ],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "at_add",
+      "tile_rows": 512
+    },
+    {
+      "checksum": 36000576.0,
+      "error": null,
+      "max_seconds": 0.10962304098939057,
+      "max_value": 0.7499985694885254,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.09645150000869762,
+      "min_seconds": 0.0946183329942869,
+      "overlap": 16,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 839.4375,
+      "peak_memory_mib": [
+        839.4375,
+        839.4375,
+        839.4375
+      ],
+      "run_seconds": [
+        0.09645150000869762,
+        0.0946183329942869,
+        0.10962304098939057
+      ],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "concat",
+      "tile_rows": 512
+    },
+    {
+      "checksum": null,
+      "error": "infeasible: MLX fast.metal_kernel allocates declared outputs and does not expose a supported in-place write into an existing full-frame array. A scatter prototype would need one full-frame output per tile before combining, which defeats the residency/memory goal.",
+      "max_seconds": null,
+      "max_value": null,
+      "mean": null,
+      "median_seconds": null,
+      "min_seconds": null,
+      "overlap": 16,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "peak_memory_mib": [],
+      "run_seconds": [],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter",
+      "tile_rows": 512
+    },
+    {
+      "checksum": 36000576.0,
+      "error": null,
+      "max_seconds": 0.11707583299721591,
+      "max_value": 0.7499985694885254,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.1165832499973476,
+      "min_seconds": 0.11111183400498703,
+      "overlap": 16,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 830.6250038146973,
+      "peak_memory_mib": [
+        830.6250038146973,
+        830.6250038146973,
+        830.6250038146973
+      ],
+      "run_seconds": [
+        0.1165832499973476,
+        0.11707583299721591,
+        0.11111183400498703
+      ],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "at_add",
+      "tile_rows": 1024
+    },
+    {
+      "checksum": 36000576.0,
+      "error": null,
+      "max_seconds": 0.10573912499239668,
+      "max_value": 0.7499985694885254,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.09707220799464267,
+      "min_seconds": 0.09268395901017357,
+      "overlap": 16,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 830.625,
+      "peak_memory_mib": [
+        830.625,
+        830.625,
+        830.625
+      ],
+      "run_seconds": [
+        0.09268395901017357,
+        0.09707220799464267,
+        0.10573912499239668
+      ],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "concat",
+      "tile_rows": 1024
+    },
+    {
+      "checksum": null,
+      "error": "infeasible: MLX fast.metal_kernel allocates declared outputs and does not expose a supported in-place write into an existing full-frame array. A scatter prototype would need one full-frame output per tile before combining, which defeats the residency/memory goal.",
+      "max_seconds": null,
+      "max_value": null,
+      "mean": null,
+      "median_seconds": null,
+      "min_seconds": null,
+      "overlap": 16,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "peak_memory_mib": [],
+      "run_seconds": [],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter",
+      "tile_rows": 1024
+    },
+    {
+      "checksum": 36000576.0,
+      "error": null,
+      "max_seconds": 0.11636604099476244,
+      "max_value": 0.7499985694885254,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.10535904199059587,
+      "min_seconds": 0.10432404199673329,
+      "overlap": 16,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 956.9687690734863,
+      "peak_memory_mib": [
+        956.9687690734863,
+        956.9687690734863,
+        956.9687690734863
+      ],
+      "run_seconds": [
+        0.10535904199059587,
+        0.10432404199673329,
+        0.11636604099476244
+      ],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "at_add",
+      "tile_rows": 2048
+    },
+    {
+      "checksum": 36000576.0,
+      "error": null,
+      "max_seconds": 0.1104850840056315,
+      "max_value": 0.7499985694885254,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.10685708299570251,
+      "min_seconds": 0.10563141701277345,
+      "overlap": 16,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 956.9687652587891,
+      "peak_memory_mib": [
+        956.9687652587891,
+        956.9687652587891,
+        956.9687652587891
+      ],
+      "run_seconds": [
+        0.10563141701277345,
+        0.1104850840056315,
+        0.10685708299570251
+      ],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "concat",
+      "tile_rows": 2048
+    },
+    {
+      "checksum": null,
+      "error": "infeasible: MLX fast.metal_kernel allocates declared outputs and does not expose a supported in-place write into an existing full-frame array. A scatter prototype would need one full-frame output per tile before combining, which defeats the residency/memory goal.",
+      "max_seconds": null,
+      "max_value": null,
+      "mean": null,
+      "median_seconds": null,
+      "min_seconds": null,
+      "overlap": 16,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "peak_memory_mib": [],
+      "run_seconds": [],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter",
+      "tile_rows": 2048
+    },
+    {
+      "checksum": 36000576.0,
+      "error": null,
+      "max_seconds": 0.1123405829857802,
+      "max_value": 0.7499985694885254,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.10570758300309535,
+      "min_seconds": 0.1056272920104675,
+      "overlap": 64,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 955.9687538146973,
+      "peak_memory_mib": [
+        955.9687538146973,
+        955.9687538146973,
+        955.9687538146973
+      ],
+      "run_seconds": [
+        0.1056272920104675,
+        0.1123405829857802,
+        0.10570758300309535
+      ],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "at_add",
+      "tile_rows": 256
+    },
+    {
+      "checksum": 36000576.0,
+      "error": null,
+      "max_seconds": 0.1020729160081828,
+      "max_value": 0.7499985694885254,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.10090454100281931,
+      "min_seconds": 0.09978658299951348,
+      "overlap": 64,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 955.96875,
+      "peak_memory_mib": [
+        955.96875,
+        955.96875,
+        955.96875
+      ],
+      "run_seconds": [
+        0.1020729160081828,
+        0.10090454100281931,
+        0.09978658299951348
+      ],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "concat",
+      "tile_rows": 256
+    },
+    {
+      "checksum": null,
+      "error": "infeasible: MLX fast.metal_kernel allocates declared outputs and does not expose a supported in-place write into an existing full-frame array. A scatter prototype would need one full-frame output per tile before combining, which defeats the residency/memory goal.",
+      "max_seconds": null,
+      "max_value": null,
+      "mean": null,
+      "median_seconds": null,
+      "min_seconds": null,
+      "overlap": 64,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "peak_memory_mib": [],
+      "run_seconds": [],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter",
+      "tile_rows": 256
+    },
+    {
+      "checksum": 36000576.0,
+      "error": null,
+      "max_seconds": 0.10513524999259971,
+      "max_value": 0.7499985694885254,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.1049301659950288,
+      "min_seconds": 0.10101962499902584,
+      "overlap": 64,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 885.5937538146973,
+      "peak_memory_mib": [
+        885.5937538146973,
+        885.5937538146973,
+        885.5937538146973
+      ],
+      "run_seconds": [
+        0.10101962499902584,
+        0.1049301659950288,
+        0.10513524999259971
+      ],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "at_add",
+      "tile_rows": 512
+    },
+    {
+      "checksum": 36000576.0,
+      "error": null,
+      "max_seconds": 0.09031299999332987,
+      "max_value": 0.7499985694885254,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.08795879200624768,
+      "min_seconds": 0.08646849999786355,
+      "overlap": 64,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 885.59375,
+      "peak_memory_mib": [
+        885.59375,
+        885.59375,
+        885.59375
+      ],
+      "run_seconds": [
+        0.08646849999786355,
+        0.09031299999332987,
+        0.08795879200624768
+      ],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "concat",
+      "tile_rows": 512
+    },
+    {
+      "checksum": null,
+      "error": "infeasible: MLX fast.metal_kernel allocates declared outputs and does not expose a supported in-place write into an existing full-frame array. A scatter prototype would need one full-frame output per tile before combining, which defeats the residency/memory goal.",
+      "max_seconds": null,
+      "max_value": null,
+      "mean": null,
+      "median_seconds": null,
+      "min_seconds": null,
+      "overlap": 64,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "peak_memory_mib": [],
+      "run_seconds": [],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter",
+      "tile_rows": 512
+    },
+    {
+      "checksum": 36000576.0,
+      "error": null,
+      "max_seconds": 0.09871825001027901,
+      "max_value": 0.7499985694885254,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.0976982910069637,
+      "min_seconds": 0.09717475000070408,
+      "overlap": 64,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 850.4062538146973,
+      "peak_memory_mib": [
+        850.4062538146973,
+        850.4062538146973,
+        850.4062538146973
+      ],
+      "run_seconds": [
+        0.09717475000070408,
+        0.09871825001027901,
+        0.0976982910069637
+      ],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "at_add",
+      "tile_rows": 1024
+    },
+    {
+      "checksum": 36000576.0,
+      "error": null,
+      "max_seconds": 0.09604083299927879,
+      "max_value": 0.7499985694885254,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.09387991699622944,
+      "min_seconds": 0.09204829199006781,
+      "overlap": 64,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 850.40625,
+      "peak_memory_mib": [
+        850.40625,
+        850.40625,
+        850.40625
+      ],
+      "run_seconds": [
+        0.09204829199006781,
+        0.09387991699622944,
+        0.09604083299927879
+      ],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "concat",
+      "tile_rows": 1024
+    },
+    {
+      "checksum": null,
+      "error": "infeasible: MLX fast.metal_kernel allocates declared outputs and does not expose a supported in-place write into an existing full-frame array. A scatter prototype would need one full-frame output per tile before combining, which defeats the residency/memory goal.",
+      "max_seconds": null,
+      "max_value": null,
+      "mean": null,
+      "median_seconds": null,
+      "min_seconds": null,
+      "overlap": 64,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "peak_memory_mib": [],
+      "run_seconds": [],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter",
+      "tile_rows": 1024
+    },
+    {
+      "checksum": 36000576.0,
+      "error": null,
+      "max_seconds": 0.10451741600991227,
+      "max_value": 0.7499985694885254,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.10206804100016598,
+      "min_seconds": 0.09920050000073388,
+      "overlap": 64,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 973.4531440734863,
+      "peak_memory_mib": [
+        973.4531440734863,
+        973.4531440734863,
+        973.4531440734863
+      ],
+      "run_seconds": [
+        0.10451741600991227,
+        0.10206804100016598,
+        0.09920050000073388
+      ],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "at_add",
+      "tile_rows": 2048
+    },
+    {
+      "checksum": 36000576.0,
+      "error": null,
+      "max_seconds": 0.10430708300555125,
+      "max_value": 0.7499985694885254,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.096416832995601,
+      "min_seconds": 0.0938096250029048,
+      "overlap": 64,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 973.4531402587891,
+      "peak_memory_mib": [
+        973.4531402587891,
+        973.4531402587891,
+        973.4531402587891
+      ],
+      "run_seconds": [
+        0.096416832995601,
+        0.10430708300555125,
+        0.0938096250029048
+      ],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "concat",
+      "tile_rows": 2048
+    },
+    {
+      "checksum": null,
+      "error": "infeasible: MLX fast.metal_kernel allocates declared outputs and does not expose a supported in-place write into an existing full-frame array. A scatter prototype would need one full-frame output per tile before combining, which defeats the residency/memory goal.",
+      "max_seconds": null,
+      "max_value": null,
+      "mean": null,
+      "median_seconds": null,
+      "min_seconds": null,
+      "overlap": 64,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "peak_memory_mib": [],
+      "run_seconds": [],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter",
+      "tile_rows": 2048
+    },
+    {
+      "checksum": 36000576.0,
+      "error": null,
+      "max_seconds": 0.1356414999900153,
+      "max_value": 0.7499985694885254,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.13426249999611173,
+      "min_seconds": 0.13135966598929372,
+      "overlap": 128,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 1087.6875038146973,
+      "peak_memory_mib": [
+        1087.6875038146973,
+        1087.6875038146973,
+        1087.6875038146973
+      ],
+      "run_seconds": [
+        0.13426249999611173,
+        0.13135966598929372,
+        0.1356414999900153
+      ],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "at_add",
+      "tile_rows": 256
+    },
+    {
+      "checksum": 36000576.0,
+      "error": null,
+      "max_seconds": 0.133558458997868,
+      "max_value": 0.7499985694885254,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.1235211659950437,
+      "min_seconds": 0.12177449998853263,
+      "overlap": 128,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 1087.6875,
+      "peak_memory_mib": [
+        1087.6875,
+        1087.6875,
+        1087.6875
+      ],
+      "run_seconds": [
+        0.12177449998853263,
+        0.133558458997868,
+        0.1235211659950437
+      ],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "concat",
+      "tile_rows": 256
+    },
+    {
+      "checksum": null,
+      "error": "infeasible: MLX fast.metal_kernel allocates declared outputs and does not expose a supported in-place write into an existing full-frame array. A scatter prototype would need one full-frame output per tile before combining, which defeats the residency/memory goal.",
+      "max_seconds": null,
+      "max_value": null,
+      "mean": null,
+      "median_seconds": null,
+      "min_seconds": null,
+      "overlap": 128,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "peak_memory_mib": [],
+      "run_seconds": [],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter",
+      "tile_rows": 256
+    },
+    {
+      "checksum": 36000576.0,
+      "error": null,
+      "max_seconds": 0.11760941600368824,
+      "max_value": 0.7499985694885254,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.1136436670058174,
+      "min_seconds": 0.10388816699560266,
+      "overlap": 128,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 947.0625038146973,
+      "peak_memory_mib": [
+        947.0625038146973,
+        947.0625038146973,
+        947.0625038146973
+      ],
+      "run_seconds": [
+        0.11760941600368824,
+        0.1136436670058174,
+        0.10388816699560266
+      ],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "at_add",
+      "tile_rows": 512
+    },
+    {
+      "checksum": 36000576.0,
+      "error": null,
+      "max_seconds": 0.10361495800316334,
+      "max_value": 0.7499985694885254,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.10275879201071803,
+      "min_seconds": 0.10122158400190528,
+      "overlap": 128,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 947.0625,
+      "peak_memory_mib": [
+        947.0625,
+        947.0625,
+        947.0625
+      ],
+      "run_seconds": [
+        0.10122158400190528,
+        0.10275879201071803,
+        0.10361495800316334
+      ],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "concat",
+      "tile_rows": 512
+    },
+    {
+      "checksum": null,
+      "error": "infeasible: MLX fast.metal_kernel allocates declared outputs and does not expose a supported in-place write into an existing full-frame array. A scatter prototype would need one full-frame output per tile before combining, which defeats the residency/memory goal.",
+      "max_seconds": null,
+      "max_value": null,
+      "mean": null,
+      "median_seconds": null,
+      "min_seconds": null,
+      "overlap": 128,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "peak_memory_mib": [],
+      "run_seconds": [],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter",
+      "tile_rows": 512
+    },
+    {
+      "checksum": 36000576.0,
+      "error": null,
+      "max_seconds": 0.1015706250036601,
+      "max_value": 0.7499985694885254,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.0996468749945052,
+      "min_seconds": 0.09948954099672846,
+      "overlap": 128,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 876.7500038146973,
+      "peak_memory_mib": [
+        876.7500038146973,
+        876.7500038146973,
+        876.7500038146973
+      ],
+      "run_seconds": [
+        0.0996468749945052,
+        0.1015706250036601,
+        0.09948954099672846
+      ],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "at_add",
+      "tile_rows": 1024
+    },
+    {
+      "checksum": 36000576.0,
+      "error": null,
+      "max_seconds": 0.09396429199841805,
+      "max_value": 0.7499985694885254,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.09393170799012296,
+      "min_seconds": 0.09385008300887421,
+      "overlap": 128,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 876.75,
+      "peak_memory_mib": [
+        876.75,
+        876.75,
+        876.75
+      ],
+      "run_seconds": [
+        0.09385008300887421,
+        0.09396429199841805,
+        0.09393170799012296
+      ],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "concat",
+      "tile_rows": 1024
+    },
+    {
+      "checksum": null,
+      "error": "infeasible: MLX fast.metal_kernel allocates declared outputs and does not expose a supported in-place write into an existing full-frame array. A scatter prototype would need one full-frame output per tile before combining, which defeats the residency/memory goal.",
+      "max_seconds": null,
+      "max_value": null,
+      "mean": null,
+      "median_seconds": null,
+      "min_seconds": null,
+      "overlap": 128,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "peak_memory_mib": [],
+      "run_seconds": [],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter",
+      "tile_rows": 1024
+    },
+    {
+      "checksum": 36000576.0,
+      "error": null,
+      "max_seconds": 0.09636250000039581,
+      "max_value": 0.7499985694885254,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.094062666001264,
+      "min_seconds": 0.0916282499965746,
+      "overlap": 128,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 995.4062690734863,
+      "peak_memory_mib": [
+        995.4062690734863,
+        995.4062690734863,
+        995.4062690734863
+      ],
+      "run_seconds": [
+        0.09636250000039581,
+        0.094062666001264,
+        0.0916282499965746
+      ],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "at_add",
+      "tile_rows": 2048
+    },
+    {
+      "checksum": 36000576.0,
+      "error": null,
+      "max_seconds": 0.09323066599608865,
+      "max_value": 0.7499985694885254,
+      "mean": 0.5000079870223999,
+      "median_seconds": 0.09245037499931641,
+      "min_seconds": 0.09179083300114144,
+      "overlap": 128,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 995.4062652587891,
+      "peak_memory_mib": [
+        995.4062652587891,
+        995.4062652587891,
+        995.4062652587891
+      ],
+      "run_seconds": [
+        0.09179083300114144,
+        0.09323066599608865,
+        0.09245037499931641
+      ],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "concat",
+      "tile_rows": 2048
+    },
+    {
+      "checksum": null,
+      "error": "infeasible: MLX fast.metal_kernel allocates declared outputs and does not expose a supported in-place write into an existing full-frame array. A scatter prototype would need one full-frame output per tile before combining, which defeats the residency/memory goal.",
+      "max_seconds": null,
+      "max_value": null,
+      "mean": null,
+      "median_seconds": null,
+      "min_seconds": null,
+      "overlap": 128,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "peak_memory_mib": [],
+      "run_seconds": [],
+      "scenario": "spatial",
+      "shape": [
+        4000,
+        6000,
+        3
+      ],
+      "size": "24mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter",
+      "tile_rows": 2048
+    }
+  ],
+  "summaries": [
+    {
+      "median_of_medians_seconds": 0.06226599999354221,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 564.0000038146973,
+      "records": 17,
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "at_add"
+    },
+    {
+      "median_of_medians_seconds": 0.05704395900829695,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 564.0,
+      "records": 17,
+      "size": "12mp",
+      "status": "ok",
+      "strategy": "concat"
+    },
+    {
+      "median_of_medians_seconds": null,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "records": 17,
+      "size": "12mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter"
+    },
+    {
+      "median_of_medians_seconds": 0.10206804100016598,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 1087.6875038146973,
+      "records": 17,
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "at_add"
+    },
+    {
+      "median_of_medians_seconds": 0.09393170799012296,
+      "parity_max_abs_diff": 0.0,
+      "peak_memory_max_mib": 1087.6875,
+      "records": 17,
+      "size": "24mp",
+      "status": "ok",
+      "strategy": "concat"
+    },
+    {
+      "median_of_medians_seconds": null,
+      "parity_max_abs_diff": null,
+      "peak_memory_max_mib": null,
+      "records": 17,
+      "size": "24mp",
+      "status": "infeasible",
+      "strategy": "metal_scatter"
+    }
+  ]
+}
