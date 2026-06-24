@@ -1,0 +1,6 @@
+{
+  "status": "benchmark_not_run_in_connector_environment",
+  "reason": "The GitHub connector environment cannot exercise the local macOS MLX/Metal runtime.",
+  "benchmark_script": "tests/benchmarks/benchmark_mlx_memory_residency.py",
+  "command": ".venv/bin/python tests/benchmarks/benchmark_mlx_memory_residency.py --height 3000 --width 4000 --runs 3 --output-json docs/reports/mlx-memory-residency-12mp.json --output-markdown docs/reports/mlx-memory-residency-12mp.md"
+}
