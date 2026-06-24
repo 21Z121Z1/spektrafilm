@@ -120,7 +120,25 @@ def _small_hdr_patch(size: int = 6) -> np.ndarray:
     return image
 
 
-def test_routemaster_fields_complete() -> None:
+def _present_shaped_fields(master) -> set[str]:
+    return {
+        field
+        for field in (
+            "route_linear_rgb",
+            "route_linear_xyz",
+            "route_luminance_y",
+            "sdr_legacy_rgb",
+            "scene_y_raw",
+            "post_halation_y",
+            "density_cmy",
+            "route_look_chroma",
+            "material_detail_y",
+        )
+        if getattr(getattr(master, field), "shape", None) is not None
+    }
+
+
+def test_routemaster_minimal_fields_by_default() -> None:
     params = make_fast_test_params()
     image = _small_hdr_patch()
 
@@ -129,21 +147,54 @@ def test_routemaster_fields_complete() -> None:
     assert master.mode == "paper"
     assert master.route_kind == "print_scan"
     assert master.route_linear_rgb.shape == image.shape
-    assert master.route_linear_xyz.shape == image.shape
     assert master.route_luminance_y.shape == image.shape[:2]
     assert master.sdr_legacy_rgb.shape == image.shape
     assert master.scene_y_raw.shape == image.shape[:2]
     assert master.post_halation_y.shape == image.shape[:2]
-    assert master.density_cmy.shape == image.shape
+    assert master.route_linear_xyz is None
+    assert master.density_cmy is None
+    assert master.route_look_chroma is None
+    assert master.material_detail_y is None
     assert isinstance(master.diagnostics, dict)
     for field in (
         master.route_linear_rgb,
-        master.route_linear_xyz,
         master.route_luminance_y,
         master.sdr_legacy_rgb,
         master.scene_y_raw,
         master.post_halation_y,
-        master.density_cmy,
+    ):
+        assert np.all(np.isfinite(field))
+
+
+def test_routemaster_full_sidecar_policy_restores_diagnostics() -> None:
+    minimal_params = make_fast_test_params()
+    full_params = copy.deepcopy(minimal_params)
+    full_params.settings.hdr_route_sidecar_policy = "full"
+    image = _small_hdr_patch()
+
+    minimal = Simulator(copy.deepcopy(minimal_params)).process_master(image, hdr_mode="paper")
+    full = Simulator(copy.deepcopy(full_params)).process_master(image, hdr_mode="paper")
+
+    assert full.route_linear_rgb.shape == image.shape
+    assert full.route_linear_xyz.shape == image.shape
+    assert full.route_luminance_y.shape == image.shape[:2]
+    assert full.sdr_legacy_rgb.shape == image.shape
+    assert full.scene_y_raw.shape == image.shape[:2]
+    assert full.post_halation_y.shape == image.shape[:2]
+    assert full.density_cmy.shape == image.shape
+    assert full.route_look_chroma.shape == image.shape
+    assert full.material_detail_y.shape == image.shape[:2]
+    assert _present_shaped_fields(minimal) < _present_shaped_fields(full)
+    for field in (
+        full.route_linear_rgb,
+        full.route_linear_xyz,
+        full.route_luminance_y,
+        full.sdr_legacy_rgb,
+        full.scene_y_raw,
+        full.post_halation_y,
+        full.density_cmy,
+        full.route_look_chroma,
+        full.material_detail_y,
     ):
         assert np.all(np.isfinite(field))
 
@@ -252,6 +303,7 @@ def test_post_halation_y_shape_and_finiteness() -> None:
 
 def test_density_cmy_sidecar_shape_and_finiteness() -> None:
     params = make_fast_test_params()
+    params.settings.hdr_route_sidecar_policy = "full"
     image = _small_hdr_patch()
 
     master = Simulator(params).process_master(image, hdr_mode="paper")

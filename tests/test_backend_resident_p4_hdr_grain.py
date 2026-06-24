@@ -197,7 +197,9 @@ def test_process_with_metadata_sidecar_readback_is_diagnostic_allowed_on_mlx() -
 
 def test_route_master_mlx_backend_materializes_cpu_sidecars_explicitly() -> None:
     _mlx_available_or_skip()
-    pipeline = SimulationPipeline(_params(backend="mlx", materialize_policy="backend"))
+    params = _params(backend="mlx", materialize_policy="backend")
+    params.settings.hdr_route_sidecar_policy = "full"
+    pipeline = SimulationPipeline(params)
 
     master = pipeline.process_master(_image(), hdr_mode="paper")
 

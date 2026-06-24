@@ -242,6 +242,7 @@ class SettingsParams:
     compute_backend: str = "cpu"
     gpu_precision: str = "float32"
     materialize_policy: str = "numpy_float64"
+    hdr_route_sidecar_policy: str = "minimal"
     gpu_validate: bool = False
     gpu_validation_tolerance: float | None = None
     gpu_aggressive_cleanup: bool = False
@@ -287,3 +288,5 @@ class RuntimePhotoParams:
             raise ValueError(
                 "materialize_policy must be one of: 'numpy_float64', 'numpy_float32', 'backend'"
             )
+        if self.settings.hdr_route_sidecar_policy not in {"minimal", "full"}:
+            raise ValueError("hdr_route_sidecar_policy must be either 'minimal' or 'full'")

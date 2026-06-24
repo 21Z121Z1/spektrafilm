@@ -226,6 +226,7 @@ def test_negative_film_light_table_requires_positive_rendering() -> None:
 
 def test_negative_positive_scan_route_xyz_not_rgb_alias() -> None:
     params = make_fast_test_params(film_profile="kodak_gold_200")
+    params.settings.hdr_route_sidecar_policy = "full"
     master = Simulator(params).process_master(_small_patch(), hdr_mode="light_table")
 
     assert master.diagnostics["profile_kind"] == "positive_negative_scan"

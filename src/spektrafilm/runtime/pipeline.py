@@ -827,41 +827,60 @@ class SimulationPipeline:
         post_halation_y,
         diagnostics: dict[str, Any],
     ) -> RouteMaster:
-        route_rgb = self._materialize_sidecar_array(
+        sidecar_policy = getattr(self.settings, "hdr_route_sidecar_policy", "minimal")
+        if sidecar_policy not in {"minimal", "full"}:
+            raise ValueError("hdr_route_sidecar_policy must be either 'minimal' or 'full'")
+        full_sidecar = sidecar_policy == "full"
+
+        route_rgb = self._route_sidecar_array(
             scan_master.route_linear_rgb,
+            force_numpy=full_sidecar,
             label="SimulationPipeline.route_master_materialize",
         )
-        route_xyz = self._materialize_sidecar_array(
-            scan_master.route_linear_xyz,
-            label="SimulationPipeline.route_master_materialize",
-        )
-        route_y = self._materialize_sidecar_array(
+        route_y = self._route_sidecar_array(
             scan_master.route_luminance_y,
+            force_numpy=full_sidecar,
             label="SimulationPipeline.route_master_materialize",
         )
-        sdr_rgb = self._materialize_sidecar_array(
+        sdr_rgb = self._route_sidecar_array(
             sdr_legacy_rgb,
+            force_numpy=full_sidecar,
             label="SimulationPipeline.route_master_materialize",
         )
-        scene_y = self._materialize_sidecar_array(
+        scene_y = self._route_sidecar_array(
             scene_y_raw,
             dtype=np.float32,
+            force_numpy=full_sidecar,
             label="SimulationPipeline.route_master_materialize",
         )
-        post_y = self._materialize_sidecar_array(
+        post_y = self._route_sidecar_array(
             post_halation_y,
             dtype=np.float32,
+            force_numpy=full_sidecar,
             label="SimulationPipeline.route_master_materialize",
         )
-        density_cmy = self._materialize_sidecar_array(
-            scan_master.density_cmy,
-            label="SimulationPipeline.route_master_materialize",
-        )
-        route_look_chroma = self._route_look_chroma(route_rgb)
-        material_detail_y = self._material_detail_y(route_y)
+        if full_sidecar:
+            route_xyz = self._route_sidecar_array(
+                scan_master.route_linear_xyz,
+                force_numpy=True,
+                label="SimulationPipeline.route_master_materialize",
+            )
+            density_cmy = self._route_sidecar_array(
+                scan_master.density_cmy,
+                force_numpy=True,
+                label="SimulationPipeline.route_master_materialize",
+            )
+            route_look_chroma = self._route_look_chroma(route_rgb)
+            material_detail_y = self._material_detail_y(route_y)
+        else:
+            route_xyz = None
+            density_cmy = None
+            route_look_chroma = None
+            material_detail_y = None
         diagnostics = dict(diagnostics)
         diagnostics.setdefault("route_render_count", 1)
         diagnostics.setdefault("route_kind", route_kind)
+        diagnostics.setdefault("hdr_route_sidecar_policy", sidecar_policy)
         diagnostics.setdefault("film", getattr(getattr(self.film, "info", None), "stock", None))
         diagnostics.setdefault("paper", getattr(getattr(self.print, "info", None), "stock", None))
         diagnostics.setdefault("output_color_space", self.io.output_color_space)
@@ -999,6 +1018,45 @@ class SimulationPipeline:
         policy = getattr(self.settings, "materialize_policy", "numpy_float64")
         if (
             policy == "backend"
+            and getattr(self._backend, "supports_gpu", False)
+            and hasattr(self._backend, "to_numpy")
+        ):
+            array = self._backend.to_numpy(value)
+        else:
+            array = self._materialize_output_value(value)
+        if dtype is not None:
+            return np.asarray(array, dtype=dtype)
+        return np.asarray(array)
+
+    def _route_sidecar_array(
+        self,
+        value,
+        *,
+        dtype=None,
+        force_numpy: bool = False,
+        label: str = "SimulationPipeline.route_master_materialize",
+    ):
+        return self._record_stage_timing(
+            label,
+            self._route_sidecar_array_value,
+            value,
+            dtype,
+            force_numpy,
+        )
+
+    def _route_sidecar_array_value(self, value, dtype=None, force_numpy: bool = False):
+        if value is None:
+            return None
+        policy = getattr(self.settings, "materialize_policy", "numpy_float64")
+        if (
+            not force_numpy
+            and policy == "backend"
+            and getattr(self._backend, "supports_gpu", False)
+        ):
+            return value
+        if (
+            force_numpy
+            and policy == "backend"
             and getattr(self._backend, "supports_gpu", False)
             and hasattr(self._backend, "to_numpy")
         ):

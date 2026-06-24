@@ -80,3 +80,14 @@ def test_runtime_params_constructor_rejects_invalid_materialize_policy() -> None
             print=params.print,
             settings=type(params.settings)(materialize_policy="device_magic"),
         )
+
+
+def test_runtime_params_constructor_rejects_invalid_hdr_route_sidecar_policy() -> None:
+    params = make_fast_test_params()
+
+    with pytest.raises(ValueError, match="hdr_route_sidecar_policy must be either"):
+        RuntimePhotoParams(
+            film=params.film,
+            print=params.print,
+            settings=type(params.settings)(hdr_route_sidecar_policy="debug_everything"),
+        )
