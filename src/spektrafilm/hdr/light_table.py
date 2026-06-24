@@ -3,6 +3,7 @@ from __future__ import annotations
 from spektrafilm.hdr.projection import (
     HDRProjectionConfig,
     HDRProjectionResult,
+    _backend_projection_profile,
     _build_result,
     _spatial_authority_for_projection,
     build_hdr_y_from_route,
@@ -30,28 +31,29 @@ def project_hdr_light_table(
         raise ValueError("HDR Light Table requires positive rendering, not a raw negative scan.")
     calibration = resolve_reference_white(master, config)
 
-    shape = master.sdr_legacy_rgb.shape[:2]
-    authority_y = _spatial_authority_for_projection(master, shape)
-    hdr_y = build_hdr_y_from_route(
-        master,
-        config,
-        authority_y=authority_y,
-        white=float(calibration.scene_diffuse_white_y),
-        strength=config.light_table_extension_strength,
-    )
-    return _build_result(
-        master=master,
-        mode="light_table",
-        hdr_y=hdr_y,
-        config=config,
-        calibration=calibration,
-        path_to_white_strength=config.light_table_path_to_white_strength,
-        diagnostics={
-            "hdr_mode": "light_table",
-            "authority_y": "post_halation_y",
-            "paper_parameters_ignored": True,
-        },
-    )
+    with _backend_projection_profile():
+        shape = master.sdr_legacy_rgb.shape[:2]
+        authority_y = _spatial_authority_for_projection(master, shape)
+        hdr_y = build_hdr_y_from_route(
+            master,
+            config,
+            authority_y=authority_y,
+            white=float(calibration.scene_diffuse_white_y),
+            strength=config.light_table_extension_strength,
+        )
+        return _build_result(
+            master=master,
+            mode="light_table",
+            hdr_y=hdr_y,
+            config=config,
+            calibration=calibration,
+            path_to_white_strength=config.light_table_path_to_white_strength,
+            diagnostics={
+                "hdr_mode": "light_table",
+                "authority_y": "post_halation_y",
+                "paper_parameters_ignored": True,
+            },
+        )
 
 
 __all__ = ["project_hdr_light_table"]

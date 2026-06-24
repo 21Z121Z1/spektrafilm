@@ -75,6 +75,39 @@ def test_light_table_projection_keeps_mlx_arrays_until_boundary() -> None:
     np.testing.assert_allclose(np.asarray(actual.gain_map), expected.gain_map, rtol=1e-5, atol=1e-6)
 
 
+def test_backend_fast_path_records_metadata_statistics_omission() -> None:
+    backend = _mlx_available_or_skip()
+    config = HDRProjectionConfig(max_headroom=5.0, headroom_percentile=100.0)
+
+    result = project_hdr_light_table(_master(backend=backend, mode="light_table"), config)
+
+    assert result.diagnostics["projection_backend"] == "mlx"
+    assert result.diagnostics["projection_metadata_statistics"] == "omitted_backend_fast_path"
+    assert "full-frame scene/render statistics readback" in result.diagnostics["projection_metadata_statistics_reason"]
+    assert result.standards_metadata.scene_statistics == {}
+
+
+def test_backend_projection_profile_reports_percentile_sort_costs(monkeypatch) -> None:
+    backend = _mlx_available_or_skip()
+    monkeypatch.setenv("SPEKTRAFILM_HDR_PROJECTION_PROFILE", "1")
+    config = HDRProjectionConfig(max_headroom=5.0, headroom_percentile=100.0)
+
+    result = project_hdr_light_table(_master(backend=backend, mode="light_table"), config)
+    backend.synchronize()
+
+    profile = result.diagnostics["projection_profile"]
+    calls = profile["percentile_calls"]
+    labels = {call["label"] for call in calls}
+
+    assert labels == {"extension_gain", "headroom"}
+    assert all(call["operation"] == "mx.sort_percentile" for call in calls)
+    assert all(call["size"] == 4 for call in calls)
+    assert all(call["sort_to_scalar_ms"] >= 0.0 for call in calls)
+    assert profile["percentile_sort_ms_total"] >= 0.0
+    assert "mlx_peak_memory_bytes" in profile
+    assert "mlx_cache_memory_end_bytes" in profile
+
+
 def test_generic_paper_projection_keeps_mlx_arrays_when_no_chemical_profile() -> None:
     backend = _mlx_available_or_skip()
     config = HDRProjectionConfig(max_headroom=5.0, headroom_percentile=100.0)

@@ -5,6 +5,7 @@ import numpy as np
 from spektrafilm.hdr.projection import (
     HDRProjectionConfig,
     HDRProjectionResult,
+    _backend_projection_profile,
     _build_paper_generic_result_backend,
     _build_result,
     _material_detail,
@@ -171,18 +172,89 @@ def project_hdr_ideal_paper(
         raise ValueError("Idealized HDR Paper requires a print_scan RouteMaster.")
     calibration = resolve_reference_white(master, config)
 
-    scene_white = float(calibration.scene_diffuse_white_y)
-    profile, fallback_reason = _chemical_profile_from_master(master)
-    path_to_white_strength = config.paper_path_to_white_strength
-    if profile is None:
-        chemical_diagnostics = {
-            "paper_rolloff_strategy": "generic_scene_extension",
-            "chemical_profile_safe": False,
-            "chemical_fallback_reason": fallback_reason or "unavailable",
-            "paper_path_to_white_strength_used": float(path_to_white_strength),
-        }
-        backend_result = _build_paper_generic_result_backend(
+    with _backend_projection_profile():
+        scene_white = float(calibration.scene_diffuse_white_y)
+        profile, fallback_reason = _chemical_profile_from_master(master)
+        path_to_white_strength = config.paper_path_to_white_strength
+        if profile is None:
+            chemical_diagnostics = {
+                "paper_rolloff_strategy": "generic_scene_extension",
+                "chemical_profile_safe": False,
+                "chemical_fallback_reason": fallback_reason or "unavailable",
+                "paper_path_to_white_strength_used": float(path_to_white_strength),
+            }
+            backend_result = _build_paper_generic_result_backend(
+                master=master,
+                config=config,
+                calibration=calibration,
+                path_to_white_strength=path_to_white_strength,
+                diagnostics={
+                    "hdr_mode": "paper",
+                    "authority_y": "scene_y_raw",
+                    "paper_below_white": "legacy_sdr_print_look",
+                    "paper_medium": "counterfactual_digital",
+                    **chemical_diagnostics,
+                },
+            )
+            if backend_result is not None:
+                return backend_result
+
+        sdr_rgb = _sdr_rgb(master)
+        sdr_y = luminance_y(sdr_rgb)
+        scene_y = _scene_authority(master, sdr_y.shape)
+        chemical_diagnostics: dict[str, object]
+        profile_diagnostics: dict[str, object] = {}
+        profile_safe = False
+        use_chemical_rolloff = False
+        if profile is not None:
+            profile_diagnostics = _profile_diagnostics(profile)
+            safe, unsafe_reason = _chemical_profile_is_safe(profile)
+            profile_safe = safe
+            if safe:
+                use_chemical_rolloff = bool(
+                    np.any(scene_y > np.float32(scene_white))
+                )
+                if use_chemical_rolloff:
+                    hdr_y = _chemical_print_hdr_y(
+                        master=master,
+                        config=config,
+                        sdr_y=sdr_y,
+                        scene_y=scene_y,
+                        profile=profile,
+                    )
+                    path_to_white_strength *= _tint_guard(profile)
+                    chemical_diagnostics = {
+                        "paper_rolloff_strategy": "chemical_print",
+                        "paper_headroom_strategy": "chemical_display_budget",
+                        "paper_display_extension_strength_used": _paper_display_extension_strength(config, profile),
+                        **profile_diagnostics,
+                        "chemical_profile_safe": True,
+                    }
+                else:
+                    fallback_reason = "no_scene_headroom"
+            else:
+                fallback_reason = unsafe_reason
+        if not use_chemical_rolloff:
+            hdr_y = build_hdr_y_from_route(
+                master,
+                config,
+                authority_y=scene_y,
+                white=scene_white,
+                strength=config.paper_extension_strength,
+            )
+            chemical_diagnostics = {
+                "paper_rolloff_strategy": "generic_scene_extension",
+                **profile_diagnostics,
+                "chemical_profile_safe": profile_safe,
+                "chemical_fallback_reason": fallback_reason or "unavailable",
+            }
+        chemical_diagnostics["paper_path_to_white_strength_used"] = float(path_to_white_strength)
+        hdr_y = np.where(scene_y <= np.float32(scene_white), sdr_y, hdr_y)
+        hdr_y = hdr_y.astype(np.float32, copy=False)
+        return _build_result(
             master=master,
+            mode="paper",
+            hdr_y=hdr_y,
             config=config,
             calibration=calibration,
             path_to_white_strength=path_to_white_strength,
@@ -194,76 +266,6 @@ def project_hdr_ideal_paper(
                 **chemical_diagnostics,
             },
         )
-        if backend_result is not None:
-            return backend_result
-
-    sdr_rgb = _sdr_rgb(master)
-    sdr_y = luminance_y(sdr_rgb)
-    scene_y = _scene_authority(master, sdr_y.shape)
-    chemical_diagnostics: dict[str, object]
-    profile_diagnostics: dict[str, object] = {}
-    profile_safe = False
-    use_chemical_rolloff = False
-    if profile is not None:
-        profile_diagnostics = _profile_diagnostics(profile)
-        safe, unsafe_reason = _chemical_profile_is_safe(profile)
-        profile_safe = safe
-        if safe:
-            use_chemical_rolloff = bool(
-                np.any(scene_y > np.float32(scene_white))
-            )
-            if use_chemical_rolloff:
-                hdr_y = _chemical_print_hdr_y(
-                    master=master,
-                    config=config,
-                    sdr_y=sdr_y,
-                    scene_y=scene_y,
-                    profile=profile,
-                )
-                path_to_white_strength *= _tint_guard(profile)
-                chemical_diagnostics = {
-                    "paper_rolloff_strategy": "chemical_print",
-                    "paper_headroom_strategy": "chemical_display_budget",
-                    "paper_display_extension_strength_used": _paper_display_extension_strength(config, profile),
-                    **profile_diagnostics,
-                    "chemical_profile_safe": True,
-                }
-            else:
-                fallback_reason = "no_scene_headroom"
-        else:
-            fallback_reason = unsafe_reason
-    if not use_chemical_rolloff:
-        hdr_y = build_hdr_y_from_route(
-            master,
-            config,
-            authority_y=scene_y,
-            white=scene_white,
-            strength=config.paper_extension_strength,
-        )
-        chemical_diagnostics = {
-            "paper_rolloff_strategy": "generic_scene_extension",
-            **profile_diagnostics,
-            "chemical_profile_safe": profile_safe,
-            "chemical_fallback_reason": fallback_reason or "unavailable",
-        }
-    chemical_diagnostics["paper_path_to_white_strength_used"] = float(path_to_white_strength)
-    hdr_y = np.where(scene_y <= np.float32(scene_white), sdr_y, hdr_y)
-    hdr_y = hdr_y.astype(np.float32, copy=False)
-    return _build_result(
-        master=master,
-        mode="paper",
-        hdr_y=hdr_y,
-        config=config,
-        calibration=calibration,
-        path_to_white_strength=path_to_white_strength,
-        diagnostics={
-            "hdr_mode": "paper",
-            "authority_y": "scene_y_raw",
-            "paper_below_white": "legacy_sdr_print_look",
-            "paper_medium": "counterfactual_digital",
-            **chemical_diagnostics,
-        },
-    )
 
 
 __all__ = ["project_hdr_ideal_paper"]

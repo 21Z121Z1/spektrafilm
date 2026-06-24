@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import math
 import os
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Literal
 
 import colour
@@ -16,6 +19,60 @@ from spektrafilm.utils import hdr_photo
 from spektrafilm.utils.hdr_curve_profiles import luminance_y
 
 _EPS32 = np.float32(1e-8)
+_PROFILE_ENV = "SPEKTRAFILM_HDR_PROJECTION_PROFILE"
+
+
+@dataclass(slots=True)
+class _BackendProjectionProfile:
+    percentile_calls: list[dict[str, Any]] = field(default_factory=list)
+    mlx_peak_memory_bytes: int | None = None
+    mlx_cache_memory_start_bytes: int | None = None
+    mlx_cache_memory_end_bytes: int | None = None
+
+    def begin(self) -> None:
+        _reset_mlx_peak_memory()
+        self.mlx_cache_memory_start_bytes = _mlx_memory_bytes("get_cache_memory")
+
+    def refresh_memory(self) -> None:
+        self.mlx_peak_memory_bytes = _mlx_memory_bytes("get_peak_memory")
+        self.mlx_cache_memory_end_bytes = _mlx_memory_bytes("get_cache_memory")
+
+    def record_percentile(
+        self,
+        *,
+        label: str,
+        percentile: float,
+        size: int,
+        elapsed_seconds: float,
+    ) -> None:
+        self.percentile_calls.append(
+            {
+                "label": str(label),
+                "operation": "mx.sort_percentile",
+                "percentile": float(percentile),
+                "size": int(size),
+                "sort_to_scalar_ms": float(elapsed_seconds) * 1000.0,
+            }
+        )
+
+    def diagnostics(self) -> dict[str, Any]:
+        self.refresh_memory()
+        return {
+            "enabled": True,
+            "percentile_calls": [dict(call) for call in self.percentile_calls],
+            "percentile_sort_ms_total": float(
+                sum(float(call["sort_to_scalar_ms"]) for call in self.percentile_calls)
+            ),
+            "mlx_peak_memory_bytes": self.mlx_peak_memory_bytes,
+            "mlx_cache_memory_start_bytes": self.mlx_cache_memory_start_bytes,
+            "mlx_cache_memory_end_bytes": self.mlx_cache_memory_end_bytes,
+        }
+
+
+_ACTIVE_BACKEND_PROFILE: ContextVar[_BackendProjectionProfile | None] = ContextVar(
+    "spektrafilm_hdr_backend_projection_profile",
+    default=None,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +158,67 @@ def _as_y(image: np.ndarray, *, field: str, shape: tuple[int, int]) -> np.ndarra
 
 def _hdr_pair_debug_enabled() -> bool:
     return os.environ.get("SPEKTRAFILM_HDR_PAIR_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _projection_profile_enabled() -> bool:
+    return os.environ.get(_PROFILE_ENV, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _try_mx():
+    try:
+        return _mx()
+    except Exception:
+        return None
+
+
+def _mlx_memory_bytes(getter_name: str) -> int | None:
+    mx = _try_mx()
+    if mx is None:
+        return None
+    for owner in (mx, getattr(mx, "metal", None)):
+        getter = getattr(owner, getter_name, None)
+        if callable(getter):
+            try:
+                return int(getter())
+            except (OSError, RuntimeError, TypeError, ValueError):
+                return None
+    return None
+
+
+def _reset_mlx_peak_memory() -> None:
+    mx = _try_mx()
+    if mx is None:
+        return
+    for owner in (mx, getattr(mx, "metal", None)):
+        reset = getattr(owner, "reset_peak_memory", None)
+        if callable(reset):
+            try:
+                reset()
+            except (OSError, RuntimeError, TypeError, ValueError):
+                pass
+            return
+
+
+@contextmanager
+def _backend_projection_profile():
+    if not _projection_profile_enabled():
+        yield None
+        return
+    profile = _BackendProjectionProfile()
+    profile.begin()
+    token = _ACTIVE_BACKEND_PROFILE.set(profile)
+    try:
+        yield profile
+    finally:
+        profile.refresh_memory()
+        _ACTIVE_BACKEND_PROFILE.reset(token)
+
+
+def _backend_projection_profile_diagnostics() -> dict[str, Any]:
+    profile = _ACTIVE_BACKEND_PROFILE.get()
+    if profile is None:
+        return {}
+    return {"projection_profile": profile.diagnostics()}
 
 
 def _is_mlx_array(value: Any) -> bool:
@@ -214,21 +332,32 @@ def _smoothstep_backend(edge0: float, edge1: float, x: Any):
     return t * t * (t * np.float32(-2.0) + np.float32(3.0))
 
 
-def _percentile_backend(values: Any, percentile: float) -> float:
+def _percentile_backend(values: Any, percentile: float, *, label: str) -> float:
     mx = _mx()
     flat = mx.reshape(values, (-1,))
     size = int(flat.size)
     if size == 0:
         return float("nan")
+    profile = _ACTIVE_BACKEND_PROFILE.get()
+    start = perf_counter() if profile is not None else 0.0
     ordered = mx.sort(flat)
     position = (size - 1) * float(percentile) / 100.0
     lower = int(math.floor(position))
     upper = int(math.ceil(position))
     if lower == upper:
-        return _backend_scalar_float(ordered[lower])
-    weight = np.float32(position - lower)
-    value = ordered[lower] * (np.float32(1.0) - weight) + ordered[upper] * weight
-    return _backend_scalar_float(value)
+        result = _backend_scalar_float(ordered[lower])
+    else:
+        weight = np.float32(position - lower)
+        value = ordered[lower] * (np.float32(1.0) - weight) + ordered[upper] * weight
+        result = _backend_scalar_float(value)
+    if profile is not None:
+        profile.record_percentile(
+            label=label,
+            percentile=percentile,
+            size=size,
+            elapsed_seconds=perf_counter() - start,
+        )
+    return result
 
 
 def _authority_ratio_backend(scene_y: Any, *, white: float):
@@ -247,7 +376,7 @@ def _extension_gain_backend(
     ratio = mx.maximum(ratio, np.float32(0.0))
     if not _backend_scalar_bool(mx.any(ratio > np.float32(1.0))):
         return mx.ones_like(ratio)
-    peak = _percentile_backend(ratio, headroom_percentile)
+    peak = _percentile_backend(ratio, headroom_percentile, label="extension_gain")
     span_end = max(1.25, min(float(max_headroom), peak))
     progress = _smoothstep_backend(1.0, span_end, ratio)
     excess = mx.clip((ratio - np.float32(1.0)) / np.float32(max(span_end - 1.0, 1e-8)), np.float32(0.0), np.float32(1.0))
@@ -275,7 +404,7 @@ def _apply_output_diffuse_white_backend(rgb: Any, sdr: Any, config: HDRProjectio
 
 def _headroom_backend(hdr_rgb: Any, config: HDRProjectionConfig) -> float:
     intensity = _mx().max(hdr_rgb, axis=2)
-    content = _percentile_backend(intensity, config.headroom_percentile)
+    content = _percentile_backend(intensity, config.headroom_percentile, label="headroom")
     if not math.isfinite(content) or content <= 1.0 + 1e-5:
         return 1.0
     return float(min(config.max_headroom, max(2.0, content)))
@@ -550,6 +679,11 @@ def _build_result_backend(
         "preserve_sdr_base": True,
         "projection_backend": "mlx",
         "projection_metadata_statistics": "omitted_backend_fast_path",
+        "projection_metadata_statistics_reason": (
+            "backend fast path avoids full-frame scene/render statistics readback; "
+            "HEIC pair export rebuilds file metadata after final materialization"
+        ),
+        **_backend_projection_profile_diagnostics(),
     }
     return HDRProjectionResult(
         mode=mode,
