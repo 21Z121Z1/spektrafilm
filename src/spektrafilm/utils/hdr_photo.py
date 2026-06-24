@@ -331,6 +331,7 @@ def build_hdr_photo_standards_metadata(
     mastering_display_white_nits: float | None = None,
     mastering_target_peak_ev: float | None = None,
     mastering_curve_budget_ev: float | None = None,
+    export_diagnostics: dict | None = None,
 ) -> HDRStandardsMetadata:
     """Build mastering metadata for HDR photo and HDR rendition exports."""
 
@@ -397,6 +398,7 @@ def build_hdr_photo_standards_metadata(
         scene_luminance=scene_luminance,
         render_rgb=render,
         source_role=source_role,
+        export_diagnostics=export_diagnostics,
     )
 
 
@@ -515,6 +517,7 @@ def save_hdr_photo_heic_from_pair(
     headroom: float | None = None,
     quality: float = 0.95,
     metadata: dict | None = None,
+    export_diagnostics: dict | None = None,
     gain_map_mode: Literal["luma", "rgb"] = "rgb",
 ) -> tuple[str, ...]:
     """Save a pre-rendered SDR/HDR pair as a gain-map HEIC/HEIF.
@@ -614,6 +617,7 @@ def save_hdr_photo_heic_from_pair(
         headroom=headroom,
         source_role="hdr_pair",
         white_luminance=None,
+        export_diagnostics=export_diagnostics,
     )
     write_hdr_standards_sidecar(output_path, sidecar_metadata)
     return ()

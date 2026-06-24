@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import asdict, is_dataclass
+import hashlib
 from importlib import import_module
+import json
 from pathlib import Path
 import time
 from typing import TYPE_CHECKING
@@ -37,6 +40,7 @@ OUTPUT_CCTF_ENCODING_KEY = 'pipeline_output_cctf_encoding'
 OUTPUT_DISPLAY_TRANSFORM_KEY = 'pipeline_use_display_transform'
 OUTPUT_HDR_SCENE_ENERGY_KEY = 'pipeline_hdr_scene_energy'
 OUTPUT_ROUTE_MASTER_KEY = 'pipeline_route_master'
+OUTPUT_ROUTE_MASTER_SIGNATURE_KEY = 'pipeline_route_master_signature'
 OUTPUT_PHASE_TIMINGS_KEY = 'pipeline_phase_timings'
 PROFILE_SYNC_SECTION_NAMES = profile_sync.PROFILE_SYNC_SECTION_NAMES
 if TYPE_CHECKING:
@@ -193,6 +197,90 @@ def _prepare_simulation_input_image(
 def _requires_hdr_metadata_for_state(state) -> bool:
     hdr_state = getattr(state, "hdr", None)
     return bool(getattr(hdr_state, "hdr_heic_gain_map_enabled", False))
+
+
+def _json_stable(value):
+    if is_dataclass(value):
+        return _json_stable(asdict(value))
+    if isinstance(value, dict):
+        return {str(key): _json_stable(val) for key, val in sorted(value.items(), key=lambda item: str(item[0]))}
+    if isinstance(value, (list, tuple)):
+        return [_json_stable(item) for item in value]
+    if isinstance(value, np.ndarray):
+        return {
+            "shape": tuple(int(dim) for dim in value.shape),
+            "dtype": str(value.dtype),
+            "min": float(np.nanmin(value)) if value.size else None,
+            "max": float(np.nanmax(value)) if value.size else None,
+        }
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return repr(value)
+
+
+def _input_image_cache_fingerprint(image: object | None) -> dict[str, object] | None:
+    if image is None:
+        return None
+    arr = np.asarray(image)
+    content = np.ascontiguousarray(arr)
+    pointer = None
+    try:
+        pointer = int(arr.__array_interface__["data"][0])
+    except (AttributeError, KeyError, TypeError, ValueError):
+        pointer = None
+    return {
+        "shape": tuple(int(dim) for dim in arr.shape),
+        "dtype": str(arr.dtype),
+        "strides": None if arr.strides is None else tuple(int(v) for v in arr.strides),
+        "nbytes": int(arr.nbytes),
+        "object_id": int(id(image)),
+        "data_pointer": pointer,
+        "sha256": hashlib.sha256(memoryview(content).cast("B")).hexdigest(),
+    }
+
+
+def _route_master_cache_signature(
+    *,
+    input_image: object | None,
+    gui_state,
+    hdr_mode: str,
+    saving_color_space: str,
+    saving_cctf_encoding: bool,
+) -> str:
+    payload = {
+        "schema": "spektrafilm.gui.route_master_cache.v1",
+        "input": _input_image_cache_fingerprint(input_image),
+        "state": _json_stable(gui_state),
+        "hdr_mode": str(hdr_mode),
+        "saving_color_space": str(saving_color_space),
+        "saving_cctf_encoding": bool(saving_cctf_encoding),
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _format_hdr_export_diagnostics(diagnostics: dict[str, object]) -> str:
+    if not diagnostics:
+        return ""
+    headroom = diagnostics.get("hdr_headroom")
+    try:
+        headroom_text = f"{float(headroom):.3g}"
+    except (TypeError, ValueError):
+        headroom_text = str(headroom)
+    positive_negative = diagnostics.get("positive_negative_scan")
+    parts = [
+        f"mode={diagnostics.get('hdr_mode', 'unknown')}",
+        f"route={diagnostics.get('route_kind', 'unknown')}",
+        f"profile={diagnostics.get('profile_kind', 'unknown')}",
+        f"sdr={diagnostics.get('sdr_base_domain', 'unknown')}",
+        f"headroom={headroom_text}",
+        f"cached={'yes' if diagnostics.get('cached_route_master') else 'no'}",
+    ]
+    if positive_negative is not None:
+        parts.insert(3, f"positive_negative_scan={'yes' if positive_negative else 'no'}")
+    return " HDR export: " + ", ".join(parts)
 
 
 colour = _LazyModuleProxy(_import_colour_module)
@@ -424,8 +512,33 @@ class GuiController:
                 from spektrafilm.hdr.routemaster_export import export_hdr_heic_from_simulator
 
                 hdr_mode = normalize_hdr_mapping_mode(hdr_settings.hdr_mapping_mode)
+                if hdr_mode == "light_table" and not self._confirm_light_table_hdr_export():
+                    set_status(self._viewer, "HDR Light Table export cancelled")
+                    return
+
+                current_route_master_signature = None
+                if self._current_input_image is not None:
+                    current_route_master_signature = _route_master_cache_signature(
+                        input_image=self._current_input_image,
+                        gui_state=gui_state,
+                        hdr_mode=hdr_mode,
+                        saving_color_space=saving_color_space,
+                        saving_cctf_encoding=saving_cctf_encoding,
+                    )
+
                 cached_route_master = output_layer.metadata.get(OUTPUT_ROUTE_MASTER_KEY)
-                if getattr(cached_route_master, "mode", None) != hdr_mode:
+                cached_route_master_signature = output_layer.metadata.get(OUTPUT_ROUTE_MASTER_SIGNATURE_KEY)
+                if current_route_master_signature is None:
+                    current_route_master_signature = (
+                        str(cached_route_master_signature)
+                        if cached_route_master_signature is not None
+                        else None
+                    )
+                if (
+                    getattr(cached_route_master, "mode", None) != hdr_mode
+                    or cached_route_master_signature is None
+                    or str(cached_route_master_signature) != str(current_route_master_signature)
+                ):
                     cached_route_master = None
 
                 if cached_route_master is None and self._current_input_image is None:
@@ -437,6 +550,7 @@ class GuiController:
                     return
 
                 config = hdr_projection_config_from_settings(hdr_settings)
+                export_diagnostics: dict[str, object] = {}
 
                 if cached_route_master is not None:
                     export_hdr_heic_from_simulator(
@@ -449,6 +563,7 @@ class GuiController:
                         quality=float(hdr_settings.heic_quality),
                         gain_map_mode=hdr_settings.gain_map_mode,
                         master=cached_route_master,
+                        export_diagnostics_out=export_diagnostics,
                     )
                 else:
                     params = build_params_from_state(gui_state)
@@ -476,6 +591,7 @@ class GuiController:
                         quality=float(hdr_settings.heic_quality),
                         gain_map_mode=hdr_settings.gain_map_mode,
                         master=None,
+                        export_diagnostics_out=export_diagnostics,
                     )
             except Exception as exc:
                 QMessageBox.critical(
@@ -487,7 +603,8 @@ class GuiController:
 
             set_status(
                 self._viewer,
-                f"Saved output image to {filepath}; HEIC/HEIF source metadata copy is not supported.",
+                f"Saved output image to {filepath}; HEIC/HEIF source metadata copy is not supported."
+                f"{_format_hdr_export_diagnostics(export_diagnostics)}",
             )
             return
 
@@ -573,6 +690,21 @@ class GuiController:
             'cctf_encoding': saving_cctf_encoding,
         }
 
+    def _confirm_light_table_hdr_export(self) -> bool:
+        yes = getattr(QMessageBox, "Yes", 0x00004000)
+        no = getattr(QMessageBox, "No", 0x00010000)
+        result = QMessageBox.question(
+            dialog_parent(self._viewer),
+            "HDR Light Table export",
+            "HDR Light Table is an idealized HDR viewing/export mode, not the ordinary Scan image.\n\n"
+            "Preview/Scan, the HEIC SDR base, and the HDR image shown by Quick Look are different projections. "
+            "The exported SDR base is stored as linear RGB and HDR viewers may show a gain-map composite.\n\n"
+            "Continue exporting HDR Light Table HEIC/HEIF?",
+            yes | no,
+            no,
+        )
+        return result == yes
+
     def save_current_as_default(self) -> None:
         persistence_actions.save_current_as_default(
             viewer=self._viewer,
@@ -638,6 +770,7 @@ class GuiController:
         use_display_transform: bool,
         hdr_scene_energy: object | None = None,
         route_master: object | None = None,
+        route_master_cache_signature: str | None = None,
     ) -> NapariImageLayer | None:
         self._layers.set_or_add_output_layer(
             image,
@@ -652,8 +785,13 @@ class GuiController:
             output_layer.metadata[OUTPUT_HDR_SCENE_ENERGY_KEY] = hdr_scene_energy
             if route_master is None:
                 output_layer.metadata.pop(OUTPUT_ROUTE_MASTER_KEY, None)
+                output_layer.metadata.pop(OUTPUT_ROUTE_MASTER_SIGNATURE_KEY, None)
             else:
                 output_layer.metadata[OUTPUT_ROUTE_MASTER_KEY] = route_master
+                if route_master_cache_signature is None:
+                    output_layer.metadata.pop(OUTPUT_ROUTE_MASTER_SIGNATURE_KEY, None)
+                else:
+                    output_layer.metadata[OUTPUT_ROUTE_MASTER_SIGNATURE_KEY] = route_master_cache_signature
         return output_layer
 
     def _set_or_add_input_stack(
@@ -917,6 +1055,15 @@ class GuiController:
         hdr_state = getattr(state, "hdr", None)
         if hdr_state is not None:
             hdr_mode = normalize_hdr_mapping_mode(getattr(hdr_state, "hdr_mapping_mode", "paper"))
+        route_master_cache_signature = None
+        if require_route_master:
+            route_master_cache_signature = _route_master_cache_signature(
+                input_image=image_data,
+                gui_state=state,
+                hdr_mode=hdr_mode,
+                saving_color_space=state.simulation.workflow.saving_color_space,
+                saving_cctf_encoding=state.simulation.workflow.saving_cctf_encoding,
+            )
         memory_warning_shown = False
         if source_layer_name == INPUT_LAYER_NAME:
             memory_message = runtime.full_render_memory_guard_message(
@@ -958,6 +1105,7 @@ class GuiController:
             require_hdr_metadata=require_hdr_metadata,
             require_route_master=require_route_master,
             hdr_mode=hdr_mode,
+            route_master_cache_signature=route_master_cache_signature,
         )
 
         worker = runtime.SimulationWorker(request, execute_request=self._execute_simulation_request)
@@ -986,6 +1134,7 @@ class GuiController:
             use_display_transform=result.use_display_transform,
             hdr_scene_energy=result.hdr_scene_energy,
             route_master=result.route_master,
+            route_master_cache_signature=result.route_master_cache_signature,
         )
         result.phase_timings['gui.layer_update'] = time.perf_counter() - layer_start
         if output_layer is not None and hasattr(output_layer, "metadata"):
@@ -1056,5 +1205,6 @@ class GuiController:
             use_display_transform=state.gui_only.display.use_display_transform,
             hdr_scene_energy=hdr_scene_energy,
             route_master=route_master,
+            route_master_cache_signature=None,
         )
         set_status(self._viewer, display_status)

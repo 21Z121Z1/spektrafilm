@@ -67,3 +67,24 @@ def test_hdr_standards_metadata_treats_unity_headroom_as_zero_ev() -> None:
     assert metadata.mastering_curve_budget_ev == 0.0
     assert metadata.to_json_dict()["mastering_summary"]["target_peak_ev"] == 0.0
     assert metadata.to_exr_attributes()["masteringTargetPeakEv"] == 0.0
+
+
+def test_hdr_standards_metadata_serializes_export_diagnostics() -> None:
+    diagnostics = {
+        "hdr_mode": "light_table",
+        "route_kind": "film_scan",
+        "positive_negative_scan": True,
+        "sdr_base_domain": "linear",
+        "hdr_headroom": 3.5,
+        "cached_route_master": False,
+    }
+
+    metadata = build_hdr_standards_metadata(
+        color_space="Display P3",
+        hdr_headroom=3.5,
+        render_rgb=np.array([[[0.5, 0.5, 0.5], [1.0, 2.0, 3.0]]], dtype=np.float32),
+        source_role="hdr_pair",
+        export_diagnostics=diagnostics,
+    )
+
+    assert metadata.to_json_dict()["dynamic_metadata"]["export_diagnostics"] == diagnostics

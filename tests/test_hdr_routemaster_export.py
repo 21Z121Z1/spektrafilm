@@ -67,6 +67,15 @@ def _paper_onset_master() -> RouteMaster:
     )
 
 
+def _srgb_encode(linear: np.ndarray) -> np.ndarray:
+    value = np.clip(np.asarray(linear, dtype=np.float32), 0.0, 1.0)
+    return np.where(
+        value <= np.float32(0.0031308),
+        value * np.float32(12.92),
+        np.float32(1.055) * np.power(value, np.float32(1.0 / 2.4)) - np.float32(0.055),
+    ).astype(np.float32, copy=False)
+
+
 def test_save_hdr_photo_heic_from_pair_does_not_call_simulator(monkeypatch, tmp_path) -> None:
     sdr, hdr = _pair()
     output_path = tmp_path / "pair.heic"
@@ -330,6 +339,41 @@ def test_no_duplicate_scan_when_exporting_hdr(monkeypatch, tmp_path) -> None:
     assert fake.count == 1
 
 
+def test_export_hdr_heic_from_simulator_passes_export_diagnostics(monkeypatch, tmp_path) -> None:
+    output_path = tmp_path / "out.heic"
+    cached_master = _master()
+    captured: dict[str, object] = {}
+    export_diagnostics_out: dict[str, object] = {}
+
+    def fake_save(filename, sdr_rgb, hdr_rgb, **kwargs):
+        captured["filename"] = filename
+        captured["kwargs"] = kwargs
+        return ("saved",)
+
+    monkeypatch.setattr(hdr_photo, "save_hdr_photo_heic_from_pair", fake_save)
+
+    diagnostics = export_hdr_heic_from_simulator(
+        simulator=None,
+        image=None,
+        filename=output_path,
+        hdr_mode="paper",
+        config=HDRProjectionConfig(max_headroom=2.0),
+        color_space="Display P3",
+        master=cached_master,
+        export_diagnostics_out=export_diagnostics_out,
+    )
+
+    assert diagnostics == ("saved",)
+    assert captured["filename"] == output_path
+    passed_diagnostics = captured["kwargs"]["export_diagnostics"]
+    assert export_diagnostics_out == passed_diagnostics
+    assert passed_diagnostics["hdr_mode"] == "paper"
+    assert passed_diagnostics["route_kind"] == "print_scan"
+    assert passed_diagnostics["sdr_base_domain"] == "linear"
+    assert passed_diagnostics["hdr_headroom"] >= 1.0
+    assert passed_diagnostics["cached_route_master"] is True
+
+
 def test_export_hdr_heic_from_simulator_uses_cached_master(monkeypatch, tmp_path) -> None:
     output_path = tmp_path / "out.heic"
     cached_master = _master()
@@ -498,6 +542,85 @@ print("count=\\(count) width=\\(image.width) height=\\(image.height)")
     )
     assert imageio.returncode == 0, imageio.stderr
     assert "width=8 height=8" in imageio.stdout
+
+
+def test_coreimage_decoded_sdr_base_matches_projected_pair_not_gui_scan(tmp_path) -> None:
+    if platform.system() != "Darwin":
+        pytest.skip("CoreImage HEIC decode regression requires macOS.")
+    if shutil.which("swift") is None and shutil.which("xcrun") is None:
+        pytest.skip("Swift toolchain is required for CoreImage HEIC smoke.")
+    if shutil.which("sips") is None:
+        pytest.skip("sips is required to decode the HEIC SDR base.")
+
+    from PIL import Image
+
+    x = np.linspace(0.08, 0.72, 8, dtype=np.float32)
+    y = np.linspace(0.05, 0.64, 8, dtype=np.float32)[:, None]
+    sdr_linear = np.stack(
+        [
+            np.broadcast_to(x, (8, 8)),
+            np.broadcast_to(y, (8, 8)),
+            np.full((8, 8), 0.24, dtype=np.float32),
+        ],
+        axis=2,
+    ).astype(np.float32)
+    scene_y = np.linspace(0.5, 3.0, 64, dtype=np.float32).reshape(8, 8)
+    route_y = np.maximum(np.max(sdr_linear, axis=2), np.float32(1e-4))
+    route_chroma = sdr_linear / route_y[..., None]
+    master = RouteMaster(
+        mode="light_table",
+        route_kind="film_scan",
+        route_linear_rgb=sdr_linear,
+        route_linear_xyz=sdr_linear,
+        route_luminance_y=route_y,
+        sdr_legacy_rgb=sdr_linear,
+        scene_y_raw=scene_y,
+        post_halation_y=scene_y,
+        density_cmy=sdr_linear,
+        route_look_chroma=route_chroma,
+        material_detail_y=None,
+        diagnostics={
+            "output_color_space": "sRGB",
+            "output_cctf_encoding": False,
+            "profile_kind": "positive_negative_scan",
+            "negative_scan_positive_rendering": True,
+        },
+    )
+    result = render_hdr_pair_from_master(
+        master,
+        hdr_mode="light_table",
+        config=HDRProjectionConfig(max_headroom=2.0, headroom_percentile=100.0),
+    )
+    ordinary_gui_scan = np.clip(1.0 - result.sdr_rgb, 0.0, 1.0)
+
+    output_path = tmp_path / "light-table-base.heic"
+    hdr_photo.save_hdr_photo_heic_from_pair(
+        output_path,
+        result.sdr_rgb,
+        result.hdr_rgb,
+        color_space="sRGB",
+        headroom=result.headroom,
+        quality=1.0,
+    )
+
+    decoded_path = tmp_path / "decoded.png"
+    decoded_result = subprocess.run(
+        ["sips", "-s", "format", "png", str(output_path), "--out", str(decoded_path)],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert decoded_result.returncode == 0, decoded_result.stderr
+
+    decoded = np.asarray(Image.open(decoded_path).convert("RGB"), dtype=np.float32) / np.float32(255.0)
+    expected_base = _srgb_encode(result.sdr_rgb)
+    ordinary_scan_encoded = _srgb_encode(ordinary_gui_scan)
+
+    base_mae = float(np.mean(np.abs(decoded - expected_base)))
+    ordinary_scan_mae = float(np.mean(np.abs(decoded - ordinary_scan_encoded)))
+    assert base_mae < 0.08
+    assert base_mae < ordinary_scan_mae * 0.5
 
 
 def test_legacy_profile_aware_alias_warns_or_maps_to_paper() -> None:

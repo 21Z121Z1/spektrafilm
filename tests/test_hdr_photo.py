@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 from pathlib import Path
 from types import SimpleNamespace
@@ -296,6 +297,44 @@ def test_save_hdr_photo_heic_uses_scene_luminance_sidecar(monkeypatch, tmp_path)
     assert float(captured["hdr_payload"][0, 1, :3].max()) > 1.0
     assert float(captured["hdr_payload"][0, 1, :3].max()) <= 8.0
     assert float(captured["sdr_payload"][..., :3].max()) <= 1.0
+
+
+def test_save_hdr_photo_heic_from_pair_writes_export_diagnostics_sidecar(monkeypatch, tmp_path) -> None:
+    sdr = np.array([[[0.4, 0.5, 0.6], [0.8, 0.7, 0.6]]], dtype=np.float32)
+    hdr = np.array([[[0.4, 0.5, 0.6], [1.6, 1.4, 1.2]]], dtype=np.float32)
+    output_path = tmp_path / "pair.heic"
+    export_diagnostics = {
+        "hdr_mode": "light_table",
+        "route_kind": "film_scan",
+        "profile_kind": "positive_negative_scan",
+        "positive_negative_scan": True,
+        "sdr_base_domain": "linear",
+        "hdr_headroom": 2.0,
+        "cached_route_master": True,
+    }
+
+    monkeypatch.setattr(hdr_photo.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(hdr_photo, "_swift_command", lambda: ["swift"])
+    monkeypatch.setattr(hdr_photo, "_encoder_script_path", lambda: Path("/tmp/hdr_heif_encoder.swift"))
+    monkeypatch.setattr(hdr_photo, "validate_heif_iso21496", lambda path: SimpleNamespace(ok=True, errors=()))
+
+    def fake_run(command, *, check, capture_output, text, timeout):
+        Path(command[4]).write_bytes(b"fake-heic")
+        return SimpleNamespace(returncode=0, stderr="", stdout="")
+
+    monkeypatch.setattr(hdr_photo.subprocess, "run", fake_run)
+
+    hdr_photo.save_hdr_photo_heic_from_pair(
+        output_path,
+        sdr,
+        hdr,
+        color_space="Display P3",
+        headroom=2.0,
+        export_diagnostics=export_diagnostics,
+    )
+
+    sidecar = json.loads(output_path.with_suffix(".hdr.json").read_text(encoding="utf-8"))
+    assert sidecar["dynamic_metadata"]["export_diagnostics"] == export_diagnostics
 
 
 # ---------------------------------------------------------------------------

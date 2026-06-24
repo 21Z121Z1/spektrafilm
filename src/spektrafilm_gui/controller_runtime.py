@@ -36,6 +36,7 @@ class SimulationRequest:
     require_hdr_metadata: bool = False
     require_route_master: bool = False
     hdr_mode: str = "paper"
+    route_master_cache_signature: str | None = None
 
 
 @dataclass(slots=True)
@@ -49,6 +50,7 @@ class SimulationResult:
     output_cctf_encoding: bool = True
     hdr_scene_energy: object | None = None
     route_master: object | None = None
+    route_master_cache_signature: str | None = None
     phase_timings: dict[str, float] = field(default_factory=dict)
     runtime_stage_timings: dict[str, float] = field(default_factory=dict)
     memory_estimates: dict[str, int] = field(default_factory=dict)
@@ -719,6 +721,7 @@ def execute_simulation_request(
         status_message=status_message,
         hdr_scene_energy=hdr_scene_energy,
         route_master=route_master,
+        route_master_cache_signature=request.route_master_cache_signature if route_master is not None else None,
         phase_timings=phase_timings,
         runtime_stage_timings=runtime_stage_timings,
         memory_estimates=memory_estimates,

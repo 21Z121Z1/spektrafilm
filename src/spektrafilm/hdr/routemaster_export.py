@@ -74,6 +74,28 @@ def render_hdr_film_pair_from_master(
     return render_hdr_pair_from_master(master, hdr_mode=hdr_mode, config=config)
 
 
+def _export_diagnostics_payload(
+    *,
+    master: RouteMaster,
+    result: HDRProjectionResult,
+    hdr_mode: HDRMode,
+    cached_master: bool,
+) -> dict[str, object]:
+    profile_kind = master.diagnostics.get("profile_kind")
+    return {
+        "hdr_mode": hdr_mode,
+        "route_kind": master.route_kind,
+        "profile_kind": profile_kind,
+        "positive_negative_scan": bool(
+            profile_kind == "positive_negative_scan"
+            or master.diagnostics.get("negative_scan_positive_rendering")
+        ),
+        "sdr_base_domain": "linear",
+        "hdr_headroom": float(result.headroom),
+        "cached_route_master": bool(cached_master),
+    }
+
+
 def export_hdr_heic_from_simulator(
     simulator,
     image,
@@ -85,6 +107,7 @@ def export_hdr_heic_from_simulator(
     quality: float = 0.95,
     gain_map_mode: Literal["luma", "rgb"] = "rgb",
     master: RouteMaster | None = None,
+    export_diagnostics_out: dict[str, object] | None = None,
 ) -> tuple[str, ...]:
     mode = normalize_hdr_mode(hdr_mode)
     total_start = perf_counter()
@@ -96,6 +119,15 @@ def export_hdr_heic_from_simulator(
     render_start = perf_counter()
     result = render_hdr_pair_from_master(master, hdr_mode=mode, config=config)
     render_elapsed = perf_counter() - render_start
+    export_diagnostics = _export_diagnostics_payload(
+        master=master,
+        result=result,
+        hdr_mode=mode,
+        cached_master=used_cached_master,
+    )
+    if export_diagnostics_out is not None:
+        export_diagnostics_out.clear()
+        export_diagnostics_out.update(export_diagnostics)
     encode_start = perf_counter()
     diagnostics = hdr_photo.save_hdr_photo_heic_from_pair(
         filename,
@@ -104,6 +136,7 @@ def export_hdr_heic_from_simulator(
         color_space=color_space,
         headroom=result.headroom,
         quality=quality,
+        export_diagnostics=export_diagnostics,
         gain_map_mode=gain_map_mode,
     )
     _log_save_timing(

@@ -111,6 +111,7 @@ class HDRStandardsMetadata:
     target_display_min_luminance_nits: float | None = None
     target_display_max_luminance_nits: float | None = None
     scene_statistics: dict[str, Any] = field(default_factory=dict)
+    export_diagnostics: dict[str, Any] = field(default_factory=dict)
     hdr_headroom: float | None = None
     encoded_color_space: str | None = None
     source_role: str | None = None
@@ -217,6 +218,7 @@ class HDRStandardsMetadata:
         scene_luminance: np.ndarray | None = None,
         render_rgb: np.ndarray | None = None,
         source_role: str | None = None,
+        export_diagnostics: dict[str, Any] | None = None,
     ) -> HDRStandardsMetadata:
         mastering_primaries, mastering_white_point = _chromaticities_from_color_space(color_space)
         target_color_space = color_space if target_display_color_space is None else target_display_color_space
@@ -276,6 +278,7 @@ class HDRStandardsMetadata:
             target_display_min_luminance_nits=float(target_display_min_luminance_nits) if target_display_min_luminance_nits is not None else float(min_mastering_luminance_nits),
             target_display_max_luminance_nits=float(target_display_max),
             scene_statistics=scene_stats,
+            export_diagnostics=dict(export_diagnostics or {}),
             hdr_headroom=float(hdr_headroom) if hdr_headroom is not None else None,
             encoded_color_space=encoded,
             source_role=source_role,
@@ -373,6 +376,7 @@ class HDRStandardsMetadata:
                     "max_luminance_nits": None if self.target_display_max_luminance_nits is None else float(self.target_display_max_luminance_nits),
                 },
                 "scene_statistics": self.scene_statistics,
+                "export_diagnostics": self.export_diagnostics,
             },
         }
         if self.hdr_headroom is not None:
@@ -407,6 +411,7 @@ def build_hdr_standards_metadata(
     scene_luminance: np.ndarray | None = None,
     render_rgb: np.ndarray | None = None,
     source_role: str | None = None,
+    export_diagnostics: dict[str, Any] | None = None,
 ) -> HDRStandardsMetadata:
     return HDRStandardsMetadata.from_color_space(
         color_space,
@@ -430,6 +435,7 @@ def build_hdr_standards_metadata(
         scene_luminance=scene_luminance,
         render_rgb=render_rgb,
         source_role=source_role,
+        export_diagnostics=export_diagnostics,
     )
 
 
