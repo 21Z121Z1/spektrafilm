@@ -4,7 +4,7 @@ from spektrafilm.hdr.projection import (
     HDRProjectionConfig,
     HDRProjectionResult,
     _build_result,
-    _spatial_authority,
+    _spatial_authority_for_projection,
     build_hdr_y_from_route,
 )
 from spektrafilm.hdr.reference_white import resolve_reference_white
@@ -31,7 +31,7 @@ def project_hdr_light_table(
     calibration = resolve_reference_white(master, config)
 
     shape = master.sdr_legacy_rgb.shape[:2]
-    authority_y = _spatial_authority(master, shape)
+    authority_y = _spatial_authority_for_projection(master, shape)
     hdr_y = build_hdr_y_from_route(
         master,
         config,

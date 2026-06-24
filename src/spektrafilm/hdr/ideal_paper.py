@@ -5,6 +5,7 @@ import numpy as np
 from spektrafilm.hdr.projection import (
     HDRProjectionConfig,
     HDRProjectionResult,
+    _build_paper_generic_result_backend,
     _build_result,
     _material_detail,
     _scene_authority,
@@ -170,13 +171,36 @@ def project_hdr_ideal_paper(
         raise ValueError("Idealized HDR Paper requires a print_scan RouteMaster.")
     calibration = resolve_reference_white(master, config)
 
+    scene_white = float(calibration.scene_diffuse_white_y)
+    profile, fallback_reason = _chemical_profile_from_master(master)
+    path_to_white_strength = config.paper_path_to_white_strength
+    if profile is None:
+        chemical_diagnostics = {
+            "paper_rolloff_strategy": "generic_scene_extension",
+            "chemical_profile_safe": False,
+            "chemical_fallback_reason": fallback_reason or "unavailable",
+            "paper_path_to_white_strength_used": float(path_to_white_strength),
+        }
+        backend_result = _build_paper_generic_result_backend(
+            master=master,
+            config=config,
+            calibration=calibration,
+            path_to_white_strength=path_to_white_strength,
+            diagnostics={
+                "hdr_mode": "paper",
+                "authority_y": "scene_y_raw",
+                "paper_below_white": "legacy_sdr_print_look",
+                "paper_medium": "counterfactual_digital",
+                **chemical_diagnostics,
+            },
+        )
+        if backend_result is not None:
+            return backend_result
+
     sdr_rgb = _sdr_rgb(master)
     sdr_y = luminance_y(sdr_rgb)
     scene_y = _scene_authority(master, sdr_y.shape)
-    scene_white = float(calibration.scene_diffuse_white_y)
-    profile, fallback_reason = _chemical_profile_from_master(master)
     chemical_diagnostics: dict[str, object]
-    path_to_white_strength = config.paper_path_to_white_strength
     profile_diagnostics: dict[str, object] = {}
     profile_safe = False
     use_chemical_rolloff = False
