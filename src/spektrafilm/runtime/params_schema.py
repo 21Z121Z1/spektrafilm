@@ -3,6 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from spektrafilm.profiles.io import Profile
+from spektrafilm.gpu.precision_policy import (
+    DEFAULT_PRECISION_POLICY,
+    normalize_precision_policy,
+)
 from spektrafilm.utils.gamut_compression import (
     InputGamutCompressSpec,
     OutputGamutCompressSpec,
@@ -242,6 +246,7 @@ class SettingsParams:
     compute_backend: str = "cpu"
     gpu_precision: str = "float32"
     materialize_policy: str = "numpy_float64"
+    color_precision_policy: str = DEFAULT_PRECISION_POLICY
     hdr_route_sidecar_policy: str = "minimal"
     gpu_validate: bool = False
     gpu_validation_tolerance: float | None = None
@@ -288,5 +293,6 @@ class RuntimePhotoParams:
             raise ValueError(
                 "materialize_policy must be one of: 'numpy_float64', 'numpy_float32', 'backend'"
             )
+        normalize_precision_policy(self.settings.color_precision_policy)
         if self.settings.hdr_route_sidecar_policy not in {"minimal", "full"}:
             raise ValueError("hdr_route_sidecar_policy must be either 'minimal' or 'full'")

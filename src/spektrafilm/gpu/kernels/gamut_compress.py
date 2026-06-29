@@ -16,6 +16,8 @@ from typing import Any
 
 import numpy as np
 
+from spektrafilm.gpu.precision_policy import OP_GAMUT_JZAZBZ, should_fallback_to_cpu
+
 
 # ---------------------------------------------------------------------------
 # OkLab matrices (exact values from colour-science / Björn Ottosson)
@@ -132,6 +134,17 @@ _JZAZBZ_CHROMA_MLX_KERNEL = None
 
 def _backend_supports_mlx_custom_kernels(backend) -> bool:
     return _backend_supports_gpu(backend) and hasattr(backend, "mx")
+
+
+def _backend_precision_policy_name(backend) -> str | None:
+    name = getattr(backend, "name", None)
+    if name is not None:
+        return name
+    if hasattr(backend, "mx"):
+        return "mlx"
+    if hasattr(backend, "cp"):
+        return "cupy"
+    return None
 
 
 def _split_float32_hi_lo(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -1450,6 +1463,7 @@ def compress_rgb_backend(
     *,
     output_color_space: str | None = None,
     backend=None,
+    precision_policy: str | None = "fast",
 ) -> Any:
     """Backend-aware output gamut compression.
 
@@ -1467,6 +1481,9 @@ def compress_rgb_backend(
         Required for perceptual algorithms (oklch, oklrab, etc.).
     backend : ArrayBackend or None
         GPU backend.  ``None`` falls back to CPU.
+    precision_policy : str or None
+        Runtime colour precision policy.  The default keeps the historical
+        low-level helper behavior; pipeline stages pass SettingsParams.
     """
     if not _backend_supports_gpu(backend):
         from spektrafilm.utils.gamut_compression import compress_rgb
@@ -1505,6 +1522,17 @@ def compress_rgb_backend(
     if spec.algorithm == "jzazbz":
         if output_color_space is None:
             raise ValueError("output_color_space is required for jzazbz")
+        if should_fallback_to_cpu(
+            OP_GAMUT_JZAZBZ,
+            policy=precision_policy,
+            backend_name=_backend_precision_policy_name(backend),
+            gpu_precision=getattr(backend, "precision", None),
+        ):
+            from spektrafilm.utils.gamut_compression import compress_rgb
+
+            rgb_cpu = backend.to_numpy(rgb)
+            result = compress_rgb(rgb_cpu, spec, output_color_space=output_color_space)
+            return backend.asarray(result)
         return compress_rgb_jzazbz_chroma_backend(
             rgb, output_color_space,
             threshold=threshold, limit=limit, power=power,

@@ -50,7 +50,7 @@ Status definitions:
 | FFT convolution | `src/spektrafilm/gpu/kernels/filters.py:743-805` | ≤2e-6 (CuPy reference) | COMPLIANT | Direct scipy FFT parity test added for same-shape convolutions |
 | Reflect padding | `src/spektrafilm/gpu/kernels/filters.py:346-401` | 0 (integer indices) | COMPLIANT | No arithmetic error |
 | 3D LUT trilinear | `src/spektrafilm/gpu/kernels/lut.py:318-503` | ≤2e-6 | COMPLIANT | Fast pilot kernel, not PCHIP |
-| **2D LUT Mitchell cubic** | `src/spektrafilm/gpu/kernels/lut.py:27-191` | **~2e-5** | **NON-COMPLIANT** | High-order polynomial evaluated in float32; must be brought to ≤1e-6 |
+| **2D LUT Mitchell cubic** | `src/spektrafilm/gpu/kernels/lut.py:27-191`, `src/spektrafilm/runtime/stages/filming.py` | **~2e-5 worst-case** | **FALLBACK / EXCEPTION** | High-order polynomial evaluated in float32. `fast` keeps the resident GPU exception; `balanced` and `strict` use CPU float64 reference fallback for Hanatos filming LUT. |
 | sRGB / Display P3 CCTF | `src/spektrafilm/gpu/kernels/color.py:320-403` | ≤2e-7 | COMPLIANT | Threshold literals should be float32 |
 | BT.2020 / ProPhoto / Adobe / DCI-P3 CCTF | `src/spektrafilm/gpu/kernels/color.py:328-362` | ≤2e-7 | COMPLIANT | |
 | RGB↔XYZ 3×3 matrices | `src/spektrafilm/gpu/kernels/color.py:104-121` | ≤1e-6 | COMPLIANT | Matrices precomputed in CPU float64, uploaded as float32 |
@@ -59,7 +59,7 @@ Status definitions:
 | Highlight boost | `src/spektrafilm/gpu/kernels/color.py:486-589` | ≤1e-6 | COMPLIANT | |
 | OkLab / Oklrab gamut compression | `src/spektrafilm/gpu/kernels/gamut_compress.py:1191-1316` | ≤2e-6 | COMPLIANT | |
 | CAM16-UCS gamut compression | `src/spektrafilm/gpu/kernels/gamut_compress.py:925-1031`, `1397-1451` | ≤3e-6 | COMPLIANT | |
-| **JzAzBz gamut compression** | `src/spektrafilm/gpu/kernels/gamut_compress.py:143-653`, `1323-1390` | **~7e-5, currently xfail** | **NON-COMPLIANT** | Per-exponent specialization for `inv_m2` (Metal `exp(log)`) brings error down to the float32 DS arithmetic floor; further improvement requires higher precision |
+| **JzAzBz gamut compression** | `src/spektrafilm/gpu/kernels/gamut_compress.py:143-653`, `1323-1390`, `1447-1528` | **~7e-5 to ~1.1e-4, xfail retained** | **STRICT FALLBACK / FAST-BALANCED EXCEPTION** | Per-exponent specialization for `inv_m2` brings error down to the float32 DS arithmetic floor. `strict` uses CPU float64 fallback; `fast`/`balanced` keep the resident GPU path as a documented non-L1 exception. |
 | ACES RGC | `src/spektrafilm/gpu/kernels/gamut_compress.py:1171-1184` | ≤2e-7 | COMPLIANT | |
 | Grain samplers | `src/spektrafilm/gpu/kernels/grain.py:77-289` | N/A | EXEMPT | Different RNG streams; distribution-level statistical tests only |
 
@@ -72,7 +72,8 @@ Status definitions:
 - **Location:** `src/spektrafilm/gpu/kernels/lut.py:27-191`
 - **Problem:** Error against the CPU float64 Numba reference is ~2e-5, exceeding the L1 `1e-6` contract.
 - **Root cause:** Mitchell-Netravali cubic weights are high-order polynomials evaluated in float32; the 16-weight sum is normalized in float32 while the CPU normalizes in float64.
-- **Contract requirement:** Bring the maximum absolute error to ≤1e-6, or remove the GPU path for final-output color transforms.
+- **2026-06-29 governance:** `src/spektrafilm/gpu/precision_policy.py` marks this operation as a `fast` exception and a `balanced` / `strict` CPU fallback. `FilmingStage._rgb_to_film_raw` now uses the CPU float64 Hanatos reference for the Hanatos 2D LUT under `balanced` and `strict`, so the default final-quality path no longer silently claims L1 for the resident GPU kernel.
+- **Contract requirement:** The resident GPU kernel remains a documented exception until it reaches ≤1e-6 on adversarial LUT samples.
 
 ### 4.2 JzAzBz gamut compression
 
@@ -83,7 +84,8 @@ Status definitions:
   2. Even with perfect transcendental functions, the float32 double-single arithmetic itself has a round-trip floor of roughly `5.5e-5` versus the CPU float64 reference.
   3. Apple Silicon Metal does not expose `double`/`float64`, so the DS floor cannot be breached without a much larger refactor (e.g., triple-float).
 - **Current status after 2026-06-22 optimization:** Per-exponent specialization (`inv_m2` uses `exp(exponent * log(x))`) reduces the representative worst-case error from ~`1.5e-4` to ~`7e-5`, and the full-kernel error vs CPU float64 is ~`5.4e-5` (at the float32 DS floor).
-- **Contract requirement:** The path remains `xfail` at L1. Decide between (a) documenting a float32 precision exception, (b) falling back to CPU float64 for `jzazbz` (loses full-frame residency), or (c) investing in triple-float / higher-precision Metal arithmetic.
+- **2026-06-29 governance:** `strict` calls the CPU float64 `compress_rgb(..., algorithm="jzazbz")` reference through `compress_rgb_backend(..., precision_policy="strict")` and uploads the result back to the backend array type. `fast` and `balanced` keep the resident GPU path, but policy metadata marks it as an exception and forbids an L1-compliance claim. Existing strict parity xfails remain unchanged.
+- **Contract requirement:** The resident path remains non-L1. Reaching L1 requires CPU fallback or a future higher-precision kernel design.
 
 ---
 
@@ -172,6 +174,42 @@ Add a tool or test that runs the full pipeline on CPU float64 and MLX float32 wi
 
 ---
 
+## 6.4 Executable precision governance
+
+As of 2026-06-29, colour precision policy is executable rather than only
+documented:
+
+- `SettingsParams.color_precision_policy` accepts `fast`, `balanced`, and
+  `strict`; the default is `balanced`.
+- `src/spektrafilm/gpu/precision_policy.py` is the source of truth for
+  operation decisions, fallback requirements, non-L1 exceptions, and common
+  precision metrics.
+- `tools/audit_color_precision.py` can audit `cctf`, `rgb-xyz`, `lut2d`,
+  `jzazbz`, and `spectral` subsets on `cpu` or `mlx` with a fixed seed and
+  Markdown/JSON output.
+
+Policy semantics:
+
+- `fast`: preserve backend residency and allow documented GPU exceptions.
+- `balanced`: recommended default. Avoid silent use of the known non-compliant
+  2D Mitchell LUT in the final-quality Hanatos path; keep JzAzBz resident but
+  explicitly classify it as a non-L1 exception.
+- `strict`: use CPU float64 fallback for 2D Mitchell LUT, JzAzBz gamut
+  compression, and spectral reductions when those operations need CPU-reference
+  parity. Do not invent a GPU float64 path.
+
+2026-06-29 MLX balanced audit (`seed=20260629`):
+
+| Operation | Status | max_abs | mean_abs | PSNR |
+|---|---|---:|---:|---:|
+| CCTF | compliant | 5.426e-07 | 1.4355e-07 | 137.55 dB |
+| RGB/XYZ | compliant | 3.52456e-07 | 6.72145e-08 | 142.572 dB |
+| 2D Mitchell LUT | fallback | 0 | 0 | inf |
+| JzAzBz | exception | 9.64753e-05 | 1.65446e-05 | 92.5076 dB |
+| Spectral Mallett reduction | conditional | 1.21653e-06 | 1.95971e-07 | 144.101 dB |
+
+See `docs/reports/mlx-float32-color-precision-audit-20260629.md`.
+
 ## 7. Exceptions and disclaimers
 
 The following are not covered by the L1 numerical-parity contract:
@@ -217,3 +255,4 @@ The following are not covered by the L1 numerical-parity contract:
 | 2026-06-22 | CCTF threshold literals must be plain Python `float(np.float32(...))` | `np.float32` scalars inside `mx.compile` closures trigger "Attempting to eval an array during function transformations" |
 | 2026-06-22 | Enable `cmy_to_log_raw_pixel_thread_table_cache` as default for K ≤ 256 | Fixes threadgroup cache load loop to use `threads_per_threadgroup.x` so all K entries are loaded when grid has fewer threads than K |
 | 2026-06-22 | `light_to_raw` and `rgb_to_raw_mallett2019` reclassified as CONDITIONAL | Float32 spectral `einsum` accumulation does not meet L1 (`1e-6`) for adversarial inputs; documented measured bounds |
+| 2026-06-29 | Add `fast` / `balanced` / `strict` precision policy and audit tool | Makes MLX float32 exceptions executable: balanced/strict fall back for 2D Mitchell LUT, strict falls back for JzAzBz and spectral reductions, and fast preserves resident GPU exceptions |

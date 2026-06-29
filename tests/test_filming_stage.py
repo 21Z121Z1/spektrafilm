@@ -141,7 +141,11 @@ def _make_hanatos_stage(*, backend) -> filming_module.FilmingStage:
         data=SimpleNamespace(log_sensitivity=np.zeros((2, 3), dtype=float)),
     ))
     setattr(stage, '_camera', SimpleNamespace(filter_uv=(0.0, 0.0, 0.0), filter_ir=(0.0, 0.0, 0.0)))
-    setattr(stage, '_settings', SimpleNamespace(rgb_to_raw_method='hanatos2025', bandpass_hanatos2025=False))
+    setattr(stage, '_settings', SimpleNamespace(
+        rgb_to_raw_method='hanatos2025',
+        bandpass_hanatos2025=False,
+        color_precision_policy='fast',
+    ))
     setattr(stage, '_backend', backend)
     setattr(stage, '_lut_service', SimpleNamespace(
         get_filming_tc_lut=lambda sensitivity: np.zeros((2, 2, 3), dtype=np.float32),

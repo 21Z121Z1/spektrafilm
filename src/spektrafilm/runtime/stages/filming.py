@@ -19,6 +19,11 @@ from spektrafilm.gpu.kernels.color import (
     rgb_to_tc_b_backend,
 )
 from spektrafilm.gpu.kernels.density import safe_log10_backend
+from spektrafilm.gpu.precision_policy import (
+    OP_LUT_2D_MITCHELL,
+    OP_SPECTRAL_REDUCTION,
+    should_fallback_to_cpu,
+)
 from spektrafilm.utils.autoexposure import measure_autoexposure_ev
 from spektrafilm.utils.spectral_upsampling import (
     rgb_to_raw_hanatos2025,
@@ -185,7 +190,12 @@ class FilmingStage:
             tc_lut = self._lut_service.get_filming_tc_lut(sensitivity)
             _backend = getattr(self, '_backend', None)
             _gpu = use_backend and _backend is not None and getattr(_backend, 'supports_gpu', False)
-            if _gpu:
+            if _gpu and not should_fallback_to_cpu(
+                OP_LUT_2D_MITCHELL,
+                policy=getattr(self._settings, "color_precision_policy", None),
+                backend_name=getattr(_backend, "name", None),
+                gpu_precision=getattr(_backend, "precision", None),
+            ):
                 # Use GPU-accelerated 2D LUT with cached backend tc_lut
                 from spektrafilm.gpu.kernels.lut import apply_lut_cubic_2d_backend
                 tc_raw_backend, b_backend = rgb_to_tc_b_backend(
@@ -202,6 +212,8 @@ class FilmingStage:
                 )
                 raw = raw_backend * b_backend[..., None]
             else:
+                if _gpu:
+                    rgb = _backend.to_numpy(rgb)
                 raw = rgb_to_raw_hanatos2025(
                     rgb,
                     sensitivity,
@@ -213,7 +225,12 @@ class FilmingStage:
         elif self._settings.rgb_to_raw_method == "mallett2019":
             _backend = getattr(self, '_backend', None)
             _gpu = use_backend and _backend is not None and getattr(_backend, 'supports_gpu', False)
-            if _gpu:
+            if _gpu and not should_fallback_to_cpu(
+                OP_SPECTRAL_REDUCTION,
+                policy=getattr(self._settings, "color_precision_policy", None),
+                backend_name=getattr(_backend, "name", None),
+                gpu_precision=getattr(_backend, "precision", None),
+            ):
                 raw = rgb_to_raw_mallett2019_backend(
                     rgb,
                     sensitivity,
@@ -223,6 +240,8 @@ class FilmingStage:
                     backend=_backend,
                 )
             else:
+                if _gpu:
+                    rgb = _backend.to_numpy(rgb)
                 raw = rgb_to_raw_mallett2019(rgb, sensitivity,
                                 color_space=color_space,
                                 apply_cctf_decoding=apply_cctf_decoding,

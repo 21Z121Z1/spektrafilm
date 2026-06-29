@@ -22,6 +22,7 @@ from spektrafilm.model.illuminants import standard_illuminant
 from spektrafilm.utils.conversions import density_to_light
 from spektrafilm.utils.gamut_compression import compress_rgb
 from spektrafilm.gpu.kernels.gamut_compress import compress_rgb_backend
+from spektrafilm.gpu.precision_policy import OP_SPECTRAL_REDUCTION, should_fallback_to_cpu
 from spektrafilm.runtime.route_master import ScanMasterResult
 from spektrafilm.utils.timings import timeit
 
@@ -158,6 +159,7 @@ class ScanningStage:
                 rgb, self._io.output_gamut_compress,
                 output_color_space=self._io.output_color_space,
                 backend=self._backend,
+                precision_policy=getattr(self._settings, "color_precision_policy", None),
             )
         else:
             rgb = compress_rgb(
@@ -187,8 +189,16 @@ class ScanningStage:
         cmfs = STANDARD_OBSERVER_CMFS[:]
         normalization = np.sum(scan_illuminant * cmfs[:, 1], axis=0)
 
-        # Pre-compute the XYZ-to-RGB matrix with chromatic adaptation for GPU path
+        # Pre-compute the XYZ-to-RGB matrix with chromatic adaptation for GPU path.
+        # Spectral reduction policy is separate: strict can use CPU accumulation
+        # while later matrix/CCTF operations still use the backend.
         _gpu = self._backend is not None and self._backend.supports_gpu
+        _spectral_gpu = _gpu and not should_fallback_to_cpu(
+            OP_SPECTRAL_REDUCTION,
+            policy=getattr(self._settings, "color_precision_policy", None),
+            backend_name=getattr(self._backend, "name", None),
+            gpu_precision=getattr(self._backend, "precision", None),
+        )
         if _gpu:
             illuminant_xyz = np.dot(scan_illuminant, cmfs) / normalization
             illuminant_xy = colour.XYZ_to_xy(illuminant_xyz)
@@ -202,7 +212,7 @@ class ScanningStage:
             _backend_cmfs = self._backend.asarray(cmfs)
 
         def cmy_to_log_xyz(density_cmy: np.ndarray) -> np.ndarray:
-            if _gpu:
+            if _spectral_gpu:
                 tile_rows = self._resolve_tile_rows(density_cmy.shape[0])
                 if tile_rows is not None:
                     def _tile_fn(tile):

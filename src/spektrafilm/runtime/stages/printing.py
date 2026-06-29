@@ -19,6 +19,7 @@ from spektrafilm.gpu.kernels.tile_utils import (
     default_tile_rows,
     process_rows_tiled,
 )
+from spektrafilm.gpu.precision_policy import OP_SPECTRAL_REDUCTION, should_fallback_to_cpu
 from spektrafilm.utils.morph_curves import apply_print_curves_morph
 
 
@@ -91,6 +92,16 @@ class PrintingStage:
             return int(explicit)
         return default_tile_rows(height)
 
+    def _spectral_gpu_enabled(self) -> bool:
+        if self._backend is None or not getattr(self._backend, "supports_gpu", False):
+            return False
+        return not should_fallback_to_cpu(
+            OP_SPECTRAL_REDUCTION,
+            policy=getattr(self._settings, "color_precision_policy", None),
+            backend_name=getattr(self._backend, "name", None),
+            gpu_precision=getattr(self._backend, "precision", None),
+        )
+
     # public methods
 
     def refresh_backend_spectral_tables(self) -> None:
@@ -106,7 +117,8 @@ class PrintingStage:
         self._color_reference_service.log_raw_print_white = self._film_cmy_to_print_log_raw(cmy_film_white)
 
         _gpu = self._backend is not None and getattr(self._backend, "supports_gpu", False)
-        if _gpu:
+        _spectral_gpu = self._spectral_gpu_enabled()
+        if _spectral_gpu:
             # Main spectral computation — keep intermediates on backend
             log_raw_print = self._spectral_compute_enlarger_gpu(cmy_film_density)
             raw = self._backend.power(10.0, log_raw_print)
@@ -187,7 +199,7 @@ class PrintingStage:
         *,
         return_backend: bool = False,
     ) -> np.ndarray:
-        _gpu = self._backend is not None and getattr(self._backend, "supports_gpu", False)
+        _gpu = self._spectral_gpu_enabled()
 
         if _gpu:
             fused_log_raw = getattr(self._backend, "cmy_to_log_raw", None)

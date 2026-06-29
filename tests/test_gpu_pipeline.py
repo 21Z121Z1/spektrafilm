@@ -48,6 +48,7 @@ def test_pipeline_processes_small_image_with_mlx_backend() -> None:
     params = make_fast_test_params()
     params.settings.compute_backend = "mlx"
     params.settings.gpu_precision = "float32"
+    params.settings.color_precision_policy = "fast"
 
     image = np.ones((4, 4, 3), dtype=np.float64) * 0.184
 
@@ -75,6 +76,7 @@ def test_pipeline_gpu_validate_hanatos2025_mlx_float32_records_report() -> None:
     params = make_fast_test_params()
     params.settings.compute_backend = "mlx"
     params.settings.gpu_precision = "float32"
+    params.settings.color_precision_policy = "fast"
     params.settings.gpu_validate = True
 
     image = np.array(
@@ -105,6 +107,7 @@ def test_filming_rgb_to_raw_keeps_mlx_array_after_lut_when_available() -> None:
     params = make_fast_test_params()
     params.settings.compute_backend = "mlx"
     params.settings.gpu_precision = "float32"
+    params.settings.color_precision_policy = "fast"
 
     pipeline = SimulationPipeline(params)
     image = np.ones((4, 4, 3), dtype=np.float64) * 0.184
@@ -119,6 +122,7 @@ def test_filming_gpu_rgb_to_raw_does_not_call_cpu_rgb_to_tc_b(monkeypatch) -> No
     params = make_fast_test_params()
     params.settings.compute_backend = "mlx"
     params.settings.gpu_precision = "float32"
+    params.settings.color_precision_policy = "fast"
 
     pipeline = SimulationPipeline(params)
     image = np.ones((4, 4, 3), dtype=np.float32) * 0.184
@@ -131,6 +135,22 @@ def test_filming_gpu_rgb_to_raw_does_not_call_cpu_rgb_to_tc_b(monkeypatch) -> No
     raw = pipeline._filming_stage._rgb_to_film_raw(image)
 
     assert pipeline._array_backend._is_mlx_array(raw)
+
+
+def test_filming_default_balanced_policy_uses_cpu_lut_fallback_when_mlx_available() -> None:
+    _require_mlx_backend()
+    params = make_fast_test_params()
+    params.settings.compute_backend = "mlx"
+    params.settings.gpu_precision = "float32"
+
+    pipeline = SimulationPipeline(params)
+    image = np.ones((4, 4, 3), dtype=np.float32) * 0.184
+
+    raw = pipeline._filming_stage._rgb_to_film_raw(image)
+
+    assert isinstance(raw, np.ndarray)
+    assert np.isfinite(raw).all()
+    assert raw.shape == image.shape
 
 
 def test_mlx_preprocess_without_resize_keeps_backend_array() -> None:
