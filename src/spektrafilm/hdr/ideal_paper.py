@@ -5,6 +5,7 @@ import numpy as np
 from spektrafilm.hdr.projection import (
     HDRProjectionConfig,
     HDRProjectionResult,
+    _apply_highlight_detail,
     _backend_projection_profile,
     _build_paper_generic_result_backend,
     _build_result,
@@ -132,8 +133,13 @@ def _chemical_print_hdr_y(
     gain = np.clip(gain, 1.0, config.max_headroom).astype(np.float32, copy=False)
 
     detail = _material_detail(master, sdr_y.shape, config)
-    low_frequency_gain = gain / np.maximum(detail, _EPS32)
-    existing_chemical_y = np.maximum(sdr_y * low_frequency_gain * detail, sdr_y)
+    existing_chemical_y = _apply_highlight_detail(
+        sdr_y,
+        np.maximum(sdr_y * gain, sdr_y),
+        detail,
+        ratio,
+        config,
+    )
     display_budget_y = np.maximum(np.float32(config.max_headroom) - sdr_y, 0.0)
     display_extension_y = (
         sdr_y
@@ -142,6 +148,7 @@ def _chemical_print_hdr_y(
         * display_budget_y
         * np.float32(effective_strength)
     )
+    display_extension_y = _apply_highlight_detail(sdr_y, display_extension_y, detail, ratio, config)
     return np.maximum(existing_chemical_y, display_extension_y).astype(np.float32, copy=False)
 
 

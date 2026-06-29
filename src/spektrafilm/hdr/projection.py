@@ -20,6 +20,7 @@ from spektrafilm.utils.hdr_curve_profiles import luminance_y
 
 _EPS32 = np.float32(1e-8)
 _PROFILE_ENV = "SPEKTRAFILM_HDR_PROJECTION_PROFILE"
+HDRTransferFunction = Literal["linear", "pq", "hlg", "gain-map-linear-pair"]
 
 
 @dataclass(slots=True)
@@ -76,6 +77,49 @@ _ACTIVE_BACKEND_PROFILE: ContextVar[_BackendProjectionProfile | None] = ContextV
 
 
 @dataclass(frozen=True, slots=True)
+class HDRDisplayProfile:
+    profile_id: str = "spektrafilm-gain-map-display-p3"
+    color_primaries: str = "Display P3"
+    output_color_volume: str = "Display P3 linear HDR pair"
+    transfer_function: HDRTransferFunction = "gain-map-linear-pair"
+    reference_white_nits: float = 203.0
+    peak_nits: float | None = None
+    max_headroom: float = 4.0
+    black_nits: float = 0.005
+    output_diffuse_white: float = 1.0
+    content_headroom_percentile: float = 99.9
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.profile_id, str) or not self.profile_id:
+            raise ValueError("display profile id must be a non-empty string.")
+        if not isinstance(self.color_primaries, str) or not self.color_primaries:
+            raise ValueError("color_primaries must be a non-empty string.")
+        if not isinstance(self.output_color_volume, str) or not self.output_color_volume:
+            raise ValueError("output_color_volume must be a non-empty string.")
+        if self.transfer_function not in ("linear", "pq", "hlg", "gain-map-linear-pair"):
+            raise ValueError("transfer_function must be 'linear', 'pq', 'hlg', or 'gain-map-linear-pair'.")
+        if not math.isfinite(float(self.reference_white_nits)) or float(self.reference_white_nits) <= 0.0:
+            raise ValueError("reference_white_nits must be a finite positive value.")
+        if not math.isfinite(float(self.max_headroom)) or float(self.max_headroom) <= 1.0:
+            raise ValueError("max_headroom must be a finite value greater than 1.0.")
+        peak_nits = self.peak_nits
+        if peak_nits is None:
+            peak_nits = float(self.reference_white_nits) * float(self.max_headroom)
+        if not math.isfinite(float(peak_nits)) or float(peak_nits) <= float(self.reference_white_nits):
+            raise ValueError("peak_nits must be finite and greater than reference_white_nits.")
+        max_headroom = float(peak_nits) / float(self.reference_white_nits)
+        if not math.isclose(max_headroom, float(self.max_headroom), rel_tol=1e-5, abs_tol=1e-5):
+            object.__setattr__(self, "max_headroom", max_headroom)
+        object.__setattr__(self, "peak_nits", float(peak_nits))
+        if not math.isfinite(float(self.black_nits)) or float(self.black_nits) < 0.0:
+            raise ValueError("black_nits must be finite and non-negative.")
+        if not math.isfinite(float(self.output_diffuse_white)) or float(self.output_diffuse_white) <= 0.0:
+            raise ValueError("output_diffuse_white must be a finite positive value.")
+        if not math.isfinite(float(self.content_headroom_percentile)) or not (0.0 < float(self.content_headroom_percentile) <= 100.0):
+            raise ValueError("content_headroom_percentile must be in (0, 100].")
+
+
+@dataclass(frozen=True, slots=True)
 class HDRProjectionConfig:
     max_headroom: float = 4.0
     headroom_percentile: float = 99.9
@@ -92,8 +136,18 @@ class HDRProjectionConfig:
     light_table_path_to_white_strength: float = 0.0
     paper_path_to_white_strength: float = 0.12
     gain_map_mode: Literal["luma", "rgb"] = "rgb"
+    display_profile: HDRDisplayProfile | None = None
+    highlight_detail_strength: float = 1.0
+    highlight_detail_start: float = 1.0
+    highlight_detail_end: float = 1.25
 
     def __post_init__(self) -> None:
+        display_profile = self.display_profile
+        if display_profile is not None:
+            object.__setattr__(self, "max_headroom", float(display_profile.max_headroom))
+            object.__setattr__(self, "headroom_percentile", float(display_profile.content_headroom_percentile))
+            object.__setattr__(self, "output_diffuse_white", float(display_profile.output_diffuse_white))
+            object.__setattr__(self, "display_reference_white_nits", float(display_profile.reference_white_nits))
         if not math.isfinite(self.max_headroom) or self.max_headroom <= 1.0:
             raise ValueError("max_headroom must be a finite value greater than 1.0.")
         if not math.isfinite(self.headroom_percentile) or not (0.0 < self.headroom_percentile <= 100.0):
@@ -118,11 +172,29 @@ class HDRProjectionConfig:
             raise ValueError("output_diffuse_white must be a finite positive value.")
         if self.gain_map_mode not in ("luma", "rgb"):
             raise ValueError("gain_map_mode must be 'luma' or 'rgb'.")
+        if self.max_detail < self.min_detail:
+            raise ValueError("max_detail must be greater than or equal to min_detail.")
+        if not math.isfinite(float(self.highlight_detail_strength)) or float(self.highlight_detail_strength) < 0.0:
+            raise ValueError("highlight_detail_strength must be finite and non-negative.")
+        if (
+            not math.isfinite(float(self.highlight_detail_start))
+            or not math.isfinite(float(self.highlight_detail_end))
+            or float(self.highlight_detail_end) <= float(self.highlight_detail_start)
+        ):
+            raise ValueError("highlight_detail_end must be greater than highlight_detail_start.")
         object.__setattr__(self, "diffuse_white_scene_anchor", effective_scene_anchor)
         # Backward-compatible alias for older tests/callers. New code should use
         # diffuse_white_scene_anchor so the scene anchor is not mistaken for an
         # output diffuse-white target.
         object.__setattr__(self, "paper_white", effective_scene_anchor)
+        if display_profile is None:
+            display_profile = HDRDisplayProfile(
+                reference_white_nits=float(self.display_reference_white_nits),
+                max_headroom=float(self.max_headroom),
+                output_diffuse_white=float(self.output_diffuse_white),
+                content_headroom_percentile=float(self.headroom_percentile),
+            )
+            object.__setattr__(self, "display_profile", display_profile)
 
 
 @dataclass(frozen=True, slots=True)
@@ -332,6 +404,19 @@ def _smoothstep_backend(edge0: float, edge1: float, x: Any):
     return t * t * (t * np.float32(-2.0) + np.float32(3.0))
 
 
+def _apply_highlight_detail_backend(base_y: Any, target_y: Any, detail: Any, ratio: Any, config: HDRProjectionConfig):
+    mx = _mx()
+    if float(config.highlight_detail_strength) <= 0.0:
+        return target_y
+    extension = mx.maximum(target_y - base_y, np.float32(0.0))
+    if not _backend_scalar_bool(mx.any(extension > np.float32(0.0))):
+        return target_y
+    mask = _smoothstep_backend(float(config.highlight_detail_start), float(config.highlight_detail_end), ratio)
+    factor = mask * (detail - np.float32(1.0)) * np.float32(config.highlight_detail_strength) + np.float32(1.0)
+    factor = mx.clip(factor, np.float32(config.min_detail), np.float32(config.max_detail))
+    return mx.minimum(base_y + extension * factor, base_y * np.float32(config.max_headroom))
+
+
 def _percentile_backend(values: Any, percentile: float, *, label: str) -> float:
     mx = _mx()
     flat = mx.reshape(values, (-1,))
@@ -392,6 +477,27 @@ def _apply_path_to_white_backend(rgb: Any, hdr_y: Any, strength: float, max_head
     blend = mx.clip(progress * np.float32(strength), np.float32(0.0), np.float32(1.0))[..., None]
     white = mx.repeat(hdr_y[..., None], repeats=3, axis=2)
     return rgb * (blend * np.float32(-1.0) + np.float32(1.0)) + white * blend
+
+
+def _compress_highlight_gamut_backend(rgb: Any, limit: float):
+    mx = _mx()
+    limit32 = np.float32(max(1.0, limit))
+    y = _luminance_y_backend(rgb)
+    max_channel = mx.max(rgb, axis=2)
+    min_channel = mx.min(rgb, axis=2)
+    upper_den = mx.maximum(max_channel - y, _EPS32)
+    lower_den = mx.maximum(y - min_channel, _EPS32)
+    limit_y = y * np.float32(0.0) + limit32
+    upper_scale = mx.where(max_channel > limit32, (limit_y - y) / upper_den, np.float32(1.0))
+    lower_scale = mx.where(min_channel < np.float32(0.0), y / lower_den, np.float32(1.0))
+    scale = mx.clip(mx.minimum(upper_scale, lower_scale), np.float32(0.0), np.float32(1.0))
+    neutral = mx.repeat(y[..., None], repeats=3, axis=2)
+    compressed = neutral + (rgb - neutral) * scale[..., None]
+    limit_channel = max_channel * np.float32(0.0) + limit32
+    peak_scale = limit_channel / mx.maximum(max_channel, _EPS32)
+    hue_preserved = rgb * mx.clip(peak_scale, np.float32(0.0), np.float32(1.0))[..., None]
+    compressed = mx.where((y >= limit32)[..., None], hue_preserved, compressed)
+    return mx.clip(compressed, np.float32(0.0), limit32)
 
 
 def _apply_output_diffuse_white_backend(rgb: Any, sdr: Any, config: HDRProjectionConfig):
@@ -490,6 +596,30 @@ def _smoothstep(edge0: float, edge1: float, x: np.ndarray) -> np.ndarray:
     return t * t * (np.float32(3.0) - np.float32(2.0) * t)
 
 
+def _apply_highlight_detail(
+    base_y: np.ndarray,
+    target_y: np.ndarray,
+    detail: np.ndarray,
+    ratio: np.ndarray,
+    config: HDRProjectionConfig,
+) -> np.ndarray:
+    if float(config.highlight_detail_strength) <= 0.0:
+        return np.asarray(target_y, dtype=np.float32)
+    extension = np.maximum(np.asarray(target_y, dtype=np.float32) - np.asarray(base_y, dtype=np.float32), 0.0)
+    if not np.any(extension > 0.0):
+        return np.asarray(target_y, dtype=np.float32)
+    mask = _smoothstep(float(config.highlight_detail_start), float(config.highlight_detail_end), ratio)
+    factor = np.float32(1.0) + mask * (np.asarray(detail, dtype=np.float32) - np.float32(1.0)) * np.float32(
+        config.highlight_detail_strength
+    )
+    factor = np.clip(factor, np.float32(config.min_detail), np.float32(config.max_detail))
+    hdr_y = np.asarray(base_y, dtype=np.float32) + extension * factor
+    return np.minimum(hdr_y, np.asarray(base_y, dtype=np.float32) * np.float32(config.max_headroom)).astype(
+        np.float32,
+        copy=False,
+    )
+
+
 def _authority_ratio(scene_y: np.ndarray, *, white: float) -> np.ndarray:
     anchor = np.float32(max(white, 1e-8))
     return np.maximum(scene_y, 0.0) / anchor
@@ -520,6 +650,39 @@ def _apply_path_to_white(rgb: np.ndarray, hdr_y: np.ndarray, strength: float, ma
     blend = np.clip(progress * np.float32(strength), 0.0, 1.0)[..., None]
     white = np.repeat(hdr_y[..., None], 3, axis=2)
     return rgb * (np.float32(1.0) - blend) + white * blend
+
+
+def _compress_highlight_gamut(rgb: np.ndarray, limit: float) -> tuple[np.ndarray, dict[str, Any]]:
+    arr = np.asarray(rgb, dtype=np.float32)
+    limit32 = np.float32(max(1.0, limit))
+    y = luminance_y(arr)
+    max_channel = np.max(arr, axis=2)
+    min_channel = np.min(arr, axis=2)
+    needs_compression = (max_channel > limit32) | (min_channel < np.float32(0.0))
+    if not np.any(needs_compression):
+        return arr, {
+            "highlight_gamut_strategy": "luminance_preserving_chroma_compression",
+            "highlight_gamut_compressed_pixels": 0,
+            "highlight_gamut_limit": float(limit32),
+        }
+    upper_den = np.maximum(max_channel - y, _EPS32)
+    lower_den = np.maximum(y - min_channel, _EPS32)
+    upper_scale = np.where(max_channel > limit32, (limit32 - y) / upper_den, 1.0)
+    lower_scale = np.where(min_channel < 0.0, y / lower_den, 1.0)
+    scale = np.clip(np.minimum(upper_scale, lower_scale), 0.0, 1.0).astype(np.float32, copy=False)
+    neutral = y[..., None]
+    compressed = neutral + (arr - neutral) * scale[..., None]
+    peak_scale = limit32 / np.maximum(max_channel, _EPS32)
+    hue_preserved = arr * np.clip(peak_scale, 0.0, 1.0)[..., None]
+    compressed = np.where((y >= limit32)[..., None], hue_preserved, compressed)
+    compressed = np.clip(compressed, 0.0, limit32).astype(np.float32, copy=False)
+    return compressed, {
+        "highlight_gamut_strategy": "luminance_preserving_chroma_compression",
+        "highlight_gamut_compressed_pixels": int(np.count_nonzero(needs_compression)),
+        "highlight_gamut_limit": float(limit32),
+        "highlight_gamut_pre_max": float(np.max(max_channel)),
+        "highlight_gamut_pre_min": float(np.min(min_channel)),
+    }
 
 
 def _apply_output_diffuse_white(rgb: np.ndarray, sdr: np.ndarray, config: HDRProjectionConfig) -> np.ndarray:
@@ -592,6 +755,27 @@ def _debug_hdr_pair(
     }
 
 
+def _display_profile_diagnostics(config: HDRProjectionConfig) -> dict[str, Any]:
+    profile = config.display_profile
+    if profile is None:
+        return {}
+    return {
+        "display_profile": {
+            "id": profile.profile_id,
+            "color_primaries": profile.color_primaries,
+            "output_color_volume": profile.output_color_volume,
+            "transfer_function": profile.transfer_function,
+            "reference_white_nits": float(profile.reference_white_nits),
+            "peak_nits": float(profile.peak_nits),
+            "max_headroom": float(profile.max_headroom),
+            "black_nits": float(profile.black_nits),
+            "output_diffuse_white": float(profile.output_diffuse_white),
+            "content_headroom_percentile": float(profile.content_headroom_percentile),
+            "gain_map_pair_encoding": "linear_sdr_base_plus_linear_hdr_alternate",
+        }
+    }
+
+
 def _build_standards_metadata(
     *,
     master: RouteMaster,
@@ -603,20 +787,24 @@ def _build_standards_metadata(
     include_statistics: bool,
     source_role: str,
 ) -> HDRStandardsMetadata:
+    profile = config.display_profile
+    reference_white_nits = float(profile.reference_white_nits if profile is not None else config.display_reference_white_nits)
+    peak_nits = float(profile.peak_nits if profile is not None else reference_white_nits * float(headroom))
+    black_nits = float(profile.black_nits if profile is not None else 0.005)
     return build_hdr_standards_metadata(
         color_space=str(master.diagnostics.get("output_color_space", "Display P3")),
         eotf="scene-linear",
         encoded_color_space=str(master.diagnostics.get("output_color_space", "Display P3")),
-        reference_white_nits=float(config.display_reference_white_nits),
+        reference_white_nits=reference_white_nits,
         hdr_headroom=float(headroom),
-        min_mastering_luminance_nits=0.005,
+        min_mastering_luminance_nits=black_nits,
         mastering_scene_white=float(calibration.scene_diffuse_white_y),
-        mastering_display_white_nits=float(config.display_reference_white_nits),
+        mastering_display_white_nits=reference_white_nits,
         mastering_target_peak_ev=float(math.log2(max(float(headroom), 1.0))),
         mastering_curve_budget_ev=float(math.log2(max(float(headroom), 1.0))),
         target_display_color_space=str(master.diagnostics.get("output_color_space", "Display P3")),
-        target_display_min_luminance_nits=0.005,
-        target_display_max_luminance_nits=float(config.display_reference_white_nits) * float(headroom),
+        target_display_min_luminance_nits=black_nits,
+        target_display_max_luminance_nits=min(peak_nits, reference_white_nits * float(headroom)),
         scene_luminance=scene_luminance if include_statistics else None,
         render_rgb=render_rgb if include_statistics else None,
         source_role=source_role,
@@ -655,6 +843,7 @@ def _build_result_backend(
         hdr_rgb = mx.where(mask, sdr, hdr_rgb)
     hdr_rgb = _apply_path_to_white_backend(hdr_rgb, hdr_y, path_to_white_strength, config.max_headroom)
     hdr_rgb = _apply_output_diffuse_white_backend(hdr_rgb, sdr, config)
+    hdr_rgb = _compress_highlight_gamut_backend(hdr_rgb, config.max_headroom)
     headroom = _headroom_backend(hdr_rgb, config)
     hdr_rgb = _clip_hdr_backend(hdr_rgb, headroom)
     hdr_luma = _luminance_y_backend(hdr_rgb)
@@ -675,6 +864,13 @@ def _build_result_backend(
         "diffuse_white_scene_anchor": float(config.diffuse_white_scene_anchor),
         "output_diffuse_white": float(config.output_diffuse_white),
         "output_diffuse_white_effect": "hdr_delta_from_sdr",
+        "content_headroom_percentile": float(config.headroom_percentile),
+        "max_headroom": float(config.max_headroom),
+        "measured_content_headroom": float(headroom),
+        "highlight_chroma_strategy": "route_luminance_ratio_chroma",
+        "highlight_gamut_strategy": "luminance_preserving_chroma_compression",
+        "highlight_detail_strategy": "highlight_extension_only",
+        "highlight_detail_strength": float(config.highlight_detail_strength),
         "reference_white": dict(calibration.diagnostics),
         "preserve_sdr_base": True,
         "projection_backend": "mlx",
@@ -683,6 +879,7 @@ def _build_result_backend(
             "backend fast path avoids full-frame scene/render statistics readback; "
             "HEIC pair export rebuilds file metadata after final materialization"
         ),
+        **_display_profile_diagnostics(config),
         **_backend_projection_profile_diagnostics(),
     }
     return HDRProjectionResult(
@@ -777,6 +974,7 @@ def _build_result(
         hdr_rgb = np.where(mask, sdr, hdr_rgb)
     hdr_rgb = _apply_path_to_white(hdr_rgb, hdr_y, path_to_white_strength, config.max_headroom)
     hdr_rgb = _apply_output_diffuse_white(hdr_rgb, sdr, config)
+    hdr_rgb, gamut_diagnostics = _compress_highlight_gamut(hdr_rgb, config.max_headroom)
     headroom = _headroom(hdr_rgb, config)
     hdr_rgb = _clip_hdr(hdr_rgb, headroom)
     hdr_luma = luminance_y(hdr_rgb)
@@ -807,6 +1005,14 @@ def _build_result(
         "diffuse_white_scene_anchor": float(config.diffuse_white_scene_anchor),
         "output_diffuse_white": float(config.output_diffuse_white),
         "output_diffuse_white_effect": "hdr_delta_from_sdr",
+        "content_headroom_percentile": float(config.headroom_percentile),
+        "max_headroom": float(config.max_headroom),
+        "measured_content_headroom": float(headroom),
+        "highlight_chroma_strategy": "route_luminance_ratio_chroma",
+        **gamut_diagnostics,
+        "highlight_detail_strategy": "highlight_extension_only",
+        "highlight_detail_strength": float(config.highlight_detail_strength),
+        **_display_profile_diagnostics(config),
         "reference_white": dict(calibration.diagnostics),
         "preserve_sdr_base": True,
     }
@@ -861,8 +1067,8 @@ def build_hdr_y_from_route(
         strength=strength,
     )
     detail = _material_detail(master, shape, config)
-    low_frequency_gain = gain / np.maximum(detail, _EPS32)
-    return np.maximum(base_y * low_frequency_gain * detail, base_y).astype(np.float32, copy=False)
+    target_y = np.maximum(base_y * gain, base_y)
+    return _apply_highlight_detail(base_y, target_y, detail, ratio, config)
 
 
 def _build_hdr_y_from_route_backend(
@@ -893,13 +1099,15 @@ def _build_hdr_y_from_route_backend(
     detail = _material_detail_backend(master, shape, config)
     if detail is None:
         return None
-    low_frequency_gain = gain / _mx().maximum(detail, _EPS32)
-    return _mx().maximum(base_y * low_frequency_gain * detail, base_y)
+    target_y = _mx().maximum(base_y * gain, base_y)
+    return _apply_highlight_detail_backend(base_y, target_y, detail, ratio, config)
 
 
 __all__ = [
     "HDRProjectionConfig",
+    "HDRDisplayProfile",
     "HDRProjectionResult",
+    "HDRTransferFunction",
     "build_hdr_y_from_route",
     "_build_result",
     "_route_luminance",
