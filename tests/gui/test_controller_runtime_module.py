@@ -75,7 +75,7 @@ def test_execute_simulation_request_appends_runtime_backend_status() -> None:
     assert result.runtime_stage_timings == {'preprocess': 0.01, 'filming.develop': 0.02}
 
 
-def test_execute_simulation_request_keeps_scan_as_export_source_until_display() -> None:
+def test_execute_simulation_request_materializes_scan_to_numpy_in_worker() -> None:
     class ArrayLikeScan:
         def __init__(self) -> None:
             self.array_calls = 0
@@ -112,10 +112,11 @@ def test_execute_simulation_request_keeps_scan_as_export_source_until_display() 
     )
 
     assert scan.array_calls == 1
-    assert result.float_image is scan
-    assert captured['display_image_input'] is scan
-    assert 'gui.float_materialize' not in result.phase_timings
-    assert 'gui.float_materialize_copy_nbytes' not in result.memory_estimates
+    assert isinstance(result.float_image, np.ndarray)
+    np.testing.assert_allclose(result.float_image, np.full((2, 2, 3), 0.5, dtype=np.float32))
+    assert isinstance(captured['display_image_input'], np.ndarray)
+    np.testing.assert_allclose(captured['display_image_input'], np.full((2, 2, 3), 0.5, dtype=np.float32))
+    assert 'gui.worker_materialize' in result.phase_timings
     assert result.memory_estimates['gui.export_source_nbytes'] == scan.nbytes
     assert result.memory_estimates['gui.float_image_nbytes'] == scan.nbytes
     assert result.memory_estimates['gui.display_image_nbytes'] == result.display_image.nbytes
@@ -169,6 +170,108 @@ def test_execute_simulation_request_collects_route_master_when_requested() -> No
     assert result.hdr_scene_energy is hdr_scene_energy
     assert result.route_master is route_master
     assert result.memory_estimates['gui.route_master_nbytes'] == runtime_module.route_master_nbytes(route_master)
+
+
+def test_materialize_route_master_materializes_mlx_fields() -> None:
+    mlx = pytest.importorskip('mlx.core')
+    from spektrafilm.runtime.route_master import RouteMaster
+
+    route_master = RouteMaster(
+        mode='paper',
+        route_kind='film_scan',
+        route_linear_rgb=mlx.full((1, 1, 3), 0.1, dtype=mlx.float32),
+        route_linear_xyz=mlx.full((1, 1, 3), 0.2, dtype=mlx.float32),
+        route_luminance_y=mlx.full((1, 1), 0.3, dtype=mlx.float32),
+        sdr_legacy_rgb=mlx.full((1, 1, 3), 0.4, dtype=mlx.float32),
+        scene_y_raw=mlx.full((1, 1), 0.5, dtype=mlx.float32),
+        post_halation_y=mlx.full((1, 1), 0.6, dtype=mlx.float32),
+        density_cmy=mlx.full((1, 1, 3), 0.7, dtype=mlx.float32),
+        route_look_chroma=mlx.full((1, 1, 3), 0.8, dtype=mlx.float32),
+        material_detail_y=mlx.full((1, 1), 0.9, dtype=mlx.float32),
+    )
+
+    materialized = runtime_module.materialize_route_master(route_master)
+
+    assert materialized is not route_master
+    for name in (
+        'route_linear_rgb',
+        'route_linear_xyz',
+        'route_luminance_y',
+        'sdr_legacy_rgb',
+        'scene_y_raw',
+        'post_halation_y',
+        'density_cmy',
+        'route_look_chroma',
+        'material_detail_y',
+    ):
+        value = getattr(materialized, name)
+        assert isinstance(value, np.ndarray)
+        assert value.dtype == np.float32
+
+
+def test_materialize_route_master_returns_same_object_for_numpy_fields() -> None:
+    from spektrafilm.runtime.route_master import RouteMaster
+
+    route_master = RouteMaster(
+        mode='paper',
+        route_kind='film_scan',
+        route_linear_rgb=np.zeros((1, 1, 3), dtype=np.float32),
+        route_linear_xyz=np.zeros((1, 1, 3), dtype=np.float32),
+        route_luminance_y=np.zeros((1, 1), dtype=np.float32),
+        sdr_legacy_rgb=np.zeros((1, 1, 3), dtype=np.float32),
+        scene_y_raw=np.zeros((1, 1), dtype=np.float32),
+        post_halation_y=None,
+        density_cmy=None,
+        route_look_chroma=None,
+        material_detail_y=None,
+    )
+
+    materialized = runtime_module.materialize_route_master(route_master)
+
+    assert materialized is route_master
+
+
+def test_execute_simulation_request_materializes_mlx_route_master_fields() -> None:
+    mlx = pytest.importorskip('mlx.core')
+    from spektrafilm.runtime.route_master import RouteMaster
+
+    route_master = RouteMaster(
+        mode='paper',
+        route_kind='film_scan',
+        route_linear_rgb=mlx.full((1, 1, 3), 0.5, dtype=mlx.float32),
+        route_luminance_y=mlx.full((1, 1), 0.5, dtype=mlx.float32),
+        sdr_legacy_rgb=mlx.full((1, 1, 3), 0.5, dtype=mlx.float32),
+        scene_y_raw=mlx.full((1, 1), 0.5, dtype=mlx.float32),
+        post_halation_y=mlx.full((1, 1), 0.5, dtype=mlx.float32),
+    )
+    request = runtime_module.SimulationRequest(
+        mode_label='Scan',
+        image=np.full((1, 1, 3), 0.25, dtype=np.float32),
+        params=object(),
+        output_color_space='sRGB',
+        use_display_transform=False,
+        require_route_master=True,
+        hdr_mode='paper',
+    )
+
+    def fake_run_simulation(image, params, **kwargs):
+        return SimpleNamespace(
+            image=np.full((1, 1, 3), 0.5, dtype=np.float32),
+            route_master=route_master,
+        )
+
+    result = runtime_module.execute_simulation_request(
+        request,
+        run_simulation_fn=fake_run_simulation,
+        prepare_output_display_image_fn=lambda image, **kwargs: (
+            np.full((1, 1, 3), 127, dtype=np.uint8),
+            'Display transform: disabled',
+        ),
+    )
+
+    assert result.route_master is not route_master
+    assert isinstance(result.route_master.route_linear_rgb, np.ndarray)
+    assert result.route_master.route_linear_rgb.dtype == np.float32
 
 
 def test_materialize_export_image_records_timing_and_dtype() -> None:
@@ -425,6 +528,50 @@ def test_get_mac_display_profile_bytes_macos_smoke() -> None:
     ImageCms.ImageCmsProfile(BytesIO(icc_bytes))
 
 
+def test_materialize_backend_array_passes_numpy_through_unchanged() -> None:
+    source = np.full((2, 2, 3), 0.5, dtype=np.float32)
+
+    result = runtime_module.materialize_backend_array(source)
+
+    assert isinstance(result, np.ndarray)
+    assert result.dtype == np.float32
+    np.testing.assert_allclose(result, source)
+
+
+def test_materialize_backend_array_materializes_mlx_array() -> None:
+    mlx = pytest.importorskip('mlx.core')
+    source = mlx.full((2, 2, 3), 0.5, dtype=mlx.float32)
+
+    result = runtime_module.materialize_backend_array(source)
+
+    assert isinstance(result, np.ndarray)
+    assert result.dtype == np.float32
+    np.testing.assert_allclose(result, np.full((2, 2, 3), 0.5, dtype=np.float32))
+
+
+def test_materialize_backend_array_mlx_eval_uses_metal_lock(monkeypatch) -> None:
+    """Ensure MLX materialization acquires the Metal serialization lock."""
+    from contextlib import contextmanager
+
+    mlx = pytest.importorskip('mlx.core')
+    source = mlx.full((1, 1, 3), 0.25, dtype=mlx.float32)
+    lock_acquired: list[bool] = []
+
+    @contextmanager
+    def fake_serialized_metal_runtime():
+        lock_acquired.append(True)
+        yield
+
+    monkeypatch.setattr(
+        'spektrafilm.gpu.metal_serialization.serialized_metal_runtime',
+        fake_serialized_metal_runtime,
+    )
+
+    runtime_module.materialize_backend_array(source)
+
+    assert lock_acquired == [True]
+
+
 def test_simulation_worker_emits_failure_message() -> None:
     request = runtime_module.SimulationRequest(
         mode_label='Preview',
@@ -468,6 +615,54 @@ def test_simulation_worker_reraises_base_exception() -> None:
 
     assert worker.signals.finished.emitted == []
     assert worker.signals.failed.emitted == []
+
+
+def test_heic_export_worker_emits_finished_with_export_result() -> None:
+    request = runtime_module.HEICExportRequest(
+        simulator=None,
+        image=None,
+        filepath='output.heic',
+        hdr_mode='paper',
+        config=None,
+        color_space='sRGB',
+        quality=0.95,
+        gain_map_mode='rgb',
+        master=object(),
+    )
+    worker = runtime_module.HEICExportWorker(
+        request,
+        execute_export=lambda request: ({'diagnostics': ('ok',), 'export_diagnostics': {}}),
+    )
+    worker.signals = SimpleNamespace(finished=FakeSignal(), failed=FakeSignal())
+
+    worker.run()
+
+    assert worker.signals.failed.emitted == []
+    assert worker.signals.finished.emitted == [{'diagnostics': ('ok',), 'export_diagnostics': {}}]
+
+
+def test_heic_export_worker_emits_failure_message() -> None:
+    request = runtime_module.HEICExportRequest(
+        simulator=None,
+        image=None,
+        filepath='output.heic',
+        hdr_mode='paper',
+        config=None,
+        color_space='sRGB',
+        quality=0.95,
+        gain_map_mode='rgb',
+        master=object(),
+    )
+    worker = runtime_module.HEICExportWorker(
+        request,
+        execute_export=lambda request: (_ for _ in ()).throw(ValueError('bad export')),
+    )
+    worker.signals = SimpleNamespace(finished=FakeSignal(), failed=FakeSignal())
+
+    worker.run()
+
+    assert worker.signals.finished.emitted == []
+    assert worker.signals.failed.emitted == ['ValueError: bad export']
 
 
 def test_prepare_input_color_preview_image_converts_to_srgb_float_preview() -> None:

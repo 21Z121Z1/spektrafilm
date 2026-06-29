@@ -302,6 +302,8 @@ class GuiController:
         self._thread_pool = QThreadPool.globalInstance()
         self._active_simulation_worker: runtime.SimulationWorker | None = None
         self._active_simulation_label: str | None = None
+        self._active_export_worker: runtime.HEICExportWorker | None = None
+        self._active_export_filepath: str | None = None
         self._runtime_simulator = None
         self._last_runtime_backend_summary: str | None = None
         self._next_runtime_digest_applies_stock_specifics = True
@@ -550,20 +552,18 @@ class GuiController:
                     return
 
                 config = hdr_projection_config_from_settings(hdr_settings)
-                export_diagnostics: dict[str, object] = {}
 
                 if cached_route_master is not None:
-                    export_hdr_heic_from_simulator(
-                        None,
-                        None,
-                        filepath,
+                    export_request = runtime.HEICExportRequest(
+                        simulator=None,
+                        image=None,
+                        filepath=filepath,
                         hdr_mode=hdr_mode,
                         config=config,
                         color_space=saving_color_space,
                         quality=float(hdr_settings.heic_quality),
                         gain_map_mode=hdr_settings.gain_map_mode,
                         master=cached_route_master,
-                        export_diagnostics_out=export_diagnostics,
                     )
                 else:
                     params = build_params_from_state(gui_state)
@@ -581,31 +581,40 @@ class GuiController:
                         self._runtime_simulator.update_params(digested_params)
                     self._next_runtime_digest_applies_stock_specifics = False
 
-                    export_hdr_heic_from_simulator(
-                        self._runtime_simulator,
-                        self._current_input_image,
-                        filepath,
+                    export_request = runtime.HEICExportRequest(
+                        simulator=self._runtime_simulator,
+                        image=self._current_input_image,
+                        filepath=filepath,
                         hdr_mode=hdr_mode,
                         config=config,
                         color_space=saving_color_space,
                         quality=float(hdr_settings.heic_quality),
                         gain_map_mode=hdr_settings.gain_map_mode,
                         master=None,
-                        export_diagnostics_out=export_diagnostics,
                     )
+
+                worker = runtime.HEICExportWorker(
+                    export_request,
+                    execute_export=self._execute_heic_export_request,
+                )
+                worker.signals.finished.connect(self._on_heic_export_finished)
+                worker.signals.failed.connect(self._on_heic_export_failed)
+                self._active_export_worker = worker
+                self._active_export_filepath = filepath
+                self._set_simulation_controls_enabled(False)
+                set_status(
+                    self._viewer,
+                    f"Saving HDR HEIC to {Path(filepath).name}...",
+                    timeout_ms=0,
+                )
+                self._thread_pool.start(worker)
             except Exception as exc:
+                self._set_simulation_controls_enabled(True)
                 QMessageBox.critical(
                     dialog_parent(self._viewer),
                     'Save output',
                     f'Failed to save HDR HEIC output image.\n\n{exc}'
                 )
-                return
-
-            set_status(
-                self._viewer,
-                f"Saved output image to {filepath}; HEIC/HEIF source metadata copy is not supported."
-                f"{_format_hdr_export_diagnostics(export_diagnostics)}",
-            )
             return
 
         float_image_data = self._output_layer_float_data()
@@ -1153,6 +1162,63 @@ class GuiController:
         set_status(self._viewer, f'{mode_label} failed')
         self._replay_pending_auto_preview()
 
+    @staticmethod
+    def _execute_heic_export_request(request: runtime.HEICExportRequest) -> dict[str, object]:
+        from spektrafilm.hdr.routemaster_export import export_hdr_heic_from_simulator
+
+        export_diagnostics: dict[str, object] = {}
+        if request.master is not None:
+            diagnostics = export_hdr_heic_from_simulator(
+                None,
+                None,
+                request.filepath,
+                hdr_mode=request.hdr_mode,
+                config=request.config,
+                color_space=request.color_space,
+                quality=request.quality,
+                gain_map_mode=request.gain_map_mode,
+                master=request.master,
+                export_diagnostics_out=export_diagnostics,
+            )
+        else:
+            diagnostics = export_hdr_heic_from_simulator(
+                request.simulator,
+                request.image,
+                request.filepath,
+                hdr_mode=request.hdr_mode,
+                config=request.config,
+                color_space=request.color_space,
+                quality=request.quality,
+                gain_map_mode=request.gain_map_mode,
+                master=None,
+                export_diagnostics_out=export_diagnostics,
+            )
+        return {"diagnostics": diagnostics, "export_diagnostics": export_diagnostics}
+
+    def _on_heic_export_finished(self, result: dict[str, object]) -> None:
+        self._active_export_worker = None
+        filepath = self._active_export_filepath
+        self._active_export_filepath = None
+        self._set_simulation_controls_enabled(True)
+        export_diagnostics = result.get("export_diagnostics", {}) if isinstance(result, dict) else {}
+        set_status(
+            self._viewer,
+            f"Saved output image to {filepath}; HEIC/HEIF source metadata copy is not supported."
+            f"{_format_hdr_export_diagnostics(export_diagnostics)}",
+        )
+
+    def _on_heic_export_failed(self, message: str) -> None:
+        self._active_export_worker = None
+        filepath = self._active_export_filepath
+        self._active_export_filepath = None
+        self._set_simulation_controls_enabled(True)
+        QMessageBox.critical(
+            dialog_parent(self._viewer),
+            'Save output',
+            f'Failed to save HDR HEIC output image{f" to {filepath}" if filepath else ""}.\n\n{message}'
+        )
+        set_status(self._viewer, 'HDR HEIC save failed')
+
     def _set_simulation_controls_enabled(self, enabled: bool) -> None:
         simulation_section = getattr(self._widgets, 'simulation', None)
         if simulation_section is None:
@@ -1191,6 +1257,10 @@ class GuiController:
         scan = getattr(simulation_output, 'image', simulation_output)
         hdr_scene_energy = getattr(simulation_output, 'hdr_scene_energy', None)
         route_master = getattr(simulation_output, 'route_master', None)
+        # MLX arrays cannot be evaluated across threads. Since the route master
+        # may be cached and later reused by an export worker, materialize it
+        # before storing it in layer metadata.
+        route_master = runtime.materialize_route_master(route_master)
         scan_display, display_status = self._prepare_output_display_image(
             scan,
             output_color_space=state.simulation.io.output_color_space,

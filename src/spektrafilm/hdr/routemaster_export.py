@@ -8,6 +8,7 @@ from typing import Literal
 
 import numpy as np
 
+from spektrafilm.gpu.backend import materialize_backend_array
 from spektrafilm.hdr.ideal_paper import project_hdr_ideal_paper
 from spektrafilm.hdr.light_table import project_hdr_light_table
 from spektrafilm.hdr.projection import HDRProjectionConfig, HDRProjectionResult
@@ -129,10 +130,12 @@ def export_hdr_heic_from_simulator(
         export_diagnostics_out.clear()
         export_diagnostics_out.update(export_diagnostics)
     encode_start = perf_counter()
+    sdr_rgb = np.ascontiguousarray(materialize_backend_array(result.sdr_rgb, dtype=np.float32))
+    hdr_rgb = np.ascontiguousarray(materialize_backend_array(result.hdr_rgb, dtype=np.float32))
     diagnostics = hdr_photo.save_hdr_photo_heic_from_pair(
         filename,
-        np.ascontiguousarray(result.sdr_rgb),
-        np.ascontiguousarray(result.hdr_rgb),
+        sdr_rgb,
+        hdr_rgb,
         color_space=color_space,
         headroom=result.headroom,
         quality=quality,

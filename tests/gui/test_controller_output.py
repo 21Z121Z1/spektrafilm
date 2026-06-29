@@ -44,7 +44,7 @@ def _make_output_layer(
 def _configure_save_output(monkeypatch, controller: GuiController, output_layer: FakeLayer, gui_state, captured: dict[str, object]) -> None:
     monkeypatch.setattr(controller, '_output_layer', lambda: output_layer)
     monkeypatch.setattr(controller_module, 'dialog_parent', lambda viewer: None)
-    monkeypatch.setattr(controller_module, 'set_status', lambda viewer, message: captured.setdefault('status', message))
+    monkeypatch.setattr(controller_module, 'set_status', lambda viewer, message, **kwargs: captured.update({'status': message}))
     monkeypatch.setattr(controller_module, 'load_dialog_dir', lambda key: '')
     monkeypatch.setattr(controller_module, 'save_dialog_dir', lambda key, directory: None)
     monkeypatch.setattr(
@@ -53,6 +53,7 @@ def _configure_save_output(monkeypatch, controller: GuiController, output_layer:
         staticmethod(lambda *args, **kwargs: ('output.png', 'Images (*.png)')),
     )
     monkeypatch.setattr(controller_module, 'collect_gui_state', lambda *, widgets: gui_state)
+    monkeypatch.setattr(controller._thread_pool, 'start', lambda runnable: runnable.run())
 
 
 def _capture_saved_output(monkeypatch, captured: dict[str, object]) -> None:

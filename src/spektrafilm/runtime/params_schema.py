@@ -248,6 +248,11 @@ class SettingsParams:
     materialize_policy: str = "numpy_float64"
     color_precision_policy: str = DEFAULT_PRECISION_POLICY
     hdr_route_sidecar_policy: str = "minimal"
+    preprocess_resize_backend_policy: str = "cpu_fallback"
+    mlx_memory_profile: bool = False
+    mlx_memory_small_array_bytes: int = 64 * 1024
+    mlx_peak_memory_budget_mb: float | None = None
+    mlx_peak_memory_policy: str = "warn"
     gpu_validate: bool = False
     gpu_validation_tolerance: float | None = None
     gpu_aggressive_cleanup: bool = False
@@ -296,3 +301,18 @@ class RuntimePhotoParams:
         normalize_precision_policy(self.settings.color_precision_policy)
         if self.settings.hdr_route_sidecar_policy not in {"minimal", "full"}:
             raise ValueError("hdr_route_sidecar_policy must be either 'minimal' or 'full'")
+        if self.settings.preprocess_resize_backend_policy not in {"cpu_fallback", "error"}:
+            raise ValueError(
+                "preprocess_resize_backend_policy must be either 'cpu_fallback' or 'error'"
+            )
+        if self.settings.mlx_memory_small_array_bytes < 0:
+            raise ValueError("mlx_memory_small_array_bytes must be >= 0")
+        if (
+            self.settings.mlx_peak_memory_budget_mb is not None
+            and self.settings.mlx_peak_memory_budget_mb <= 0
+        ):
+            raise ValueError("mlx_peak_memory_budget_mb must be > 0 when set")
+        if self.settings.mlx_peak_memory_policy not in {"warn", "cleanup", "raise"}:
+            raise ValueError(
+                "mlx_peak_memory_policy must be one of: 'warn', 'cleanup', 'raise'"
+            )

@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 
 from spektrafilm.gpu.backend import BackendUnavailableError
-from spektrafilm.gpu.residency import record_conversion
+from spektrafilm.gpu.residency import record_backend_operation, record_conversion
 
 
 _CMY_TO_LOG_RAW_KERNEL = None
@@ -424,9 +424,20 @@ class MlxBackend:
         mlx_values = [value for value in values if self._is_mlx_array(value)]
         if mlx_values:
             self.mx.eval(*mlx_values)
+            record_backend_operation(
+                "eval",
+                self.name,
+                mlx_values[0],
+                memory=self.memory_snapshot(),
+            )
 
     def synchronize(self) -> None:
         self.mx.synchronize()
+        record_backend_operation(
+            "synchronize",
+            self.name,
+            memory=self.memory_snapshot(),
+        )
 
     def cleanup(self) -> None:
         import gc
@@ -438,6 +449,47 @@ class MlxBackend:
             clear_cache = getattr(metal, "clear_cache", None)
         if callable(clear_cache):
             clear_cache()
+        record_backend_operation(
+            "cleanup",
+            self.name,
+            memory=self.memory_snapshot(),
+        )
+
+    def get_active_memory(self) -> int | None:
+        return self._memory_stat("get_active_memory")
+
+    def get_cache_memory(self) -> int | None:
+        return self._memory_stat("get_cache_memory")
+
+    def get_peak_memory(self) -> int | None:
+        return self._memory_stat("get_peak_memory")
+
+    def reset_peak_memory(self) -> bool:
+        reset = getattr(self.mx, "reset_peak_memory", None)
+        if not callable(reset):
+            metal = getattr(self.mx, "metal", None)
+            reset = getattr(metal, "reset_peak_memory", None)
+        if not callable(reset):
+            return False
+        reset()
+        return True
+
+    def memory_snapshot(self) -> dict[str, int | None]:
+        return {
+            "active_memory_bytes": self.get_active_memory(),
+            "cache_memory_bytes": self.get_cache_memory(),
+            "peak_memory_bytes": self.get_peak_memory(),
+        }
+
+    def _memory_stat(self, name: str) -> int | None:
+        for owner in (self.mx, getattr(self.mx, "metal", None)):
+            getter = getattr(owner, name, None)
+            if callable(getter):
+                try:
+                    return int(getter())
+                except (OSError, RuntimeError, TypeError, ValueError):
+                    return None
+        return None
 
     def zeros(self, shape: tuple[int, ...], dtype: Any | None = None) -> Any:
         return self.mx.zeros(shape, dtype=dtype or self.default_dtype)

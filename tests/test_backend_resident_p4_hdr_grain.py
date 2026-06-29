@@ -49,6 +49,8 @@ def _params(*, backend: str = "cpu", materialize_policy: str = "numpy_float64", 
     params.settings.compute_backend = backend
     params.settings.gpu_precision = "float32"
     params.settings.materialize_policy = materialize_policy
+    if backend == "mlx" and materialize_policy == "backend":
+        params.settings.color_precision_policy = "fast"
     params.settings.gpu_validate = False
     params.settings.use_enlarger_lut = False
     params.settings.use_scanner_lut = False
@@ -82,6 +84,7 @@ def _matrix_params(scenario: str):
     params.settings.compute_backend = "mlx"
     params.settings.gpu_precision = "float32"
     params.settings.materialize_policy = "backend"
+    params.settings.color_precision_policy = "fast"
     params.settings.gpu_validate = False
     params.settings.use_enlarger_lut = False
     params.settings.use_scanner_lut = False

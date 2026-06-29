@@ -52,6 +52,7 @@ The spectral_film_simulations.md (English) and spectral_film_simulations_zh.md (
 | Path | Notes |
 | --- | --- |
 | [`reports/public-surface-hygiene-report-20260622.md`](reports/public-surface-hygiene-report-20260622.md) | Repository Public Surface Hygiene Report. |
+| [`reports/mlx-memory-residency-governance-20260629.md`](reports/mlx-memory-residency-governance-20260629.md) | Opt-in MLX memory residency governance, peak-budget policy, resize fallback policy, RouteMaster sidecar helpers, and benchmark artifact contract. |
 | [`sdr-upstream-conformance.md`](sdr-upstream-conformance.md) | Locked-upstream SDR conformance harness, commands, thresholds, allowlist, and refresh process. |
 | [`issue_positive_film_print_exposure.md`](issue_positive_film_print_exposure.md) | Issue draft for positive-film print-exposure behavior. Bug still exists in `state.py:342`. [中文](issue_positive_film_print_exposure_zh.md) |
 

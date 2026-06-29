@@ -91,3 +91,25 @@ def test_runtime_params_constructor_rejects_invalid_hdr_route_sidecar_policy() -
             print=params.print,
             settings=type(params.settings)(hdr_route_sidecar_policy="debug_everything"),
         )
+
+
+def test_runtime_params_constructor_rejects_invalid_resize_backend_policy() -> None:
+    params = make_fast_test_params()
+
+    with pytest.raises(ValueError, match="preprocess_resize_backend_policy"):
+        RuntimePhotoParams(
+            film=params.film,
+            print=params.print,
+            settings=type(params.settings)(preprocess_resize_backend_policy="hidden_numpy"),
+        )
+
+
+def test_runtime_params_constructor_rejects_invalid_mlx_memory_governance_policy() -> None:
+    params = make_fast_test_params()
+
+    with pytest.raises(ValueError, match="mlx_peak_memory_policy"):
+        RuntimePhotoParams(
+            film=params.film,
+            print=params.print,
+            settings=type(params.settings)(mlx_peak_memory_policy="kill_process"),
+        )

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from contextlib import nullcontext
 from dataclasses import dataclass
 from time import perf_counter
 from typing import Any
@@ -10,6 +11,12 @@ import numpy as np
 from skimage.transform import rescale
 
 from spektrafilm.color_management import is_aces_scene_linear_space
+from spektrafilm.gpu.residency import (
+    ResidencyRecorder,
+    active_residency_recorder,
+    record_backend_operation,
+    record_backend_residency,
+)
 from spektrafilm.runtime.services import (
     EnlargerService,
     ResizingService,
@@ -17,7 +24,12 @@ from spektrafilm.runtime.services import (
     ColorReferenceService,
 )
 from spektrafilm.gpu.backend import runtime_backend_summary, select_backend
-from spektrafilm.runtime.route_master import HDRMode, RouteMaster, ScanMasterResult
+from spektrafilm.runtime.route_master import (
+    HDRMode,
+    RouteMaster,
+    ScanMasterResult,
+    route_master_sidecar_fields,
+)
 from spektrafilm.runtime.stages import FilmingStage, PrintingStage, ScanningStage
 from spektrafilm.runtime.topology import Node, Tap, run_topology
 from spektrafilm.utils.autoexposure import _luminance_y, measure_autoexposure_ev
@@ -104,6 +116,7 @@ class SimulationPipeline:
         self._array_backend = self._backend
 
         self.timings = {}
+        self.residency_report = None
         self._last_elapsed_time = None
 
         self._resize_service = ResizingService(self.io, self.camera.film_format_mm)
@@ -205,35 +218,45 @@ class SimulationPipeline:
     def _process_result(self, image, *, include_metadata: bool) -> SimulationPipelineResult:
         self.timings.clear()
         start = perf_counter()
-        
-        try:
-            if include_metadata:
-                result = self._pipeline_with_metadata(image)
-            else:
-                result = SimulationPipelineResult(image=self._pipeline(image))
-            self._run_gpu_validate(image, result.image)
-            return result
-        finally:
-            if self._should_cleanup_after_process():
-                cleanup_start = perf_counter()
-                self._backend.cleanup()
-                self.timings["SimulationPipeline.mlx_cleanup"] = perf_counter() - cleanup_start
-            self._last_elapsed_time = perf_counter() - start
+        residency_recorder = None
+        self._prepare_mlx_memory_governance()
+
+        with self._residency_profile_context() as residency_recorder:
+            try:
+                if include_metadata:
+                    result = self._pipeline_with_metadata(image)
+                else:
+                    result = SimulationPipelineResult(image=self._pipeline(image))
+                self._run_gpu_validate(image, result.image)
+                self._apply_mlx_peak_budget_policy()
+                return result
+            finally:
+                if self._should_cleanup_after_process():
+                    cleanup_start = perf_counter()
+                    self._backend.cleanup()
+                    self.timings["SimulationPipeline.mlx_cleanup"] = perf_counter() - cleanup_start
+                self._store_residency_report(residency_recorder)
+                self._last_elapsed_time = perf_counter() - start
 
     def _process_with_master_result(self, image, *, hdr_mode: HDRMode) -> SimulationPipelineResult:
         self.timings.clear()
         start = perf_counter()
+        residency_recorder = None
+        self._prepare_mlx_memory_governance()
 
-        try:
-            result = self._pipeline_with_master(image, hdr_mode=hdr_mode)
-            self._run_gpu_validate(image, result.image)
-            return result
-        finally:
-            if self._should_cleanup_after_process():
-                cleanup_start = perf_counter()
-                self._backend.cleanup()
-                self.timings["SimulationPipeline.mlx_cleanup"] = perf_counter() - cleanup_start
-            self._last_elapsed_time = perf_counter() - start
+        with self._residency_profile_context() as residency_recorder:
+            try:
+                result = self._pipeline_with_master(image, hdr_mode=hdr_mode)
+                self._run_gpu_validate(image, result.image)
+                self._apply_mlx_peak_budget_policy()
+                return result
+            finally:
+                if self._should_cleanup_after_process():
+                    cleanup_start = perf_counter()
+                    self._backend.cleanup()
+                    self.timings["SimulationPipeline.mlx_cleanup"] = perf_counter() - cleanup_start
+                self._store_residency_report(residency_recorder)
+                self._last_elapsed_time = perf_counter() - start
 
     def _process_topology(self, image, *, inject: str | None = None, collect: str | None = None):
         inject = inject or self.taps.inject or Tap.RGB_IN
@@ -241,19 +264,25 @@ class SimulationPipeline:
 
         self.timings.clear()
         start = perf_counter()
+        residency_recorder = None
+        self._prepare_mlx_memory_governance()
         
-        try:
-            self._prepare_topology_injection_side_effects(image, inject)
-            return run_topology(
-                self._topology, inject, collect, image,
-                on_fire=self._record_node_timing,
-            )
-        finally:
-            if self._should_cleanup_after_process():
-                cleanup_start = perf_counter()
-                self._backend.cleanup()
-                self.timings["SimulationPipeline.mlx_cleanup"] = perf_counter() - cleanup_start
-            self._last_elapsed_time = perf_counter() - start
+        with self._residency_profile_context() as residency_recorder:
+            try:
+                self._prepare_topology_injection_side_effects(image, inject)
+                result = run_topology(
+                    self._topology, inject, collect, image,
+                    on_fire=self._record_node_timing,
+                )
+                self._apply_mlx_peak_budget_policy()
+                return result
+            finally:
+                if self._should_cleanup_after_process():
+                    cleanup_start = perf_counter()
+                    self._backend.cleanup()
+                    self.timings["SimulationPipeline.mlx_cleanup"] = perf_counter() - cleanup_start
+                self._store_residency_report(residency_recorder)
+                self._last_elapsed_time = perf_counter() - start
 
     def _prepare_topology_injection_side_effects(self, image, inject: str) -> None:
         if inject == Tap.RGB_IN or self._resize_service.pixel_size_um is not None:
@@ -444,6 +473,105 @@ class SimulationPipeline:
                 except (OSError, RuntimeError, TypeError, ValueError):
                     return None
         return None
+
+    def _mlx_memory_governance_enabled(self) -> bool:
+        return (
+            getattr(self._backend, "name", "") == "mlx"
+            and (
+                bool(getattr(self.settings, "mlx_memory_profile", False))
+                or self._mlx_peak_memory_budget_bytes() is not None
+            )
+        )
+
+    def _prepare_mlx_memory_governance(self) -> None:
+        if not self._mlx_memory_governance_enabled():
+            self.residency_report = None
+            return
+        reset_peak = getattr(self._backend, "reset_peak_memory", None)
+        if callable(reset_peak) and reset_peak():
+            self.timings["SimulationPipeline.mlx_peak_memory_reset"] = 1.0
+
+    def _residency_profile_context(self):
+        if (
+            not self._mlx_memory_governance_enabled()
+            or not bool(getattr(self.settings, "mlx_memory_profile", False))
+        ):
+            return nullcontext(None)
+        existing = active_residency_recorder()
+        if existing is not None:
+            return nullcontext(existing)
+        return record_backend_residency(
+            small_array_bytes=int(getattr(self.settings, "mlx_memory_small_array_bytes", 64 * 1024))
+        )
+
+    def _store_residency_report(self, recorder: ResidencyRecorder | None) -> None:
+        if recorder is None:
+            self.residency_report = None
+            return
+        self.residency_report = {
+            "summary": recorder.summary(),
+            "peak_memory_bytes": recorder.peak_memory_bytes(),
+            "events": [
+                {
+                    "direction": event.direction,
+                    "backend": event.backend,
+                    "shape": event.shape,
+                    "dtype": event.dtype,
+                    "nbytes": event.nbytes,
+                    "allowed": event.allowed,
+                    "reason": event.reason,
+                    "active_memory_bytes": event.active_memory_bytes,
+                    "cache_memory_bytes": event.cache_memory_bytes,
+                    "peak_memory_bytes": event.peak_memory_bytes,
+                    "budget_bytes": event.budget_bytes,
+                    "over_budget": event.over_budget,
+                    "stack_label": event.stack_label,
+                }
+                for event in recorder.events
+            ],
+        }
+
+    def _mlx_peak_memory_budget_bytes(self) -> int | None:
+        if getattr(self._backend, "name", "") != "mlx":
+            return None
+        budget_mb = getattr(self.settings, "mlx_peak_memory_budget_mb", None)
+        if budget_mb is None:
+            return None
+        return int(float(budget_mb) * 1024 * 1024)
+
+    def _apply_mlx_peak_budget_policy(self) -> None:
+        budget_bytes = self._mlx_peak_memory_budget_bytes()
+        if budget_bytes is None:
+            return
+        snapshot_getter = getattr(self._backend, "memory_snapshot", None)
+        snapshot = snapshot_getter() if callable(snapshot_getter) else {}
+        peak_bytes = snapshot.get("peak_memory_bytes") if isinstance(snapshot, dict) else None
+        record_backend_operation(
+            "peak_budget",
+            getattr(self._backend, "name", "unknown"),
+            memory=snapshot if isinstance(snapshot, dict) else None,
+            budget_bytes=budget_bytes,
+        )
+        if peak_bytes is None:
+            self.timings["SimulationPipeline.mlx_peak_budget_unavailable"] = 1.0
+            return
+        self.timings["SimulationPipeline.mlx_peak_memory_bytes"] = float(peak_bytes)
+        self.timings["SimulationPipeline.mlx_peak_memory_budget_bytes"] = float(budget_bytes)
+        if int(peak_bytes) <= budget_bytes:
+            return
+
+        self.timings["SimulationPipeline.mlx_peak_memory_over_budget"] = float(peak_bytes - budget_bytes)
+        policy = getattr(self.settings, "mlx_peak_memory_policy", "warn")
+        if policy == "cleanup":
+            cleanup = getattr(self._backend, "cleanup", None)
+            if callable(cleanup):
+                cleanup()
+            return
+        if policy == "raise":
+            raise MemoryError(
+                "MLX peak memory budget exceeded: "
+                f"peak={int(peak_bytes)} bytes, budget={budget_bytes} bytes"
+            )
 
     def soft_update(self,
                     exposure_compensation_ev=None,
@@ -710,6 +838,17 @@ class SimulationPipeline:
         if self.io.upscale_factor != 1.0:
             fallback_start = perf_counter()
             self._resize_service.pixel_size_um /= self.io.upscale_factor
+            resize_policy = getattr(self.settings, "preprocess_resize_backend_policy", "cpu_fallback")
+            if resize_policy == "error":
+                raise RuntimeError(
+                    "MLX backend preprocess resize has no resident implementation; "
+                    "set preprocess_resize_backend_policy='cpu_fallback' to allow "
+                    "the explicit CPU fallback."
+                )
+            if resize_policy != "cpu_fallback":
+                raise ValueError(
+                    "preprocess_resize_backend_policy must be either 'cpu_fallback' or 'error'"
+                )
             breaks_backend_residency = (
                 getattr(self._backend, "name", None) == "mlx"
                 and getattr(self.settings, "materialize_policy", None) == "backend"
@@ -736,6 +875,7 @@ class SimulationPipeline:
                     )
                     + fallback_elapsed
                 )
+                self.timings["SimulationPipeline.preprocess.resize_policy_cpu_fallback"] = 1.0
         return image
 
     def _scene_luminance(self, image: np.ndarray) -> np.ndarray:
@@ -841,8 +981,7 @@ class SimulationPipeline:
         diagnostics: dict[str, Any],
     ) -> RouteMaster:
         sidecar_policy = getattr(self.settings, "hdr_route_sidecar_policy", "minimal")
-        if sidecar_policy not in {"minimal", "full"}:
-            raise ValueError("hdr_route_sidecar_policy must be either 'minimal' or 'full'")
+        route_master_sidecar_fields(sidecar_policy)
         full_sidecar = sidecar_policy == "full"
 
         route_rgb = self._route_sidecar_array(

@@ -8,6 +8,11 @@ import pytest
 from spektrafilm.runtime.params_builder import digest_params, init_params
 from spektrafilm.runtime.pipeline import SimulationPipeline
 from spektrafilm.runtime.process import Simulator
+from spektrafilm.runtime.route_master import (
+    iter_route_master_sidecars,
+    route_master_sidecar_fields,
+    route_master_sidecar_nbytes,
+)
 from spektrafilm.utils.gamut_compression import OutputGamutCompressSpec
 
 
@@ -164,6 +169,35 @@ def test_routemaster_minimal_fields_by_default() -> None:
         master.post_halation_y,
     ):
         assert np.all(np.isfinite(field))
+
+
+def test_routemaster_sidecar_helpers_are_policy_scoped() -> None:
+    params = make_fast_test_params()
+    image = _small_hdr_patch()
+
+    minimal = Simulator(copy.deepcopy(params)).process_master(image, hdr_mode="paper")
+    full_params = copy.deepcopy(params)
+    full_params.settings.hdr_route_sidecar_policy = "full"
+    full = Simulator(full_params).process_master(image, hdr_mode="paper")
+
+    assert route_master_sidecar_fields("minimal") == (
+        "route_linear_rgb",
+        "route_luminance_y",
+        "sdr_legacy_rgb",
+        "scene_y_raw",
+        "post_halation_y",
+    )
+    assert set(name for name, _value in iter_route_master_sidecars(minimal, policy="minimal")) == set(
+        route_master_sidecar_fields("minimal")
+    )
+    assert set(name for name, _value in iter_route_master_sidecars(full, policy="full")) == set(
+        route_master_sidecar_fields("full")
+    )
+    assert route_master_sidecar_nbytes(minimal, policy="minimal") > 0
+    assert route_master_sidecar_nbytes(full, policy="full") > route_master_sidecar_nbytes(minimal, policy="minimal")
+
+    with pytest.raises(ValueError, match="hdr_route_sidecar_policy"):
+        route_master_sidecar_fields("debug_everything")
 
 
 def test_routemaster_full_sidecar_policy_restores_diagnostics() -> None:

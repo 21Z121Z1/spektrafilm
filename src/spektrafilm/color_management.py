@@ -250,3 +250,26 @@ def output_encoding_from_io(io: IOParams) -> ColorEncoding:
         clip_negatives=bool(getattr(io, "output_clip_min", True)),
         clip_highlights=bool(getattr(io, "output_clip_max", True)),
     )
+
+
+_ACES_COMPAT_REEXPORTS = {
+    "AcesContext",
+    "AcesTransformDiagnostics",
+    "apply_aces_reference_gamut_compression",
+    "build_aces_transform_manifest",
+    "is_ocio_available",
+    "load_aces_ocio_config",
+    "render_aces_local_sdr_preview",
+    "render_aces_ocio_view",
+    "to_acescg",
+    "acescg_to_aces2065_1",
+    "aces2065_1_to_acescg",
+}
+
+
+def __getattr__(name: str):
+    if name in _ACES_COMPAT_REEXPORTS:
+        from spektrafilm import aces_compat
+
+        return getattr(aces_compat, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

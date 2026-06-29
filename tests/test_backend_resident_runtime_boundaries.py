@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from spektrafilm.gpu.backend import BackendUnavailableError, select_backend
-from spektrafilm.gpu.residency import record_backend_residency
+from spektrafilm.gpu.residency import record_backend_operation, record_backend_residency
 from spektrafilm.runtime.pipeline import SimulationPipeline
 from spektrafilm.runtime.topology import Tap
 from tests.conftest import make_fast_test_params
@@ -35,6 +35,7 @@ def _params(*, use_scanner_lut: bool = False):
     params.settings.compute_backend = "mlx"
     params.settings.gpu_precision = "float32"
     params.settings.materialize_policy = "backend"
+    params.settings.color_precision_policy = "fast"
     params.settings.gpu_validate = False
     params.settings.preview_mode = True
     params.settings.use_enlarger_lut = False
@@ -159,3 +160,34 @@ def test_residency_diagnostic_flags_manual_full_size_mlx_to_numpy() -> None:
     assert len(unallowed) == 1
     assert unallowed[0].shape == (32, 32, 3)
     assert unallowed[0].reason == "unallowed_full_size_to_numpy"
+
+
+def test_residency_recorder_tracks_sync_cleanup_and_peak_budget_events() -> None:
+    with record_backend_residency(small_array_bytes=1024) as recorder:
+        record_backend_operation(
+            "synchronize",
+            "mlx",
+            memory={
+                "active_memory_bytes": 10,
+                "cache_memory_bytes": 20,
+                "peak_memory_bytes": 30,
+            },
+        )
+        record_backend_operation(
+            "peak_budget",
+            "mlx",
+            memory={
+                "active_memory_bytes": 10,
+                "cache_memory_bytes": 20,
+                "peak_memory_bytes": 30,
+            },
+            budget_bytes=24,
+        )
+        record_backend_operation("cleanup", "mlx")
+
+    summary = recorder.summary()
+    assert summary["synchronize"] == 1
+    assert summary["cleanup"] == 1
+    assert summary["peak_budget"] == 1
+    assert summary["over_budget"] == 1
+    assert recorder.peak_memory_bytes() == 30

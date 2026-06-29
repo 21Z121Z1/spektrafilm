@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+import numpy as np
+
 
 class ArrayBackend(Protocol):
     name: str
@@ -200,8 +202,6 @@ def tiled_processing(
         Processed image with the same shape and dtype as ``image``.
     """
 
-    import numpy as np
-
     if getattr(backend, "supports_gpu", False):
         raise RuntimeError(
             "tiled_processing is a CPU fallback; GPU backends must use whole-frame "
@@ -247,3 +247,26 @@ def tiled_processing(
         raise RuntimeError(f"Tiling left {uncovered} pixels uncovered; increase tile_size or check stride logic.")
 
     return backend.asarray(result)
+
+
+def materialize_backend_array(
+    value: Any,
+    dtype: np.dtype | type | str | None = None,
+) -> np.ndarray:
+    """Materialize a backend array (e.g. mlx.core.array) into a NumPy array.
+
+    MLX arrays are evaluated while holding the Metal runtime serialization
+    lock, so lazy GPU evaluation never happens on the GUI thread. Non-MLX
+    values fall through to ``np.asarray`` unchanged.
+    """
+    if value is None:
+        return np.asarray([], dtype=dtype)
+    type_module = type(value).__module__
+    if type_module == "mlx.core" or type_module.startswith("mlx.core."):
+        from spektrafilm.gpu.metal_serialization import serialized_metal_runtime
+        import mlx.core as mx
+
+        with serialized_metal_runtime():
+            mx.eval(value)
+            return np.asarray(value, dtype=dtype)
+    return np.asarray(value, dtype=dtype)

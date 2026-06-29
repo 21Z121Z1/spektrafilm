@@ -46,6 +46,18 @@ def test_mlx_backend_preprocess_upscale_records_cpu_fallback_and_residency_break
         pipeline.timings["SimulationPipeline.preprocess.resize_breaks_backend_residency"]
         == pipeline.timings["SimulationPipeline.preprocess.resize_cpu_fallback"]
     )
+    assert pipeline.timings["SimulationPipeline.preprocess.resize_policy_cpu_fallback"] == 1.0
+
+
+def test_mlx_backend_preprocess_upscale_can_reject_cpu_fallback() -> None:
+    _mlx_available_or_skip()
+    params = _mlx_backend_params(upscale_factor=1.25)
+    params.settings.preprocess_resize_backend_policy = "error"
+    pipeline = SimulationPipeline(params)
+    image = np.ones((8, 10, 3), dtype=np.float32) * 0.184
+
+    with pytest.raises(RuntimeError, match="preprocess resize has no resident implementation"):
+        pipeline._preprocess_base(image)
 
 
 def test_mlx_backend_preprocess_default_scale_does_not_record_resize_fallback() -> None:

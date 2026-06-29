@@ -13,6 +13,8 @@ import numpy as np
 from qtpy import QtCore
 
 from spektrafilm.color_management import aces_sdr_video_view_transform, is_aces_scene_linear_space
+from spektrafilm.gpu.backend import materialize_backend_array
+from spektrafilm.runtime.route_master import RouteMaster, iter_route_master_sidecars, route_master_sidecar_nbytes
 from spektrafilm.utils.io import resolve_icc_profile_bytes
 
 
@@ -77,6 +79,40 @@ class SimulationWorker(QRunnable):
         self.signals.finished.emit(result)
 
 
+@dataclass(slots=True)
+class HEICExportRequest:
+    simulator: object | None
+    image: object | None
+    filepath: str | Path
+    hdr_mode: str
+    config: object | None
+    color_space: str
+    quality: float
+    gain_map_mode: str
+    master: object | None
+
+
+class HEICExportWorkerSignals(QObject):
+    finished = Signal(object)
+    failed = Signal(str)
+
+
+class HEICExportWorker(QRunnable):
+    def __init__(self, request: HEICExportRequest, *, execute_export: Callable[[HEICExportRequest], object]):
+        super().__init__()
+        self._request = request
+        self._execute_export = execute_export
+        self.signals = HEICExportWorkerSignals()
+
+    def run(self) -> None:
+        try:
+            result = self._execute_export(self._request)
+        except Exception as exc:
+            self.signals.failed.emit(f'{type(exc).__name__}: {exc}')
+            return
+        self.signals.finished.emit(result)
+
+
 def normalized_image_data(image: np.ndarray, *, preserve_highlights: bool = False) -> np.ndarray:
     if np.issubdtype(image.dtype, np.floating):
         if preserve_highlights:
@@ -107,30 +143,37 @@ def array_nbytes(value: object | None) -> int:
 
 
 def route_master_nbytes(route_master: object | None) -> int:
+    helper_total = route_master_sidecar_nbytes(route_master)  # type: ignore[arg-type]
+    if helper_total:
+        return helper_total
+    return sum(array_nbytes(value) for _name, value in iter_route_master_sidecars(route_master))  # type: ignore[arg-type]
+
+
+def materialize_route_master(route_master: RouteMaster | None) -> RouteMaster | None:
+    """Materialize all array fields of a RouteMaster to NumPy.
+
+    MLX Metal arrays are bound to the thread/stream that created them, so a
+    RouteMaster that will be cached on the GUI side and later reused (e.g. for
+    HDR HEIC export) must be fully materialized before leaving the worker
+    thread that produced it.
+    """
     if route_master is None:
-        return 0
-    total = 0
-    seen: set[int] = set()
-    for name in (
-        "route_linear_rgb",
-        "route_linear_xyz",
-        "route_luminance_y",
-        "sdr_legacy_rgb",
-        "scene_y_raw",
-        "post_halation_y",
-        "density_cmy",
-        "route_look_chroma",
-        "material_detail_y",
-    ):
-        value = getattr(route_master, name, None)
+        return None
+    kwargs: dict[str, object] = {}
+    changed = False
+    for name, value in iter_route_master_sidecars(route_master, include_missing=True):
         if value is None:
+            kwargs[name] = None
             continue
-        identity = id(value)
-        if identity in seen:
-            continue
-        seen.add(identity)
-        total += array_nbytes(value)
-    return total
+        materialized = materialize_backend_array(value, dtype=np.float32)
+        kwargs[name] = materialized
+        if materialized is not value:
+            changed = True
+    if not changed:
+        return route_master
+    from dataclasses import replace
+
+    return replace(route_master, **kwargs)
 
 
 def _shape_tuple(value: object) -> tuple[int, ...] | None:
@@ -507,7 +550,7 @@ def materialize_export_image(
 ) -> np.ndarray:
     materialize_start = time.perf_counter()
     try:
-        image = np.asarray(image_data, dtype=dtype)
+        image = materialize_backend_array(image_data, dtype=dtype)
         if image.ndim >= 3:
             image = image[..., :3]
         return image
@@ -677,6 +720,39 @@ def execute_simulation_request(
     scan = getattr(simulation_output, 'image', simulation_output)
     hdr_scene_energy = getattr(simulation_output, 'hdr_scene_energy', None)
     route_master = getattr(simulation_output, 'route_master', None)
+
+    # Materialize any backend (e.g. MLX) arrays to NumPy while still inside the
+    # worker thread. The GUI thread must never trigger lazy GPU evaluation.
+    materialize_start = time.perf_counter()
+    scan = materialize_backend_array(scan, dtype=np.float32)
+    if hdr_scene_energy is not None:
+        scene_luminance = getattr(hdr_scene_energy, "scene_luminance", None)
+        scene_rgb = getattr(hdr_scene_energy, "scene_rgb", None)
+        if scene_luminance is not None or scene_rgb is not None:
+            try:
+                hdr_scene_energy = hdr_scene_energy.replace(
+                    scene_luminance=materialize_backend_array(scene_luminance, dtype=np.float32),
+                    scene_rgb=materialize_backend_array(scene_rgb, dtype=np.float32),
+                )
+            except (AttributeError, TypeError):
+                # Dataclass without ``replace``; fall back to in-place mutation.
+                if scene_luminance is not None:
+                    hdr_scene_energy.scene_luminance = materialize_backend_array(
+                        scene_luminance, dtype=np.float32
+                    )
+                if scene_rgb is not None:
+                    hdr_scene_energy.scene_rgb = materialize_backend_array(
+                        scene_rgb, dtype=np.float32
+                    )
+    # RouteMaster is cached in layer metadata and may later be reused by an HDR
+    # HEIC export running on a different worker thread. MLX arrays cannot be
+    # evaluated across threads, so materialize the whole master here.
+    route_master = materialize_route_master(route_master)
+    _record_phase_timing(
+        phase_timings,
+        "gui.worker_materialize",
+        time.perf_counter() - materialize_start,
+    )
 
     memory_estimates["gui.export_source_nbytes"] = array_nbytes(scan)
     memory_estimates["gui.float_image_nbytes"] = array_nbytes(scan)

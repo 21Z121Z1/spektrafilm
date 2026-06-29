@@ -42,6 +42,11 @@ class ResidencyEvent:
     stack_label: str
     allowed: bool
     reason: str
+    active_memory_bytes: int | None = None
+    cache_memory_bytes: int | None = None
+    peak_memory_bytes: int | None = None
+    budget_bytes: int | None = None
+    over_budget: bool = False
 
 
 class ResidencyRecorder:
@@ -57,10 +62,23 @@ class ResidencyRecorder:
         self.allowed_stack_fragments = tuple(str(fragment) for fragment in allowed_stack_fragments)
         self.events: list[ResidencyEvent] = []
 
-    def record(self, direction: str, backend: str, value: Any, result: Any | None = None) -> None:
+    def record(
+        self,
+        direction: str,
+        backend: str,
+        value: Any = None,
+        result: Any | None = None,
+        *,
+        memory: dict[str, int | None] | None = None,
+        budget_bytes: int | None = None,
+    ) -> None:
         shape, dtype, nbytes = _array_info(result if result is not None else value)
         stack_label = _caller_label()
         allowed, reason = self._classify(direction, nbytes, stack_label)
+        active_memory_bytes = _optional_int((memory or {}).get("active_memory_bytes"))
+        cache_memory_bytes = _optional_int((memory or {}).get("cache_memory_bytes"))
+        peak_memory_bytes = _optional_int((memory or {}).get("peak_memory_bytes"))
+        budget_bytes = _optional_int(budget_bytes)
         self.events.append(
             ResidencyEvent(
                 direction=direction,
@@ -71,12 +89,25 @@ class ResidencyRecorder:
                 stack_label=stack_label,
                 allowed=allowed,
                 reason=reason,
+                active_memory_bytes=active_memory_bytes,
+                cache_memory_bytes=cache_memory_bytes,
+                peak_memory_bytes=peak_memory_bytes,
+                budget_bytes=budget_bytes,
+                over_budget=(
+                    peak_memory_bytes is not None
+                    and budget_bytes is not None
+                    and peak_memory_bytes > budget_bytes
+                ),
             )
         )
 
     def _classify(self, direction: str, nbytes: int | None, stack_label: str) -> tuple[bool, str]:
         if direction == "asarray":
             return True, "backend_upload"
+        if direction in {"eval", "synchronize", "cleanup", "memory_snapshot"}:
+            return True, f"backend_{direction}"
+        if direction == "peak_budget":
+            return True, "peak_budget_check"
         if direction != "to_numpy":
             return True, "not_host_readback"
         if nbytes is not None and nbytes <= self.small_array_bytes:
@@ -100,9 +131,23 @@ class ResidencyRecorder:
             "events": len(self.events),
             "to_numpy": sum(1 for event in self.events if event.direction == "to_numpy"),
             "asarray": sum(1 for event in self.events if event.direction == "asarray"),
+            "eval": sum(1 for event in self.events if event.direction == "eval"),
+            "synchronize": sum(1 for event in self.events if event.direction == "synchronize"),
+            "cleanup": sum(1 for event in self.events if event.direction == "cleanup"),
+            "memory_snapshot": sum(1 for event in self.events if event.direction == "memory_snapshot"),
+            "peak_budget": sum(1 for event in self.events if event.direction == "peak_budget"),
+            "over_budget": sum(1 for event in self.events if event.over_budget),
             "unallowed": len(self.unallowed_events()),
             "unallowed_to_numpy": len(self.unallowed_to_numpy_events()),
         }
+
+    def peak_memory_bytes(self) -> int | None:
+        peaks = [
+            event.peak_memory_bytes
+            for event in self.events
+            if event.peak_memory_bytes is not None
+        ]
+        return max(peaks) if peaks else None
 
 
 @contextmanager
@@ -127,6 +172,30 @@ def record_conversion(direction: str, backend: str, value: Any, result: Any | No
     if recorder is None:
         return
     recorder.record(direction, backend, value, result)
+
+
+def record_backend_operation(
+    direction: str,
+    backend: str,
+    value: Any = None,
+    *,
+    memory: dict[str, int | None] | None = None,
+    budget_bytes: int | None = None,
+) -> None:
+    recorder = _ACTIVE_RECORDER.get()
+    if recorder is None:
+        return
+    recorder.record(
+        direction,
+        backend,
+        value,
+        memory=memory,
+        budget_bytes=budget_bytes,
+    )
+
+
+def active_residency_recorder() -> ResidencyRecorder | None:
+    return _ACTIVE_RECORDER.get()
 
 
 def _array_info(value: Any) -> tuple[tuple[int, ...] | None, str | None, int | None]:
@@ -167,6 +236,15 @@ def _dtype_itemsize(dtype: Any) -> int | None:
         if "bool" in text or "int8" in text:
             return 1
     return None
+
+
+def _optional_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _caller_label() -> str:

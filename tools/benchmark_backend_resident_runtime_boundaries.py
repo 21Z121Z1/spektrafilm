@@ -56,7 +56,10 @@ def _params(case: BenchmarkCase, *, use_scanner_lut: bool):
     params.settings.compute_backend = case.compute_backend
     params.settings.gpu_precision = case.gpu_precision
     params.settings.materialize_policy = case.materialize_policy
+    if case.compute_backend == "mlx":
+        params.settings.color_precision_policy = "fast"
     params.settings.gpu_validate = False
+    params.settings.mlx_memory_profile = case.compute_backend == "mlx"
     params.settings.preview_mode = True
     params.settings.use_enlarger_lut = False
     params.settings.use_scanner_lut = use_scanner_lut
@@ -104,12 +107,11 @@ def _run_once(
     start = perf_counter()
     with record_backend_residency(small_array_bytes=small_array_bytes) as recorder:
         result = pipeline.process(image)
+        sync_start = perf_counter()
+        if getattr(pipeline._backend, "supports_gpu", False):
+            pipeline._backend.synchronize()
+        sync_seconds = perf_counter() - sync_start
     process_seconds = perf_counter() - start
-
-    sync_start = perf_counter()
-    if getattr(pipeline._backend, "supports_gpu", False):
-        pipeline._backend.synchronize()
-    sync_seconds = perf_counter() - sync_start
 
     numpy_start = perf_counter()
     result_np = _to_numpy_for_validation(pipeline, result)
@@ -130,6 +132,7 @@ def _run_once(
         "explicit_numpy_seconds": explicit_numpy_seconds,
         "timings": dict(pipeline.timings),
         "residency_summary": recorder.summary(),
+        "peak_memory_bytes": recorder.peak_memory_bytes(),
         "unallowed_events": [asdict(event) for event in recorder.unallowed_events()],
         "max_abs_diff_vs_cpu": max_abs_diff,
         "max_abs_diff_vs_cpu_direct": max_abs_diff_direct,
@@ -189,6 +192,9 @@ def _run_case(
             "median_explicit_numpy_seconds": median(run["explicit_numpy_seconds"] for run in runs_out),
             "unallowed_events": sum(run["residency_summary"]["unallowed"] for run in runs_out),
             "unallowed_to_numpy": sum(run["residency_summary"]["unallowed_to_numpy"] for run in runs_out),
+            "peak_memory_bytes": max(
+                (run["peak_memory_bytes"] or 0) for run in runs_out
+            ),
             "max_abs_diff_vs_cpu": max(
                 (run["max_abs_diff_vs_cpu"] or 0.0) for run in runs_out
             ),
@@ -218,8 +224,8 @@ def _markdown(payload: dict[str, Any]) -> str:
         "",
         "## Summary",
         "",
-        "| Case | Status | Output | Median Runtime | Sync | Explicit NumPy | Unallowed to_numpy | Max Abs Diff vs CPU | Max Abs Diff vs CPU Direct |",
-        "|---|---|---|---:|---:|---:|---:|---:|---:|",
+        "| Case | Status | Output | Median Runtime | Sync | Explicit NumPy | Peak Memory | Unallowed to_numpy | Max Abs Diff vs CPU | Max Abs Diff vs CPU Direct |",
+        "|---|---|---|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for result in payload["results"]:
         case = result["case"]
@@ -231,11 +237,14 @@ def _markdown(payload: dict[str, Any]) -> str:
         first = result["runs"][0]
         output = first["output"]
         summary = result["summary"]
+        peak = summary["peak_memory_bytes"]
+        peak_text = "n/a" if not peak else f"{peak / (1024 * 1024):.1f} MiB"
         lines.append(
             f"| {case['label']} | ok | {output['type']} {output['dtype']} | "
             f"{summary['median_process_seconds']:.6f}s | "
             f"{summary['median_sync_seconds']:.6f}s | "
             f"{summary['median_explicit_numpy_seconds']:.6f}s | "
+            f"{peak_text} | "
             f"{summary['unallowed_to_numpy']} | "
             f"{summary['max_abs_diff_vs_cpu']:.6g} | "
             f"{summary['max_abs_diff_vs_cpu_direct']:.6g} |"
@@ -256,8 +265,8 @@ def _markdown(payload: dict[str, Any]) -> str:
     lines.extend([
         "## Notes",
         "",
-        "- Residency diagnostics are active only inside the timed `process()` call.",
-        "- Explicit sync and explicit NumPy conversion happen after diagnostics to avoid classifying validation/export inspection as runtime leakage.",
+        "- Residency diagnostics cover the timed `process()` call and the explicit post-process sync.",
+        "- Explicit NumPy conversion happens after diagnostics to avoid classifying validation/export inspection as runtime leakage.",
         "- This is a runtime-boundary diagnostic, not a 12MP RAW performance proof.",
         "",
     ])

@@ -6,7 +6,13 @@ import types
 import numpy as np
 import pytest
 
-from spektrafilm.gpu.backend import BackendUnavailableError, backend_summary, select_backend, tiled_processing
+from spektrafilm.gpu.backend import (
+    BackendUnavailableError,
+    backend_summary,
+    materialize_backend_array,
+    select_backend,
+    tiled_processing,
+)
 from spektrafilm.gpu.cupy_backend import CupyBackend
 from spektrafilm.gpu.mlx_backend import MlxBackend
 from spektrafilm.gpu.numpy_backend import NumpyBackend
@@ -50,6 +56,26 @@ def test_select_backend_auto_returns_usable_backend() -> None:
 
     assert backend.name in {"cpu", "mlx", "cupy"}
     assert isinstance(backend.supports_gpu, bool)
+
+
+def test_materialize_backend_array_numpy_pass_through() -> None:
+    source = np.array([0.0, 0.5, 1.0], dtype=np.float32)
+
+    result = materialize_backend_array(source)
+
+    assert isinstance(result, np.ndarray)
+    np.testing.assert_allclose(result, source)
+
+
+def test_materialize_backend_array_mlx_matches_numpy() -> None:
+    mlx = pytest.importorskip("mlx.core")
+    source = mlx.array([0.0, 0.5, 1.0], dtype=mlx.float32)
+
+    result = materialize_backend_array(source)
+
+    assert isinstance(result, np.ndarray)
+    assert result.dtype == np.float32
+    np.testing.assert_allclose(result, np.array([0.0, 0.5, 1.0], dtype=np.float32))
 
 
 def test_select_backend_auto_float64_falls_back_to_cpu() -> None:
@@ -289,6 +315,35 @@ def test_mlx_backend_cleanup_clears_cache_after_synchronize(monkeypatch) -> None
     backend.cleanup()
 
     assert calls[-2:] == ["sync", "clear-cache"]
+
+
+def test_mlx_backend_exposes_memory_snapshot_helpers(monkeypatch) -> None:
+    calls: list[str] = []
+    fake_mlx = types.ModuleType("mlx")
+    fake_core = types.ModuleType("mlx.core")
+    fake_core.float32 = object()
+    fake_core.float16 = object()
+    fake_core.metal = types.SimpleNamespace(is_available=lambda: True)
+    fake_core.array = lambda *_args, **_kwargs: object()
+    fake_core.eval = lambda *_values: calls.append("eval")
+    fake_core.synchronize = lambda: calls.append("sync")
+    fake_core.get_active_memory = lambda: 11
+    fake_core.get_cache_memory = lambda: 22
+    fake_core.get_peak_memory = lambda: 33
+    fake_core.reset_peak_memory = lambda: calls.append("reset")
+    fake_mlx.core = fake_core
+    monkeypatch.setitem(sys.modules, "mlx", fake_mlx)
+    monkeypatch.setitem(sys.modules, "mlx.core", fake_core)
+
+    backend = MlxBackend()
+
+    assert backend.memory_snapshot() == {
+        "active_memory_bytes": 11,
+        "cache_memory_bytes": 22,
+        "peak_memory_bytes": 33,
+    }
+    assert backend.reset_peak_memory() is True
+    assert calls[-1] == "reset"
 
 
 def test_cupy_backend_cleanup_releases_default_memory_pools(monkeypatch) -> None:
