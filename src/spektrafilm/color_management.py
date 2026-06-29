@@ -6,6 +6,21 @@ from typing import Any, Literal, TYPE_CHECKING
 
 import numpy as np
 
+from spektrafilm.aces_compat import (
+    AcesContext,
+    AcesOcioUnavailableError,
+    AcesTransformDiagnostics,
+    aces2065_1_to_acescg,
+    acescg_to_aces2065_1,
+    apply_aces_reference_gamut_compression,
+    build_aces_transform_manifest,
+    is_ocio_available,
+    load_aces_ocio_config,
+    render_aces_local_sdr_preview,
+    render_aces_ocio_view,
+    to_acescg,
+)
+
 Transfer = Literal["linear", "cctf"]
 ColorRole = Literal["scene", "display", "interchange"]
 ColorManagementWorkflow = Literal["manual", "aces_reference"]
@@ -14,12 +29,7 @@ ACES_INTERCHANGE_COLOR_SPACE = "ACES2065-1"
 ACES_WORKING_COLOR_SPACE = "ACEScg"
 MANUAL_COLOR_MANAGEMENT_WORKFLOW = "manual"
 ACES_REFERENCE_COLOR_MANAGEMENT_WORKFLOW = "aces_reference"
-ACES_SCENE_LINEAR_COLOR_SPACES = frozenset(
-    {
-        ACES_INTERCHANGE_COLOR_SPACE,
-        ACES_WORKING_COLOR_SPACE,
-    }
-)
+ACES_SCENE_LINEAR_COLOR_SPACES = frozenset({ACES_INTERCHANGE_COLOR_SPACE, ACES_WORKING_COLOR_SPACE})
 
 
 @lru_cache(maxsize=1)
@@ -36,19 +46,11 @@ def is_aces_scene_linear_space(color_space: str) -> bool:
 
 
 _ACES_SDR_INPUT_MATRIX = np.array(
-    [
-        [0.59719, 0.35458, 0.04823],
-        [0.07600, 0.90834, 0.01566],
-        [0.02840, 0.13383, 0.83777],
-    ],
+    [[0.59719, 0.35458, 0.04823], [0.07600, 0.90834, 0.01566], [0.02840, 0.13383, 0.83777]],
     dtype=np.float32,
 )
 _ACES_SDR_OUTPUT_MATRIX = np.array(
-    [
-        [1.60475, -0.53108, -0.07367],
-        [-0.10208, 1.10813, -0.00605],
-        [-0.00327, -0.07276, 1.07602],
-    ],
+    [[1.60475, -0.53108, -0.07367], [-0.10208, 1.10813, -0.00605], [-0.00327, -0.07276, 1.07602]],
     dtype=np.float32,
 )
 
@@ -90,23 +92,11 @@ def aces_sdr_video_view_transform(
     project ships an OCIO ACES config dependency.
     """
 
-    color_space = str(color_space)
-    if not is_aces_scene_linear_space(color_space):
-        raise ValueError(f"ACES SDR view requires ACES scene-linear input, got {color_space!r}.")
-    if colour_module is None:
-        import colour as colour_module
-
-    image = np.asarray(image_data, dtype=np.float32)
-    linear_srgb = colour_module.RGB_to_RGB(
-        image,
-        color_space,
-        "sRGB",
-        apply_cctf_decoding=False,
-        apply_cctf_encoding=False,
+    return render_aces_local_sdr_preview(
+        image_data,
+        color_space=color_space,
+        colour_module=colour_module,
     )
-    linear_srgb = np.clip(np.asarray(linear_srgb, dtype=np.float32), 0.0, None)
-    rendered = _aces_sdr_rrt_odt_fit(linear_srgb)
-    return np.asarray(np.clip(_srgb_cctf_encoding(rendered), 0.0, 1.0), dtype=np.float32)
 
 
 @dataclass(frozen=True, slots=True)
