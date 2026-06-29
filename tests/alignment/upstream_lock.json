@@ -6,7 +6,7 @@
     "pyproject_sha256": "2683ef714f8566e8977411827b2c748afdbe3630269d85e38ad098eb6f2cd2a9"
   },
   "candidate": {
-    "uv_lock_sha256": "1135860758aea1824241fc2b910b2990ad82df1c0bcec710495594b44857448e",
+    "uv_lock_sha256": "725eda9857677bf3288f4dd40fadc2651d36b54a6f8750f0f0c47fcb45eb3748",
     "python": "~=3.13"
   },
   "bootstrap": {

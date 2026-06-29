@@ -8,6 +8,7 @@ from typing import Literal
 
 import numpy as np
 
+from spektrafilm.gpu.residency import record_backend_operation
 from spektrafilm.hdr.ideal_paper import project_hdr_ideal_paper
 from spektrafilm.hdr.light_table import project_hdr_light_table
 from spektrafilm.hdr.projection import HDRProjectionConfig, HDRProjectionResult
@@ -96,6 +97,18 @@ def _export_diagnostics_payload(
     }
 
 
+def _final_encoder_boundary_array(value, *, label: str) -> np.ndarray:
+    array = np.ascontiguousarray(value)
+    record_backend_operation(
+        "to_numpy",
+        "encoder",
+        value,
+        array,
+        category="final_encoder_boundary",
+    )
+    return array
+
+
 def export_hdr_heic_from_simulator(
     simulator,
     image,
@@ -131,8 +144,8 @@ def export_hdr_heic_from_simulator(
     encode_start = perf_counter()
     diagnostics = hdr_photo.save_hdr_photo_heic_from_pair(
         filename,
-        np.ascontiguousarray(result.sdr_rgb),
-        np.ascontiguousarray(result.hdr_rgb),
+        _final_encoder_boundary_array(result.sdr_rgb, label="sdr_rgb"),
+        _final_encoder_boundary_array(result.hdr_rgb, label="hdr_rgb"),
         color_space=color_space,
         headroom=result.headroom,
         quality=quality,

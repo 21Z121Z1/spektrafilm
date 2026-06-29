@@ -17,7 +17,13 @@ from spektrafilm.runtime.services import (
     ColorReferenceService,
 )
 from spektrafilm.gpu.backend import runtime_backend_summary, select_backend
-from spektrafilm.runtime.route_master import HDRMode, RouteMaster, ScanMasterResult
+from spektrafilm.runtime.route_master import (
+    HDRMode,
+    RouteMaster,
+    ScanMasterResult,
+    get_material_detail_y,
+    get_route_look_chroma,
+)
 from spektrafilm.runtime.stages import FilmingStage, PrintingStage, ScanningStage
 from spektrafilm.runtime.topology import Node, Tap, run_topology
 from spektrafilm.utils.autoexposure import _luminance_y, measure_autoexposure_ev
@@ -59,6 +65,15 @@ def _backend_selection_key_from_settings(settings):
         getattr(settings, "compute_backend", None),
         getattr(settings, "gpu_precision", None),
     )
+
+
+def _shape_hw(shape: Any) -> tuple[int, int] | None:
+    try:
+        if shape is None or len(shape) < 2:
+            return None
+        return int(shape[0]), int(shape[1])
+    except (TypeError, ValueError):
+        return None
 
 
 class SimulationPipeline:
@@ -104,6 +119,8 @@ class SimulationPipeline:
         self._array_backend = self._backend
 
         self.timings = {}
+        self.memory_residency_warnings: list[str] = []
+        self.memory_budget_report: dict[str, Any] | None = None
         self._last_elapsed_time = None
 
         self._resize_service = ResizingService(self.io, self.camera.film_format_mm)
@@ -198,12 +215,16 @@ class SimulationPipeline:
             result = route_pipeline.process_with_master(image, hdr_mode=hdr_mode)
             self.timings.clear()
             self.timings.update(route_pipeline.timings)
+            self.memory_residency_warnings.clear()
+            self.memory_residency_warnings.extend(route_pipeline.memory_residency_warnings)
+            self.memory_budget_report = route_pipeline.memory_budget_report
             self._last_elapsed_time = route_pipeline.get_total_elapsed_time()
             return result
         return self._process_with_master_result(image, hdr_mode=hdr_mode)
 
     def _process_result(self, image, *, include_metadata: bool) -> SimulationPipelineResult:
         self.timings.clear()
+        self.memory_residency_warnings.clear()
         start = perf_counter()
         
         try:
@@ -222,6 +243,7 @@ class SimulationPipeline:
 
     def _process_with_master_result(self, image, *, hdr_mode: HDRMode) -> SimulationPipelineResult:
         self.timings.clear()
+        self.memory_residency_warnings.clear()
         start = perf_counter()
 
         try:
@@ -240,6 +262,7 @@ class SimulationPipeline:
         collect = collect or self.taps.collect or Tap.RGB_OUT
 
         self.timings.clear()
+        self.memory_residency_warnings.clear()
         start = perf_counter()
         
         try:
@@ -666,7 +689,132 @@ class SimulationPipeline:
         image = self._backend_rgb_input(image)
         image, auto_exposure_ev = self._backend_auto_exposure_with_ev(image)
         image = self._backend_crop_and_rescale(image)
+        self._apply_gpu_memory_budget(image)
         return image, auto_exposure_ev
+
+    def _apply_gpu_memory_budget(self, image) -> None:
+        policy = getattr(self.settings, "gpu_budget_policy", "off")
+        if policy == "off" or not getattr(self._backend, "supports_gpu", False):
+            self.memory_budget_report = None
+            return
+        budget_mb = getattr(self.settings, "gpu_peak_budget_mb", None)
+        shape_hw = _shape_hw(getattr(image, "shape", None))
+        if budget_mb is None or shape_hw is None:
+            self.memory_budget_report = {
+                "policy": policy,
+                "status": "skipped",
+                "reason": "missing_budget_or_shape",
+                "budget_mb": budget_mb,
+            }
+            return
+
+        estimate = self._estimate_gpu_peak_memory_mb(shape_hw)
+        report: dict[str, Any] = {
+            "policy": policy,
+            "budget_mb": float(budget_mb),
+            "estimated_peak_mb": estimate,
+            "shape": shape_hw,
+            "actions": [],
+            "warnings": [],
+        }
+        self.memory_budget_report = report
+        if estimate <= float(budget_mb):
+            report["status"] = "within_budget"
+            return
+
+        warning = (
+            "Estimated GPU peak memory "
+            f"{estimate:.1f} MiB exceeds gpu_peak_budget_mb={float(budget_mb):.1f} MiB."
+        )
+        report["warnings"].append(warning)
+        self.memory_residency_warnings.append(warning)
+        self.timings["SimulationPipeline.memory_budget.warn"] = self.timings.get(
+            "SimulationPipeline.memory_budget.warn",
+            0.0,
+        )
+
+        if policy == "warn":
+            report["status"] = "warn"
+            return
+        if policy == "soft_enforce":
+            self._soft_enforce_gpu_budget(shape_hw, float(budget_mb), report)
+            report["status"] = "soft_enforced"
+            return
+        if policy == "fail":
+            report["status"] = "failed"
+            raise RuntimeError(
+                warning
+                + " Use gpu_budget_policy='warn' or 'soft_enforce', lower resolution, "
+                "or enable tiling for this route."
+            )
+        raise ValueError("gpu_budget_policy must be one of: 'off', 'warn', 'soft_enforce', 'fail'")
+
+    def _estimate_gpu_peak_memory_mb(self, shape_hw: tuple[int, int]) -> float:
+        h, w = shape_hw
+        pixels = max(1, h * w)
+        precision = str(getattr(self.settings, "gpu_precision", "float32"))
+        bytes_per_sample = 2 if precision == "float16" else 4
+        base_rgb_mib = pixels * 3 * bytes_per_sample / (1024.0 ** 2)
+
+        multiplier = 8.0
+        if getattr(self.settings, "materialize_policy", "numpy_float64") == "numpy_float64":
+            multiplier += 3.0
+        elif getattr(self.settings, "materialize_policy", "numpy_float64") == "numpy_float32":
+            multiplier += 1.5
+        if getattr(self.settings, "hdr_route_sidecar_policy", "minimal") == "full":
+            multiplier += 5.0
+        elif getattr(self.settings, "hdr_route_sidecar_policy", "minimal") == "on_demand":
+            multiplier += 1.0
+        if not getattr(self.settings, "use_enlarger_lut", False):
+            multiplier += 3.0
+        if not getattr(self.settings, "use_scanner_lut", False):
+            multiplier += 2.0
+        if getattr(self.settings, "gpu_disable_spectral_tiling", False):
+            multiplier += 4.0
+        if getattr(self.settings, "gpu_disable_spatial_tiling", False):
+            multiplier += 2.0
+        if getattr(self.io, "upscale_factor", 1.0) != 1.0:
+            multiplier *= float(getattr(self.io, "upscale_factor", 1.0)) ** 2
+        return float(base_rgb_mib * multiplier)
+
+    def _soft_enforce_gpu_budget(
+        self,
+        shape_hw: tuple[int, int],
+        budget_mb: float,
+        report: dict[str, Any],
+    ) -> None:
+        h, w = shape_hw
+        bytes_per_sample = 2 if str(getattr(self.settings, "gpu_precision", "float32")) == "float16" else 4
+        row_mib = max(1e-6, w * 3 * bytes_per_sample / (1024.0 ** 2))
+        target_rows = max(16, min(h, int(max(16.0, budget_mb * 0.25 / row_mib))))
+        target_rows = min(target_rows, 512)
+
+        if getattr(self.settings, "gpu_tile_rows", None) is None:
+            self.settings.gpu_tile_rows = target_rows
+            report["actions"].append(f"set gpu_tile_rows={target_rows}")
+        else:
+            current = int(self.settings.gpu_tile_rows)
+            if current > target_rows:
+                self.settings.gpu_tile_rows = target_rows
+                report["actions"].append(f"reduced gpu_tile_rows={target_rows}")
+
+        if getattr(self.settings, "gpu_spatial_tile_rows", None) is None:
+            self.settings.gpu_spatial_tile_rows = target_rows
+            report["actions"].append(f"set gpu_spatial_tile_rows={target_rows}")
+        else:
+            current_spatial = int(self.settings.gpu_spatial_tile_rows)
+            if current_spatial > target_rows:
+                self.settings.gpu_spatial_tile_rows = target_rows
+                report["actions"].append(f"reduced gpu_spatial_tile_rows={target_rows}")
+
+        if getattr(self.settings, "gpu_disable_spectral_tiling", False):
+            message = "gpu_disable_spectral_tiling=True prevents soft spectral tiling enforcement."
+            report["warnings"].append(message)
+            self.memory_residency_warnings.append(message)
+        if getattr(self.settings, "gpu_disable_spatial_tiling", False):
+            message = "gpu_disable_spatial_tiling=True prevents soft spatial tiling enforcement."
+            report["warnings"].append(message)
+            self.memory_residency_warnings.append(message)
 
     def _backend_auto_exposure_with_ev(self, image):
         if not self.camera.auto_exposure:
@@ -714,6 +862,28 @@ class SimulationPipeline:
                 getattr(self._backend, "name", None) == "mlx"
                 and getattr(self.settings, "materialize_policy", None) == "backend"
             )
+            resize_policy = getattr(self.settings, "gpu_resize_policy", "cpu_fallback")
+            if resize_policy == "fail" and breaks_backend_residency and not getattr(self.settings, "preview_mode", False):
+                raise RuntimeError(
+                    "gpu_resize_policy='fail' prevents MLX preprocess CPU resize fallback "
+                    "because materialize_policy='backend' would break residency."
+                )
+            if resize_policy == "native_if_available":
+                message = (
+                    "gpu_resize_policy='native_if_available' requested, but no parity-proven "
+                    "native MLX resize is available; using explicit CPU fallback."
+                )
+                self.memory_residency_warnings.append(message)
+                self.timings["SimulationPipeline.preprocess.resize_native_unavailable"] = (
+                    self.timings.get(
+                        "SimulationPipeline.preprocess.resize_native_unavailable",
+                        0.0,
+                    )
+                )
+            elif resize_policy == "warn" and breaks_backend_residency:
+                self.memory_residency_warnings.append(
+                    "MLX preprocess resize used CPU fallback and broke backend residency."
+                )
             image_np = self._backend.to_numpy(image)
             image_np = rescale(
                 image_np,
@@ -727,6 +897,10 @@ class SimulationPipeline:
             self.timings["SimulationPipeline.preprocess.resize_cpu_fallback"] = (
                 self.timings.get("SimulationPipeline.preprocess.resize_cpu_fallback", 0.0)
                 + fallback_elapsed
+            )
+            self.timings["SimulationPipeline.preprocess.resize_cpu_fallback_count"] = (
+                self.timings.get("SimulationPipeline.preprocess.resize_cpu_fallback_count", 0.0)
+                + 1.0
             )
             if breaks_backend_residency:
                 self.timings["SimulationPipeline.preprocess.resize_breaks_backend_residency"] = (
@@ -841,8 +1015,10 @@ class SimulationPipeline:
         diagnostics: dict[str, Any],
     ) -> RouteMaster:
         sidecar_policy = getattr(self.settings, "hdr_route_sidecar_policy", "minimal")
-        if sidecar_policy not in {"minimal", "full"}:
-            raise ValueError("hdr_route_sidecar_policy must be either 'minimal' or 'full'")
+        if sidecar_policy not in {"minimal", "full", "on_demand"}:
+            raise ValueError(
+                "hdr_route_sidecar_policy must be one of: 'minimal', 'full', 'on_demand'"
+            )
         full_sidecar = sidecar_policy == "full"
 
         route_rgb = self._route_sidecar_array(
@@ -883,8 +1059,20 @@ class SimulationPipeline:
                 force_numpy=True,
                 label="SimulationPipeline.route_master_materialize",
             )
-            route_look_chroma = self._route_look_chroma(route_rgb)
-            material_detail_y = self._material_detail_y(route_y)
+            full_master = RouteMaster(
+                mode=hdr_mode,
+                route_kind=route_kind,  # type: ignore[arg-type]
+                route_linear_rgb=route_rgb,
+                route_linear_xyz=route_xyz,
+                route_luminance_y=route_y,
+                sdr_legacy_rgb=sdr_rgb,
+                scene_y_raw=scene_y,
+                post_halation_y=post_y,
+                density_cmy=density_cmy,
+                diagnostics={},
+            )
+            route_look_chroma = get_route_look_chroma(full_master, backend_policy="numpy")
+            material_detail_y = get_material_detail_y(full_master, backend_policy="numpy")
         else:
             route_xyz = None
             density_cmy = None
@@ -1005,6 +1193,8 @@ class SimulationPipeline:
             if getattr(self._backend, "supports_gpu", False):
                 return value
             return np.asarray(value)
+        if getattr(self._backend, "supports_gpu", False) and hasattr(self._backend, "to_numpy"):
+            value = self._backend.to_numpy(value)
         if policy == "numpy_float32":
             return np.asarray(value, dtype=np.float32)
         if policy == "numpy_float64":

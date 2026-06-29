@@ -8,6 +8,7 @@ import pytest
 from spektrafilm.gpu.backend import BackendUnavailableError, select_backend
 from spektrafilm.runtime.pipeline import SimulationPipeline
 from spektrafilm.runtime.process import Simulator
+from spektrafilm.runtime.route_master import get_material_detail_y, get_route_look_chroma
 from tests.conftest import make_fast_test_params
 
 
@@ -80,6 +81,28 @@ def test_full_route_sidecar_policy_restores_debug_arrays() -> None:
     assert master.diagnostics["hdr_route_sidecar_policy"] == "full"
 
 
+def test_on_demand_route_sidecar_policy_keeps_fields_lazy_and_helpers_compute() -> None:
+    params = make_fast_test_params()
+    params.settings.hdr_route_sidecar_policy = "on_demand"
+
+    result = Simulator(params).process_with_master(_image(), hdr_mode="paper")
+
+    master = result.route_master
+    assert master is not None
+    assert master.route_linear_xyz is None
+    assert master.density_cmy is None
+    assert master.route_look_chroma is None
+    assert master.material_detail_y is None
+    assert master.diagnostics["hdr_route_sidecar_policy"] == "on_demand"
+
+    chroma = get_route_look_chroma(master, backend_policy="numpy")
+    detail = get_material_detail_y(master, backend_policy="numpy")
+    assert chroma.shape == master.route_linear_rgb.shape
+    assert detail.shape == master.route_luminance_y.shape
+    assert np.all(np.isfinite(chroma))
+    assert np.all(np.isfinite(detail))
+
+
 def test_minimal_route_sidecars_have_fewer_full_resolution_arrays_than_full() -> None:
     minimal_params = make_fast_test_params()
     full_params = copy.deepcopy(minimal_params)
@@ -130,3 +153,41 @@ def test_mlx_backend_policy_keeps_minimal_route_sidecars_backend_resident() -> N
     assert master.density_cmy is None
     assert master.route_look_chroma is None
     assert master.material_detail_y is None
+
+
+def test_mlx_on_demand_route_sidecar_helpers_can_stay_backend_resident() -> None:
+    _mlx_available_or_skip()
+    params = make_fast_test_params()
+    params.settings.compute_backend = "mlx"
+    params.settings.gpu_precision = "float32"
+    params.settings.materialize_policy = "backend"
+    params.settings.hdr_route_sidecar_policy = "on_demand"
+    pipeline = SimulationPipeline(params)
+
+    result = pipeline.process_with_master(_image(), hdr_mode="paper")
+
+    master = result.route_master
+    assert master is not None
+    chroma = get_route_look_chroma(master, backend_policy="backend")
+    detail = get_material_detail_y(master, backend_policy="backend")
+    assert pipeline._array_backend._is_mlx_array(chroma)
+    assert pipeline._array_backend._is_mlx_array(detail)
+    assert chroma.shape == master.route_linear_rgb.shape
+    assert detail.shape == master.route_luminance_y.shape
+
+
+def test_mlx_on_demand_numpy_helper_requires_explicit_backend() -> None:
+    _mlx_available_or_skip()
+    params = make_fast_test_params()
+    params.settings.compute_backend = "mlx"
+    params.settings.gpu_precision = "float32"
+    params.settings.materialize_policy = "backend"
+    params.settings.hdr_route_sidecar_policy = "on_demand"
+    pipeline = SimulationPipeline(params)
+    master = pipeline.process_with_master(_image(), hdr_mode="paper").route_master
+
+    assert master is not None
+    with pytest.raises(ValueError, match="requires an explicit backend"):
+        get_route_look_chroma(master, backend_policy="numpy")
+    chroma = get_route_look_chroma(master, backend_policy="numpy", backend=pipeline._backend)
+    assert isinstance(chroma, np.ndarray)

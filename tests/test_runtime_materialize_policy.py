@@ -85,9 +85,42 @@ def test_runtime_params_constructor_rejects_invalid_materialize_policy() -> None
 def test_runtime_params_constructor_rejects_invalid_hdr_route_sidecar_policy() -> None:
     params = make_fast_test_params()
 
-    with pytest.raises(ValueError, match="hdr_route_sidecar_policy must be either"):
+    with pytest.raises(ValueError, match="hdr_route_sidecar_policy must be one of"):
         RuntimePhotoParams(
             film=params.film,
             print=params.print,
             settings=type(params.settings)(hdr_route_sidecar_policy="debug_everything"),
+        )
+
+
+def test_runtime_params_constructor_accepts_memory_policy_defaults() -> None:
+    params = make_fast_test_params()
+    settings = type(params.settings)()
+
+    assert settings.gpu_peak_budget_mb is None
+    assert settings.gpu_budget_policy == "off"
+    assert settings.gpu_resize_policy == "cpu_fallback"
+    RuntimePhotoParams(film=params.film, print=params.print, settings=settings)
+
+
+def test_runtime_params_constructor_rejects_invalid_memory_policies() -> None:
+    params = make_fast_test_params()
+
+    with pytest.raises(ValueError, match="gpu_budget_policy must be one of"):
+        RuntimePhotoParams(
+            film=params.film,
+            print=params.print,
+            settings=type(params.settings)(gpu_budget_policy="hard"),
+        )
+    with pytest.raises(ValueError, match="gpu_peak_budget_mb must be > 0"):
+        RuntimePhotoParams(
+            film=params.film,
+            print=params.print,
+            settings=type(params.settings)(gpu_peak_budget_mb=0),
+        )
+    with pytest.raises(ValueError, match="gpu_resize_policy must be one of"):
+        RuntimePhotoParams(
+            film=params.film,
+            print=params.print,
+            settings=type(params.settings)(gpu_resize_policy="native_always"),
         )

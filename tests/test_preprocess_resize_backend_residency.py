@@ -42,6 +42,7 @@ def test_mlx_backend_preprocess_upscale_records_cpu_fallback_and_residency_break
     assert pipeline._backend._is_mlx_array(preprocessed)
     assert tuple(preprocessed.shape[:2]) == (10, 12)
     assert pipeline.timings["SimulationPipeline.preprocess.resize_cpu_fallback"] >= 0.0
+    assert pipeline.timings["SimulationPipeline.preprocess.resize_cpu_fallback_count"] == 1.0
     assert (
         pipeline.timings["SimulationPipeline.preprocess.resize_breaks_backend_residency"]
         == pipeline.timings["SimulationPipeline.preprocess.resize_cpu_fallback"]
@@ -61,3 +62,54 @@ def test_mlx_backend_preprocess_default_scale_does_not_record_resize_fallback() 
     assert tuple(preprocessed.shape[:2]) == (8, 10)
     assert "SimulationPipeline.preprocess.resize_cpu_fallback" not in pipeline.timings
     assert "SimulationPipeline.preprocess.resize_breaks_backend_residency" not in pipeline.timings
+
+
+def test_mlx_backend_resize_warn_policy_records_explicit_warning() -> None:
+    _mlx_available_or_skip()
+    params = _mlx_backend_params(upscale_factor=1.25)
+    params.settings.gpu_resize_policy = "warn"
+    pipeline = SimulationPipeline(params)
+
+    pipeline._preprocess_base(np.ones((8, 10, 3), dtype=np.float32) * 0.184)
+
+    assert any("CPU fallback" in warning for warning in pipeline.memory_residency_warnings)
+
+
+def test_mlx_backend_resize_fail_policy_raises_before_residency_break() -> None:
+    _mlx_available_or_skip()
+    params = _mlx_backend_params(upscale_factor=1.25)
+    params.settings.gpu_resize_policy = "fail"
+    pipeline = SimulationPipeline(params)
+
+    with pytest.raises(RuntimeError, match="gpu_resize_policy='fail'"):
+        pipeline._preprocess_base(np.ones((8, 10, 3), dtype=np.float32) * 0.184)
+
+    assert "SimulationPipeline.preprocess.resize_cpu_fallback" not in pipeline.timings
+
+
+def test_mlx_backend_resize_fail_policy_does_not_block_preview() -> None:
+    _mlx_available_or_skip()
+    params = _mlx_backend_params(upscale_factor=1.25)
+    params.settings.gpu_resize_policy = "fail"
+    params.settings.preview_mode = True
+    pipeline = SimulationPipeline(params)
+
+    preprocessed, _ = pipeline._preprocess_base(np.ones((8, 10, 3), dtype=np.float32) * 0.184)
+
+    assert pipeline._backend._is_mlx_array(preprocessed)
+    assert pipeline.timings["SimulationPipeline.preprocess.resize_cpu_fallback_count"] == 1.0
+
+
+def test_cpu_backend_resize_policy_is_unchanged() -> None:
+    params = make_fast_test_params()
+    params.settings.compute_backend = "cpu"
+    params.settings.gpu_resize_policy = "fail"
+    params.io.upscale_factor = 1.25
+    params.camera.auto_exposure = False
+    pipeline = SimulationPipeline(params)
+
+    preprocessed, auto_ev = pipeline._preprocess_base(np.ones((8, 10, 3), dtype=np.float32))
+
+    assert auto_ev is None
+    assert isinstance(preprocessed, np.ndarray)
+    assert preprocessed.shape[:2] == (10, 12)

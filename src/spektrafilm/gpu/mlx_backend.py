@@ -6,7 +6,11 @@ from typing import Any
 import numpy as np
 
 from spektrafilm.gpu.backend import BackendUnavailableError
-from spektrafilm.gpu.residency import record_conversion
+from spektrafilm.gpu.residency import (
+    profile_backend_operation,
+    record_conversion,
+    residency_recording_active,
+)
 
 
 _CMY_TO_LOG_RAW_KERNEL = None
@@ -400,44 +404,60 @@ class MlxBackend:
         return type(value).__module__.startswith("mlx.")
 
     def asarray(self, value: Any, dtype: Any | None = None):
-        if self._is_mlx_array(value):
-            if dtype is None or value.dtype == dtype:
-                result = value
+        with profile_backend_operation("asarray", self, value) as profile:
+            if self._is_mlx_array(value):
+                if dtype is None or value.dtype == dtype:
+                    result = value
+                else:
+                    result = value.astype(dtype)
             else:
-                result = value.astype(dtype)
-        else:
-            result = self.mx.array(value, dtype=dtype or self.default_dtype)
-        record_conversion("asarray", self.name, value, result)
+                result = self.mx.array(value, dtype=dtype or self.default_dtype)
+            if profile is not None:
+                profile.result = result
+            else:
+                record_conversion("asarray", self.name, value, result)
         return result
 
     def to_numpy(self, value: Any) -> np.ndarray:
-        if not self._is_mlx_array(value):
-            result = np.asarray(value)
-            record_conversion("to_numpy", self.name, value, result)
-            return result
-        self.eval(value)
-        result = np.asarray(value)
-        record_conversion("to_numpy", self.name, value, result)
+        with profile_backend_operation("to_numpy", self, value) as profile:
+            if not self._is_mlx_array(value):
+                result = np.asarray(value)
+            else:
+                self.eval(value)
+                result = np.asarray(value)
+            if profile is not None:
+                profile.result = result
+            else:
+                record_conversion("to_numpy", self.name, value, result)
         return result
 
     def eval(self, *values: Any) -> None:
         mlx_values = [value for value in values if self._is_mlx_array(value)]
         if mlx_values:
-            self.mx.eval(*mlx_values)
+            with profile_backend_operation("eval", self, mlx_values[0], category="sync") as profile:
+                self.mx.eval(*mlx_values)
+                if profile is not None:
+                    profile.result = mlx_values[0]
 
     def synchronize(self) -> None:
-        self.mx.synchronize()
+        with profile_backend_operation("synchronize", self, category="sync"):
+            self.mx.synchronize()
 
     def cleanup(self) -> None:
         import gc
-        gc.collect()
-        self.synchronize()
-        clear_cache = getattr(self.mx, "clear_cache", None)
-        if not callable(clear_cache):
-            metal = getattr(self.mx, "metal", None)
-            clear_cache = getattr(metal, "clear_cache", None)
-        if callable(clear_cache):
-            clear_cache()
+        with profile_backend_operation("cleanup", self, category="cleanup"):
+            gc.collect()
+            self.synchronize()
+            clear_cache = getattr(self.mx, "clear_cache", None)
+            if not callable(clear_cache):
+                metal = getattr(self.mx, "metal", None)
+                clear_cache = getattr(metal, "clear_cache", None)
+            if callable(clear_cache):
+                if residency_recording_active():
+                    with profile_backend_operation("clear_cache", self, category="cleanup"):
+                        clear_cache()
+                else:
+                    clear_cache()
 
     def zeros(self, shape: tuple[int, ...], dtype: Any | None = None) -> Any:
         return self.mx.zeros(shape, dtype=dtype or self.default_dtype)

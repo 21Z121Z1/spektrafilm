@@ -250,6 +250,9 @@ class SettingsParams:
     hdr_route_sidecar_policy: str = "minimal"
     gpu_validate: bool = False
     gpu_validation_tolerance: float | None = None
+    gpu_peak_budget_mb: float | None = None
+    gpu_budget_policy: str = "off"
+    gpu_resize_policy: str = "cpu_fallback"
     gpu_aggressive_cleanup: bool = False
     gpu_cleanup_cache_threshold_mb: float | None = 8192.0
     gpu_tile_rows: int | None = None
@@ -294,5 +297,23 @@ class RuntimePhotoParams:
                 "materialize_policy must be one of: 'numpy_float64', 'numpy_float32', 'backend'"
             )
         normalize_precision_policy(self.settings.color_precision_policy)
-        if self.settings.hdr_route_sidecar_policy not in {"minimal", "full"}:
-            raise ValueError("hdr_route_sidecar_policy must be either 'minimal' or 'full'")
+        if self.settings.hdr_route_sidecar_policy not in {"minimal", "full", "on_demand"}:
+            raise ValueError(
+                "hdr_route_sidecar_policy must be one of: 'minimal', 'full', 'on_demand'"
+            )
+        if self.settings.gpu_budget_policy not in {"off", "warn", "soft_enforce", "fail"}:
+            raise ValueError(
+                "gpu_budget_policy must be one of: 'off', 'warn', 'soft_enforce', 'fail'"
+            )
+        if self.settings.gpu_peak_budget_mb is not None and self.settings.gpu_peak_budget_mb <= 0:
+            raise ValueError("gpu_peak_budget_mb must be > 0 when set")
+        if self.settings.gpu_resize_policy not in {
+            "cpu_fallback",
+            "warn",
+            "fail",
+            "native_if_available",
+        }:
+            raise ValueError(
+                "gpu_resize_policy must be one of: "
+                "'cpu_fallback', 'warn', 'fail', 'native_if_available'"
+            )

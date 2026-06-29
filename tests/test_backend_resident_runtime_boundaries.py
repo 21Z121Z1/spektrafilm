@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -159,3 +160,69 @@ def test_residency_diagnostic_flags_manual_full_size_mlx_to_numpy() -> None:
     assert len(unallowed) == 1
     assert unallowed[0].shape == (32, 32, 3)
     assert unallowed[0].reason == "unallowed_full_size_to_numpy"
+
+
+def test_residency_recorder_profiles_mlx_sync_cleanup_and_memory_events() -> None:
+    backend = _mlx_backend_or_skip()
+
+    with record_backend_residency(small_array_bytes=1024) as recorder:
+        value = backend.asarray(np.ones((2, 3), dtype=np.float32), dtype=backend.default_dtype)
+        backend.eval(value)
+        backend.to_numpy(value)
+        backend.synchronize()
+        backend.cleanup()
+
+    summary = recorder.summary()
+    assert summary["asarray"] >= 1
+    assert summary["to_numpy"] >= 1
+    assert summary["eval"] >= 1
+    assert summary["synchronize"] >= 1
+    assert summary["cleanup"] >= 1
+    assert all(
+        event.elapsed_seconds is not None
+        for event in recorder.events
+        if event.backend == "mlx"
+    )
+    assert any(event.category == "sync" for event in recorder.events)
+    assert any(event.category == "cleanup" for event in recorder.events)
+
+
+def test_runtime_materialization_boundary_uses_backend_to_numpy_for_gpu_policy() -> None:
+    pipeline_source = Path("src/spektrafilm/runtime/pipeline.py").read_text(encoding="utf-8")
+    body = pipeline_source.split("def _materialize_output_value(self, value):", 1)[1].split(
+        "def _materialize_sidecar_array(",
+        1,
+    )[0]
+
+    assert "self._backend.to_numpy(value)" in body
+
+
+def test_gpu_budget_warn_soft_enforce_and_fail_policies() -> None:
+    _mlx_backend_or_skip()
+    image = _image(16)
+
+    warn_params = _params()
+    warn_params.settings.gpu_peak_budget_mb = 0.001
+    warn_params.settings.gpu_budget_policy = "warn"
+    warn_pipeline = SimulationPipeline(warn_params)
+    warn_pipeline.process(image)
+    assert warn_pipeline.memory_budget_report is not None
+    assert warn_pipeline.memory_budget_report["status"] == "warn"
+    assert warn_pipeline.memory_residency_warnings
+
+    soft_params = _params()
+    soft_params.settings.gpu_peak_budget_mb = 0.001
+    soft_params.settings.gpu_budget_policy = "soft_enforce"
+    soft_pipeline = SimulationPipeline(soft_params)
+    soft_pipeline.process(image)
+    assert soft_pipeline.memory_budget_report is not None
+    assert soft_pipeline.memory_budget_report["status"] == "soft_enforced"
+    assert soft_pipeline.settings.gpu_tile_rows is not None
+    assert soft_pipeline.settings.gpu_spatial_tile_rows is not None
+
+    fail_params = _params()
+    fail_params.settings.gpu_peak_budget_mb = 0.001
+    fail_params.settings.gpu_budget_policy = "fail"
+    fail_pipeline = SimulationPipeline(fail_params)
+    with pytest.raises(RuntimeError, match="Estimated GPU peak memory"):
+        fail_pipeline.process(image)
