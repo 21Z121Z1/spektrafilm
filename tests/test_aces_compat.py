@@ -22,6 +22,68 @@ from spektrafilm.color_management import aces_sdr_video_view_transform
 from spektrafilm.runtime.params_schema import IOParams
 
 
+class _FakeBuiltinRegistry:
+    def getBuiltinConfigs(self):
+        return [("studio-config-v4.0.0_aces-v2.0_ocio-v2.5", "ACES test config")]
+
+
+class _FakeCPUProcessor:
+    def applyRGB(self, flat: np.ndarray) -> None:
+        flat += np.float32(0.0)
+
+
+class _FakeProcessor:
+    def getDefaultCPUProcessor(self) -> _FakeCPUProcessor:
+        return _FakeCPUProcessor()
+
+
+class _FakeDisplayViewTransform:
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+
+
+class _FakeConfig:
+    validated = False
+    loaded_from_builtin: str | None = None
+    loaded_from_file: str | None = None
+
+    @classmethod
+    def CreateFromBuiltinConfig(cls, name: str) -> _FakeConfig:
+        cls.loaded_from_builtin = name
+        return cls()
+
+    @classmethod
+    def CreateFromFile(cls, path: str) -> _FakeConfig:
+        cls.loaded_from_file = path
+        return cls()
+
+    def validate(self) -> None:
+        type(self).validated = True
+
+    def getRoleColorSpace(self, role: str) -> str | None:
+        return {
+            "aces_interchange": ACES_INTERCHANGE_COLOR_SPACE,
+            "scene_linear": "ACES - ACEScg",
+        }.get(role)
+
+    def getCacheID(self) -> str:
+        return "fake-cache-id"
+
+    def getViews(self, display: str) -> list[str]:
+        assert display == "sRGB - Display"
+        return ["Raw", "ACES 2.0 - SDR Video"]
+
+    def getProcessor(self, *args):
+        return _FakeProcessor()
+
+
+class _FakeOcio:
+    TRANSFORM_DIR_FORWARD = "forward"
+    Config = _FakeConfig
+    BuiltinConfigRegistry = _FakeBuiltinRegistry
+    DisplayViewTransform = _FakeDisplayViewTransform
+
+
 def test_acescg_aces2065_1_roundtrip_preserves_shape_dtype_and_finiteness() -> None:
     image = np.array([[[0.18, 0.18, 0.18], [1.2, 0.3, 0.05]]], dtype=np.float32)
     ap0 = acescg_to_aces2065_1(image)
@@ -100,6 +162,31 @@ def test_aces_reference_workflow_contract_is_unchanged() -> None:
     assert io.output_clip_max is False
     assert preset.saving_color_space == ACES_INTERCHANGE_COLOR_SPACE
     assert preset.saving_cctf_encoding is False
+
+
+def test_load_aces_ocio_config_accepts_injected_ocio_module_and_validates() -> None:
+    _FakeConfig.validated = False
+    _FakeConfig.loaded_from_builtin = None
+    config, diagnostics = load_aces_ocio_config(ocio_module=_FakeOcio)
+    assert isinstance(config, _FakeConfig)
+    assert _FakeConfig.validated is True
+    assert _FakeConfig.loaded_from_builtin == "studio-config-v4.0.0_aces-v2.0_ocio-v2.5"
+    assert diagnostics.ocio_config_source == "builtin:studio-config-v4.0.0_aces-v2.0_ocio-v2.5"
+    assert diagnostics.ocio_roles["aces_interchange"] == ACES_INTERCHANGE_COLOR_SPACE
+
+
+def test_render_aces_ocio_view_can_select_default_sdr_view_with_injected_ocio_module() -> None:
+    image = np.array([[[0.18, 0.18, 0.18]]], dtype=np.float32)
+    config, config_diag = load_aces_ocio_config(ocio_module=_FakeOcio)
+    rendered, diagnostics = render_aces_ocio_view(
+        image,
+        config=config,
+        source_color_space=config_diag.ocio_roles["scene_linear"],
+        display="sRGB - Display",
+        ocio_module=_FakeOcio,
+    )
+    np.testing.assert_allclose(rendered, image)
+    assert diagnostics.view == "ACES 2.0 - SDR Video"
 
 
 def test_ocio_unavailable_is_explicit_or_available() -> None:

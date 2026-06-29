@@ -56,8 +56,11 @@ _ACES_SDR_OUTPUT_MATRIX = np.array(
     dtype=np.float32,
 )
 _COMMON_ACES_BUILTIN_CONFIGS = (
+    "studio-config-v4.0.0_aces-v2.0_ocio-v2.5",
     "studio-config-v2.2.0_aces-v1.3_ocio-v2.4",
     "studio-config-v2.1.0_aces-v1.3_ocio-v2.3",
+    "studio-config-v1.0.0_aces-v1.3_ocio-v2.1",
+    "cg-config-v4.0.0_aces-v2.0_ocio-v2.5",
     "cg-config-v2.2.0_aces-v1.3_ocio-v2.4",
     "cg-config-v2.1.0_aces-v1.3_ocio-v2.3",
 )
@@ -206,12 +209,16 @@ def _builtin_config_names(ocio: Any) -> tuple[str, ...]:
     if getter is not None:
         try:
             registry = getter()
+            get_builtin_configs = getattr(registry, "getBuiltinConfigs", None)
+            items = get_builtin_configs() if get_builtin_configs is not None else registry
             names = []
-            for item in registry:
+            for item in items:
                 if isinstance(item, str):
                     names.append(item)
                 elif isinstance(item, Sequence) and item:
                     names.append(str(item[0]))
+                else:
+                    names.append(str(item))
             if names:
                 return tuple(names)
         except Exception:
@@ -219,17 +226,29 @@ def _builtin_config_names(ocio: Any) -> tuple[str, ...]:
     return _COMMON_ACES_BUILTIN_CONFIGS
 
 
+def _validate_ocio_config(config: Any) -> None:
+    validate = getattr(config, "validate", None)
+    if validate is not None:
+        validate()
+
+
 def load_aces_ocio_config(
     config_path: str | Path | None = None,
     *,
     builtin_config_name: str | None = None,
+    ocio_module: Any | None = None,
 ) -> tuple[Any, AcesTransformDiagnostics]:
-    """Load an official/user OCIO config for ACES view rendering."""
+    """Load an official/user OCIO config for ACES view rendering.
 
-    ocio = _import_ocio()
+    ``ocio_module`` is an optional test seam. Runtime callers should leave it
+    unset so PyOpenColorIO/opencolorio is imported normally.
+    """
+
+    ocio = ocio_module if ocio_module is not None else _import_ocio()
     if config_path is not None:
         path = str(Path(config_path).expanduser())
         config = ocio.Config.CreateFromFile(path)
+        _validate_ocio_config(config)
         return config, _diagnostics_for_config(config, config_source=path)
 
     names = (builtin_config_name,) if builtin_config_name else tuple(
@@ -243,6 +262,7 @@ def load_aces_ocio_config(
         attempted.append(str(name))
         try:
             config = ocio.Config.CreateFromBuiltinConfig(str(name))
+            _validate_ocio_config(config)
             return config, _diagnostics_for_config(config, config_source=f"builtin:{name}")
         except Exception as exc:
             last_exc = exc
@@ -254,7 +274,15 @@ def load_aces_ocio_config(
 
 def _diagnostics_for_config(config: Any, *, config_source: str) -> AcesTransformDiagnostics:
     roles: dict[str, str] = {}
-    for role in ("scene_linear", "compositing_log", "color_picking", "default", "data"):
+    for role in (
+        "aces_interchange",
+        "scene_linear",
+        "color_timing",
+        "compositing_log",
+        "color_picking",
+        "default",
+        "data",
+    ):
         try:
             value = config.getRoleColorSpace(role)
         except Exception:
@@ -273,26 +301,49 @@ def _diagnostics_for_config(config: Any, *, config_source: str) -> AcesTransform
     )
 
 
+def _default_view_for_display(config: Any, display: str, explicit_view: str | None) -> str:
+    try:
+        views = [str(view) for view in config.getViews(display)]
+    except Exception as exc:
+        raise AcesOcioUnavailableError(f"Unable to list OCIO views for display {display!r}.") from exc
+    if explicit_view is not None:
+        if explicit_view not in views:
+            raise AcesOcioUnavailableError(
+                f"OCIO display {display!r} does not provide view {explicit_view!r}; available views: {views}."
+            )
+        return explicit_view
+    for preferred_prefix in ("ACES 2.0 - SDR", "ACES 1.0 - SDR Video"):
+        for candidate in views:
+            if candidate.startswith(preferred_prefix):
+                return candidate
+    for candidate in views:
+        if candidate != "Raw":
+            return candidate
+    raise AcesOcioUnavailableError(f"OCIO display {display!r} has no usable view.")
+
+
 def render_aces_ocio_view(
     image_data: np.ndarray,
     *,
     config: Any,
     source_color_space: str = "ACES - ACEScg",
     display: str,
-    view: str,
+    view: str | None = None,
     looks: str | None = None,
+    ocio_module: Any | None = None,
 ) -> tuple[np.ndarray, AcesTransformDiagnostics]:
     """Render ACES scene-linear RGB through a supplied OCIO display/view."""
 
-    ocio = _import_ocio()
+    ocio = ocio_module if ocio_module is not None else _import_ocio()
+    view_name = _default_view_for_display(config, display, view)
     image = np.ascontiguousarray(_as_float32_rgb(image_data), dtype=np.float32)
     try:
-        processor = config.getProcessor(source_color_space, display, view, ocio.TRANSFORM_DIR_FORWARD)
+        processor = config.getProcessor(source_color_space, display, view_name, ocio.TRANSFORM_DIR_FORWARD)
     except TypeError:
         transform = ocio.DisplayViewTransform(
             src=source_color_space,
             display=display,
-            view=view,
+            view=view_name,
             looks=looks or "",
             direction=ocio.TRANSFORM_DIR_FORWARD,
         )
@@ -306,7 +357,7 @@ def render_aces_ocio_view(
         implementation_kind="ocio_official_or_configured",
         source_color_space=source_color_space,
         display=display,
-        view=view,
+        view=view_name,
         looks=looks,
         ocio_config_source=diagnostics.ocio_config_source,
         ocio_config_cache_id=diagnostics.ocio_config_cache_id,
