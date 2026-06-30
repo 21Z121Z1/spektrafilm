@@ -86,10 +86,10 @@ def aces_sdr_video_view_transform(
 ) -> np.ndarray:
     """Render ACES scene-linear RGB through SpektraFilm's SDR video view.
 
-    This is a named ACES-style SDR Output Transform for GUI preview: input is
+    This is a named ACES-style SDR preview transform for GUI preview: input is
     scene-linear ACES2065-1 or ACEScg, output is display-referred sRGB code
-    values in [0, 1]. It is intentionally local and deterministic until the
-    project ships an OCIO ACES config dependency.
+    values in [0, 1]. It is intentionally local and deterministic, not an
+    official ACES Output Transform.
     """
 
     return render_aces_local_sdr_preview(

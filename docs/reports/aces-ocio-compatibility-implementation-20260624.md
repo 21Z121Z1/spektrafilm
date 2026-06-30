@@ -48,24 +48,37 @@ This change does not open ACEScg or ACES2065-1 scene-linear LUT input roles. The
 
 ## Test commands
 
-Required local checks:
+Required local checks in this checkout:
 
 ```bash
-python -m pytest tests/test_color_management.py tests/test_aces_compat.py -q
+.venv/bin/python -m pytest tests/test_color_management.py tests/test_aces_compat.py -q
 git diff --check
 ```
 
 Optional checks when PyOpenColorIO is installed:
 
 ```bash
-python -m pytest tests/test_aces_compat.py -q -k ocio
+.venv/bin/python -m pytest tests/test_aces_compat.py -q -k ocio
 ```
 
 If LUT creator registry code is changed in a later patch, run the LUT creator test subset as well. This implementation does not change the LUT creator runtime registry.
 
 ## Validation in this execution environment
 
-The container could not clone GitHub because DNS resolution for `github.com` failed. The branch was therefore committed through the GitHub connector. Local validation in the container was limited to syntax compilation of the generated implementation files; full pytest must be run in a real checkout with project dependencies installed.
+Validated in `/Users/retriedstormtrooper/Documents/Projects/Active/spektrafilm-main` with the project virtual environment:
+
+```bash
+.venv/bin/python -m pytest tests/test_color_management.py tests/test_aces_compat.py -q
+# 27 passed in 0.12s
+
+.venv/bin/python -m pytest tests/test_aces_compat.py -q -k ocio
+# 4 passed, 12 deselected in 0.08s
+
+git diff --check
+# passed with no output
+```
+
+PyOpenColorIO is available in this environment, so the OCIO smoke path executed instead of skipping.
 
 ## Self-review
 
