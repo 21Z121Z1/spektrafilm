@@ -1,7 +1,10 @@
+import hashlib
+
 import numpy as np
 import pytest
 
 from spektrafilm.gpu.backend import BackendUnavailableError, select_backend
+from spektrafilm.gpu.kernels import grain as grain_kernels
 from spektrafilm.model.density_curves import interp_density_cmy_layers
 from spektrafilm.model.grain import apply_grain_to_density, apply_grain_to_density_layers, layer_particle_model
 from spektrafilm.model.grain import apply_grain
@@ -27,6 +30,123 @@ def _mlx_backend_or_skip():
 
 
 class TestApplyGrain:
+    def test_mlx_poisson_all_normal_skips_unused_knuth_and_preserves_golden_bytes(self, monkeypatch):
+        backend = _mlx_backend_or_skip()
+        lam = backend.mx.full((7, 11), np.float32(12.5), dtype=backend.mx.float32)
+
+        def fail_uniform(*_args, **_kwargs):
+            raise AssertionError("all-normal Poisson path must not construct Knuth uniforms")
+
+        monkeypatch.setattr(backend.mx.random, "uniform", fail_uniform)
+
+        result = grain_kernels.fast_poisson_backend(
+            lam,
+            backend,
+            seed=41,
+            all_lam_above_threshold=True,
+        )
+        actual = backend.to_numpy(result)
+
+        assert actual.dtype == np.int32
+        assert hashlib.sha256(actual.tobytes()).hexdigest() == (
+            "d17d64f16e8dea63c2289cd26a24158496b87c9b38318c05378c0f66ad00790c"
+        )
+
+    def test_mlx_poisson_mixed_and_threshold_values_keep_existing_golden_bytes(self):
+        backend = _mlx_backend_or_skip()
+        mixed = backend.asarray(np.array([[2.0, 12.5], [9.0, 20.0]], dtype=np.float32))
+        edge = backend.asarray(np.array([[0.0, 1e-6, 10.0, 10.0001, 100.0]], dtype=np.float32))
+
+        mixed_result = backend.to_numpy(grain_kernels.fast_poisson_backend(mixed, backend, seed=42))
+        edge_result = backend.to_numpy(grain_kernels.fast_poisson_backend(edge, backend, seed=43))
+
+        np.testing.assert_array_equal(mixed_result, np.array([[2, 18], [9, 18]], dtype=np.int32))
+        np.testing.assert_array_equal(edge_result, np.array([[0, 0, 7, 4, 102]], dtype=np.int32))
+
+    def test_mlx_poisson_unhinted_mixed_path_does_not_add_scalar_all_sync(self, monkeypatch):
+        backend = _mlx_backend_or_skip()
+        mixed = backend.asarray(np.array([[2.0, 12.5], [9.0, 20.0]], dtype=np.float32))
+
+        def fail_all(*_args, **_kwargs):
+            raise AssertionError("unhinted mixed path must retain the legacy graph without scalar sync")
+
+        monkeypatch.setattr(backend.mx, "all", fail_all)
+
+        result = grain_kernels.fast_poisson_backend(mixed, backend, seed=42)
+        backend.eval(result)
+
+    def test_layer_particle_model_passes_only_statically_proven_all_normal_hint(self, monkeypatch):
+        backend = _mlx_backend_or_skip()
+        captured: list[bool] = []
+        captured_lambdas: list[np.ndarray] = []
+
+        def fake_poisson(lam, _backend, *, seed=None, all_lam_above_threshold=False):
+            del seed
+            captured.append(bool(all_lam_above_threshold))
+            captured_lambdas.append(backend.to_numpy(lam))
+            return backend.mx.zeros(lam.shape, dtype=backend.mx.int32)
+
+        monkeypatch.setattr(grain_kernels, "fast_poisson_backend", fake_poisson)
+        density = backend.asarray(np.full((2, 2), 0.5, dtype=np.float32))
+
+        layer_particle_model(
+            density,
+            n_particles_per_pixel=30.0,
+            grain_uniformity=0.97,
+            seed=1,
+            backend=backend,
+        )
+        layer_particle_model(
+            density,
+            n_particles_per_pixel=5.0,
+            grain_uniformity=0.97,
+            seed=2,
+            backend=backend,
+        )
+        layer_particle_model(
+            density,
+            n_particles_per_pixel=10.0000001,
+            grain_uniformity=0.0,
+            seed=3,
+            backend=backend,
+        )
+        next_float32 = np.nextafter(np.float32(10.0), np.float32(np.inf))
+        layer_particle_model(
+            density,
+            n_particles_per_pixel=next_float32,
+            grain_uniformity=0.0,
+            seed=4,
+            backend=backend,
+        )
+
+        assert captured == [True, False, False, True]
+        assert np.all(captured_lambdas[2] == np.float32(10.0))
+        assert np.all(captured_lambdas[3] == next_float32)
+
+    def test_mlx_poisson_float32_threshold_hint_matches_legacy_branch(self):
+        backend = _mlx_backend_or_skip()
+        rounded_to_threshold = backend.asarray(np.array([10.0000001], dtype=np.float32))
+        next_float32 = np.nextafter(np.float32(10.0), np.float32(np.inf))
+        above_threshold = backend.asarray(np.array([next_float32], dtype=np.float32))
+
+        rounded_legacy = grain_kernels.fast_poisson_backend(rounded_to_threshold, backend, seed=41)
+        rounded_current = grain_kernels.fast_poisson_backend(
+            rounded_to_threshold,
+            backend,
+            seed=41,
+            all_lam_above_threshold=False,
+        )
+        above_legacy = grain_kernels.fast_poisson_backend(above_threshold, backend, seed=42)
+        above_current = grain_kernels.fast_poisson_backend(
+            above_threshold,
+            backend,
+            seed=42,
+            all_lam_above_threshold=True,
+        )
+
+        np.testing.assert_array_equal(backend.to_numpy(rounded_current), backend.to_numpy(rounded_legacy))
+        np.testing.assert_array_equal(backend.to_numpy(above_current), backend.to_numpy(above_legacy))
+
     def test_layer_particle_model_seed_does_not_touch_global_rng_for_generator_path(self):
         density = np.full((2, 2), 0.5, dtype=np.float64)
         np.random.seed(12345)

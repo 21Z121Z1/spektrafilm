@@ -1,0 +1,375 @@
+{
+  "schema_version": 1,
+  "audit_date": "2026-07-11",
+  "head_sha": "bc9c4972f82712960f5dd27f74d705a52ca6f799",
+  "baseline_branch": "origin/develop",
+  "audit_branch": "codex/mlx-performance-reaudit-20260710",
+  "environment": {
+    "hardware": "Apple M1 Pro",
+    "machine": "arm64",
+    "unified_memory_bytes": 17179869184,
+    "macos": "26.5.1 (25F80)",
+    "python": "3.13.1",
+    "mlx": "0.31.2",
+    "numpy": "2.4.4",
+    "rawpy": "0.26.1",
+    "psutil": "7.2.2",
+    "pytest": "9.0.3",
+    "mlx_backend": "Metal GPU",
+    "physical_footprint_tool": "/usr/bin/footprint"
+  },
+  "agent_configuration": {
+    "requested_controller_label": "GPT-5.6 Sol",
+    "requested_worker_label": "GPT-5.6 Luna",
+    "runtime_model_identity_inspectable": false,
+    "worker_model_assignment_supported": false,
+    "actual_parallel_structure": "controller plus three model-opaque subagents; controller occupied the fourth validation seat",
+    "independent_review": "one additional model-opaque read-only reviewer with iterative follow-up",
+    "final_adversarial_review": "R4 CLEAR; no remaining Critical or Important findings"
+  },
+  "input": {
+    "synthetic_50mp": {
+      "height": 6120,
+      "width": 8160,
+      "pixels": 49939200,
+      "channels": 3,
+      "dtype": "float32",
+      "generation": "direct_deterministic_linear_rgb",
+      "seed": 20260710,
+      "upscaled": false,
+      "real_50mp_raw": false,
+      "bytes": 599270400
+    },
+    "real_raw_probe": {
+      "path": "scratch/IMG_9121_converted.DNG",
+      "width": 4032,
+      "height": 3024,
+      "pixels": 12192768,
+      "real_raw": true,
+      "real_50mp_raw": false,
+      "decode_seconds": 0.5790505830082111,
+      "output_dtype": "float32",
+      "output_bytes": 146313216,
+      "output_sha256": "c66b46ade5f623be3e2a5f8de10113910e92b984b6ced16bf830b530ffa0efcd",
+      "rss_tree_peak_bytes": 771801088,
+      "physical_footprint_peak_bytes": 269484032
+    },
+    "conservative_50mp_raw_overlap": {
+      "raw_mosaic_bytes": 99878400,
+      "decoder_rgb_bytes": 299635200,
+      "spektrafilm_float32_input_bytes": 599270400,
+      "simultaneous_bytes": 998784000,
+      "includes_mlx_allocator": false
+    }
+  },
+  "scenarios": {
+    "baseline_50mp": {
+      "scan-only": {
+        "status": "memory-guard",
+        "completed": false,
+        "parity_ok": false,
+        "physical_footprint_peak_bytes": 11811160064,
+        "physical_footprint_reported_peak_upper_bound_bytes": 11811160064,
+        "rss_tree_peak_bytes": 9618325504,
+        "minimum_memory_free_percent": 25.0,
+        "swap_growth_bytes": 960296386,
+        "guard_bytes": 11274289152,
+        "exceptional_fallback": false
+      },
+      "film-paper": {
+        "status": "not-run-safety-abort",
+        "blocked_by": "scan-only memory guard",
+        "parity_ok": false
+      },
+      "film-paper-spatial-grain": {
+        "status": "not-run-safety-abort",
+        "blocked_by": "scan-only memory guard and 12MP full-effects 11GiB observation",
+        "parity_ok": false
+      },
+      "hdr-light-table": {
+        "status": "not-run-safety-abort",
+        "blocked_by": "scan-only memory guard and 12MP HDR light-table 11GiB observation",
+        "parity_ok": false
+      },
+      "hdr-paper": {
+        "status": "not-run-safety-abort",
+        "blocked_by": "shared heavier lifecycle",
+        "parity_ok": false
+      },
+      "preprocess-resize": {
+        "status": "not-run-safety-abort",
+        "blocked_by": "scan-only memory guard; 1.25x output is larger",
+        "parity_ok": false
+      },
+      "save-boundary": {
+        "status": "not-run-safety-abort",
+        "blocked_by": "scan-only memory guard plus encoder buffers",
+        "parity_ok": false
+      },
+      "hdr-export-boundary": {
+        "status": "not-run-safety-abort",
+        "blocked_by": "scan-only memory guard plus SDR/HDR/gain-map/encoder buffers",
+        "parity_ok": false
+      }
+    },
+    "baseline_12mp_route_isolation": {
+      "scan-only": {
+        "status": "ok",
+        "cold_seconds": 2.352965292026056,
+        "hot_median_seconds": 1.862746270999196,
+        "physical_footprint_peak_bytes": 4629463040,
+        "rss_tree_peak_bytes": 3272245248,
+        "mlx_peak_bytes": 1475679792,
+        "mlx_cache_bytes": 2463472453,
+        "parity_ok": true
+      },
+      "film-paper": {
+        "status": "ok",
+        "cold_seconds": 2.6282780839828774,
+        "hot_median_seconds": 2.2716760204930324,
+        "physical_footprint_peak_bytes": 4667211776,
+        "rss_tree_peak_bytes": 3273703424,
+        "mlx_peak_bytes": 1475679816,
+        "mlx_cache_bytes": 2500064082,
+        "parity_ok": true
+      },
+      "preprocess-resize": {
+        "status": "ok",
+        "cold_seconds": 23.253525667008944,
+        "hot_median_seconds": 22.67605404200731,
+        "physical_footprint_peak_bytes": 7259291648,
+        "rss_tree_peak_bytes": 5167710208,
+        "mlx_peak_bytes": 2077119880,
+        "mlx_cache_bytes": 3919158085,
+        "parity_ok": true
+      },
+      "save-boundary": {
+        "status": "ok",
+        "cold_seconds": 4.170831665978767,
+        "hot_median_seconds": 2.6582151250040624,
+        "physical_footprint_peak_bytes": 4682940416,
+        "rss_tree_peak_bytes": 3291365376,
+        "mlx_peak_bytes": 1475679816,
+        "mlx_cache_bytes": 2500064082,
+        "parity_ok": true
+      }
+    },
+    "baseline_12mp_full_effects": {
+      "status": "memory-guard",
+      "physical_footprint_peak_bytes": 11811160064,
+      "rss_tree_peak_bytes": 4056809472,
+      "minimum_memory_free_percent": 18.0,
+      "swap_growth_bytes": 2076044165,
+      "parity_ok": false
+    },
+    "baseline_12mp_hdr_light_table": {
+      "status": "memory-guard",
+      "physical_footprint_peak_bytes": 11811160064,
+      "rss_tree_peak_bytes": 4105863168,
+      "minimum_memory_free_percent": 20.0,
+      "swap_growth_bytes": 2662858752,
+      "parity_ok": false
+    }
+  },
+  "memory": {
+    "guard_gib": 10.5,
+    "acceptance_pass_gib": 12.0,
+    "acceptance_fail_gib": 13.0,
+    "counters_overlap": true,
+    "combined_counter_total": null,
+    "note": "MLX active, peak and cache are allocator views that overlap RSS and physical footprint; they are never added. Primary physical peak is the maximum concurrent process-tree sample; summed per-process historical peaks are retained only as an upper-bound diagnostic."
+  },
+  "parity": {
+    "poisson_all_normal": {
+      "grain_golden_bytes": true,
+      "mixed_threshold_golden_bytes": true,
+      "float32_rounding_threshold_covered": true,
+      "nan_negative_empty_infinity_match_legacy": true,
+      "unhinted_path_has_no_added_scalar_sync": true,
+      "film_paper_spatial_grain_exact_sha256": true,
+      "hdr_light_table_exact_sha256": true,
+      "hdr_paper_exact_sha256": true,
+      "hdr_export_heic_exact_sha256": true
+    },
+    "fused_filming_tiling": {
+      "exact": false,
+      "max_abs_diff": 0.0000036954879760742188,
+      "count_above_1e_6": 211850
+    }
+  },
+  "production_candidate": {
+    "id": "P0-GRAIN-ALL-NORMAL",
+    "code": [
+      "src/spektrafilm/model/grain.py",
+      "src/spektrafilm/gpu/kernels/grain.py"
+    ],
+    "status": "implemented-after-baseline",
+    "conclusion": "measured-win",
+    "semantics": "The grain caller supplies a hint only when scalar particle_count remains strictly greater than 10 after conversion to the float32 value used by MLX, and scalar uniformity is in [0,1]. This proves lambda = particle_count / saturation > 10 for every pixel. Python 10.0000001, which rounds to float32 10.0, is explicitly rejected; nextafter(float32(10), +inf) is accepted. The MLX sampler then returns the original normal_clamped branch before constructing 60 unused Knuth rounds. RNG key, normal samples, rounding and clamp are unchanged. Unhinted mixed, NaN, negative, empty and infinity inputs retain the legacy graph with no added device reduction or host sync.",
+    "reproducibility": {
+      "legacy_source_head": "bc9c4972f82712960f5dd27f74d705a52ca6f799",
+      "legacy_reference": "benchmark-local install_legacy_poisson_prototype",
+      "current_source_patch_sha256": "2dcb78272b2e33afea5a42d71250b1d1f25aa611b818bfb75923ae8f8efec15f",
+      "timer_scope": "pre-generated linear RGB simulation-to-array or simulation-to-HEIC; input generation and RAW decode reported separately"
+    },
+    "all_normal_1_5mp_ab": {
+      "legacy_hot_median_seconds": 1.1954119160072878,
+      "current_hot_median_seconds": 0.537265833991114,
+      "hot_change_percent": -55.0560081594637,
+      "legacy_physical_footprint_bytes": 3264217088,
+      "current_physical_footprint_bytes": 1794113536,
+      "physical_change_percent": -45.03694185672984,
+      "exact_output_hash_match": true
+    },
+    "all_normal_1_5mp_ba": {
+      "legacy_hot_median_seconds": 1.2104660000186414,
+      "current_hot_median_seconds": 0.5421169159817509,
+      "hot_change_percent": -55.2141971791523,
+      "legacy_physical_footprint_bytes": 3131047936,
+      "current_physical_footprint_bytes": 1812987904,
+      "physical_change_percent": -42.09645010046885,
+      "exact_output_hash_match": true
+    },
+    "mixed_50mp_pixel_size_ab": {
+      "shape": [128, 8160, 3],
+      "legacy_hot_median_seconds": 0.880605790996924,
+      "current_hot_median_seconds": 0.7388379169860855,
+      "hot_change_percent": -16.09890321642613,
+      "legacy_physical_footprint_bytes": 3148873728,
+      "current_physical_footprint_bytes": 2271215616,
+      "physical_change_percent": -27.872127872127873,
+      "exact_output_hash_match": true
+    },
+    "mixed_50mp_pixel_size_ba": {
+      "shape": [128, 8160, 3],
+      "legacy_hot_median_seconds": 0.9236013749905396,
+      "current_hot_median_seconds": 0.7523682500177529,
+      "hot_change_percent": -18.53972174679154,
+      "legacy_physical_footprint_bytes": 2631925760,
+      "current_physical_footprint_bytes": 2308964352,
+      "physical_change_percent": -12.270916334661353,
+      "exact_output_hash_match": true
+    },
+    "hdr_1_5mp": {
+      "light_table_hot_change_percent": -31.422186839536582,
+      "paper_hot_change_percent": -34.87794004802494,
+      "export_hot_change_percent": -19.61818017611626,
+      "light_table_physical_change_percent": -40.267286461359674,
+      "paper_physical_change_percent": -39.20068027210885,
+      "export_physical_change_percent": -36.92660550458715,
+      "exact_array_and_heic_hashes": true
+    },
+    "production_12mp": {
+      "status": "ok",
+      "verdict": "CONDITIONAL",
+      "cold_seconds": 5.941265541972825,
+      "hot_seconds": 5.533756082993932,
+      "physical_footprint_peak_bytes": 8516534272,
+      "physical_footprint_reported_peak_upper_bound_bytes": 9250537472,
+      "rss_tree_peak_bytes": 3283386368,
+      "mlx_peak_bytes": 4097054312,
+      "mlx_cache_bytes": 7055691713,
+      "swap_growth_bytes": 1330517115,
+      "swap_activity": "single jump then flat; short swap, not sustained thrashing",
+      "minimum_memory_free_percent": 26.0,
+      "output_sha256": "7fce313103b81af502341707077850dbe48e9222373349d20dee0528a01a7358"
+    }
+  },
+  "findings": [
+    {
+      "id": "P0-GRAIN-ALL-NORMAL",
+      "conclusion": "measured-win",
+      "evidence": "Final-tree legacy/current AB/BA exact hashes; all-normal simulation-to-array hot time fell 55.1-55.2% and sampled footprint 42.1-45.0%. A 128x8160 mixed-lambda full simulation still improved 16.1-18.5% with no sync on unhinted calls. HDR projection/HEIC hashes were exact; 12MP changed from memory-guard to completion."
+    },
+    {
+      "id": "P1-RAW-WB-CHUNKING",
+      "conclusion": "promising",
+      "evidence": "Custom/tungsten white balance creates sequential full-frame float64 RGB/XYZ/adapted/XYZ/RGB temporaries; no legal 50MP RAW was available for a complete RAW-to-output proof."
+    },
+    {
+      "id": "P1-HDR-ENCODER-STREAMING",
+      "conclusion": "promising",
+      "evidence": "Current pair export retains clipped SDR/HDR RGB32 and writes RGBA mmap payloads; two RGB copies alone are 1198540800 bytes at 50MP."
+    },
+    {
+      "id": "P1-STABLE-COMPILE-CACHE",
+      "conclusion": "needs-evidence",
+      "evidence": "Compile-cache growth is real, but 1.5MP AB/BA hot gains ranged from order-sensitive 0.46% to 17.5%; no 12MP or 50MP gate was justified."
+    },
+    {
+      "id": "REJECT-PARTITION-PERCENTILE",
+      "conclusion": "not-worthwhile",
+      "evidence": "At 12192768 elements, exact two-partition interpolation took median 0.065450875s versus sort 0.035619542s, 83.75% slower; default HDR route did not call the backend percentile path."
+    },
+    {
+      "id": "REJECT-FUSED-FILMING-TILING",
+      "conclusion": "unsafe",
+      "evidence": "6MP direct prototype was 5.4% slower, did not lower MLX peak, and changed 211850 values beyond 1e-6 (max 3.69549e-6)."
+    },
+    {
+      "id": "REJECT-TILE-CACHE-RELEASE",
+      "conclusion": "not-worthwhile",
+      "evidence": "12MP exact outputs but no footprint/cache reduction; scan hot time regressed 32.55% and film-paper 14.14%."
+    },
+    {
+      "id": "ALREADY-TILE-ASSEMBLY",
+      "conclusion": "already-addressed",
+      "evidence": "Historical concat gains were 8.39% at 12MP and 7.97% at 24MP, below the 10% production gate; current MLX API still provides no accepted in-place scatter route."
+    }
+  ],
+  "verdict": {
+    "level": "FAIL",
+    "target": "50MP RAW-equivalent linear RGB, Apple Silicon, 16GiB unified memory, MLX float32 balanced-quality path",
+    "reasons": [
+      "The lightest 50MP scan-only route did not finish before the 10.5GiB safety guard and reached an 11GiB sampled physical footprint.",
+      "No required 50MP path can be claimed complete or equivalent; heavier paths were deliberately not launched after the shared prefix failed.",
+      "The real repository RAW is 12.2MP, so RAW decode/demosaic at 50MP is conservative lifecycle accounting rather than an executed 50MP RAW claim.",
+      "The production grain optimization is a measured local win but does not repair the earlier scan-only spectral/cache residency failure."
+    ]
+  },
+  "validation": {
+    "focused": {
+      "passed": 97,
+      "skipped": 2,
+      "suites": [
+        "tests/test_mlx_performance_reaudit_benchmark.py",
+        "tests/test_grain.py",
+        "tests/test_mlx_tile_assembly_benchmark.py",
+        "tests/test_preprocess_resize_backend_residency.py",
+        "tests/test_spatial_tiling.py",
+        "tests/test_gpu_pipeline.py",
+        "tests/test_hdr_projection_backend.py"
+      ]
+    },
+    "non_gui_full_suite": {
+      "passed": 1688,
+      "skipped": 20,
+      "xfailed": 4,
+      "warnings": 6,
+      "seconds": 77.5,
+      "maximum_rss_bytes": 1265762304,
+      "peak_physical_footprint_bytes": 4667934568,
+      "swaps": 0
+    },
+    "git_diff_check": "passed"
+  },
+  "limitations": [
+    "No legal real 50MP RAW sample exists in the repository.",
+    "The 50MP matrix was safety-aborted after scan-only; remaining cells are explicit not-run-safety-abort results, not passes.",
+    "The machine had pre-existing swap usage; swap conclusions use within-scenario changes and repeated-growth shape rather than absolute swap totals.",
+    "Default HDR output CCTF encoding forces the current projection through a NumPy path, so backend percentile measurements are micro-only.",
+    "Current physical-footprint sampling is effectively about once per second; short peaks can be missed, so the process-reported historical peak is retained as an upper-bound diagnostic.",
+    "Swap thrashing requires adjacent repeated growth intervals; growth separated by a flat sample is conservatively classified as short swap."
+  ],
+  "commands": [
+    ".venv/bin/python benchmarks/benchmark_mlx_performance_reaudit.py --scenarios scan-only --height 6120 --width 8160 --hot-runs 0 --timeout-seconds 900 --sample-interval 0.2 --max-footprint-gib 10.5 --output-json /tmp/spektrafilm-mlx-audit/50mp-scan-guarded.json",
+    ".venv/bin/python benchmarks/benchmark_mlx_performance_reaudit.py --scenarios scan-only film-paper preprocess-resize save-boundary --height 3024 --width 4032 --hot-runs 2 --max-footprint-gib 10.5 --output-json /tmp/spektrafilm-mlx-audit/12mp-route-isolation.json",
+    ".venv/bin/python benchmarks/benchmark_mlx_performance_reaudit.py --scenarios film-paper-spatial-grain --height 3024 --width 4032 --hot-runs 1 --max-footprint-gib 10.5 --output-json /tmp/spektrafilm-mlx-audit/12mp-spatial-guarded.json",
+    ".venv/bin/python benchmarks/benchmark_mlx_performance_reaudit.py --scenarios film-paper-spatial-grain --candidates baseline legacy-poisson --height 1024 --width 1536 --hot-runs 5 --max-footprint-gib 10.5 --output-json /tmp/spektrafilm-mlx-audit/final-v2-all-normal-ab.json",
+    ".venv/bin/python benchmarks/benchmark_mlx_performance_reaudit.py --scenarios film-paper-spatial-grain --candidates legacy-poisson baseline --height 1024 --width 1536 --hot-runs 5 --max-footprint-gib 10.5 --output-json /tmp/spektrafilm-mlx-audit/final-v2-all-normal-ba.json",
+    ".venv/bin/python benchmarks/benchmark_mlx_performance_reaudit.py --scenarios film-paper-spatial-grain --candidates baseline legacy-poisson --height 128 --width 8160 --hot-runs 5 --max-footprint-gib 10.5 --output-json /tmp/spektrafilm-mlx-audit/final-v2-mixed-ab.json",
+    ".venv/bin/python benchmarks/benchmark_mlx_performance_reaudit.py --scenarios film-paper-spatial-grain --candidates legacy-poisson baseline --height 128 --width 8160 --hot-runs 5 --max-footprint-gib 10.5 --output-json /tmp/spektrafilm-mlx-audit/final-v2-mixed-ba.json",
+    ".venv/bin/python benchmarks/benchmark_mlx_performance_reaudit.py --scenarios hdr-light-table hdr-paper hdr-export-boundary --candidates baseline legacy-poisson --height 1024 --width 1536 --hot-runs 2 --max-footprint-gib 10.5 --output-json /tmp/spektrafilm-mlx-audit/final-repro-hdr-current-vs-legacy.json",
+    ".venv/bin/python benchmarks/benchmark_mlx_performance_reaudit.py --scenarios film-paper-spatial-grain --height 3024 --width 4032 --hot-runs 1 --max-footprint-gib 10.5 --output-json /tmp/spektrafilm-mlx-audit/final-production-poisson-12mp.json"
+  ]
+}
