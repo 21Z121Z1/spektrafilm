@@ -140,8 +140,22 @@ def _layer_particle_model_gpu(density,
     grain = mx.zeros_like(density_mx)
     if method == 'poisson_binomial':
         saturation = 1.0 - probability_of_development * grain_uniformity * (1 - 1e-6)
+        scalar_number_types = (int, float, np.integer, np.floating)
+        scalar_normal_lower_bound = False
+        if isinstance(n_particles_per_pixel, scalar_number_types) and isinstance(
+            grain_uniformity,
+            scalar_number_types,
+        ):
+            particle_count_f32 = np.float32(n_particles_per_pixel)
+            scalar_normal_lower_bound = (
+                particle_count_f32 > np.float32(10.0)
+                and 0.0 <= float(grain_uniformity) <= 1.0
+            )
         seeds = fast_poisson_backend(
-            n_particles_per_pixel / saturation, backend, seed=seed,
+            n_particles_per_pixel / saturation,
+            backend,
+            seed=seed,
+            all_lam_above_threshold=scalar_normal_lower_bound,
         )
 
         # Binomial(seeds[i,j], p[i,j]) for variable n per pixel.

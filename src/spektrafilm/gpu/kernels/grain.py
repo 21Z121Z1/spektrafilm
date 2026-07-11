@@ -147,6 +147,7 @@ def fast_poisson_backend(
     backend=None,
     *,
     seed: int | None = None,
+    all_lam_above_threshold: bool = False,
 ) -> Any:
     """Generate Poisson(*lam*) samples using the active backend.
 
@@ -158,6 +159,10 @@ def fast_poisson_backend(
         GPU backend.  ``None`` falls back to CPU/NumPy.
     seed : int or None
         Base RNG seed.
+    all_lam_above_threshold : bool
+        Caller-proven hint that every lambda is greater than 10. The grain
+        model supplies it only when its scalar particle-count lower bound and
+        uniformity range prove the normal branch for every pixel.
 
     Returns
     -------
@@ -191,6 +196,14 @@ def fast_poisson_backend(
     normal_samples = lam_mx + sqrt_lam * _mx.random.normal(lam_mx.shape, key=key_norm, dtype=_mx.float32)
     normal_int = _mx.round(normal_samples).astype(_mx.int32)
     normal_clamped = _mx.maximum(normal_int, _mx.zeros_like(normal_int))
+
+    # The original merge selects these exact samples at every position when
+    # the caller has proved all lambdas exceed the threshold. Return before
+    # constructing the 60 unused Knuth rounds; the normal key and arithmetic
+    # remain unchanged. Unhinted and mixed calls retain the legacy graph with
+    # no extra device reduction or host synchronization.
+    if all_lam_above_threshold:
+        return normal_clamped
 
     # --- Knuth algorithm branch (for small lambda) ---
     # Knuth: generate uniform U_1, U_2, ... until product < exp(-lam).
