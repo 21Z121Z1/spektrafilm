@@ -5,6 +5,7 @@ import copy
 import numpy as np
 import pytest
 
+import spektrafilm.runtime.pipeline as pipeline_module
 from tests.conftest import make_fast_test_params
 
 from spektrafilm.gpu.backend import BackendUnavailableError, select_backend
@@ -69,6 +70,23 @@ def test_pipeline_processes_small_image_with_mlx_backend() -> None:
         f"MLX result diverges from CPU reference: "
         f"max abs diff = {np.max(np.abs(result - cpu_result)):.2e}"
     )
+
+
+def test_large_mlx_stage_boundary_evaluates_without_host_materialization(monkeypatch) -> None:
+    _require_mlx_backend()
+    params = make_fast_test_params()
+    params.settings.compute_backend = "mlx"
+    params.settings.gpu_precision = "float32"
+    pipeline = SimulationPipeline(params)
+    value = pipeline._backend.asarray(np.ones((3, 4, 3), dtype=np.float32))
+    evaluated: list[tuple[object, ...]] = []
+    monkeypatch.setattr(pipeline_module, "_LARGE_MLX_STAGE_PIXELS", 0)
+    monkeypatch.setattr(pipeline._backend, "eval", lambda *values: evaluated.append(values))
+
+    pipeline._materialize_large_mlx_stage("test", value)
+
+    assert evaluated == [(value,)]
+    assert "SimulationPipeline.large_stage_boundary.test" in pipeline.timings
 
 
 def test_pipeline_gpu_validate_hanatos2025_mlx_float32_records_report() -> None:

@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 from scipy.signal import fftconvolve
 
+import spektrafilm.gpu.kernels.fused_ops as fused_ops
 from spektrafilm.gpu.backend import BackendUnavailableError, select_backend
 from spektrafilm.gpu.kernels.filters import (
     exponential_filter_backend,
@@ -411,6 +412,39 @@ def test_fused_filming_filters_mlx_matches_numpy_reference_when_available() -> N
 
     assert backend._is_mlx_array(actual)
     np.testing.assert_allclose(backend.to_numpy(actual), expected, rtol=1e-6, atol=1e-6)
+
+
+def test_fused_filming_filters_chunked_mlx_is_exactly_the_same_transform(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = _mlx_backend_or_skip()
+    rng = np.random.default_rng(8128)
+    image = backend.asarray(rng.random((257, 263, 3), dtype=np.float32) + 0.1)
+
+    monkeypatch.setattr(fused_ops, "_CHUNKED_FFT_MIN_PIXELS", 10**12)
+    reference = apply_fused_filming_filters(
+        image,
+        diffusion_filter=_fused_diffusion_params(),
+        lens_blur_um=4.0,
+        halation=_fused_halation_params(),
+        pixel_size_um=4.0,
+        backend=backend,
+    )
+    backend.eval(reference)
+    reference_np = backend.to_numpy(reference)
+
+    monkeypatch.setattr(fused_ops, "_CHUNKED_FFT_MIN_PIXELS", 0)
+    chunked = apply_fused_filming_filters(
+        image,
+        diffusion_filter=_fused_diffusion_params(),
+        lens_blur_um=4.0,
+        halation=_fused_halation_params(),
+        pixel_size_um=4.0,
+        backend=backend,
+    )
+    backend.eval(chunked)
+
+    np.testing.assert_array_equal(backend.to_numpy(chunked), reference_np)
 
 
 def test_fft_convolve_same_cupy_matches_scipy_reference_when_available() -> None:

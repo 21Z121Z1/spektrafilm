@@ -109,6 +109,18 @@ def _final_encoder_boundary_array(value, *, label: str) -> np.ndarray:
     return array
 
 
+def _release_backend_export_cache(simulator) -> None:
+    """Release GPU allocator cache after all encoder inputs are host arrays."""
+
+    backend = getattr(simulator, "_backend", None)
+    if backend is None:
+        pipeline = getattr(simulator, "_pipeline", None)
+        backend = getattr(pipeline, "_backend", None)
+    cleanup = getattr(backend, "cleanup", None)
+    if callable(cleanup):
+        cleanup()
+
+
 def export_hdr_heic_from_simulator(
     simulator,
     image,
@@ -141,13 +153,24 @@ def export_hdr_heic_from_simulator(
     if export_diagnostics_out is not None:
         export_diagnostics_out.clear()
         export_diagnostics_out.update(export_diagnostics)
+    # The encoder only consumes these two arrays and the scalar headroom.  Do
+    # not retain the complete RouteMaster plus projection-only luminance and
+    # gain-map buffers throughout raw-payload creation and CoreImage encoding.
+    # Materializing both arrays first also creates an explicit, synchronized
+    # CPU/GPU ownership boundary before the backend allocator cache is cleared.
+    sdr_rgb = _final_encoder_boundary_array(result.sdr_rgb, label="sdr_rgb")
+    hdr_rgb = _final_encoder_boundary_array(result.hdr_rgb, label="hdr_rgb")
+    headroom = float(result.headroom)
+    del result
+    del master
+    _release_backend_export_cache(simulator)
     encode_start = perf_counter()
     diagnostics = hdr_photo.save_hdr_photo_heic_from_pair(
         filename,
-        _final_encoder_boundary_array(result.sdr_rgb, label="sdr_rgb"),
-        _final_encoder_boundary_array(result.hdr_rgb, label="hdr_rgb"),
+        sdr_rgb,
+        hdr_rgb,
         color_space=color_space,
-        headroom=result.headroom,
+        headroom=headroom,
         quality=quality,
         export_diagnostics=export_diagnostics,
         gain_map_mode=gain_map_mode,

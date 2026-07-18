@@ -414,6 +414,42 @@ def test_export_hdr_heic_from_simulator_uses_cached_master(monkeypatch, tmp_path
     np.testing.assert_allclose(captured["sdr_rgb"], expected_pair.sdr_rgb)
 
 
+def test_export_releases_direct_pipeline_backend_cache_after_materialization(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    class FakeBackend:
+        def __init__(self) -> None:
+            self.cleanup_calls = 0
+
+        def cleanup(self) -> None:
+            self.cleanup_calls += 1
+
+    class FakePipeline:
+        def __init__(self) -> None:
+            self._backend = FakeBackend()
+
+        # SimulationPipeline has a method with this name; cache lookup must not
+        # mistake that bound method for the Simulator wrapper's pipeline field.
+        def _pipeline(self):
+            raise AssertionError("not called")
+
+    pipeline = FakePipeline()
+    monkeypatch.setattr(hdr_photo, "save_hdr_photo_heic_from_pair", lambda *args, **kwargs: ())
+
+    export_hdr_heic_from_simulator(
+        pipeline,
+        None,
+        tmp_path / "out.heic",
+        hdr_mode="paper",
+        config=HDRProjectionConfig(max_headroom=2.0),
+        color_space="Display P3",
+        master=_master(),
+    )
+
+    assert pipeline._backend.cleanup_calls == 1
+
+
 def test_heic_encoder_accepts_pre_rendered_pair(monkeypatch, tmp_path) -> None:
     sdr, hdr = _pair()
     output_path = tmp_path / "pair.heic"

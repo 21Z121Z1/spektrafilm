@@ -6,6 +6,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+import spektrafilm.hdr.projection as projection_module
 from spektrafilm.hdr import (
     HDRProjectionConfig,
     project_hdr_ideal_paper,
@@ -508,6 +509,31 @@ def test_hdr_ideal_paper_curve_continuity() -> None:
     expected_join_val = float(luminance_y(sdr_rgb).reshape(-1)[join_index])
     assert abs(float(y[join_index]) - expected_join_val) < 0.03
     assert float(np.max(np.abs(np.diff(y)))) < 0.08
+
+
+def test_chunked_projection_materialization_is_exact(monkeypatch) -> None:
+    rng = np.random.default_rng(711)
+    shape = (129, 131)
+    route_rgb = rng.random(shape + (3,), dtype=np.float32) * np.float32(1.2)
+    sdr_rgb = rng.random(shape + (3,), dtype=np.float32)
+    master = RouteMaster(
+        mode="paper",
+        route_kind="print_scan",
+        route_linear_rgb=route_rgb,
+        route_linear_xyz=route_rgb,
+        route_luminance_y=route_rgb[..., 1],
+        sdr_legacy_rgb=sdr_rgb,
+        scene_y_raw=sdr_rgb[..., 0],
+        diagnostics={"output_cctf_encoding": True, "output_color_space": "sRGB"},
+    )
+
+    monkeypatch.setattr(projection_module, "_CHUNKED_PROJECTION_MIN_PIXELS", 10**12)
+    expected_sdr = projection_module._sdr_rgb(master)
+    expected_chroma = projection_module._route_chroma(master, shape)
+    monkeypatch.setattr(projection_module, "_CHUNKED_PROJECTION_MIN_PIXELS", 0)
+
+    np.testing.assert_array_equal(projection_module._sdr_rgb(master), expected_sdr)
+    np.testing.assert_array_equal(projection_module._route_chroma(master, shape), expected_chroma)
 
 
 def test_route_look_chroma_preserved_by_default() -> None:

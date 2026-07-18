@@ -31,6 +31,9 @@ from spektrafilm.utils.hdr_curve_profiles import luminance_y, render_negative_sc
 from spektrafilm.utils.timings import format_timings
 
 
+_LARGE_MLX_STAGE_PIXELS = 24_000_000
+
+
 @dataclass(slots=True)
 class HDRSceneEnergyMetadata:
     scene_luminance: np.ndarray
@@ -468,6 +471,22 @@ class SimulationPipeline:
                     return None
         return None
 
+    def _materialize_large_mlx_stage(self, label: str, *values: Any) -> None:
+        """Bound the live lazy graph between full-resolution production stages."""
+
+        if getattr(self._backend, "name", "") != "mlx":
+            return
+        shape = next((getattr(value, "shape", None) for value in values if value is not None), None)
+        shape_hw = _shape_hw(shape)
+        if shape_hw is None or shape_hw[0] * shape_hw[1] < _LARGE_MLX_STAGE_PIXELS:
+            return
+        start = perf_counter()
+        self._backend.eval(*(value for value in values if value is not None))
+        clear_cache = getattr(getattr(self._backend, "mx", None), "clear_cache", None)
+        if callable(clear_cache):
+            clear_cache()
+        self.timings[f"SimulationPipeline.large_stage_boundary.{label}"] = perf_counter() - start
+
     def soft_update(self,
                     exposure_compensation_ev=None,
                     print_exposure=None,
@@ -547,11 +566,19 @@ class SimulationPipeline:
             self._filming_stage.expose_with_metadata,
             image,
         )
+        self._materialize_large_mlx_stage(
+            "filming.expose",
+            exposure.log_raw,
+            exposure.scene_y_raw,
+            exposure.post_halation_y,
+        )
         cmy_film = self._record_stage_timing(
             "filming.develop",
             self._filming_stage.develop,
             exposure.log_raw,
         )
+        self._materialize_large_mlx_stage("filming.develop", cmy_film)
+        exposure.log_raw = None
         diagnostics = dict(exposure.diagnostics)
 
         if hdr_mode == "light_table":
@@ -564,6 +591,13 @@ class SimulationPipeline:
                 "scanning.project_sdr_legacy",
                 self._scanning_stage.project_sdr_legacy,
                 scan_master,
+            )
+            self._materialize_large_mlx_stage(
+                "scanning.scan_film_master",
+                scan_master.route_linear_rgb,
+                scan_master.route_linear_xyz,
+                scan_master.route_luminance_y,
+                sdr_legacy_rgb,
             )
             diagnostics.update(scan_master.diagnostics)
             diagnostics["profile_kind"] = "positive_film_scan"
@@ -582,6 +616,8 @@ class SimulationPipeline:
                 post_halation_y=exposure.post_halation_y,
                 diagnostics=diagnostics,
             )
+            scan_master.density_cmy = None
+            del cmy_film
             return SimulationPipelineResult(
                 image=self._materialize_output(sdr_legacy_rgb),
                 hdr_scene_energy=hdr_scene_energy,
@@ -593,11 +629,15 @@ class SimulationPipeline:
             self._printing_stage.expose,
             cmy_film,
         )
+        self._materialize_large_mlx_stage("printing.expose", log_raw_print)
+        del cmy_film
         cmy_print = self._record_stage_timing(
             "printing.develop",
             self._printing_stage.develop,
             log_raw_print,
         )
+        self._materialize_large_mlx_stage("printing.develop", cmy_print)
+        del log_raw_print
         scan_master = self._record_stage_timing(
             "scanning.scan_print_master",
             self._scanning_stage.scan_master,
@@ -607,6 +647,13 @@ class SimulationPipeline:
             "scanning.project_sdr_legacy",
             self._scanning_stage.project_sdr_legacy,
             scan_master,
+        )
+        self._materialize_large_mlx_stage(
+            "scanning.scan_print_master",
+            scan_master.route_linear_rgb,
+            scan_master.route_linear_xyz,
+            scan_master.route_luminance_y,
+            sdr_legacy_rgb,
         )
         diagnostics.update(scan_master.diagnostics)
         diagnostics["profile_kind"] = "print_scan"
@@ -619,6 +666,8 @@ class SimulationPipeline:
             post_halation_y=exposure.post_halation_y,
             diagnostics=diagnostics,
         )
+        scan_master.density_cmy = None
+        del cmy_print
         return SimulationPipelineResult(
             image=self._materialize_output(sdr_legacy_rgb),
             hdr_scene_energy=hdr_scene_energy,
@@ -943,16 +992,21 @@ class SimulationPipeline:
             self._filming_stage.expose,
             rgb_image,
         )
+        self._materialize_large_mlx_stage("filming.expose", log_raw_film)
         cmy_film = self._record_stage_timing(
             "filming.develop",
             self._filming_stage.develop,
             log_raw_film,
         )
+        self._materialize_large_mlx_stage("filming.develop", cmy_film)
+        del log_raw_film
         rgb_scan = self._record_stage_timing(
             "scanning.scan_film",
             self._scanning_stage.scan,
             cmy_film,
         )
+        self._materialize_large_mlx_stage("scanning.scan_film", rgb_scan)
+        del cmy_film
         return rgb_scan
 
     def _positive_render_negative_scan_master(
@@ -1130,26 +1184,35 @@ class SimulationPipeline:
             self._filming_stage.expose,
             rgb_image,
         )
+        self._materialize_large_mlx_stage("filming.expose", log_raw_film)
         cmy_film = self._record_stage_timing(
             "filming.develop",
             self._filming_stage.develop,
             log_raw_film,
         )
+        self._materialize_large_mlx_stage("filming.develop", cmy_film)
+        del log_raw_film
         log_raw_print = self._record_stage_timing(
             "printing.expose",
             self._printing_stage.expose,
             cmy_film,
         )
+        self._materialize_large_mlx_stage("printing.expose", log_raw_print)
+        del cmy_film
         cmy_print = self._record_stage_timing(
             "printing.develop",
             self._printing_stage.develop,
             log_raw_print,
         )
+        self._materialize_large_mlx_stage("printing.develop", cmy_print)
+        del log_raw_print
         rgb_scan = self._record_stage_timing(
             "scanning.scan_print",
             self._scanning_stage.scan,
             cmy_print,
         )
+        self._materialize_large_mlx_stage("scanning.scan_print", rgb_scan)
+        del cmy_print
         return rgb_scan
     
 

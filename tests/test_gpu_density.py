@@ -11,6 +11,7 @@ from spektrafilm.gpu.kernels.density import (
     cmy_to_log_xyz_backend,
     compute_density_spectral as compute_density_spectral_backend,
     density_to_light as density_to_light_backend,
+    interpolate_density_cmy_layer_backend,
     interpolate_density_cmy_layers_backend,
     interpolate_exposure_to_density_backend,
     light_to_raw,
@@ -1292,6 +1293,53 @@ def test_interpolate_density_cmy_layers_mlx_matches_cpu_reference_when_available
     )
 
     np.testing.assert_allclose(backend.to_numpy(actual), expected, rtol=2e-6, atol=2e-6)
+
+
+@pytest.mark.parametrize("positive_film", [False, True])
+def test_interpolate_density_cmy_layer_mlx_is_exact_slice_of_full_kernel(
+    positive_film: bool,
+) -> None:
+    backend = _mlx_backend_or_skip()
+    rng = np.random.default_rng(382)
+    density_cmy = rng.random((17, 19, 3), dtype=np.float32) * np.float32(1.8)
+    density_curves = np.column_stack(
+        [
+            np.linspace(0.0, 2.1, 16),
+            np.linspace(0.0, 1.9, 16),
+            np.linspace(0.0, 1.7, 16),
+        ]
+    ).astype(np.float32)
+    density_curves_layers = np.stack(
+        [
+            density_curves * np.array([0.55, 0.50, 0.45], dtype=np.float32),
+            density_curves * np.array([0.30, 0.33, 0.35], dtype=np.float32),
+            density_curves * np.array([0.15, 0.17, 0.20], dtype=np.float32),
+        ],
+        axis=1,
+    )
+    full = interpolate_density_cmy_layers_backend(
+        backend.asarray(density_cmy),
+        density_curves,
+        density_curves_layers,
+        positive_film=positive_film,
+        backend=backend,
+    )
+    backend.eval(full)
+    full_np = backend.to_numpy(full)
+
+    for layer in range(3):
+        for channel in range(3):
+            plane = interpolate_density_cmy_layer_backend(
+                backend.asarray(density_cmy),
+                density_curves,
+                density_curves_layers,
+                layer,
+                channel,
+                positive_film=positive_film,
+                backend=backend,
+            )
+            backend.eval(plane)
+            np.testing.assert_array_equal(backend.to_numpy(plane), full_np[..., layer, channel])
 
 
 def test_interpolate_exposure_to_density_cupy_matches_cpu_reference_when_available() -> None:

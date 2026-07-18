@@ -26,6 +26,13 @@ from spektrafilm.gpu.kernels.tile_utils import (
 
 _GAUSSIAN_SUPPORT_SIGMAS = 8.0
 _MIN_ACTIVE_PAD = 5
+# MLX's batched 2D FFT can require a very large transient workspace.  Above
+# this image size, decompose the same full-size transform into independently
+# batched 1D transforms.  Transform lengths, padding, and frequency samples
+# remain identical; only the batch scheduling changes.
+_CHUNKED_FFT_MIN_PIXELS = 8_000_000
+_CHUNKED_FFT_ROWS = 256
+_CHUNKED_FFT_COLUMNS = 256
 
 
 @dataclass(frozen=True)
@@ -791,6 +798,13 @@ def _apply_fused_mlx(
     mx = backend.mx
     h, w, channels = plan.image_shape
     image = backend.asarray(raw)
+    use_chunked_fft = h * w >= _CHUNKED_FFT_MIN_PIXELS
+    if use_chunked_fft:
+        # Sever the preceding color/LUT graph before allocating FFT buffers.
+        # This is an evaluation boundary only; no values or operation order in
+        # the filter itself change.
+        mx.eval(image)
+        _clear_mlx_cache(backend)
     output_channels = []
     for channel in range(channels):
         transfer = _build_transfer_channel_mlx(
@@ -808,17 +822,94 @@ def _apply_fused_mlx(
         mx.eval(transfer)
         _clear_mlx_cache(backend)
         padded = _reflect_pad_mlx(image[:, :, channel], plan.pad_y, plan.pad_x, backend)
-        image_fft = mx.fft.rfft2(padded, axes=(0, 1))
-        mx.eval(image_fft)
-        del padded
-        _clear_mlx_cache(backend)
-        filtered = mx.fft.irfft2(image_fft * transfer, s=plan.fft_shape, axes=(0, 1))
+        if use_chunked_fft:
+            image_fft = _chunked_rfft2_mlx(padded, plan, backend)
+            del padded
+            image_fft = image_fft * transfer
+            mx.eval(image_fft)
+            del transfer
+            _clear_mlx_cache(backend)
+            filtered = _chunked_irfft2_mlx(image_fft, plan, backend)
+        else:
+            image_fft = mx.fft.rfft2(padded, axes=(0, 1))
+            mx.eval(image_fft)
+            del padded
+            _clear_mlx_cache(backend)
+            filtered = mx.fft.irfft2(image_fft * transfer, s=plan.fft_shape, axes=(0, 1))
         cropped = filtered[plan.pad_y:plan.pad_y + h, plan.pad_x:plan.pad_x + w]
         mx.eval(cropped)
         output_channels.append(cropped)
-        del transfer, image_fft, filtered, cropped
+        if use_chunked_fft:
+            del image_fft, filtered, cropped
+        else:
+            del transfer, image_fft, filtered, cropped
         _clear_mlx_cache(backend)
-    return mx.stack(output_channels, axis=2)
+    result = mx.stack(output_channels, axis=2)
+    if use_chunked_fft:
+        mx.eval(result)
+        output_channels.clear()
+        _clear_mlx_cache(backend)
+    return result
+
+
+def _concatenate_evaluated_mlx(parts: list[Any], axis: int, backend):
+    result = backend.mx.concatenate(parts, axis=axis)
+    backend.mx.eval(result)
+    parts.clear()
+    _clear_mlx_cache(backend)
+    return result
+
+
+def _chunked_rfft2_mlx(padded: Any, plan: _FusedFilterPlan, backend):
+    """Full-size rFFT2 using bounded batches of independent 1D transforms."""
+
+    mx = backend.mx
+    row_parts = []
+    for y0 in range(0, int(padded.shape[0]), _CHUNKED_FFT_ROWS):
+        part = mx.fft.rfft(padded[y0:y0 + _CHUNKED_FFT_ROWS], axis=1)
+        mx.eval(part)
+        row_parts.append(part)
+        _clear_mlx_cache(backend)
+    rows_fft = _concatenate_evaluated_mlx(row_parts, axis=0, backend=backend)
+
+    column_parts = []
+    for x0 in range(0, int(rows_fft.shape[1]), _CHUNKED_FFT_COLUMNS):
+        part = mx.fft.fft(rows_fft[:, x0:x0 + _CHUNKED_FFT_COLUMNS], axis=0)
+        mx.eval(part)
+        column_parts.append(part)
+        _clear_mlx_cache(backend)
+    result = _concatenate_evaluated_mlx(column_parts, axis=1, backend=backend)
+    del rows_fft
+    _clear_mlx_cache(backend)
+    return result
+
+
+def _chunked_irfft2_mlx(image_fft: Any, plan: _FusedFilterPlan, backend):
+    """Inverse of :func:`_chunked_rfft2_mlx` with the original full shape."""
+
+    mx = backend.mx
+    column_parts = []
+    for x0 in range(0, int(image_fft.shape[1]), _CHUNKED_FFT_COLUMNS):
+        part = mx.fft.ifft(image_fft[:, x0:x0 + _CHUNKED_FFT_COLUMNS], axis=0)
+        mx.eval(part)
+        column_parts.append(part)
+        _clear_mlx_cache(backend)
+    columns_ifft = _concatenate_evaluated_mlx(column_parts, axis=1, backend=backend)
+
+    row_parts = []
+    for y0 in range(0, int(columns_ifft.shape[0]), _CHUNKED_FFT_ROWS):
+        part = mx.fft.irfft(
+            columns_ifft[y0:y0 + _CHUNKED_FFT_ROWS],
+            n=plan.fft_shape[1],
+            axis=1,
+        )
+        mx.eval(part)
+        row_parts.append(part)
+        _clear_mlx_cache(backend)
+    result = _concatenate_evaluated_mlx(row_parts, axis=0, backend=backend)
+    del columns_ifft
+    _clear_mlx_cache(backend)
+    return result
 
 
 def apply_fused_filming_filters(

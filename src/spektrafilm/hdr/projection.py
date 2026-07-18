@@ -20,6 +20,8 @@ from spektrafilm.utils.hdr_curve_profiles import luminance_y
 
 _EPS32 = np.float32(1e-8)
 _PROFILE_ENV = "SPEKTRAFILM_HDR_PROJECTION_PROFILE"
+_CHUNKED_PROJECTION_MIN_PIXELS = 24_000_000
+_CHUNKED_PROJECTION_ROWS = 128
 HDRTransferFunction = Literal["linear", "pq", "hlg", "gain-map-linear-pair"]
 
 
@@ -538,6 +540,21 @@ def _sdr_rgb(master: RouteMaster) -> np.ndarray:
     if not bool(master.diagnostics.get("output_cctf_encoding", True)):
         return sdr_val.astype(np.float32, copy=False)
     color_space = master.diagnostics.get("output_color_space", "Display P3")
+    if sdr_val.shape[0] * sdr_val.shape[1] >= _CHUNKED_PROJECTION_MIN_PIXELS:
+        decoded = np.empty_like(sdr_val, dtype=np.float32)
+        for y0 in range(0, sdr_val.shape[0], _CHUNKED_PROJECTION_ROWS):
+            y1 = min(sdr_val.shape[0], y0 + _CHUNKED_PROJECTION_ROWS)
+            decoded[y0:y1] = np.asarray(
+                colour.RGB_to_RGB(
+                    sdr_val[y0:y1],
+                    color_space,
+                    color_space,
+                    apply_cctf_decoding=True,
+                    apply_cctf_encoding=False,
+                ),
+                dtype=np.float32,
+            )
+        return decoded
     return np.asarray(
         colour.RGB_to_RGB(
             sdr_val,
@@ -562,7 +579,23 @@ def _route_chroma(master: RouteMaster, shape: tuple[int, int]) -> np.ndarray:
         if chroma.shape[:2] != shape:
             raise ValueError(f"route_look_chroma must have shape {shape + (3,)}, got {chroma.shape}.")
         return chroma
-    route_rgb = np.maximum(_as_rgb(master.route_linear_rgb, field="route_linear_rgb"), 0.0)
+    route_source = _as_rgb(master.route_linear_rgb, field="route_linear_rgb")
+    if route_source.shape[:2] != shape:
+        raise ValueError(f"route_linear_rgb must have shape {shape + (3,)}, got {route_source.shape}.")
+    if shape[0] * shape[1] >= _CHUNKED_PROJECTION_MIN_PIXELS:
+        chroma = np.empty_like(route_source, dtype=np.float32)
+        for y0 in range(0, shape[0], _CHUNKED_PROJECTION_ROWS):
+            y1 = min(shape[0], y0 + _CHUNKED_PROJECTION_ROWS)
+            route_rgb = np.maximum(route_source[y0:y1], 0.0)
+            route_y = np.maximum(luminance_y(route_rgb), _EPS32)
+            np.divide(
+                route_rgb,
+                route_y[..., None],
+                out=chroma[y0:y1],
+                where=route_y[..., None] > _EPS32,
+            )
+        return chroma
+    route_rgb = np.maximum(route_source, 0.0)
     route_y = np.maximum(luminance_y(route_rgb), _EPS32)
     return np.divide(
         route_rgb,

@@ -11,6 +11,20 @@ from spektrafilm.gpu.kernels.tile_utils import (
 )
 
 
+_LARGE_GRAIN_STATE_PIXELS = 24_000_000
+
+
+def _materialize_large_grain_state(value, backend) -> None:
+    shape = getattr(value, "shape", ())
+    if len(shape) < 2 or int(shape[0]) * int(shape[1]) < _LARGE_GRAIN_STATE_PIXELS:
+        return
+    backend.eval(value)
+    mx = getattr(backend, "mx", None)
+    clear_cache = getattr(mx, "clear_cache", None)
+    if callable(clear_cache):
+        clear_cache()
+
+
 def _backend_supports_gpu(backend) -> bool:
     return (
         backend is not None
@@ -140,8 +154,25 @@ def _layer_particle_model_gpu(density,
     grain = mx.zeros_like(density_mx)
     if method == 'poisson_binomial':
         saturation = 1.0 - probability_of_development * grain_uniformity * (1 - 1e-6)
+        # p is clipped to [1e-6, 1-1e-6], so for a physical uniformity in
+        # [0, 1] the Poisson lambda has scalar bounds known before execution.
+        # Passing them lets MLX omit an unreachable full-frame RNG branch
+        # while preserving the exact random key used by the retained branch.
+        minimum_lam = None
+        maximum_lam = None
+        particles = float(n_particles_per_pixel)
+        uniformity = float(grain_uniformity)
+        if particles >= 0.0 and 0.0 <= uniformity <= 1.0:
+            minimum_lam = particles
+            saturation_min = 1.0 - uniformity * (1.0 - 1e-6) ** 2
+            if saturation_min > 0.0:
+                maximum_lam = particles / saturation_min
         seeds = fast_poisson_backend(
-            n_particles_per_pixel / saturation, backend, seed=seed,
+            particles / saturation,
+            backend,
+            seed=seed,
+            minimum_lam=minimum_lam,
+            maximum_lam=maximum_lam,
         )
 
         # Binomial(seeds[i,j], p[i,j]) for variable n per pixel.
@@ -283,6 +314,7 @@ def _apply_grain_to_density_gpu(density_cmy,
     density_cmy_mx = backend.asarray(density_cmy, dtype=mx.float32)
     density_min_mx = backend.asarray(density_min.astype(np.float32))
     density_cmy_mx = density_cmy_mx + density_min_mx
+    _materialize_large_grain_state(density_cmy_mx, backend)
 
     out_channels = []
     for ch in range(3):
@@ -296,6 +328,7 @@ def _apply_grain_to_density_gpu(density_cmy,
                 seed=seed[ch] + sl * 10,
                 backend=backend,
             )
+            _materialize_large_grain_state(ch_layer, backend)
         out_channels.append(ch_layer)
 
     density_cmy_out = mx.stack(out_channels, axis=-1)
@@ -421,6 +454,7 @@ def _apply_grain_to_density_layers_gpu(density_cmy_layers,
     density_cmy_layers_mx = backend.asarray(density_cmy_layers, dtype=mx.float32)
     density_min_layers_mx = backend.asarray(density_min_layers.astype(np.float32))
     density_cmy_layers_mx = density_cmy_layers_mx + density_min_layers_mx
+    _materialize_large_grain_state(density_cmy_layers_mx, backend)
 
     out_channels = []
     for ch in range(3):
@@ -435,6 +469,7 @@ def _apply_grain_to_density_layers_gpu(density_cmy_layers,
                 blur_particle=grain_blur_dye_clouds_um,
                 backend=backend,
             )
+            _materialize_large_grain_state(ch_layer, backend)
         out_channels.append(ch_layer)
 
     density_cmy_out = mx.stack(out_channels, axis=-1)
@@ -464,6 +499,103 @@ def _apply_grain_to_density_layers_gpu(density_cmy_layers,
         else:
             density_cmy_out = gaussian_filter_backend(density_cmy_out, grain_blur, backend)
 
+    return density_cmy_out
+
+
+def _apply_grain_to_density_layers_streamed_gpu(
+    density_cmy,
+    density_curves,
+    density_curves_layers,
+    density_max_layers,
+    *,
+    pixel_size_um,
+    agx_particle_area_um2,
+    agx_particle_scale,
+    agx_particle_scale_layers,
+    density_min,
+    grain_uniformity,
+    grain_blur,
+    grain_blur_dye_clouds_um,
+    grain_micro_structure,
+    positive_film,
+    backend,
+    settings=None,
+):
+    """Layered MLX grain without retaining the nine-plane interpolation cube."""
+
+    from spektrafilm.gpu.kernels.density import interpolate_density_cmy_layer_backend
+    from spektrafilm.gpu.kernels.filters import gaussian_filter_backend
+
+    density_max_layers = np.asarray(density_max_layers)
+    density_max_total = np.sum(density_max_layers, axis=0)
+    density_max_fractions = density_max_layers / density_max_total[None, :]
+    density_min_layers = density_max_fractions * np.asarray(density_min)[None, :]
+    density_max_layers = density_max_layers + density_min_layers
+    pixel_area_um2 = pixel_size_um**2
+    particle_area_layers = (
+        agx_particle_area_um2
+        * np.asarray(agx_particle_scale)[None, :]
+        * np.asarray(agx_particle_scale_layers)[:, None]
+    )
+    n_particles_per_pixel = pixel_area_um2 * density_max_fractions / particle_area_layers
+    seed = [0, 1, 2]
+
+    mx = backend.mx
+    density_source = backend.asarray(density_cmy, dtype=mx.float32)
+    _materialize_large_grain_state(density_source, backend)
+    out_channels = []
+    for ch in range(3):
+        ch_layer = mx.zeros(density_source.shape[:2], dtype=mx.float32)
+        for sl in range(3):
+            density_layer = interpolate_density_cmy_layer_backend(
+                density_source,
+                density_curves,
+                density_curves_layers,
+                sl,
+                ch,
+                positive_film=positive_film,
+                backend=backend,
+            )
+            density_layer = density_layer + mx.array(density_min_layers[sl, ch], dtype=mx.float32)
+            ch_layer = ch_layer + layer_particle_model(
+                density_layer,
+                density_max=density_max_layers[sl, ch],
+                n_particles_per_pixel=n_particles_per_pixel[sl, ch],
+                grain_uniformity=grain_uniformity[ch],
+                seed=seed[ch] + sl * 10,
+                blur_particle=grain_blur_dye_clouds_um,
+                backend=backend,
+            )
+            _materialize_large_grain_state(ch_layer, backend)
+            del density_layer
+        out_channels.append(ch_layer)
+
+    density_cmy_out = mx.stack(out_channels, axis=-1)
+    density_cmy_out = add_micro_structure(
+        density_cmy_out,
+        grain_micro_structure,
+        pixel_size_um,
+        backend=backend,
+    )
+    density_cmy_out = density_cmy_out - backend.asarray(np.asarray(density_min, dtype=np.float32))
+    if grain_blur > 0:
+        overlap = int(np.ceil(3.0 * grain_blur))
+        tile_rows = resolve_spatial_tile_rows(
+            density_cmy_out.shape[0], overlap, backend=backend, settings=settings
+        )
+        if tile_rows is not None:
+            def _blur_tile(tile_ext):
+                return gaussian_filter_backend(tile_ext, grain_blur, backend)
+
+            density_cmy_out = process_spatial_rows_tiled(
+                density_cmy_out,
+                _blur_tile,
+                backend,
+                overlap=overlap,
+                tile_rows=tile_rows,
+            )
+        else:
+            density_cmy_out = gaussian_filter_backend(density_cmy_out, grain_blur, backend)
     return density_cmy_out
 
 
@@ -503,6 +635,27 @@ def apply_grain(
             settings=settings,
         )
 
+    density_max_layers = np.nanmax(density_curves_layers, axis=0)
+    if _backend_supports_gpu(backend) and getattr(backend, "name", "") == "mlx":
+        return _apply_grain_to_density_layers_streamed_gpu(
+            density_cmy,
+            density_curves,
+            density_curves_layers,
+            density_max_layers,
+            pixel_size_um=pixel_size_um,
+            agx_particle_area_um2=grain.agx_particle_area_um2,
+            agx_particle_scale=grain.agx_particle_scale,
+            agx_particle_scale_layers=grain.agx_particle_scale_layers,
+            density_min=grain.density_min,
+            grain_uniformity=grain.uniformity,
+            grain_blur=grain.blur,
+            grain_blur_dye_clouds_um=grain.blur_dye_clouds_um,
+            grain_micro_structure=grain.micro_structure,
+            positive_film=profile_type == "positive",
+            backend=backend,
+            settings=settings,
+        )
+
     grain_backend = backend
     if _backend_supports_gpu(backend):
         from spektrafilm.gpu.kernels.density import interpolate_density_cmy_layers_backend
@@ -524,7 +677,6 @@ def apply_grain(
         )
         if _backend_is_unsupported_gpu(backend):
             grain_backend = None
-    density_max_layers = np.nanmax(density_curves_layers, axis=0)
     return apply_grain_to_density_layers(
         density_cmy_layers,
         density_max_layers=density_max_layers,

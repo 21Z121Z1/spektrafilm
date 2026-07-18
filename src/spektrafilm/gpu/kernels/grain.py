@@ -21,6 +21,9 @@ from spektrafilm.utils.fast_stats import (
 )
 
 
+_POISSON_EVAL_INTERVAL = 8
+
+
 # ---------------------------------------------------------------------------
 # Backend capability helpers (same pattern as filters.py / density.py)
 # ---------------------------------------------------------------------------
@@ -147,6 +150,8 @@ def fast_poisson_backend(
     backend=None,
     *,
     seed: int | None = None,
+    minimum_lam: float | None = None,
+    maximum_lam: float | None = None,
 ) -> Any:
     """Generate Poisson(*lam*) samples using the active backend.
 
@@ -182,15 +187,29 @@ def fast_poisson_backend(
     lam_mx = backend.asarray(lam, dtype=_mx.float32)
     key = _make_key(_mx, seed)
 
-    # Normal approximation mask: lam > 10
-    use_normal = lam_mx > 10.0
+    normal_only = minimum_lam is not None and float(minimum_lam) > 10.0
+    knuth_only = maximum_lam is not None and float(maximum_lam) <= 10.0
+    if normal_only and knuth_only:
+        raise ValueError("inconsistent Poisson lambda bounds")
+
+    # Preserve the original key split even when one branch is known to be
+    # unreachable.  This makes the retained branch bit-identical to the old
+    # mixed implementation for a fixed seed.
+    key_norm, key = _mx.random.split(key)
 
     # --- Normal approximation branch ---
-    sqrt_lam = _mx.sqrt(lam_mx)
-    key_norm, key = _mx.random.split(key)
-    normal_samples = lam_mx + sqrt_lam * _mx.random.normal(lam_mx.shape, key=key_norm, dtype=_mx.float32)
-    normal_int = _mx.round(normal_samples).astype(_mx.int32)
-    normal_clamped = _mx.maximum(normal_int, _mx.zeros_like(normal_int))
+    normal_clamped = None
+    if not knuth_only:
+        sqrt_lam = _mx.sqrt(lam_mx)
+        normal_samples = lam_mx + sqrt_lam * _mx.random.normal(
+            lam_mx.shape, key=key_norm, dtype=_mx.float32,
+        )
+        normal_int = _mx.round(normal_samples).astype(_mx.int32)
+        normal_clamped = _mx.maximum(normal_int, _mx.zeros_like(normal_int))
+
+    key_knuth_start, key = _mx.random.split(key)
+    if normal_only:
+        return normal_clamped
 
     # --- Knuth algorithm branch (for small lambda) ---
     # Knuth: generate uniform U_1, U_2, ... until product < exp(-lam).
@@ -202,16 +221,28 @@ def fast_poisson_backend(
     knuth_product = _mx.ones(lam_mx.shape, dtype=_mx.float32)
     exp_neg_lam = _mx.exp(-lam_mx)
 
-    key_knuth_start, key = _mx.random.split(key)
     current_key = key_knuth_start
-    for _ in range(max_iter):
+    for iteration in range(max_iter):
         u_key, current_key = _mx.random.split(current_key)
         u = _mx.random.uniform(low=0.0, high=1.0, shape=lam_mx.shape, key=u_key, dtype=_mx.float32)
         knuth_product = knuth_product * u
         still_active = knuth_product > exp_neg_lam
         knuth_count = knuth_count + still_active.astype(_mx.int32)
+        # Without an evaluation boundary MLX retains all 60 full-frame RNG and
+        # product nodes until the final output is requested.  Materializing the
+        # two loop-carried arrays periodically preserves the exact key stream
+        # and iteration sequence while bounding the live graph for 50 MP data.
+        if _POISSON_EVAL_INTERVAL > 0 and (iteration + 1) % _POISSON_EVAL_INTERVAL == 0:
+            _mx.eval(knuth_product, knuth_count)
+            clear_cache = getattr(_mx, "clear_cache", None)
+            if callable(clear_cache):
+                clear_cache()
+
+    if knuth_only:
+        return knuth_count
 
     # --- Merge branches ---
+    use_normal = lam_mx > 10.0
     result = _mx.where(use_normal, normal_clamped, knuth_count)
     return result
 

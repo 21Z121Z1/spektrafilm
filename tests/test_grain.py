@@ -1,7 +1,9 @@
 import numpy as np
 import pytest
+from unittest.mock import patch
 
 from spektrafilm.gpu.backend import BackendUnavailableError, select_backend
+from spektrafilm.gpu.kernels.grain import fast_poisson_backend
 from spektrafilm.model.density_curves import interp_density_cmy_layers
 from spektrafilm.model.grain import apply_grain_to_density, apply_grain_to_density_layers, layer_particle_model
 from spektrafilm.model.grain import apply_grain
@@ -27,6 +29,49 @@ def _mlx_backend_or_skip():
 
 
 class TestApplyGrain:
+    @pytest.mark.parametrize(
+        ("values", "minimum_lam", "maximum_lam"),
+        [
+            ([12.0, 30.0], 12.0, 30.0),
+            ([0.5, 4.0, 10.0], 0.5, 10.0),
+        ],
+    )
+    def test_mlx_poisson_bounded_branch_is_bit_identical(
+        self,
+        values,
+        minimum_lam,
+        maximum_lam,
+    ):
+        backend = _mlx_backend_or_skip()
+        lam = backend.asarray(np.asarray(values, dtype=np.float32))
+
+        reference = fast_poisson_backend(lam, backend, seed=123)
+        bounded = fast_poisson_backend(
+            lam,
+            backend,
+            seed=123,
+            minimum_lam=minimum_lam,
+            maximum_lam=maximum_lam,
+        )
+
+        np.testing.assert_array_equal(
+            backend.to_numpy(bounded),
+            backend.to_numpy(reference),
+        )
+
+    def test_mlx_poisson_periodic_eval_is_bit_identical(self):
+        backend = _mlx_backend_or_skip()
+        lam = backend.asarray(
+            np.asarray([0.5, 4.0, 10.0, 10.01, 30.0], dtype=np.float32)
+        )
+
+        with patch("spektrafilm.gpu.kernels.grain._POISSON_EVAL_INTERVAL", 0):
+            reference = fast_poisson_backend(lam, backend, seed=456)
+            reference_np = backend.to_numpy(reference)
+        actual = fast_poisson_backend(lam, backend, seed=456)
+
+        np.testing.assert_array_equal(backend.to_numpy(actual), reference_np)
+
     def test_layer_particle_model_seed_does_not_touch_global_rng_for_generator_path(self):
         density = np.full((2, 2), 0.5, dtype=np.float64)
         np.random.seed(12345)
@@ -281,6 +326,70 @@ class TestApplyGrain:
         backend.eval(result)
 
         assert backend._is_mlx_array(result)
+
+    @pytest.mark.parametrize("profile_type", ["negative", "positive"])
+    def test_apply_grain_layered_mlx_streaming_is_exactly_full_cube_result(self, profile_type):
+        from spektrafilm.gpu.kernels.density import interpolate_density_cmy_layers_backend
+
+        backend = _mlx_backend_or_skip()
+        rng = np.random.default_rng(921)
+        density_cmy = rng.random((13, 15, 3), dtype=np.float32) * np.float32(1.5)
+        density_curves = np.column_stack([
+            np.linspace(0.0, 2.1, 10),
+            np.linspace(0.0, 1.9, 10),
+            np.linspace(0.0, 1.7, 10),
+        ]).astype(np.float32)
+        density_curves_layers = np.stack([
+            density_curves * np.array([0.55, 0.50, 0.45], dtype=np.float32),
+            density_curves * np.array([0.30, 0.33, 0.35], dtype=np.float32),
+            density_curves * np.array([0.15, 0.17, 0.20], dtype=np.float32),
+        ], axis=1)
+        grain = GrainParams(
+            active=True,
+            sublayers_active=True,
+            agx_particle_area_um2=0.18,
+            agx_particle_scale=(0.8, 1.0, 1.2),
+            agx_particle_scale_layers=(2.2, 1.0, 0.5),
+            density_min=(0.04, 0.06, 0.08),
+            uniformity=(0.99, 0.98, 0.97),
+            blur=0.0,
+            blur_dye_clouds_um=0.0,
+            micro_structure=(0.0, 0.0),
+        )
+
+        full_layers = interpolate_density_cmy_layers_backend(
+            backend.asarray(density_cmy),
+            density_curves,
+            density_curves_layers,
+            positive_film=profile_type == "positive",
+            backend=backend,
+        )
+        expected = apply_grain_to_density_layers(
+            full_layers,
+            density_max_layers=np.nanmax(density_curves_layers, axis=0),
+            pixel_size_um=4.0,
+            agx_particle_area_um2=grain.agx_particle_area_um2,
+            agx_particle_scale=grain.agx_particle_scale,
+            agx_particle_scale_layers=grain.agx_particle_scale_layers,
+            density_min=grain.density_min,
+            grain_uniformity=grain.uniformity,
+            grain_blur=grain.blur,
+            grain_blur_dye_clouds_um=grain.blur_dye_clouds_um,
+            grain_micro_structure=grain.micro_structure,
+            backend=backend,
+        )
+        actual = apply_grain(
+            backend.asarray(density_cmy),
+            4.0,
+            grain,
+            density_curves,
+            density_curves_layers,
+            profile_type,
+            backend=backend,
+        )
+        backend.eval(expected, actual)
+
+        np.testing.assert_array_equal(backend.to_numpy(actual), backend.to_numpy(expected))
 
     def test_apply_grain_with_blur_differs_from_no_blur(self):
         density_cmy = np.full((8, 8, 3), 0.4, dtype=np.float64)
