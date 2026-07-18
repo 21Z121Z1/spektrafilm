@@ -110,11 +110,13 @@ class PrintingStage:
 
     @timeit("expose")
     def expose(self, cmy_film_density: np.ndarray) -> np.ndarray:
-        # Black/white reference points — tiny (1,1,3) arrays, direct computation is fine
-        cmy_film_black = np.zeros((1,1,3)) - np.array(self._film_render.grain.density_min)
-        cmy_film_white = np.nanmax(self._film.data.density_curves, axis=0)[None, None, :]
-        self._color_reference_service.log_raw_print_black = self._film_cmy_to_print_log_raw(cmy_film_black)
-        self._color_reference_service.log_raw_print_white = self._film_cmy_to_print_log_raw(cmy_film_white)
+        if self._color_reference_service.requires_printing_references():
+            # These points are consumed only by enabled negative-print
+            # black/white exposure correction; otherwise they are dead work.
+            cmy_film_black = np.zeros((1, 1, 3)) - np.array(self._film_render.grain.density_min)
+            cmy_film_white = np.nanmax(self._film.data.density_curves, axis=0)[None, None, :]
+            self._color_reference_service.log_raw_print_black = self._film_cmy_to_print_log_raw(cmy_film_black)
+            self._color_reference_service.log_raw_print_white = self._film_cmy_to_print_log_raw(cmy_film_white)
 
         _gpu = self._backend is not None and getattr(self._backend, "supports_gpu", False)
         _spectral_gpu = self._spectral_gpu_enabled()

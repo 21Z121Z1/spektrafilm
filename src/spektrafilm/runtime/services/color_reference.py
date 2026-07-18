@@ -42,6 +42,14 @@ class ColorReferenceService:
 
     # public methods
 
+    def requires_printing_references(self) -> bool:
+        """Return whether PrintingStage must build its reference points."""
+        return bool(
+            (self._black_correction or self._white_correction)
+            and not self._scan_film
+            and self._print.info.type == "negative"
+        )
+
     def _update_cmy_black_white_references(self, in_print=False):
         if self._y_black is not None and self._y_white is not None:
             return

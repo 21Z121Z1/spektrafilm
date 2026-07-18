@@ -80,16 +80,27 @@ class FilmingStage:
         return image, None
 
     def expose(self, image: np.ndarray) -> np.ndarray:
-        return self.expose_with_metadata(image).log_raw
+        # The normal SDR/topology path only needs log exposure. Luminance
+        # sidecars are full-size arrays and are only required by metadata and
+        # RouteMaster callers, so do not build them for a plain exposure.
+        return self._expose_core(image, include_metadata=False).log_raw
 
     def expose_with_metadata(self, image: np.ndarray) -> FilmingExposureResult:
+        return self._expose_core(image, include_metadata=True)
+
+    def _expose_core(
+        self,
+        image: np.ndarray,
+        *,
+        include_metadata: bool,
+    ) -> FilmingExposureResult:
         raw = self._rgb_to_film_raw(
             image,
             color_space=self._io.input_color_space,
             apply_cctf_decoding=self._io.input_cctf_decoding,
         )
         raw *= 2 ** self._camera.exposure_compensation_ev
-        scene_y_raw = self._raw_luminance_y(raw)
+        scene_y_raw = self._raw_luminance_y(raw) if include_metadata else None
         if self._backend is not None and self._backend.supports_gpu:
             raw = boost_highlights_backend(
                 raw, self._film_render.halation.boost_ev,
@@ -126,7 +137,7 @@ class FilmingStage:
                                     backend=self._backend,
                                     settings=self._settings)
         raw *= self._color_reference_service.black_white_filming_exposure_correction()
-        post_halation_y = self._raw_luminance_y(raw)
+        post_halation_y = self._raw_luminance_y(raw) if include_metadata else None
         if self._backend is not None and self._backend.supports_gpu:
             log_raw = safe_log10_backend(raw, self._backend)
         else:
