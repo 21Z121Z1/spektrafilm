@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass
+import hashlib
+import pickle
 from time import perf_counter
 from typing import Any
 
@@ -32,6 +34,7 @@ from spektrafilm.utils.timings import format_timings
 
 
 _LARGE_MLX_STAGE_PIXELS = 24_000_000
+_PREVIEW_CACHE_MAX_PIXELS = 4_000_000
 
 
 @dataclass(slots=True)
@@ -94,6 +97,7 @@ class SimulationPipeline:
         previous_lut_backend = getattr(previous_lut_service, "_backend", None)
         previous_backend = getattr(self, "_backend", None) if update_params else None
         previous_backend_selection_key = getattr(self, "_backend_selection_key", None) if update_params else None
+        previous_preview_cache = getattr(self, "_preview_stage_cache", None) if update_params else None
 
         self._params = copy.deepcopy(params)
 
@@ -120,6 +124,14 @@ class SimulationPipeline:
                 precision=self.settings.gpu_precision,
             )
         self._array_backend = self._backend
+        if (
+            previous_preview_cache is not None
+            and previous_backend is self._backend
+            and bool(getattr(self.settings, "preview_mode", False))
+        ):
+            self._preview_stage_cache = previous_preview_cache
+        else:
+            self._preview_stage_cache: dict[str, Any] = {}
 
         self.timings = {}
         self.memory_residency_warnings: list[str] = []
@@ -212,6 +224,7 @@ class SimulationPipeline:
             raise ValueError("hdr_mode must be 'light_table' or 'paper'.")
         desired_scan_film = hdr_mode == "light_table"
         if bool(self.io.scan_film) != desired_scan_film:
+            self._preview_stage_cache.clear()
             route_params = copy.deepcopy(self._params)
             route_params.io.scan_film = desired_scan_film
             route_pipeline = SimulationPipeline(route_params)
@@ -527,14 +540,102 @@ class SimulationPipeline:
     # private methods
 
     def _pipeline(self, image):
+        preview_cache_context = self._preview_cache_context(image)
         image = self._record_stage_timing("preprocess", self._preprocess, image)
         if self.io.scan_film: # replace with route switch
             rgb_scan = self._pipeline_scan_film(image)
         else:
-            rgb_scan = self._pipeline_print(image)
+            rgb_scan = self._pipeline_print(
+                image,
+                preview_cache_context=preview_cache_context,
+            )
         return self._materialize_output(rgb_scan)
 
+    def _preview_cache_context(self, image: Any) -> tuple[bytes, bytes] | None:
+        if (
+            getattr(self._backend, "name", "") != "mlx"
+            or not bool(getattr(self.settings, "preview_mode", False))
+            or bool(self.io.scan_film)
+            or not isinstance(image, np.ndarray)
+            or image.ndim < 2
+            or self._preview_cache_output_pixels(image) > _PREVIEW_CACHE_MAX_PIXELS
+            or not image.flags.c_contiguous
+        ):
+            self._preview_stage_cache.clear()
+            return None
+
+        source_hasher = hashlib.blake2b(digest_size=16)
+        source_hasher.update(str(tuple(int(dim) for dim in image.shape)).encode("ascii"))
+        source_hasher.update(str(image.dtype).encode("ascii"))
+        source_hasher.update(memoryview(image).cast("B"))
+        source_digest = source_hasher.digest()
+
+        input_io = (
+            self.io.input_color_space,
+            bool(self.io.input_cctf_decoding),
+            self.io.input_gamut_compress,
+            bool(self.io.crop),
+            self.io.crop_center,
+            self.io.crop_size,
+            float(self.io.upscale_factor),
+            bool(self.io.scan_film),
+        )
+        film_key = self._preview_cache_digest(
+            source_digest,
+            self.camera,
+            self.film,
+            self.film_render,
+            input_io,
+            self.debug,
+            self.settings,
+        )
+        print_key = self._preview_cache_digest(
+            film_key,
+            self.enlarger,
+            self.print,
+            self.print_render,
+            (
+                bool(self.scanner.white_correction),
+                bool(self.scanner.black_correction),
+                float(self.scanner.white_level),
+                float(self.scanner.black_level),
+            ),
+        )
+        return film_key, print_key
+
+    def _preview_cache_output_pixels(self, image: np.ndarray) -> int:
+        height, width = (int(image.shape[0]), int(image.shape[1]))
+        if bool(self.io.crop):
+            rows, columns = self._crop_slices(
+                (height, width),
+                center=self.io.crop_center,
+                size=self.io.crop_size,
+            )
+            height = int(rows.stop) - int(rows.start)
+            width = int(columns.stop) - int(columns.start)
+        scale = float(self.io.upscale_factor)
+        scaled_height = int(np.ceil(height * scale))
+        scaled_width = int(np.ceil(width * scale))
+        return scaled_height * scaled_width
+
+    @staticmethod
+    def _preview_cache_digest(*values: Any) -> bytes:
+        return hashlib.blake2b(
+            pickle.dumps(values, protocol=pickle.HIGHEST_PROTOCOL),
+            digest_size=20,
+        ).digest()
+
+    def _store_preview_stage(self, key_name: str, key: bytes, value_name: str, value: Any) -> None:
+        start = perf_counter()
+        self._backend.eval(value)
+        self._preview_stage_cache[key_name] = key
+        self._preview_stage_cache[value_name] = value
+        self.timings[f"SimulationPipeline.preview_cache.store_{value_name}"] = (
+            perf_counter() - start
+        )
+
     def _pipeline_with_metadata(self, image) -> SimulationPipelineResult:
+        self._preview_stage_cache.clear()
         image, hdr_scene_energy = self._record_stage_timing(
             "preprocess",
             self._preprocess_with_metadata,
@@ -556,6 +657,7 @@ class SimulationPipeline:
         return result.route_master
 
     def _pipeline_with_master(self, image, *, hdr_mode: HDRMode) -> SimulationPipelineResult:
+        self._preview_stage_cache.clear()
         image, hdr_scene_energy = self._record_stage_timing(
             "preprocess",
             self._preprocess_with_metadata,
@@ -1178,34 +1280,59 @@ class SimulationPipeline:
         detail = y / np.float32(max(anchor, 1e-8))
         return np.clip(detail, 0.5, 2.0).astype(np.float32)
     
-    def _pipeline_print(self, rgb_image):
-        log_raw_film = self._record_stage_timing(
-            "filming.expose",
-            self._filming_stage.expose,
-            rgb_image,
-        )
-        self._materialize_large_mlx_stage("filming.expose", log_raw_film)
-        cmy_film = self._record_stage_timing(
-            "filming.develop",
-            self._filming_stage.develop,
-            log_raw_film,
-        )
-        self._materialize_large_mlx_stage("filming.develop", cmy_film)
-        del log_raw_film
-        log_raw_print = self._record_stage_timing(
-            "printing.expose",
-            self._printing_stage.expose,
-            cmy_film,
-        )
-        self._materialize_large_mlx_stage("printing.expose", log_raw_print)
-        del cmy_film
-        cmy_print = self._record_stage_timing(
-            "printing.develop",
-            self._printing_stage.develop,
-            log_raw_print,
-        )
-        self._materialize_large_mlx_stage("printing.develop", cmy_print)
-        del log_raw_print
+    def _pipeline_print(
+        self,
+        rgb_image,
+        *,
+        preview_cache_context: tuple[bytes, bytes] | None = None,
+    ):
+        film_key, print_key = preview_cache_context or (None, None)
+        film_hit = film_key is not None and self._preview_stage_cache.get("film_key") == film_key
+        print_hit = print_key is not None and self._preview_stage_cache.get("print_key") == print_key
+
+        if print_hit:
+            cmy_print = self._preview_stage_cache["cmy_print"]
+            self.timings["SimulationPipeline.preview_cache.print_hit"] = 1.0
+        else:
+            if film_hit:
+                cmy_film = self._preview_stage_cache["cmy_film"]
+                self.timings["SimulationPipeline.preview_cache.film_hit"] = 1.0
+            else:
+                if film_key is not None:
+                    self._preview_stage_cache.clear()
+                log_raw_film = self._record_stage_timing(
+                    "filming.expose",
+                    self._filming_stage.expose,
+                    rgb_image,
+                )
+                self._materialize_large_mlx_stage("filming.expose", log_raw_film)
+                cmy_film = self._record_stage_timing(
+                    "filming.develop",
+                    self._filming_stage.develop,
+                    log_raw_film,
+                )
+                self._materialize_large_mlx_stage("filming.develop", cmy_film)
+                del log_raw_film
+                if film_key is not None:
+                    self._store_preview_stage("film_key", film_key, "cmy_film", cmy_film)
+
+            log_raw_print = self._record_stage_timing(
+                "printing.expose",
+                self._printing_stage.expose,
+                cmy_film,
+            )
+            self._materialize_large_mlx_stage("printing.expose", log_raw_print)
+            cmy_print = self._record_stage_timing(
+                "printing.develop",
+                self._printing_stage.develop,
+                log_raw_print,
+            )
+            self._materialize_large_mlx_stage("printing.develop", cmy_print)
+            del log_raw_print
+            if print_key is not None:
+                self._store_preview_stage("print_key", print_key, "cmy_print", cmy_print)
+            if not film_hit:
+                del cmy_film
         rgb_scan = self._record_stage_timing(
             "scanning.scan_print",
             self._scanning_stage.scan,

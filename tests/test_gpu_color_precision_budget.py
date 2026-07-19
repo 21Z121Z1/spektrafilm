@@ -191,7 +191,11 @@ def test_balanced_2d_mitchell_lut_falls_back_to_cpu_reference(monkeypatch) -> No
     def fail_backend_lut(*_args, **_kwargs):
         raise AssertionError("balanced policy must not call the non-compliant GPU 2D LUT")
 
-    monkeypatch.setattr(filming_module, "rgb_to_raw_hanatos2025", fake_cpu_reference)
+    monkeypatch.setattr(
+        filming_module,
+        "rgb_to_raw_hanatos2025_mlx_cpu_fallback",
+        fake_cpu_reference,
+    )
     monkeypatch.setattr("spektrafilm.gpu.kernels.lut.apply_lut_cubic_2d_backend", fail_backend_lut)
 
     raw = stage._rgb_to_film_raw(rgb, color_space="sRGB", apply_cctf_decoding=False)
@@ -200,6 +204,31 @@ def test_balanced_2d_mitchell_lut_falls_back_to_cpu_reference(monkeypatch) -> No
     assert backend.to_numpy_calls == 1
     assert calls["data"].shape == rgb.shape
     assert precision_decision(OP_LUT_2D_MITCHELL, policy="balanced").fallback_to_cpu is True
+
+
+def test_non_mlx_hanatos_fallback_keeps_original_cpu_reference(monkeypatch) -> None:
+    backend = _ArrayGpuBackend()
+    backend.name = "cupy"
+    stage = _make_hanatos_stage("balanced", backend)
+    rgb = np.ones((2, 2, 3), dtype=np.float32) * 0.184
+
+    def fake_cpu_reference(data, _sensitivity, **_kwargs):
+        return np.full(data.shape, 0.5, dtype=np.float64)
+
+    def fail_mlx_fallback(*_args, **_kwargs):
+        raise AssertionError("non-MLX backends must keep the original CPU reference")
+
+    monkeypatch.setattr(filming_module, "rgb_to_raw_hanatos2025", fake_cpu_reference)
+    monkeypatch.setattr(
+        filming_module,
+        "rgb_to_raw_hanatos2025_mlx_cpu_fallback",
+        fail_mlx_fallback,
+    )
+
+    raw = stage._rgb_to_film_raw(rgb, color_space="sRGB", apply_cctf_decoding=False)
+
+    np.testing.assert_array_equal(raw, np.full(rgb.shape, 0.5, dtype=np.float64))
+    assert backend.to_numpy_calls == 1
 
 
 def test_strict_jzazbz_gamut_compression_falls_back_to_cpu(monkeypatch) -> None:

@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "contract_id": "m1-pro-phase2-precision-20260719",
+  "locked_before_candidate_optimization": true,
+  "reference_paths": [
+    "cpu64",
+    "cpu32",
+    "mlx32_unfused",
+    "mlx32_candidate"
+  ],
+  "final_output": {
+    "sdr_bit_depth": 10,
+    "gain_map_bit_depth": 10,
+    "hdr_diffuse_white_nits": 203.0,
+    "sdr_code_value_budget": 1,
+    "gain_map_code_value_budget": 1,
+    "delta_e00_p99_budget": 0.02,
+    "delta_e00_max_budget": 0.05,
+    "hdr_nits_p99_budget": 0.05,
+    "hdr_nits_max_budget": 0.2
+  },
+  "derivation": {
+    "float32_epsilon": 1.1920928955078125e-07,
+    "absolute_budget_formula": "float32_epsilon * stage_conditioning_factor",
+    "quantization_formula": "one integer code at the declared output bit depth",
+    "perceptual_formula": "DeltaE00 limits are below a conservative 0.1 JND engineering floor",
+    "candidate_rule": "class_a is bitwise; class_b uses the predeclared budget and may not worsen CPU64 error by more than 5 percent"
+  },
+  "sample_set": [
+    {"id": "negative_chemical_sdr", "shape": [11, 17], "film": "negative", "route": "chemical_print", "output": "sdr", "grain": false, "spatial": false, "profile": "kodak_portra_400"},
+    {"id": "negative_chemical_hdr_grain", "shape": [13, 19], "film": "negative", "route": "chemical_print", "output": "hdr", "grain": true, "spatial": true, "profile": "fujifilm_c200"},
+    {"id": "positive_direct_sdr", "shape": [9, 16], "film": "positive", "route": "direct_scan", "output": "sdr", "grain": false, "spatial": true, "profile": "fujifilm_provia_100f"},
+    {"id": "positive_direct_hdr_grain", "shape": [12, 15], "film": "positive", "route": "direct_scan", "output": "hdr", "grain": true, "spatial": false, "profile": "kodak_ektachrome_100"}
+  ],
+  "input_conditions": [
+    "near_zero_shadow",
+    "negative_or_out_of_range",
+    "neutral_ramp",
+    "sdr_white_boundary",
+    "hdr_highlight",
+    "wide_gamut_saturated",
+    "smooth_gradient",
+    "high_frequency_texture",
+    "unaligned_image_boundary"
+  ],
+  "stages": {
+    "film_raw_exposure": {"class": "a", "conditioning_factor": 128, "clip_bounds": [0.0, null]},
+    "film_log_exposure": {"class": "a", "conditioning_factor": 256, "clip_bounds": null},
+    "film_cmy_density": {"class": "a", "conditioning_factor": 64, "clip_bounds": [0.0, 3.2]},
+    "grain_density_shared_random": {"class": "a", "conditioning_factor": 64, "clip_bounds": [0.0, 3.2]},
+    "paper_log_exposure": {"class": "a", "conditioning_factor": 512, "clip_bounds": null},
+    "paper_cmy_density": {"class": "a", "conditioning_factor": 64, "clip_bounds": [0.0, 3.2]},
+    "scan_spectral_transmittance": {"class": "a", "conditioning_factor": 128, "clip_bounds": [0.0, 1.0]},
+    "scan_xyz": {"class": "b", "conditioning_factor": 1024, "clip_bounds": [0.0, null]},
+    "scene_output_linear_rgb": {"class": "b", "conditioning_factor": 1536, "clip_bounds": null},
+    "sdr_pre_encode": {"class": "b", "conditioning_factor": 2048, "clip_bounds": [0.0, 1.0]},
+    "decoded_final_sdr": {"class": "b", "conditioning_factor": 2048, "clip_bounds": [0.0, 1.0]},
+    "hdr_linear_luminance": {"class": "b", "conditioning_factor": 3072, "clip_bounds": [0.0, null]},
+    "hdr_headroom": {"class": "b", "conditioning_factor": 4096, "clip_bounds": [0.0, null]},
+    "gain_map": {"class": "b", "conditioning_factor": 4096, "clip_bounds": null},
+    "decoded_final_hdr": {"class": "b", "conditioning_factor": 6144, "clip_bounds": [0.0, null]}
+  },
+  "relations": {
+    "cpu64_to_cpu32": {"budget_scale": 1.0, "require_no_new_nonfinite": true, "require_same_clip_class": true},
+    "cpu32_to_mlx32_unfused": {"budget_scale": 1.0, "require_no_new_nonfinite": true, "require_same_clip_class": true},
+    "cpu64_to_mlx32_unfused": {"budget_scale": 2.0, "require_no_new_nonfinite": true, "require_same_clip_class": true},
+    "mlx32_unfused_to_candidate": {"class_a_bitwise": true, "bitwise_stages": ["decoded_final_sdr", "gain_map", "decoded_final_hdr"], "budget_scale": 1.0, "require_no_new_nonfinite": true, "require_same_clip_class": true},
+    "cpu64_to_candidate": {"budget_scale": 2.0, "max_baseline_error_ratio": 1.05, "require_no_new_nonfinite": true, "require_same_clip_class": true}
+  },
+  "grain_native_rng": {
+    "seed": 20260719,
+    "shape": [128, 160, 3],
+    "quantiles": [0.01, 0.05, 0.5, 0.95, 0.99],
+    "exposure_bins": [0.0, 0.2, 0.5, 0.8, 1.01],
+    "power_spectrum_bins": 8,
+    "mean_standard_error_sigma": 6.0,
+    "relative_variance_budget": 0.2,
+    "absolute_quantile_budget": 0.3,
+    "autocorrelation_budget": 0.08,
+    "channel_correlation_budget": 0.08,
+    "relative_power_spectrum_budget": 0.25
+  },
+  "hanatos_balanced_fallback": {
+    "reference": "rgb_to_raw_hanatos2025 monkeypatched into the MLX balanced fallback callsite",
+    "candidate": "rgb_to_raw_hanatos2025_mlx_cpu_fallback",
+    "cpu64_intermediate_max_abs_budget": 1.0e-12,
+    "bitwise_stages": ["film_raw_float32", "film_log_exposure", "final_output"]
+  }
+}

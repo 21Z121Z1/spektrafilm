@@ -90,6 +90,30 @@ def _rgb_tc_b_test_values() -> np.ndarray:
     )
 
 
+@pytest.mark.parametrize("color_space", ["sRGB", "Display P3", "ITU-R BT.2020"])
+def test_rgb_to_tc_b_combined_matrix_stays_within_float32_rounding(
+    color_space: str,
+) -> None:
+    rgb = _rgb_tc_b_test_values()
+    expected_tc, expected_b = spectral_upsampling_module._rgb_to_tc_b(
+        rgb,
+        color_space=color_space,
+        apply_cctf_decoding=False,
+        reference_illuminant="D55",
+    )
+    actual_tc, actual_b = spectral_upsampling_module._rgb_to_tc_b_combined_matrix(
+        rgb,
+        color_space=color_space,
+        apply_cctf_decoding=False,
+        reference_illuminant="D55",
+    )
+
+    np.testing.assert_allclose(actual_tc, expected_tc, rtol=0.0, atol=1e-12)
+    np.testing.assert_allclose(actual_b, expected_b, rtol=0.0, atol=1e-12)
+    np.testing.assert_array_equal(actual_tc.astype(np.float32), expected_tc.astype(np.float32))
+    np.testing.assert_array_equal(actual_b.astype(np.float32), expected_b.astype(np.float32))
+
+
 def test_tri2quad_backend_matches_cpu_edge_cases():
     backend = RecordingMlxFloat32Backend()
     tc = np.array(

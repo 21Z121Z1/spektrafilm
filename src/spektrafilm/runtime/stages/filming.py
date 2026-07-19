@@ -27,6 +27,7 @@ from spektrafilm.gpu.precision_policy import (
 from spektrafilm.utils.autoexposure import measure_autoexposure_ev
 from spektrafilm.utils.spectral_upsampling import (
     rgb_to_raw_hanatos2025,
+    rgb_to_raw_hanatos2025_mlx_cpu_fallback,
     rgb_to_raw_mallett2019,
     _rgb_to_tc_b,
 )
@@ -225,7 +226,16 @@ class FilmingStage:
             else:
                 if _gpu:
                     rgb = _backend.to_numpy(rgb)
-                raw = rgb_to_raw_hanatos2025(
+                    if (
+                        getattr(_backend, "name", None) == "mlx"
+                        and getattr(_backend, "precision", None) == "float32"
+                    ):
+                        hanatos_fn = rgb_to_raw_hanatos2025_mlx_cpu_fallback
+                    else:
+                        hanatos_fn = rgb_to_raw_hanatos2025
+                else:
+                    hanatos_fn = rgb_to_raw_hanatos2025
+                raw = hanatos_fn(
                     rgb,
                     sensitivity,
                     color_space=color_space,

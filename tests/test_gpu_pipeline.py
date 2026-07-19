@@ -89,6 +89,134 @@ def test_large_mlx_stage_boundary_evaluates_without_host_materialization(monkeyp
     assert "SimulationPipeline.large_stage_boundary.test" in pipeline.timings
 
 
+def _preview_cache_pipeline():
+    _require_mlx_backend()
+    params = make_fast_test_params()
+    params.settings.compute_backend = "mlx"
+    params.settings.gpu_precision = "float32"
+    params.settings.materialize_policy = "backend"
+    params.settings.preview_mode = True
+    image = np.linspace(0.01, 1.0, 31 * 37 * 3, dtype=np.float32).reshape(31, 37, 3)
+    return params, image, SimulationPipeline(params)
+
+
+def _evaluated_numpy(pipeline: SimulationPipeline, value) -> np.ndarray:
+    pipeline._backend.eval(value)
+    return pipeline._backend.to_numpy(value)
+
+
+def test_mlx_preview_cache_reuses_print_density_for_scanner_update() -> None:
+    params, image, pipeline = _preview_cache_pipeline()
+    _evaluated_numpy(pipeline, pipeline.process(image))
+
+    updated = copy.deepcopy(params)
+    updated.scanner.lens_blur = 0.2
+    pipeline.update(updated)
+    cached = _evaluated_numpy(pipeline, pipeline.process(image))
+    fresh_pipeline = SimulationPipeline(updated)
+    fresh = _evaluated_numpy(fresh_pipeline, fresh_pipeline.process(image))
+
+    assert pipeline.timings["SimulationPipeline.preview_cache.print_hit"] == 1.0
+    np.testing.assert_array_equal(cached, fresh)
+
+
+def test_mlx_preview_cache_reuses_only_film_density_for_print_update() -> None:
+    params, image, pipeline = _preview_cache_pipeline()
+    _evaluated_numpy(pipeline, pipeline.process(image))
+
+    updated = copy.deepcopy(params)
+    updated.enlarger.print_exposure *= 1.1
+    pipeline.update(updated)
+    _evaluated_numpy(pipeline, pipeline.process(image))
+
+    assert pipeline.timings["SimulationPipeline.preview_cache.film_hit"] == 1.0
+    assert "SimulationPipeline.preview_cache.print_hit" not in pipeline.timings
+
+
+def test_mlx_preview_cache_invalidates_for_film_change_and_full_render() -> None:
+    params, image, pipeline = _preview_cache_pipeline()
+    _evaluated_numpy(pipeline, pipeline.process(image))
+
+    updated = copy.deepcopy(params)
+    updated.camera.exposure_compensation_ev += 0.25
+    pipeline.update(updated)
+    _evaluated_numpy(pipeline, pipeline.process(image))
+    assert "SimulationPipeline.preview_cache.film_hit" not in pipeline.timings
+    assert "SimulationPipeline.preview_cache.print_hit" not in pipeline.timings
+
+    updated.settings.preview_mode = False
+    pipeline.update(updated)
+    _evaluated_numpy(pipeline, pipeline.process(image))
+    assert pipeline._preview_stage_cache == {}
+
+
+def test_mlx_preview_cache_clears_for_direct_scan_and_metadata_routes() -> None:
+    params, image, pipeline = _preview_cache_pipeline()
+    _evaluated_numpy(pipeline, pipeline.process(image))
+    assert pipeline._preview_stage_cache
+
+    direct_scan = copy.deepcopy(params)
+    direct_scan.io.scan_film = True
+    pipeline.update(direct_scan)
+    _evaluated_numpy(pipeline, pipeline.process(image))
+    assert pipeline._preview_stage_cache == {}
+
+    pipeline.update(params)
+    _evaluated_numpy(pipeline, pipeline.process(image))
+    assert pipeline._preview_stage_cache
+    metadata = pipeline.process_with_metadata(image)
+    _evaluated_numpy(pipeline, metadata.image)
+    assert pipeline._preview_stage_cache == {}
+
+    _evaluated_numpy(pipeline, pipeline.process(image))
+    assert pipeline._preview_stage_cache
+    master = pipeline.process_with_master(image, hdr_mode="light_table")
+    _evaluated_numpy(pipeline, master.image)
+    assert pipeline._preview_stage_cache == {}
+
+
+def test_mlx_preview_cache_invalidates_for_size_and_profile_switches() -> None:
+    params, image, pipeline = _preview_cache_pipeline()
+    _evaluated_numpy(pipeline, pipeline.process(image))
+
+    resized = np.linspace(0.01, 1.0, 29 * 41 * 3, dtype=np.float32).reshape(29, 41, 3)
+    resized_cached = _evaluated_numpy(pipeline, pipeline.process(resized))
+    resized_pipeline = SimulationPipeline(params)
+    resized_fresh = _evaluated_numpy(resized_pipeline, resized_pipeline.process(resized))
+    assert "SimulationPipeline.preview_cache.film_hit" not in pipeline.timings
+    assert "SimulationPipeline.preview_cache.print_hit" not in pipeline.timings
+    np.testing.assert_array_equal(resized_cached, resized_fresh)
+
+    profiled = make_fast_test_params(
+        film_profile="fujifilm_c200",
+        print_profile="kodak_portra_endura",
+    )
+    profiled.settings.compute_backend = "mlx"
+    profiled.settings.gpu_precision = "float32"
+    profiled.settings.materialize_policy = "backend"
+    profiled.settings.preview_mode = True
+    pipeline.update(profiled)
+    profiled_cached = _evaluated_numpy(pipeline, pipeline.process(resized))
+    fresh_pipeline = SimulationPipeline(profiled)
+    profiled_fresh = _evaluated_numpy(fresh_pipeline, fresh_pipeline.process(resized))
+    assert "SimulationPipeline.preview_cache.film_hit" not in pipeline.timings
+    assert "SimulationPipeline.preview_cache.print_hit" not in pipeline.timings
+    np.testing.assert_array_equal(profiled_cached, profiled_fresh)
+
+
+def test_mlx_preview_cache_limit_uses_post_resize_pixel_count(monkeypatch) -> None:
+    params, image, _pipeline = _preview_cache_pipeline()
+    params.io.upscale_factor = 2.0
+    pipeline = SimulationPipeline(params)
+    monkeypatch.setattr(pipeline_module, "_PREVIEW_CACHE_MAX_PIXELS", 2_000)
+
+    _evaluated_numpy(pipeline, pipeline.process(image))
+
+    assert image.shape[0] * image.shape[1] < 2_000
+    assert pipeline._preview_cache_output_pixels(image) > 2_000
+    assert pipeline._preview_stage_cache == {}
+
+
 def test_pipeline_gpu_validate_hanatos2025_mlx_float32_records_report() -> None:
     _require_mlx_backend()
     params = make_fast_test_params()

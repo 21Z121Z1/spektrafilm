@@ -191,6 +191,26 @@ def _cached_rgb_to_xyz_matrix(color_space: str, reference_illuminant: str, cat: 
         dtype=np.float32,
     )
 
+
+@lru_cache(maxsize=32)
+def _cached_rgb_to_xyz_matrix_float64(
+    color_space: str,
+    reference_illuminant: str,
+    cat: str = "CAT16",
+) -> np.ndarray:
+    """Return the combined float64 matrix used by the MLX CPU fallback."""
+
+    illuminant_xy = _illuminant_to_xy(reference_illuminant)
+    return np.asarray(
+        precompute_rgb_to_xyz_matrix(
+            color_space,
+            illuminant_xy=illuminant_xy,
+            cat=cat,
+        ),
+        dtype=np.float64,
+    )
+
+
 def _rgb_to_tc_b(rgb, color_space='ITU-R BT.2020', apply_cctf_decoding=False, reference_illuminant='D55'):
     # source_cs = colour.RGB_COLOURSPACES[color_space]
     # target_cs = source_cs.copy()
@@ -221,6 +241,38 @@ def _rgb_to_tc_b(rgb, color_space='ITU-R BT.2020', apply_cctf_decoding=False, re
     tc = _tri2quad(xy)
     b = np.nan_to_num(b)
     return tc, b
+
+
+def _rgb_to_tc_b_combined_matrix(
+    rgb,
+    color_space='ITU-R BT.2020',
+    apply_cctf_decoding=False,
+    reference_illuminant='D55',
+):
+    """CPU64 RGB conversion with a precombined chromatic-adaptation matrix.
+
+    The ordinary CPU reference deliberately retains Colour's two matrix
+    operations. This helper is reserved for the MLX fallback whose output is
+    uploaded as float32 immediately, removing one full-frame float64 pass.
+    """
+
+    if apply_cctf_decoding:
+        return _rgb_to_tc_b(
+            rgb,
+            color_space=color_space,
+            apply_cctf_decoding=True,
+            reference_illuminant=reference_illuminant,
+        )
+    matrix = _cached_rgb_to_xyz_matrix_float64(
+        color_space,
+        reference_illuminant,
+        "CAT16",
+    )
+    xyz = np.matmul(np.asarray(rgb), matrix.T)
+    b = np.sum(xyz, axis=-1)
+    xy = xyz[..., 0:2] / np.fmax(b[..., None], 1e-10)
+    tc = _tri2quad(xy)
+    return tc, np.nan_to_num(b)
 
 
 def _rgb_to_tc_b_backend(
@@ -517,6 +569,33 @@ def rgb_to_raw_hanatos2025(rgb, sensitivity,
     raw *= b[...,None] # scale the raw back with the scale factor
     # note that sensitivities are already normalized in balancing such that raw_midgray is 1, so no need to normalize here
     return raw
+
+
+def rgb_to_raw_hanatos2025_mlx_cpu_fallback(
+    rgb,
+    sensitivity,
+    color_space,
+    apply_cctf_decoding,
+    reference_illuminant,
+    tc_lut=None,
+):
+    """CPU64 Hanatos fallback optimized for an immediate MLX float32 upload."""
+
+    tc_raw, b = _rgb_to_tc_b_combined_matrix(
+        rgb,
+        color_space=color_space,
+        apply_cctf_decoding=apply_cctf_decoding,
+        reference_illuminant=reference_illuminant,
+    )
+    if tc_lut is None:
+        tc_lut = compute_hanatos2025_tc_lut(
+            sensitivity,
+            HANATOS2025_NO_ADAPTATION,
+        )
+    raw = apply_lut_cubic_2d(tc_lut, tc_raw)
+    raw *= b[..., None]
+    return raw
+
 
 def rgb_to_smooth_spectrum(rgb, color_space, apply_cctf_decoding, reference_illuminant):
     # direct interpolation of the spectra lut, to be used only for smooth spectra close to white
