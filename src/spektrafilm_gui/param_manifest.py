@@ -39,10 +39,7 @@ from spektrafilm_gui.options import (
     DiffusionFilterFamilies,
     GpuPrecision,
     HDRGainMapModes,
-    HDRHeadroomModes,
     HDRMappingModes,
-    HDRReferenceWhiteModes,
-    HDRSceneSources,
     InputGamutCompressAlgorithms,
     MaterializePolicy,
     NapariInterpolationModes,
@@ -75,6 +72,7 @@ class ParamSpec:
     step: float | None = None
     decimals: int | None = None
     enum: type | None = None  # Enum class supplying the choices for a str field
+    advanced: bool = False  # Laid out in the group's collapsed "Advanced" subsection
 
     @property
     def leaf(self) -> str:
@@ -919,6 +917,12 @@ HDR_EXPORT_MANIFEST = GroupManifest(
     collapsed_by_default=False,
     fields=(
         ParamSpec(
+            f"{_HDR}.hdr_heic_gain_map_enabled",
+            label="HEIC gain map",
+            tier="basic",
+            tooltip="Enable explicit HDR gain-map HEIC/HEIF export. Standard PNG/JPEG/TIFF/EXR saves are unaffected.",
+        ),
+        ParamSpec(
             f"{_HDR}.hdr_mapping_mode",
             label="HDR mode",
             tier="basic",
@@ -926,32 +930,13 @@ HDR_EXPORT_MANIFEST = GroupManifest(
             tooltip="RouteMaster HDR projection mode used only for explicit HDR HEIC gain-map output.",
         ),
         ParamSpec(
-            f"{_HDR}.hdr_heic_gain_map_enabled",
-            label="HEIC gain map",
+            f"{_HDR}.hdr_peak_headroom",
+            label="Peak headroom",
             tier="basic",
-            tooltip="Enable explicit HDR gain-map HEIC/HEIF export. Standard PNG/JPEG/TIFF/EXR saves are unaffected.",
-        ),
-        ParamSpec(
-            f"{_HDR}.hdr_scene_source",
-            label="Scene source",
-            tier="basic",
-            enum=HDRSceneSources,
-            tooltip="Compatibility field. RouteMaster HDR export derives scene authority from the film simulation pipeline.",
-        ),
-        ParamSpec(
-            f"{_HDR}.hdr_diffuse_white_target",
-            label="Diffuse white anchor",
-            min=0.1,
-            max=4.0,
-            step=0.05,
-            tooltip="Scene-energy diffuse white anchor used to separate authored SDR base from HDR highlight headroom.",
-        ),
-        ParamSpec(
-            f"{_HDR}.hdr_reference_white_mode",
-            label="HDR reference white mode",
-            tier="basic",
-            enum=HDRReferenceWhiteModes,
-            tooltip="Reference white calibration mode. Manual scene anchor uses the diffuse white anchor plus EV offset.",
+            min=1.01,
+            max=16.0,
+            step=0.25,
+            tooltip="Maximum HDR headroom allowed during gain-map rendition generation.",
         ),
         ParamSpec(
             f"{_HDR}.hdr_reference_white_ev",
@@ -960,59 +945,7 @@ HDR_EXPORT_MANIFEST = GroupManifest(
             max=4.0,
             step=0.05,
             decimals=2,
-            tooltip="EV offset applied to the scene diffuse white anchor before HDR highlight onset.",
-        ),
-        ParamSpec(
-            f"{_HDR}.hdr_output_diffuse_white",
-            label="Output diffuse white",
-            min=0.1,
-            max=4.0,
-            step=0.05,
-            decimals=2,
-            tooltip="Scales only the HDR delta above the preserved SDR base; it does not change the SDR base rendition.",
-        ),
-        ParamSpec(
-            f"{_HDR}.hdr_display_reference_white_nits",
-            label="Display reference white nits",
-            min=80.0,
-            max=500.0,
-            step=1.0,
-            decimals=0,
-            tooltip="Diagnostic display reference white scale. It does not affect exported pixels.",
-        ),
-        ParamSpec(
-            f"{_HDR}.hdr_peak_headroom",
-            label="Peak headroom",
-            min=1.01,
-            max=16.0,
-            step=0.25,
-            tooltip="Maximum HDR headroom allowed during gain-map rendition generation.",
-        ),
-        ParamSpec(
-            f"{_HDR}.hdr_headroom_mode",
-            label="Headroom mode",
-            enum=HDRHeadroomModes,
-            tooltip="RouteMaster HDR currently supports content percentile headroom budgeting.",
-        ),
-        ParamSpec(
-            f"{_HDR}.headroom_percentile",
-            label="Headroom percentile",
-            min=50.0,
-            max=100.0,
-            step=0.1,
-            decimals=2,
-            tooltip="Content percentile used to estimate output headroom.",
-        ),
-        ParamSpec(
-            f"{_HDR}.preserve_sdr_base",
-            label="Preserve SDR base",
-            tooltip="Keep the authored SDR look as the gain-map base rendition.",
-        ),
-        ParamSpec(
-            f"{_HDR}.gain_map_mode",
-            label="Gain map mode",
-            enum=HDRGainMapModes,
-            tooltip="Encode the HEIC gain map as RGB or luma.",
+            tooltip="EV trim on the scene diffuse-white anchor (scene 1.0) that sets where HDR highlight extension begins.",
         ),
         ParamSpec(
             f"{_HDR}.heic_quality",
@@ -1022,6 +955,23 @@ HDR_EXPORT_MANIFEST = GroupManifest(
             step=0.01,
             decimals=2,
             tooltip="CoreImage HEIC encoder quality for explicit HDR gain-map export.",
+        ),
+        ParamSpec(
+            f"{_HDR}.headroom_percentile",
+            label="Headroom percentile",
+            min=50.0,
+            max=100.0,
+            step=0.1,
+            decimals=2,
+            advanced=True,
+            tooltip="Content percentile used to measure the exported headroom metadata; outliers above it are clipped.",
+        ),
+        ParamSpec(
+            f"{_HDR}.gain_map_mode",
+            label="Gain map mode",
+            enum=HDRGainMapModes,
+            advanced=True,
+            tooltip="Encode the HEIC gain map as RGB (default, hue-preserving) or luma (compatibility fallback).",
         ),
     ),
 )

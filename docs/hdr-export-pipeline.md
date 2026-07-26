@@ -84,7 +84,26 @@ photographic HDR semantics are created.
 
 ## Dynamic Profile Cache
 
-`src/spektrafilm/hdr/profile_cache.py` adds `build_route_profile_cache_key()`.
+`src/spektrafilm/hdr/profile_cache.py` adds `build_route_profile_cache_key()`
+and, since 2026-07-26, the production wiring
+`get_dynamic_print_curve_profile(params)`: `export_hdr_heic_from_simulator()`
+resamples the paper-mode chemical profile with the simulator's current tone
+parameters (deterministic CPU ramp via
+`sample_runtime_print_curve_profile()`, ~0.3 s, cached on the key below) and
+passes it to `project_hdr_ideal_paper()`. Sampling failures fall back to the
+static bundled profile; the origin is recorded in projection diagnostics as
+`chemical_profile_origin`.
+
+Since 2026-07-27 the same pattern calibrates the light-table negative
+positive render: `get_dynamic_negative_scan_render_metadata(params)` samples a
+deterministic neutral ramp through the film-scan route (CPU backend, output
+gamut compression and scanner sharpening disabled so the ramp domain equals
+the raw scanner RGB the render consumes) and caches the film-base /
+density-range references on the light-table variant of the key. The pipeline's
+`_positive_render_negative_scan_master()` consumes it, recording
+`negative_scan_render_origin` in RouteMaster diagnostics; only if calibration
+fails does it fall back to the legacy content-statistics estimate
+(`content_statistics_fallback:*`).
 
 Included in the key:
 

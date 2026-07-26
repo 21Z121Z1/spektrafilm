@@ -7,12 +7,13 @@ from spektrafilm.hdr.projection import (
     HDRProjectionResult,
     _apply_highlight_detail,
     _backend_projection_profile,
+    _build_hdr_y_from_route_numpy,
     _build_paper_generic_result_backend,
     _build_result,
+    _is_mlx_array,
     _material_detail,
     _scene_authority,
     _smoothstep,
-    build_hdr_y_from_route,
     _sdr_rgb,
 )
 from spektrafilm.hdr.reference_white import resolve_reference_white
@@ -27,6 +28,54 @@ from spektrafilm.utils.hdr_curve_profiles import (
 
 _EPS32 = np.float32(1e-8)
 _TINT_GUARD_THRESHOLD = 0.12
+
+
+def _smooth_max(a: np.ndarray, b: np.ndarray, softness: float) -> np.ndarray:
+    """C1-continuous max approximation.
+
+    Exact where a == b (so the diffuse-white seam stays untouched), never
+    below min(a, b) (so 'HDR never darker than SDR' is preserved), and within
+    softness/2 of the true max away from the crossing.
+    """
+
+    k = np.float32(max(float(softness), 1e-6))
+    diff = a - b
+    return (
+        np.float32(0.5) * (a + b + np.sqrt(diff * diff + k * k) - k)
+    ).astype(np.float32, copy=False)
+
+
+def _soft_clip_gain(gain: np.ndarray, max_headroom: float) -> np.ndarray:
+    """Quadratic-knee saturation toward the gain cap.
+
+    Identity below cap - width, exactly cap above cap + width, C1 everywhere
+    in between; the cap is reached at finite input (non-asymptotic), unlike a
+    hard np.clip which introduces a slope discontinuity at the cap.
+    """
+
+    cap = float(max_headroom)
+    width = max(0.1 * (cap - 1.0), 1e-6)
+    lower = np.float32(cap - width)
+    upper = np.float32(cap + width)
+    knee = np.float32(cap) - (gain - upper) * (gain - upper) / np.float32(4.0 * width)
+    return np.where(
+        gain <= lower,
+        gain,
+        np.where(gain >= upper, np.float32(cap), knee),
+    ).astype(np.float32, copy=False)
+
+
+def _backend_scene_has_headroom(scene_y_raw, scene_white: float) -> bool:
+    """Single-scalar readback of ``any(scene > white)`` for backend masters.
+
+    Comparison semantics match the numpy decision on the validated authority:
+    ``maximum(x, 0) > white`` equals ``x > white`` for positive ``white``, and
+    non-finite scenes fall through to the generic path whose validation raises
+    the same error the numpy path would have raised.
+    """
+    import mlx.core as mx
+
+    return bool(np.asarray(mx.any(scene_y_raw > np.float32(scene_white))))
 
 
 def _diagnostic_string(value: object) -> str | None:
@@ -107,8 +156,11 @@ def _chemical_print_hdr_y(
     used_capacity = np.maximum(profile_y - np.float32(profile_white_y), 0.0)
     chemical_progress = np.clip(used_capacity / np.float32(capacity), 0.0, 1.0)
 
-    peak = float(np.nanpercentile(ratio, config.headroom_percentile))
-    span_end = max(1.25, min(float(config.max_headroom), peak))
+    # The extension span is fixed by the configured headroom rather than a
+    # content percentile so that crops/framing changes of the same scene keep
+    # identical per-pixel rendering (content stats still bound the final
+    # headroom metadata in projection._headroom).
+    span_end = max(1.25, float(config.max_headroom))
     scene_excess = np.clip(
         (ratio - np.float32(1.0)) / np.float32(max(span_end - 1.0, float(_EPS32))),
         0.0,
@@ -130,7 +182,7 @@ def _chemical_print_hdr_y(
         * np.float32(max(config.max_headroom - 1.0, 0.0))
         * np.float32(effective_strength)
     )
-    gain = np.clip(gain, 1.0, config.max_headroom).astype(np.float32, copy=False)
+    gain = np.maximum(_soft_clip_gain(gain, config.max_headroom), np.float32(1.0))
 
     detail = _material_detail(master, sdr_y.shape, config)
     existing_chemical_y = _apply_highlight_detail(
@@ -149,7 +201,11 @@ def _chemical_print_hdr_y(
         * np.float32(effective_strength)
     )
     display_extension_y = _apply_highlight_detail(sdr_y, display_extension_y, detail, ratio, config)
-    return np.maximum(existing_chemical_y, display_extension_y).astype(np.float32, copy=False)
+    # A hard max between the multiplicative chemical arm and the additive
+    # display-budget arm leaves a C1 kink where the curves cross; the smooth
+    # blend stays exact at the seam (both arms equal sdr_y there).
+    blend_softness = 0.02 * max(float(config.max_headroom) - 1.0, 0.0)
+    return _smooth_max(existing_chemical_y, display_extension_y, blend_softness)
 
 
 def _profile_diagnostics(profile: HDRCurveProfile) -> dict[str, object]:
@@ -166,12 +222,21 @@ def _profile_diagnostics(profile: HDRCurveProfile) -> dict[str, object]:
 def project_hdr_ideal_paper(
     master: RouteMaster,
     config: HDRProjectionConfig | None = None,
+    *,
+    chemical_profile: HDRCurveProfile | None = None,
+    chemical_profile_origin: str | None = None,
 ) -> HDRProjectionResult:
     """Project a print-scan RouteMaster to Idealized HDR Paper output.
 
     This is a counterfactual digital medium. Below paper white it preserves
     the legacy photographic print projection; above paper white it extends
     highlights from scene/material energy into display headroom.
+
+    ``chemical_profile`` overrides the static bundled (film, paper) profile
+    with one resampled from the caller's current tone parameters (see
+    ``spektrafilm.hdr.profile_cache.get_dynamic_print_curve_profile``); the
+    same safety classification applies, so an unsafe dynamic profile falls
+    back to the generic scene extension.
     """
 
     config = HDRProjectionConfig() if config is None else config
@@ -181,12 +246,38 @@ def project_hdr_ideal_paper(
 
     with _backend_projection_profile():
         scene_white = float(calibration.scene_diffuse_white_y)
-        profile, fallback_reason = _chemical_profile_from_master(master)
+        if chemical_profile is not None:
+            profile, fallback_reason = chemical_profile, None
+            profile_origin = chemical_profile_origin or "dynamic_resample"
+        else:
+            profile, fallback_reason = _chemical_profile_from_master(master)
+            profile_origin = "static_bundled"
         path_to_white_strength = config.paper_path_to_white_strength
-        if profile is None:
+        profile_diagnostics: dict[str, object] = {}
+        profile_safe = False
+        unsafe_reason: str | None = None
+        if profile is not None:
+            profile_diagnostics = _profile_diagnostics(profile)
+            profile_safe, unsafe_reason = _chemical_profile_is_safe(profile)
+            if not profile_safe:
+                fallback_reason = unsafe_reason
+
+        # Generic-extension candidates can ride the backend projection without
+        # materializing the frame to the host first. Chemical eligibility for
+        # backend-resident masters is decided by a single mx.any readback; host
+        # masters keep the original numpy decision flow below.
+        scene_is_backend = _is_mlx_array(master.scene_y_raw)
+        use_chemical_rolloff = False
+        if profile is not None and profile_safe and scene_is_backend:
+            use_chemical_rolloff = _backend_scene_has_headroom(master.scene_y_raw, scene_white)
+            if not use_chemical_rolloff:
+                fallback_reason = "no_scene_headroom"
+        if not use_chemical_rolloff and (profile is None or not profile_safe or scene_is_backend):
             chemical_diagnostics = {
                 "paper_rolloff_strategy": "generic_scene_extension",
-                "chemical_profile_safe": False,
+                **profile_diagnostics,
+                "chemical_profile_safe": profile_safe,
+                "chemical_profile_origin": profile_origin,
                 "chemical_fallback_reason": fallback_reason or "unavailable",
                 "paper_path_to_white_strength_used": float(path_to_white_strength),
             }
@@ -210,17 +301,14 @@ def project_hdr_ideal_paper(
         sdr_y = luminance_y(sdr_rgb)
         scene_y = _scene_authority(master, sdr_y.shape)
         chemical_diagnostics: dict[str, object]
-        profile_diagnostics: dict[str, object] = {}
-        profile_safe = False
-        use_chemical_rolloff = False
         if profile is not None:
-            profile_diagnostics = _profile_diagnostics(profile)
-            safe, unsafe_reason = _chemical_profile_is_safe(profile)
-            profile_safe = safe
-            if safe:
-                use_chemical_rolloff = bool(
-                    np.any(scene_y > np.float32(scene_white))
-                )
+            if profile_safe:
+                if not scene_is_backend:
+                    use_chemical_rolloff = bool(
+                        np.any(scene_y > np.float32(scene_white))
+                    )
+                    if not use_chemical_rolloff:
+                        fallback_reason = "no_scene_headroom"
                 if use_chemical_rolloff:
                     hdr_y = _chemical_print_hdr_y(
                         master=master,
@@ -236,23 +324,29 @@ def project_hdr_ideal_paper(
                         "paper_display_extension_strength_used": _paper_display_extension_strength(config, profile),
                         **profile_diagnostics,
                         "chemical_profile_safe": True,
+                        "chemical_profile_origin": profile_origin,
                     }
                 else:
                     fallback_reason = "no_scene_headroom"
             else:
                 fallback_reason = unsafe_reason
         if not use_chemical_rolloff:
-            hdr_y = build_hdr_y_from_route(
+            # scene_y is host-resident here, so the backend HDR-Y builder can
+            # never engage; go straight to the numpy tail and reuse the SDR
+            # base decoded above instead of recomputing it.
+            hdr_y, _ = _build_hdr_y_from_route_numpy(
                 master,
                 config,
                 authority_y=scene_y,
                 white=scene_white,
                 strength=config.paper_extension_strength,
+                sdr=sdr_rgb,
             )
             chemical_diagnostics = {
                 "paper_rolloff_strategy": "generic_scene_extension",
                 **profile_diagnostics,
                 "chemical_profile_safe": profile_safe,
+                "chemical_profile_origin": profile_origin,
                 "chemical_fallback_reason": fallback_reason or "unavailable",
             }
         chemical_diagnostics["paper_path_to_white_strength_used"] = float(path_to_white_strength)
@@ -272,6 +366,8 @@ def project_hdr_ideal_paper(
                 "paper_medium": "counterfactual_digital",
                 **chemical_diagnostics,
             },
+            sdr=sdr_rgb,
+            scene_y=scene_y,
         )
 
 

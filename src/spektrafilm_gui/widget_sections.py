@@ -477,6 +477,8 @@ class ParamsGroupSection(QWidget):
 
     def _build_ui(self) -> None:
         form = _new_form_layout()
+        advanced_form = _new_form_layout()
+        has_advanced = False
         for spec in self._manifest.fields:
             editor = self._build_editor(spec)
             self._editors[spec.leaf] = editor
@@ -484,16 +486,32 @@ class ParamsGroupSection(QWidget):
         # Build editors for every field (so the whole group stays editable,
         # persisted, and auto-preview wired) but only lay out panel_fields;
         # any remaining fields are displayed by a section that borrows them.
+        # Specs marked advanced land in a collapsed "Advanced" subsection.
         for spec in self._manifest.panel_fields or self._manifest.fields:
             editor = self._editors[spec.leaf]
             label = QLabel(_normalize_ui_text(spec.label or _format_label(spec.leaf)))
             if spec.tooltip:
                 label.setToolTip(spec.tooltip)
                 editor.setToolTip(spec.tooltip)
-            form.addRow(label, editor)
+            if spec.advanced:
+                advanced_form.addRow(label, editor)
+                has_advanced = True
+            else:
+                form.addRow(label, editor)
 
         content = QWidget()
-        content.setLayout(form)
+        if has_advanced:
+            stacked = QVBoxLayout()
+            stacked.setContentsMargins(0, 0, 0, 0)
+            main_host = QWidget()
+            main_host.setLayout(form)
+            stacked.addWidget(main_host)
+            advanced_host = QWidget()
+            advanced_host.setLayout(advanced_form)
+            stacked.addWidget(CollapsibleSection('Advanced', advanced_host, expanded=False))
+            content.setLayout(stacked)
+        else:
+            content.setLayout(form)
 
         root = QVBoxLayout()
         root.setContentsMargins(0, 0, 0, 0)

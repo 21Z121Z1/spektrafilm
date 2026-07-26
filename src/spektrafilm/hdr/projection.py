@@ -22,7 +22,23 @@ _EPS32 = np.float32(1e-8)
 _PROFILE_ENV = "SPEKTRAFILM_HDR_PROJECTION_PROFILE"
 _CHUNKED_PROJECTION_MIN_PIXELS = 24_000_000
 _CHUNKED_PROJECTION_ROWS = 128
+# Path-to-white strengths are tuned at the HDRProjectionConfig default
+# headroom (4.0 == 2 stops). Perceived colorfulness grows with luminance
+# (Hunt effect), so the desaturation strength scales with the log2 distance
+# from that reference headroom instead of staying constant.
+_PATH_TO_WHITE_REFERENCE_HEADROOM = 4.0
+_PATH_TO_WHITE_HEADROOM_GAIN_PER_STOP = 0.5
 HDRTransferFunction = Literal["linear", "pq", "hlg", "gain-map-linear-pair"]
+
+
+def _effective_path_to_white_strength(strength: float, max_headroom: float) -> float:
+    if strength <= 0.0:
+        return 0.0
+    stops_from_reference = math.log2(
+        max(float(max_headroom), 1.0 + 1e-6) / _PATH_TO_WHITE_REFERENCE_HEADROOM
+    )
+    scaled = float(strength) * (1.0 + _PATH_TO_WHITE_HEADROOM_GAIN_PER_STOP * stops_from_reference)
+    return float(min(max(scaled, 0.0), 1.0))
 
 
 @dataclass(slots=True)
@@ -135,7 +151,10 @@ class HDRProjectionConfig:
     paper_extension_strength: float = 0.55
     min_detail: float = 0.75
     max_detail: float = 1.25
-    light_table_path_to_white_strength: float = 0.0
+    # Dyes on a light table go transparent toward the illuminant, so the
+    # light-table extension desaturates toward white like the paper mode
+    # does (both are further Hunt-scaled by headroom at projection time).
+    light_table_path_to_white_strength: float = 0.12
     paper_path_to_white_strength: float = 0.12
     gain_map_mode: Literal["luma", "rgb"] = "rgb"
     display_profile: HDRDisplayProfile | None = None
@@ -338,13 +357,45 @@ def _as_y_backend(image: Any, *, field: str, shape: tuple[int, int]):
     return _mx().maximum(image, np.float32(0.0))
 
 
+def _decode_backend_wrapper():
+    """Cached MLX ArrayBackend for on-GPU CCTF decoding, or None."""
+    global _DECODE_BACKEND_CACHE
+    if _DECODE_BACKEND_CACHE is _DECODE_BACKEND_UNSET:
+        try:
+            from spektrafilm.gpu.backend import select_backend
+
+            _DECODE_BACKEND_CACHE = select_backend("mlx", precision="float32")
+        except Exception:
+            _DECODE_BACKEND_CACHE = None
+    return _DECODE_BACKEND_CACHE
+
+
+_DECODE_BACKEND_UNSET = object()
+_DECODE_BACKEND_CACHE: Any = _DECODE_BACKEND_UNSET
+
+
 def _sdr_rgb_backend(master: RouteMaster):
-    if bool(master.diagnostics.get("output_cctf_encoding", True)):
-        return None
     sdr = _as_rgb_backend(master.sdr_legacy_rgb, field="sdr_legacy_rgb")
     if sdr is None:
         return None
-    return _mx().clip(sdr, np.float32(0.0), np.float32(1.0))
+    sdr = _mx().clip(sdr, np.float32(0.0), np.float32(1.0))
+    if not bool(master.diagnostics.get("output_cctf_encoding", True)):
+        return sdr
+    # Display-encoded SDR base: decode to linear on the backend instead of
+    # bailing to the host colour.RGB_to_RGB path. cctf_decoding_backend
+    # mirrors colour.RGB_to_RGB(cs, cs, decode) including the same-space
+    # matrix, and is the decoding twin of the cctf_encoding_backend that
+    # already produces the SDR output on this backend.
+    backend = _decode_backend_wrapper()
+    if backend is None:
+        return None
+    color_space = str(master.diagnostics.get("output_color_space", "Display P3"))
+    try:
+        from spektrafilm.gpu.kernels.color import cctf_decoding_backend
+
+        return cctf_decoding_backend(sdr, color_space, backend)
+    except NotImplementedError:
+        return None
 
 
 def _luminance_y_backend(rgb: Any):
@@ -391,7 +442,10 @@ def _route_chroma_backend(master: RouteMaster, shape: tuple[int, int]):
 def _material_detail_backend(master: RouteMaster, shape: tuple[int, int], config: HDRProjectionConfig):
     mx = _mx()
     if master.material_detail_y is None:
-        return mx.ones(shape, dtype=mx.float32)
+        # Scalar sentinel: a detail field of exactly ones collapses the
+        # highlight-detail factor to a constant, so the full-frame ones
+        # allocation is never needed (see _apply_highlight_detail_backend).
+        return np.float32(1.0)
     detail = _as_y_backend(master.material_detail_y, field="material_detail_y", shape=shape)
     if detail is None:
         return None
@@ -413,6 +467,16 @@ def _apply_highlight_detail_backend(base_y: Any, target_y: Any, detail: Any, rat
     extension = mx.maximum(target_y - base_y, np.float32(0.0))
     if not _backend_scalar_bool(mx.any(extension > np.float32(0.0))):
         return target_y
+    if np.isscalar(detail) and float(detail) == 1.0:
+        # mask * (1 - 1) * strength + 1 == 1 exactly (mask is finite and
+        # non-negative, so mask * +0.0 == +0.0), hence factor is the constant
+        # clip(1, min_detail, max_detail). The extension * factor multiply is
+        # kept even when the constant is 1.0: Metal flushes float32 subnormals,
+        # so the multiply is semantic and dropping it would change bits.
+        factor = np.float32(
+            np.clip(np.float32(1.0), np.float32(config.min_detail), np.float32(config.max_detail))
+        )
+        return mx.minimum(base_y + extension * factor, base_y * np.float32(config.max_headroom))
     mask = _smoothstep_backend(float(config.highlight_detail_start), float(config.highlight_detail_end), ratio)
     factor = mask * (detail - np.float32(1.0)) * np.float32(config.highlight_detail_strength) + np.float32(1.0)
     factor = mx.clip(factor, np.float32(config.min_detail), np.float32(config.max_detail))
@@ -456,15 +520,17 @@ def _extension_gain_backend(
     ratio: Any,
     *,
     max_headroom: float,
-    headroom_percentile: float,
     strength: float,
 ):
     mx = _mx()
     ratio = mx.maximum(ratio, np.float32(0.0))
     if not _backend_scalar_bool(mx.any(ratio > np.float32(1.0))):
         return mx.ones_like(ratio)
-    peak = _percentile_backend(ratio, headroom_percentile, label="extension_gain")
-    span_end = max(1.25, min(float(max_headroom), peak))
+    # The extension span is fixed by the configured headroom rather than a
+    # content percentile so that crops/framing changes of the same scene keep
+    # identical per-pixel rendering (content stats still bound the final
+    # headroom metadata in _headroom_backend).
+    span_end = max(1.25, float(max_headroom))
     progress = _smoothstep_backend(1.0, span_end, ratio)
     excess = mx.clip((ratio - np.float32(1.0)) / np.float32(max(span_end - 1.0, 1e-8)), np.float32(0.0), np.float32(1.0))
     target_gain = progress * excess * np.float32(max(max_headroom - 1.0, 0.0)) * np.float32(strength) + np.float32(1.0)
@@ -477,8 +543,10 @@ def _apply_path_to_white_backend(rgb: Any, hdr_y: Any, strength: float, max_head
     mx = _mx()
     progress = _smoothstep_backend(1.0, max(1.01, max_headroom), hdr_y)
     blend = mx.clip(progress * np.float32(strength), np.float32(0.0), np.float32(1.0))[..., None]
-    white = mx.repeat(hdr_y[..., None], repeats=3, axis=2)
-    return rgb * (blend * np.float32(-1.0) + np.float32(1.0)) + white * blend
+    # hdr_y[..., None] * blend broadcasts as (H, W, 1); every channel of the
+    # former repeated white array carried this exact product, so the add is
+    # bit-identical without materializing an H x W x 3 intermediate.
+    return rgb * (blend * np.float32(-1.0) + np.float32(1.0)) + hdr_y[..., None] * blend
 
 
 def _compress_highlight_gamut_backend(rgb: Any, limit: float):
@@ -489,14 +557,17 @@ def _compress_highlight_gamut_backend(rgb: Any, limit: float):
     min_channel = mx.min(rgb, axis=2)
     upper_den = mx.maximum(max_channel - y, _EPS32)
     lower_den = mx.maximum(y - min_channel, _EPS32)
-    limit_y = y * np.float32(0.0) + limit32
-    upper_scale = mx.where(max_channel > limit32, (limit_y - y) / upper_den, np.float32(1.0))
+    # limit32 broadcasts bit-identically to the former full-frame constant
+    # arrays (x * 0.0 + limit32 == limit32 exactly for finite x), and the
+    # (H, W, 1) neutral broadcasts like the former mx.repeat copy did. The
+    # scalar must sit inside an mx op (mx.subtract/mx.divide): a leading
+    # numpy scalar would dispatch through numpy and materialize the array.
+    upper_scale = mx.where(max_channel > limit32, mx.subtract(limit32, y) / upper_den, np.float32(1.0))
     lower_scale = mx.where(min_channel < np.float32(0.0), y / lower_den, np.float32(1.0))
     scale = mx.clip(mx.minimum(upper_scale, lower_scale), np.float32(0.0), np.float32(1.0))
-    neutral = mx.repeat(y[..., None], repeats=3, axis=2)
+    neutral = y[..., None]
     compressed = neutral + (rgb - neutral) * scale[..., None]
-    limit_channel = max_channel * np.float32(0.0) + limit32
-    peak_scale = limit_channel / mx.maximum(max_channel, _EPS32)
+    peak_scale = mx.divide(limit32, mx.maximum(max_channel, _EPS32))
     hue_preserved = rgb * mx.clip(peak_scale, np.float32(0.0), np.float32(1.0))[..., None]
     compressed = mx.where((y >= limit32)[..., None], hue_preserved, compressed)
     return mx.clip(compressed, np.float32(0.0), limit32)
@@ -615,9 +686,12 @@ def _spatial_authority(master: RouteMaster, shape: tuple[int, int]) -> np.ndarra
     return _as_y(master.post_halation_y, field="post_halation_y", shape=shape)
 
 
-def _material_detail(master: RouteMaster, shape: tuple[int, int], config: HDRProjectionConfig) -> np.ndarray:
+def _material_detail(master: RouteMaster, shape: tuple[int, int], config: HDRProjectionConfig):
     if master.material_detail_y is None:
-        return np.ones(shape, dtype=np.float32)
+        # Scalar sentinel: a detail field of exactly ones collapses the
+        # highlight-detail factor to a constant (see _apply_highlight_detail),
+        # so the full-frame ones allocation is never needed.
+        return np.float32(1.0)
     detail = _as_y(master.material_detail_y, field="material_detail_y", shape=shape)
     return np.clip(detail, np.float32(config.min_detail), np.float32(config.max_detail))
 
@@ -641,6 +715,19 @@ def _apply_highlight_detail(
     extension = np.maximum(np.asarray(target_y, dtype=np.float32) - np.asarray(base_y, dtype=np.float32), 0.0)
     if not np.any(extension > 0.0):
         return np.asarray(target_y, dtype=np.float32)
+    if np.isscalar(detail) and float(detail) == 1.0:
+        # mask * (1 - 1) * strength + 1 == 1 exactly (mask is finite and
+        # non-negative, so mask * +0.0 == +0.0), hence factor is the constant
+        # clip(1, min_detail, max_detail) and the smoothstep mask never needs
+        # to materialize.
+        factor = np.float32(
+            np.clip(np.float32(1.0), np.float32(config.min_detail), np.float32(config.max_detail))
+        )
+        hdr_y = np.asarray(base_y, dtype=np.float32) + extension * factor
+        return np.minimum(hdr_y, np.asarray(base_y, dtype=np.float32) * np.float32(config.max_headroom)).astype(
+            np.float32,
+            copy=False,
+        )
     mask = _smoothstep(float(config.highlight_detail_start), float(config.highlight_detail_end), ratio)
     factor = np.float32(1.0) + mask * (np.asarray(detail, dtype=np.float32) - np.float32(1.0)) * np.float32(
         config.highlight_detail_strength
@@ -662,14 +749,16 @@ def _extension_gain(
     ratio: np.ndarray,
     *,
     max_headroom: float,
-    headroom_percentile: float,
     strength: float,
 ) -> np.ndarray:
     ratio = np.maximum(np.asarray(ratio, dtype=np.float32), 0.0)
     if not np.any(ratio > 1.0):
         return np.ones_like(ratio, dtype=np.float32)
-    peak = float(np.nanpercentile(ratio, headroom_percentile))
-    span_end = max(1.25, min(float(max_headroom), peak))
+    # The extension span is fixed by the configured headroom rather than a
+    # content percentile so that crops/framing changes of the same scene keep
+    # identical per-pixel rendering (content stats still bound the final
+    # headroom metadata in _headroom).
+    span_end = max(1.25, float(max_headroom))
     progress = _smoothstep(1.0, span_end, ratio)
     excess = np.clip((ratio - np.float32(1.0)) / np.float32(max(span_end - 1.0, 1e-8)), 0.0, 1.0)
     target_gain = np.float32(1.0) + progress * excess * np.float32(max(max_headroom - 1.0, 0.0)) * np.float32(strength)
@@ -681,8 +770,10 @@ def _apply_path_to_white(rgb: np.ndarray, hdr_y: np.ndarray, strength: float, ma
         return rgb
     progress = _smoothstep(1.0, max(1.01, max_headroom), hdr_y)
     blend = np.clip(progress * np.float32(strength), 0.0, 1.0)[..., None]
-    white = np.repeat(hdr_y[..., None], 3, axis=2)
-    return rgb * (np.float32(1.0) - blend) + white * blend
+    # hdr_y[..., None] * blend broadcasts as (H, W, 1); every channel of the
+    # former repeated white array carried this exact product, so the add is
+    # bit-identical without materializing an H x W x 3 intermediate.
+    return rgb * (np.float32(1.0) - blend) + hdr_y[..., None] * blend
 
 
 def _compress_highlight_gamut(rgb: np.ndarray, limit: float) -> tuple[np.ndarray, dict[str, Any]]:
@@ -853,10 +944,13 @@ def _build_result_backend(
     calibration: HDRReferenceWhiteCalibration,
     path_to_white_strength: float,
     diagnostics: dict[str, Any],
+    sdr=None,
+    scene_y=None,
 ) -> HDRProjectionResult | None:
     if _hdr_pair_debug_enabled() or not _is_mlx_array(hdr_y):
         return None
-    sdr = _sdr_rgb_backend(master)
+    if sdr is None or not _is_mlx_array(sdr):
+        sdr = _sdr_rgb_backend(master)
     if sdr is None:
         return None
     shape = tuple(int(dim) for dim in sdr.shape[:2])
@@ -868,13 +962,27 @@ def _build_result_backend(
         return None
     mx = _mx()
     hdr_rgb = mx.maximum(chroma * mx.maximum(hdr_y, np.float32(0.0))[..., None], np.float32(0.0))
-    scene_y = _scene_authority_backend(master, shape)
+    if scene_y is None or not _is_mlx_array(scene_y):
+        if mode == "paper":
+            scene_y = _scene_authority_backend(master, shape)
+        else:
+            scene_y = _as_y_backend(
+                _spatial_authority_for_projection(master, shape),
+                field="authority_y",
+                shape=shape,
+            )
     if scene_y is None:
         return None
-    if mode == "paper":
-        mask = (scene_y <= np.float32(calibration.scene_diffuse_white_y))[..., None]
-        hdr_rgb = mx.where(mask, sdr, hdr_rgb)
-    hdr_rgb = _apply_path_to_white_backend(hdr_rgb, hdr_y, path_to_white_strength, config.max_headroom)
+    # Below the diffuse-white anchor both modes keep the authored SDR base
+    # pixel-for-pixel; the projection only rebuilds chroma in the extension
+    # zone. paper masks on scene energy, light_table on the same spatial
+    # (post-halation) authority that drives its hdr_y.
+    mask = (scene_y <= np.float32(calibration.scene_diffuse_white_y))[..., None]
+    hdr_rgb = mx.where(mask, sdr, hdr_rgb)
+    effective_path_to_white = _effective_path_to_white_strength(
+        path_to_white_strength, config.max_headroom
+    )
+    hdr_rgb = _apply_path_to_white_backend(hdr_rgb, hdr_y, effective_path_to_white, config.max_headroom)
     hdr_rgb = _apply_output_diffuse_white_backend(hdr_rgb, sdr, config)
     hdr_rgb = _compress_highlight_gamut_backend(hdr_rgb, config.max_headroom)
     headroom = _headroom_backend(hdr_rgb, config)
@@ -900,6 +1008,10 @@ def _build_result_backend(
         "content_headroom_percentile": float(config.headroom_percentile),
         "max_headroom": float(config.max_headroom),
         "measured_content_headroom": float(headroom),
+        "extension_span_policy": "fixed_max_headroom",
+        "path_to_white_strength_input": float(path_to_white_strength),
+        "path_to_white_strength_effective": float(effective_path_to_white),
+        "path_to_white_headroom_scaling": "hunt_log2_reference_4.0",
         "highlight_chroma_strategy": "route_luminance_ratio_chroma",
         "highlight_gamut_strategy": "luminance_preserving_chroma_compression",
         "highlight_detail_strategy": "highlight_extension_only",
@@ -954,14 +1066,17 @@ def _build_paper_generic_result_backend(
         return None
     scene_white = float(calibration.scene_diffuse_white_y)
     sdr_y = _luminance_y_backend(sdr)
-    hdr_y = build_hdr_y_from_route(
+    hdr_y = _build_hdr_y_from_route_backend(
         master,
         config,
         authority_y=scene_y,
         white=scene_white,
         strength=config.paper_extension_strength,
+        sdr=sdr,
+        authority_prevalidated=True,
+        base_luma=sdr_y,
     )
-    if not _is_mlx_array(hdr_y):
+    if hdr_y is None or not _is_mlx_array(hdr_y):
         return None
     hdr_y = _mx().where(scene_y <= np.float32(scene_white), sdr_y, hdr_y)
     return _build_result(
@@ -972,6 +1087,8 @@ def _build_paper_generic_result_backend(
         calibration=calibration,
         path_to_white_strength=path_to_white_strength,
         diagnostics=diagnostics,
+        sdr=sdr,
+        scene_y=scene_y,
     )
 
 
@@ -984,6 +1101,8 @@ def _build_result(
     calibration: HDRReferenceWhiteCalibration,
     path_to_white_strength: float,
     diagnostics: dict[str, Any],
+    sdr=None,
+    scene_y=None,
 ) -> HDRProjectionResult:
     backend_result = _build_result_backend(
         master=master,
@@ -993,25 +1112,39 @@ def _build_result(
         calibration=calibration,
         path_to_white_strength=path_to_white_strength,
         diagnostics=diagnostics,
+        sdr=sdr,
+        scene_y=scene_y,
     )
     if backend_result is not None:
         return backend_result
 
-    sdr = _sdr_rgb(master)
+    if sdr is None or _is_mlx_array(sdr):
+        sdr = _sdr_rgb(master)
+    if scene_y is not None and _is_mlx_array(scene_y):
+        scene_y = None
     shape = sdr.shape[:2]
     chroma = _route_chroma(master, shape)
     hdr_rgb = np.maximum(chroma * np.maximum(hdr_y, 0.0)[..., None], 0.0)
-    if mode == "paper":
-        scene_y = _scene_authority(master, shape)
-        mask = (scene_y <= np.float32(calibration.scene_diffuse_white_y))[..., None]
-        hdr_rgb = np.where(mask, sdr, hdr_rgb)
-    hdr_rgb = _apply_path_to_white(hdr_rgb, hdr_y, path_to_white_strength, config.max_headroom)
+    if scene_y is None:
+        if mode == "paper":
+            scene_y = _scene_authority(master, shape)
+        else:
+            scene_y = np.asarray(_spatial_authority_for_projection(master, shape), dtype=np.float32)
+    # Both modes preserve the authored SDR base below the diffuse-white
+    # anchor; only the extension zone is rebuilt from route chroma.
+    mask = (scene_y <= np.float32(calibration.scene_diffuse_white_y))[..., None]
+    hdr_rgb = np.where(mask, sdr, hdr_rgb)
+    effective_path_to_white = _effective_path_to_white_strength(
+        path_to_white_strength, config.max_headroom
+    )
+    hdr_rgb = _apply_path_to_white(hdr_rgb, hdr_y, effective_path_to_white, config.max_headroom)
     hdr_rgb = _apply_output_diffuse_white(hdr_rgb, sdr, config)
     hdr_rgb, gamut_diagnostics = _compress_highlight_gamut(hdr_rgb, config.max_headroom)
     headroom = _headroom(hdr_rgb, config)
     hdr_rgb = _clip_hdr(hdr_rgb, headroom)
     hdr_luma = luminance_y(hdr_rgb)
-    scene_y = _scene_authority(master, shape)
+    if scene_y is None:
+        scene_y = _scene_authority(master, shape)
     debug_diagnostics = _debug_hdr_pair(
         master=master,
         sdr=sdr,
@@ -1041,6 +1174,10 @@ def _build_result(
         "content_headroom_percentile": float(config.headroom_percentile),
         "max_headroom": float(config.max_headroom),
         "measured_content_headroom": float(headroom),
+        "extension_span_policy": "fixed_max_headroom",
+        "path_to_white_strength_input": float(path_to_white_strength),
+        "path_to_white_strength_effective": float(effective_path_to_white),
+        "path_to_white_headroom_scaling": "hunt_log2_reference_4.0",
         "highlight_chroma_strategy": "route_luminance_ratio_chroma",
         **gamut_diagnostics,
         "highlight_detail_strategy": "highlight_extension_only",
@@ -1089,19 +1226,43 @@ def build_hdr_y_from_route(
     if backend_result is not None:
         return backend_result
 
-    sdr = _sdr_rgb(master)
+    hdr_y, _ = _build_hdr_y_from_route_numpy(
+        master,
+        config,
+        authority_y=authority_y,
+        white=white,
+        strength=strength,
+    )
+    return hdr_y
+
+
+def _build_hdr_y_from_route_numpy(
+    master: RouteMaster,
+    config: HDRProjectionConfig,
+    *,
+    authority_y: np.ndarray,
+    white: float,
+    strength: float,
+    sdr: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Numpy tail of build_hdr_y_from_route.
+
+    Returns ``(hdr_y, sdr)`` so callers can reuse the validated/decoded SDR
+    base instead of recomputing it in ``_build_result``.
+    """
+    if sdr is None:
+        sdr = _sdr_rgb(master)
     shape = sdr.shape[:2]
     base_y = np.maximum(luminance_y(sdr), _EPS32)
     ratio = _authority_ratio(authority_y, white=white)
     gain = _extension_gain(
         ratio,
         max_headroom=config.max_headroom,
-        headroom_percentile=config.headroom_percentile,
         strength=strength,
     )
     detail = _material_detail(master, shape, config)
     target_y = np.maximum(base_y * gain, base_y)
-    return _apply_highlight_detail(base_y, target_y, detail, ratio, config)
+    return _apply_highlight_detail(base_y, target_y, detail, ratio, config), sdr
 
 
 def _build_hdr_y_from_route_backend(
@@ -1111,28 +1272,36 @@ def _build_hdr_y_from_route_backend(
     authority_y,
     white: float,
     strength: float,
+    sdr=None,
+    authority_prevalidated: bool = False,
+    base_luma=None,
 ):
     if not _is_mlx_array(authority_y):
         return None
-    sdr = _sdr_rgb_backend(master)
+    if sdr is None:
+        sdr = _sdr_rgb_backend(master)
     if sdr is None:
         return None
     shape = tuple(int(dim) for dim in sdr.shape[:2])
-    authority_y = _as_y_backend(authority_y, field="authority_y", shape=shape)
-    if authority_y is None:
-        return None
-    base_y = _mx().maximum(_luminance_y_backend(sdr), _EPS32)
+    if not authority_prevalidated:
+        authority_y = _as_y_backend(authority_y, field="authority_y", shape=shape)
+        if authority_y is None:
+            return None
+    mx = _mx()
+    base_y = mx.maximum(
+        base_luma if base_luma is not None else _luminance_y_backend(sdr),
+        _EPS32,
+    )
     ratio = _authority_ratio_backend(authority_y, white=white)
     gain = _extension_gain_backend(
         ratio,
         max_headroom=config.max_headroom,
-        headroom_percentile=config.headroom_percentile,
         strength=strength,
     )
     detail = _material_detail_backend(master, shape, config)
     if detail is None:
         return None
-    target_y = _mx().maximum(base_y * gain, base_y)
+    target_y = mx.maximum(base_y * gain, base_y)
     return _apply_highlight_detail_backend(base_y, target_y, detail, ratio, config)
 
 

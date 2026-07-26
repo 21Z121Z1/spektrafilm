@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import asdict, dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from spektrafilm.runtime.route_master import HDRMode
+
+if TYPE_CHECKING:
+    from spektrafilm.utils.hdr_curve_profiles import HDRCurveProfile
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,4 +98,130 @@ def build_route_profile_cache_key(
     )
 
 
-__all__ = ["RouteProfileCacheKey", "build_route_profile_cache_key"]
+_DYNAMIC_PRINT_PROFILE_CACHE: "OrderedDict[RouteProfileCacheKey, tuple[HDRCurveProfile | None, str]]" = OrderedDict()
+_DYNAMIC_PRINT_PROFILE_CACHE_MAX = 16
+
+
+def clear_dynamic_print_profile_cache() -> None:
+    _DYNAMIC_PRINT_PROFILE_CACHE.clear()
+
+
+def get_dynamic_print_curve_profile(
+    params,
+    *,
+    auto_exposure_ev: float | None = None,
+) -> "tuple[HDRCurveProfile | None, str]":
+    """Resample the print-route chemical profile for the current tone params.
+
+    Returns ``(profile, origin)``. The sampled profile follows the caller's
+    tone adjustments (density curve gamma, print exposure, enlarger filters,
+    curve morph, preflash) so the HDR shoulder metrics stay in sync with the
+    SDR look; results are cached on the tone-parameter cache key. On any
+    sampling failure the function returns ``(None, reason)`` and callers fall
+    back to the static bundled profile.
+    """
+
+    from spektrafilm.utils.hdr_curve_profiles import (
+        curve_profile_from_sample,
+        sample_runtime_print_curve_profile,
+    )
+
+    try:
+        key = build_route_profile_cache_key(
+            params,
+            hdr_mode="paper",
+            auto_exposure_ev=auto_exposure_ev,
+        )
+    except (AttributeError, TypeError, ValueError) as exc:
+        return None, f"dynamic_cache_key_failed:{type(exc).__name__}"
+
+    entry = _DYNAMIC_PRINT_PROFILE_CACHE.get(key)
+    if entry is not None:
+        _DYNAMIC_PRINT_PROFILE_CACHE.move_to_end(key)
+        profile, origin = entry
+        if profile is None:
+            return None, origin
+        return profile, "dynamic_resample_cached"
+
+    try:
+        sample = sample_runtime_print_curve_profile(params=params)
+        profile = curve_profile_from_sample(sample)
+        origin = "dynamic_resample"
+    except Exception as exc:  # noqa: BLE001 - sampling must never break export; fall back to bundled
+        profile = None
+        origin = f"dynamic_sampling_failed:{type(exc).__name__}"
+
+    _DYNAMIC_PRINT_PROFILE_CACHE[key] = (profile, origin)
+    while len(_DYNAMIC_PRINT_PROFILE_CACHE) > _DYNAMIC_PRINT_PROFILE_CACHE_MAX:
+        _DYNAMIC_PRINT_PROFILE_CACHE.popitem(last=False)
+    return profile, origin
+
+
+_DYNAMIC_NEGATIVE_SCAN_RENDER_CACHE: "OrderedDict[RouteProfileCacheKey, tuple[dict[str, Any] | None, str]]" = OrderedDict()
+_DYNAMIC_NEGATIVE_SCAN_RENDER_CACHE_MAX = 16
+
+
+def clear_dynamic_negative_scan_render_cache() -> None:
+    _DYNAMIC_NEGATIVE_SCAN_RENDER_CACHE.clear()
+
+
+def get_dynamic_negative_scan_render_metadata(
+    params,
+    *,
+    auto_exposure_ev: float | None = None,
+) -> "tuple[dict[str, Any] | None, str]":
+    """Calibrate negative-scan render references for the current tone params.
+
+    Returns ``(render_metadata, origin)``. The metadata is derived from a
+    deterministic neutral ramp through the film-scan route (see
+    ``sample_runtime_negative_scan_render_metadata``), so the light-table
+    positive render is composition-independent and follows film-side tone
+    adjustments; results are cached on the film-scan cache key. On any
+    sampling failure the function returns ``(None, reason)`` and callers
+    fall back to the legacy content-statistics estimate.
+    """
+
+    from spektrafilm.utils.hdr_curve_profiles import (
+        sample_runtime_negative_scan_render_metadata,
+    )
+
+    try:
+        key = build_route_profile_cache_key(
+            params,
+            hdr_mode="light_table",
+            auto_exposure_ev=auto_exposure_ev,
+        )
+    except (AttributeError, TypeError, ValueError) as exc:
+        return None, f"dynamic_cache_key_failed:{type(exc).__name__}"
+
+    entry = _DYNAMIC_NEGATIVE_SCAN_RENDER_CACHE.get(key)
+    if entry is not None:
+        _DYNAMIC_NEGATIVE_SCAN_RENDER_CACHE.move_to_end(key)
+        metadata, origin = entry
+        if metadata is None:
+            return None, origin
+        return dict(metadata), "dynamic_resample_cached"
+
+    try:
+        metadata = sample_runtime_negative_scan_render_metadata(params=params)
+        origin = "dynamic_resample"
+    except Exception as exc:  # noqa: BLE001 - sampling must never break export; fall back to content stats
+        metadata = None
+        origin = f"dynamic_sampling_failed:{type(exc).__name__}"
+
+    _DYNAMIC_NEGATIVE_SCAN_RENDER_CACHE[key] = (metadata, origin)
+    while len(_DYNAMIC_NEGATIVE_SCAN_RENDER_CACHE) > _DYNAMIC_NEGATIVE_SCAN_RENDER_CACHE_MAX:
+        _DYNAMIC_NEGATIVE_SCAN_RENDER_CACHE.popitem(last=False)
+    if metadata is None:
+        return None, origin
+    return dict(metadata), origin
+
+
+__all__ = [
+    "RouteProfileCacheKey",
+    "build_route_profile_cache_key",
+    "clear_dynamic_negative_scan_render_cache",
+    "clear_dynamic_print_profile_cache",
+    "get_dynamic_negative_scan_render_metadata",
+    "get_dynamic_print_curve_profile",
+]

@@ -11,6 +11,7 @@ import numpy as np
 from spektrafilm.gpu.residency import record_backend_operation
 from spektrafilm.hdr.ideal_paper import project_hdr_ideal_paper
 from spektrafilm.hdr.light_table import project_hdr_light_table
+from spektrafilm.hdr.profile_cache import get_dynamic_print_curve_profile
 from spektrafilm.hdr.projection import HDRProjectionConfig, HDRProjectionResult
 from spektrafilm.runtime.route_master import HDRMode, RouteMaster
 from spektrafilm.utils import hdr_photo
@@ -59,11 +60,18 @@ def render_hdr_pair_from_master(
     *,
     hdr_mode: HDRMode | LegacyHDRMode | None = None,
     config: HDRProjectionConfig | None = None,
+    chemical_profile=None,
+    chemical_profile_origin: str | None = None,
 ) -> HDRProjectionResult:
     mode = normalize_hdr_mode(master.mode if hdr_mode is None else hdr_mode)
     if mode == "light_table":
         return project_hdr_light_table(master, config)
-    return project_hdr_ideal_paper(master, config)
+    return project_hdr_ideal_paper(
+        master,
+        config,
+        chemical_profile=chemical_profile,
+        chemical_profile_origin=chemical_profile_origin,
+    )
 
 
 def render_hdr_film_pair_from_master(
@@ -94,6 +102,7 @@ def _export_diagnostics_payload(
         "sdr_base_domain": "linear",
         "hdr_headroom": float(result.headroom),
         "cached_route_master": bool(cached_master),
+        "chemical_profile_origin": result.diagnostics.get("chemical_profile_origin"),
     }
 
 
@@ -107,6 +116,11 @@ def _final_encoder_boundary_array(value, *, label: str) -> np.ndarray:
         category="final_encoder_boundary",
     )
     return array
+
+
+def _simulator_runtime_params(simulator):
+    pipeline = getattr(simulator, "_pipeline", None)
+    return getattr(pipeline, "_params", None)
 
 
 def _release_backend_export_cache(simulator) -> None:
@@ -141,8 +155,27 @@ def export_hdr_heic_from_simulator(
     if master is None:
         master = simulator.process_master(image, hdr_mode=mode)
     process_elapsed = perf_counter() - process_start
+    profile_start = perf_counter()
+    chemical_profile = None
+    chemical_profile_origin: str | None = None
+    if mode == "paper":
+        # Resample the chemical shoulder profile with the simulator's current
+        # tone parameters so user adjustments (density curve gamma, print
+        # exposure, enlarger filters, curve morph, preflash) shape the HDR
+        # rolloff; on failure the projection falls back to the bundled
+        # (film, paper) profile.
+        params = _simulator_runtime_params(simulator)
+        if params is not None:
+            chemical_profile, chemical_profile_origin = get_dynamic_print_curve_profile(params)
+    profile_elapsed = perf_counter() - profile_start
     render_start = perf_counter()
-    result = render_hdr_pair_from_master(master, hdr_mode=mode, config=config)
+    result = render_hdr_pair_from_master(
+        master,
+        hdr_mode=mode,
+        config=config,
+        chemical_profile=chemical_profile,
+        chemical_profile_origin=chemical_profile_origin,
+    )
     render_elapsed = perf_counter() - render_start
     export_diagnostics = _export_diagnostics_payload(
         master=master,
@@ -179,6 +212,7 @@ def export_hdr_heic_from_simulator(
         "export_hdr_heic_from_simulator "
         f"cached_master={used_cached_master} "
         f"process_master={process_elapsed:.4f}s "
+        f"chemical_profile={profile_elapsed:.4f}s "
         f"render_pair={render_elapsed:.4f}s "
         f"encode={perf_counter() - encode_start:.4f}s "
         f"total={perf_counter() - total_start:.4f}s"

@@ -55,6 +55,28 @@ rejects diagnostic raw negative masters in `project_hdr_light_table()`. The
 positive negative-scan route stores a derived XYZ sidecar instead of reusing
 RGB as fake XYZ.
 
+The positive render's film-base and per-channel density-range references are
+calibrated from a deterministic neutral ramp through the film-scan route with
+the current film-side tone parameters
+(`spektrafilm.hdr.profile_cache.get_dynamic_negative_scan_render_metadata()`,
+cached on the film-scan cache key; ramp domain matches the raw
+pre-gamut-compression scanner RGB the render consumes). Image content never
+influences the calibration, so reframing or cropping the same scene keeps
+identical positive rendering and a global scene/illuminant cast survives the
+inversion instead of being auto-white-balanced away. The metadata origin is
+recorded in diagnostics as `negative_scan_render_origin`
+(`dynamic_resample`/`dynamic_resample_cached`; a
+`content_statistics_fallback:*` origin marks the legacy composition-dependent
+estimate that remains only as a fail-safe).
+
+Like the paper mode, the projection keeps the authored SDR base pixel-for-pixel
+at or below the diffuse-white anchor (masked on the light table's own
+post-halation authority); only the extension zone above the anchor is rebuilt
+from route chroma. The extension desaturates toward white with the same
+strength as the paper mode (dyes on a light table go transparent toward the
+illuminant), Hunt-scaled with headroom and reported as
+`path_to_white_strength_effective`.
+
 ## Idealized HDR Paper
 
 Public id: `paper`
@@ -82,14 +104,44 @@ headroom above diffuse white. Missing, unsafe, non-print-scan, or SDR-only
 inputs fall back to the generic scene-extension path with diagnostics rather
 than claiming natural chemical rolloff.
 
+The chemical profile itself comes from one of two origins (recorded in
+diagnostics as `chemical_profile_origin`):
+
+- `dynamic_resample` — the export path resamples the print-scan curve with the
+  simulator's *current* tone parameters (film density curve gamma, print
+  exposure, enlarger neutral filters, print curve morph/Chemistry, preflash)
+  via `spektrafilm.hdr.profile_cache.get_dynamic_print_curve_profile()`, so
+  the HDR shoulder metrics follow user adjustments. Results are cached on the
+  tone-parameter cache key.
+- `static_bundled` — direct projection calls without a dynamic profile use the
+  factory-sampled `(film, paper)` profile from
+  `data/hdr_curve_profiles/curve_profiles_v2.json` (also the fallback when
+  dynamic sampling fails).
+
+An unsafe dynamic profile (for example a user curve morph that breaks
+monotonicity) goes through the same safety classification and falls back to
+the generic scene extension with a diagnostic reason.
+
+The extension span above the diffuse-white anchor is fixed by the configured
+`max_headroom` (`extension_span_policy="fixed_max_headroom"`); content
+statistics only bound the final headroom metadata. Crops or framing changes of
+the same scene therefore keep identical per-pixel rendering. The path-to-white
+desaturation strength scales with `log2(max_headroom)` relative to the 4.0
+reference headroom (Hunt effect: brighter extension needs stronger
+desaturation), reported as `path_to_white_strength_effective`.
+
 Responds to:
 
 - film exposure
 - print exposure
 - film stock
 - paper profile
-- paper tone/density curve and shoulder
+- paper tone/density curve and shoulder (including Chemistry/curve morph via
+  dynamic profile resampling)
 - diffuse-white scene anchor
+- highlight-boost reconstruction (`halation.boost_ev/boost_range/protect_ev`);
+  the scene energy authority `scene_y_raw` is sampled after highlight boost,
+  so reconstructed pre-clip irradiance drives HDR extension
 - halation
 - film grain and dye-cloud-like density structure
 - paper-side diffusion
@@ -112,11 +164,19 @@ These aliases are not the public RouteMaster HDR modes.
 ## GUI Export Boundary
 
 GUI HEIC export builds `HDRProjectionConfig` from `HDRExportSettings` at the
-RouteMaster export boundary. The public GUI settings always preserve the
-authored SDR base. Compatibility fields that are not meaningful for RouteMaster
-projection fail closed instead of being silently ignored: `preserve_sdr_base`
-must stay true, `hdr_scene_source` must stay `output_layer_metadata`, and
-`hdr_headroom_mode` must stay `content_percentile`.
+RouteMaster export boundary. The panel exposes only the projection's real
+degrees of freedom: mapping mode, peak headroom, a reference-white EV trim,
+HEIC quality, and (in the collapsed Advanced area) headroom percentile and
+gain-map mode. Everything else is fixed by the RouteMaster contract rather
+than validated at export time: the authored SDR base is always the preserved
+base rendition, scene authority always comes from the film pipeline, the
+diffuse-white anchor sits at scene 1.0 (trimmed by the EV control), the HDR
+delta is encoded 1:1 (no output diffuse-white rescaling), and headroom
+budgeting is always content-percentile based. Legacy persisted GUI states
+containing the removed fields (`hdr_scene_source`, `hdr_diffuse_white_target`,
+`hdr_reference_white_mode`, `hdr_output_diffuse_white`,
+`hdr_display_reference_white_nits`, `hdr_headroom_mode`, `preserve_sdr_base`)
+load cleanly; those keys are dropped on load.
 
 ## Color Policy
 

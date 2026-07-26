@@ -4,9 +4,12 @@ from spektrafilm.hdr.projection import (
     HDRProjectionConfig,
     HDRProjectionResult,
     _backend_projection_profile,
+    _build_hdr_y_from_route_backend,
+    _build_hdr_y_from_route_numpy,
     _build_result,
+    _is_mlx_array,
+    _sdr_rgb_backend,
     _spatial_authority_for_projection,
-    build_hdr_y_from_route,
 )
 from spektrafilm.hdr.reference_white import resolve_reference_white
 from spektrafilm.runtime.route_master import RouteMaster
@@ -34,13 +37,32 @@ def project_hdr_light_table(
     with _backend_projection_profile():
         shape = master.sdr_legacy_rgb.shape[:2]
         authority_y = _spatial_authority_for_projection(master, shape)
-        hdr_y = build_hdr_y_from_route(
-            master,
-            config,
-            authority_y=authority_y,
-            white=float(calibration.scene_diffuse_white_y),
-            strength=config.light_table_extension_strength,
-        )
+        white = float(calibration.scene_diffuse_white_y)
+        strength = config.light_table_extension_strength
+        # Validate/decode the SDR base once and share it between the HDR-Y
+        # builder and _build_result instead of recomputing it in each stage.
+        sdr = None
+        hdr_y = None
+        if _is_mlx_array(authority_y):
+            sdr = _sdr_rgb_backend(master)
+            if sdr is not None:
+                hdr_y = _build_hdr_y_from_route_backend(
+                    master,
+                    config,
+                    authority_y=authority_y,
+                    white=white,
+                    strength=strength,
+                    sdr=sdr,
+                    authority_prevalidated=True,
+                )
+        if hdr_y is None:
+            hdr_y, sdr = _build_hdr_y_from_route_numpy(
+                master,
+                config,
+                authority_y=authority_y,
+                white=white,
+                strength=strength,
+            )
         return _build_result(
             master=master,
             mode="light_table",
@@ -53,6 +75,8 @@ def project_hdr_light_table(
                 "authority_y": "post_halation_y",
                 "paper_parameters_ignored": True,
             },
+            sdr=sdr,
+            scene_y=authority_y,
         )
 
 

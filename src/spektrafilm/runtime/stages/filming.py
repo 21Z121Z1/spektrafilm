@@ -101,7 +101,6 @@ class FilmingStage:
             apply_cctf_decoding=self._io.input_cctf_decoding,
         )
         raw *= 2 ** self._camera.exposure_compensation_ev
-        scene_y_raw = self._raw_luminance_y(raw) if include_metadata else None
         if self._backend is not None and self._backend.supports_gpu:
             raw = boost_highlights_backend(
                 raw, self._film_render.halation.boost_ev,
@@ -112,6 +111,10 @@ class FilmingStage:
             boost_highlights(raw, self._film_render.halation.boost_ev,
                              self._film_render.halation.boost_range,
                              self._film_render.halation.protect_ev, out=raw)
+        # The scene-energy sidecar is sampled after highlight-boost so that
+        # reconstructed pre-clip irradiance can drive HDR extension; sampling
+        # before boost leaves clipped inputs flat-topped in the HDR authority.
+        scene_y_raw = self._raw_luminance_y(raw) if include_metadata else None
         if supports_fused_filming_filters(self._backend):
             raw = apply_fused_filming_filters(
                 raw,
@@ -147,7 +150,10 @@ class FilmingStage:
             log_raw=log_raw,
             scene_y_raw=scene_y_raw,
             post_halation_y=post_halation_y,
-            diagnostics={"post_halation_y_source": "filming_raw_after_halation"},
+            diagnostics={
+                "scene_y_raw_source": "filming_raw_after_highlight_boost",
+                "post_halation_y_source": "filming_raw_after_halation",
+            },
         )
 
     def develop(self, log_raw: np.ndarray) -> np.ndarray:

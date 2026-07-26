@@ -64,3 +64,51 @@ def test_dynamic_profile_cache_key_ignores_paper_tone_params_for_light_table() -
         changed,
         hdr_mode="light_table",
     )
+
+
+def test_dynamic_negative_scan_render_metadata_caches_and_follows_gamma() -> None:
+    from spektrafilm.hdr.profile_cache import (
+        clear_dynamic_negative_scan_render_cache,
+        get_dynamic_negative_scan_render_metadata,
+    )
+
+    clear_dynamic_negative_scan_render_cache()
+    try:
+        base = make_fast_test_params()
+        metadata, origin = get_dynamic_negative_scan_render_metadata(base)
+        assert origin == "dynamic_resample"
+        assert metadata is not None
+        assert metadata["model"] == "density_normalized_positive"
+        clear_rgb = [float(v) for v in metadata["raw_clear_rgb"]]
+        # A colour negative's base is an orange mask: R > G > B transmittance.
+        assert clear_rgb[0] > clear_rgb[1] > clear_rgb[2] > 0.0
+
+        cached, cached_origin = get_dynamic_negative_scan_render_metadata(base)
+        assert cached_origin == "dynamic_resample_cached"
+        assert cached == metadata
+
+        changed = copy.deepcopy(base)
+        changed.film_render.density_curve_gamma = 1.3
+        resampled, resampled_origin = get_dynamic_negative_scan_render_metadata(changed)
+        assert resampled_origin == "dynamic_resample"
+        assert resampled is not None
+        # Gamma reshapes the density curves, so the calibrated range must move.
+        assert resampled["density_range_rgb"] != metadata["density_range_rgb"]
+    finally:
+        clear_dynamic_negative_scan_render_cache()
+
+
+def test_dynamic_negative_scan_render_metadata_rejects_positive_film() -> None:
+    from spektrafilm.hdr.profile_cache import (
+        clear_dynamic_negative_scan_render_cache,
+        get_dynamic_negative_scan_render_metadata,
+    )
+
+    clear_dynamic_negative_scan_render_cache()
+    try:
+        params = make_fast_test_params(film_profile="fujifilm_provia_100f")
+        metadata, origin = get_dynamic_negative_scan_render_metadata(params)
+        assert metadata is None
+        assert origin.startswith("dynamic_sampling_failed:")
+    finally:
+        clear_dynamic_negative_scan_render_cache()
