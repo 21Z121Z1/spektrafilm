@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from typing import Any
 
@@ -387,7 +388,9 @@ class MlxBackend:
         self.mx = mx
         self.precision = precision
         self.default_dtype = mx.float32 if precision == "float32" else mx.float16
+        self._mx_array_type = mx.array
         self._compiled_elementwise_cache: dict[tuple[Any, ...], Callable[..., Any]] = {}
+        self._nan_to_num_big_cache: dict[str, Any] = {}
         self._probe_device()
 
     def _probe_device(self) -> None:
@@ -399,11 +402,20 @@ class MlxBackend:
                 "compute_backend='mlx' requires a usable Apple Metal device."
             ) from exc
 
-    @staticmethod
-    def _is_mlx_array(value: Any) -> bool:
-        return type(value).__module__.startswith("mlx.")
+    def _is_mlx_array(self, value: Any) -> bool:
+        # isinstance against the concrete mx.array type is ~5x cheaper than
+        # the historical module-name string test and matches the same values
+        # on every call site (all callers pass arrays or host objects).
+        return isinstance(value, self._mx_array_type)
 
     def asarray(self, value: Any, dtype: Any | None = None):
+        if not residency_recording_active():
+            # Hot path: identical logic without the profiling context manager.
+            if isinstance(value, self._mx_array_type):
+                if dtype is None or value.dtype == dtype:
+                    return value
+                return value.astype(dtype)
+            return self.mx.array(value, dtype=dtype or self.default_dtype)
         with profile_backend_operation("asarray", self, value) as profile:
             if self._is_mlx_array(value):
                 if dtype is None or value.dtype == dtype:
@@ -419,6 +431,11 @@ class MlxBackend:
         return result
 
     def to_numpy(self, value: Any) -> np.ndarray:
+        if not residency_recording_active():
+            if not isinstance(value, self._mx_array_type):
+                return np.asarray(value)
+            self.mx.eval(value)
+            return np.asarray(value)
         with profile_backend_operation("to_numpy", self, value) as profile:
             if not self._is_mlx_array(value):
                 result = np.asarray(value)
@@ -432,12 +449,16 @@ class MlxBackend:
         return result
 
     def eval(self, *values: Any) -> None:
-        mlx_values = [value for value in values if self._is_mlx_array(value)]
-        if mlx_values:
-            with profile_backend_operation("eval", self, mlx_values[0], category="sync") as profile:
-                self.mx.eval(*mlx_values)
-                if profile is not None:
-                    profile.result = mlx_values[0]
+        mlx_values = [value for value in values if isinstance(value, self._mx_array_type)]
+        if not mlx_values:
+            return
+        if not residency_recording_active():
+            self.mx.eval(*mlx_values)
+            return
+        with profile_backend_operation("eval", self, mlx_values[0], category="sync") as profile:
+            self.mx.eval(*mlx_values)
+            if profile is not None:
+                profile.result = mlx_values[0]
 
     def synchronize(self) -> None:
         with profile_backend_operation("synchronize", self, category="sync"):
@@ -471,6 +492,40 @@ class MlxBackend:
             )
         return ("python", type(value).__module__, type(value).__qualname__)
 
+    @staticmethod
+    def _compile_function_signature(function: Callable[..., Any]) -> tuple[Any, ...]:
+        """Deterministic identity for a (possibly per-call re-created) closure.
+
+        Callers define their element-wise chains as local closures, so
+        ``id(function)`` changes between calls and only hits the cache when
+        CPython happens to reuse the freed address.  Bytecode plus constants
+        plus captured cell values identify the traced graph deterministically:
+        equal signature implies the identical compiled trace, so sharing an
+        entry is always value-safe, and closures that capture different
+        constants can never collide.
+        """
+        code = function.__code__
+        cells = getattr(function, "__closure__", None) or ()
+        cell_signature: list[tuple[Any, ...]] = []
+        for cell in cells:
+            try:
+                contents = cell.cell_contents
+            except ValueError:
+                cell_signature.append(("empty",))
+                continue
+            if contents is None or isinstance(contents, (bool, int, float, str, bytes)):
+                cell_signature.append(("value", contents))
+            else:
+                # Identity for objects (e.g. the backend itself).  The cached
+                # compiled function keeps the object alive through its own
+                # closure, so the id cannot be recycled while the entry lives.
+                cell_signature.append(("id", id(contents)))
+        try:
+            consts_hash = hash(code.co_consts)
+        except TypeError:
+            consts_hash = id(code)
+        return (hash(code.co_code), consts_hash, tuple(cell_signature))
+
     def compiled_elementwise(
         self,
         name: str,
@@ -483,8 +538,7 @@ class MlxBackend:
 
         key = (
             str(name),
-            id(function),
-            hash(function.__code__.co_code),
+            self._compile_function_signature(function),
             tuple(self._compile_arg_signature(arg) for arg in sample_args),
         )
         compiled = self._compiled_elementwise_cache.get(key)
@@ -523,7 +577,6 @@ class MlxBackend:
 
     def power(self, base: float, x: Any):
         # MLX: base**x = exp(x * ln(base))
-        import math
         return self.mx.exp(x * math.log(base))
 
     def pow(self, x: Any, exponent: float):
@@ -533,6 +586,11 @@ class MlxBackend:
         return x ** exponent
 
     def fmax(self, x: Any, y: float):
+        if isinstance(y, (int, float)) and not math.isnan(y):
+            # For a non-NaN scalar the inner where(isnan(y), x, maximum(x, y))
+            # always selects maximum(x, y); skipping it is bit-identical
+            # (verified on NaN/±inf/-0.0 inputs) and saves one full-frame op.
+            return self.mx.where(self.mx.isnan(x), y, self.mx.maximum(x, y))
         return self.mx.where(
             self.mx.isnan(x),
             y,
@@ -542,8 +600,12 @@ class MlxBackend:
     def nan_to_num(self, x: Any, nan: float = 0.0):
         x = self.mx.where(self.mx.isnan(x), nan, x)
         dtype = getattr(x, "dtype", self.default_dtype)
-        np_dtype = np.float16 if "float16" in str(dtype) else np.float32
-        big = self.mx.array(np.finfo(np_dtype).max, dtype=dtype)
+        dtype_key = str(dtype)
+        big = self._nan_to_num_big_cache.get(dtype_key)
+        if big is None:
+            np_dtype = np.float16 if "float16" in dtype_key else np.float32
+            big = self.mx.array(np.finfo(np_dtype).max, dtype=dtype)
+            self._nan_to_num_big_cache[dtype_key] = big
         x = self.mx.where(self.mx.isinf(x) & (x > 0), big, x)
         x = self.mx.where(self.mx.isinf(x) & (x < 0), -big, x)
         return x

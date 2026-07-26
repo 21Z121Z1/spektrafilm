@@ -18,6 +18,7 @@ import numpy as np
 import scipy.fft
 
 from spektrafilm.utils.fast_gaussian_filter import _EXPONENTIAL_GAUSSIAN_FITS
+from spektrafilm.gpu.mlx_cache import maybe_clear_cache
 from spektrafilm.gpu.kernels.tile_utils import (
     process_spatial_rows_tiled,
     resolve_spatial_tile_rows,
@@ -57,19 +58,10 @@ def supports_fused_filming_filters(backend: Any) -> bool:
 
 
 def _clear_mlx_cache(backend) -> None:
-    clear = getattr(backend, "clear_cache", None)
-    if callable(clear):
-        clear()
-        return
-    mx = getattr(backend, "mx", None)
-    clear = getattr(mx, "clear_cache", None)
-    if callable(clear):
-        clear()
-        return
-    metal = getattr(mx, "metal", None)
-    clear = getattr(metal, "clear_cache", None)
-    if callable(clear):
-        clear()
+    # Default budget 0 keeps the 2026-07-19 clear-every-time cadence; a
+    # positive SPEKTRAFILM_MLX_CACHE_CLEAR_BUDGET_MB gates the clears for
+    # machines with enough unified memory (values are unaffected either way).
+    maybe_clear_cache(backend)
 
 
 def _frequency_squared_grid(fft_h: int, fft_w: int, *, dtype=np.float64, real: bool = False) -> np.ndarray:

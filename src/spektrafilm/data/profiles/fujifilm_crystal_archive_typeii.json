@@ -5,7 +5,161 @@
         "created": "2026-05-28",
         "license": "spektrafilm profile by Andrea Volpato, licensed under CC BY-SA 4.0. Redistribution and derivatives must credit the author, link the project (https://github.com/andreavolpato/spektrafilm),preserve this license, and remain CC BY-SA 4.0.Modifications must be noted. Full text of the license and attribution requirements: https://github.com/andreavolpato/spektrafilm/blob/main/SPEKTRAFILM_LICENSE.txt.",
         "citation": "If you use this profile in your work, please cite the spektrafilm project: https://github.com/andreavolpato/spektrafilm, see CITATION.cff for details.",
-        "datasource": "This profile was created by processing raw measurement data from data-sheets and/or scientific papers. Original data are property of the respective holders.\n    Film/photo-paper: Kodak and Fujifilm data-sheets, scientific publications, and technical material.\n    Reflectance: Otsu (https://github.com/enneract/otsu2018), Munsell (https://zenodo.org/records/3269912), human skin (https://www.nist.gov/programs-projects/reflectance-measurements-human-skin), forest colors (https://zenodo.org/records/3269920), Japan colors (https://zenodo.org/records/5217752).\n    All data publicly available."
+        "datasource": "This processed profile may combine digitized manufacturer graphs, scientific references, generic priors, related-profile donors, reconstructions, and runtime optimization. See metadata.provenance for each field's origin and final-array status. A published graph is not retained raw instrument data, and this profile must not be treated as an exact-roll measurement unless provenance explicitly states otherwise.",
+        "provenance": {
+            "schema_version": 1,
+            "measurement_status": "no-raw-instrument-data",
+            "source_references": {
+                "FUJI_CRYSTAL_ARCHIVE_TYPE_II": "Fujicolor Crystal Archive Paper Type II technical data; the historical creator did not retain a publication identifier.",
+                "KODAK_SUPRA_ENDURA_HISTORICAL": "Kodak Supra Endura characteristic-curve source; the historical creator did not retain a publication identifier."
+            },
+            "fields": {
+                "wavelengths": {
+                    "origin": "generated",
+                    "status": "generated",
+                    "sources": [],
+                    "derived_from": null,
+                    "transformations": [
+                        "common-5-nm-grid"
+                    ],
+                    "notes": "Internal sampling grid; not a stock measurement."
+                },
+                "log_exposure": {
+                    "origin": "generated",
+                    "status": "generated",
+                    "sources": [],
+                    "derived_from": null,
+                    "transformations": [
+                        "common-log-exposure-grid",
+                        "reference-exposure-normalized"
+                    ],
+                    "notes": "Internal exposure coordinate used to resample and align source curves."
+                },
+                "bandpass_hanatos2025": {
+                    "origin": "generated",
+                    "status": "generated",
+                    "sources": [],
+                    "derived_from": null,
+                    "transformations": [
+                        "not-retained-in-bundled-profile"
+                    ],
+                    "notes": "The bundled field is empty; it is not a measured material property."
+                },
+                "density_curves_layers": {
+                    "origin": "generated",
+                    "status": "reconstructed",
+                    "sources": [],
+                    "derived_from": "data.density_curves",
+                    "transformations": [
+                        "parametric-layer-decomposition"
+                    ],
+                    "notes": "Internal layer model with no same-semantics manufacturer source."
+                },
+                "density_curves_model": {
+                    "origin": "generated",
+                    "status": "optimized",
+                    "sources": [],
+                    "derived_from": "data.density_curves",
+                    "transformations": [
+                        "cdfs-parametric-refit"
+                    ],
+                    "notes": "Runtime parametric model, not a manufacturer-published object."
+                },
+                "hanatos2025_adaptation_window_params": {
+                    "origin": "generated",
+                    "status": "generated",
+                    "sources": [],
+                    "derived_from": null,
+                    "transformations": [
+                        "not-applicable-to-printing-profile"
+                    ],
+                    "notes": "Empty runtime field for this printing profile."
+                },
+                "hanatos2025_adaptation_surface_params": {
+                    "origin": "generated",
+                    "status": "generated",
+                    "sources": [],
+                    "derived_from": null,
+                    "transformations": [
+                        "not-applicable-to-printing-profile"
+                    ],
+                    "notes": "Empty runtime field for this printing profile."
+                },
+                "log_sensitivity": {
+                    "origin": "manufacturer-graph",
+                    "status": "source-derived",
+                    "sources": [
+                        "FUJI_CRYSTAL_ARCHIVE_TYPE_II"
+                    ],
+                    "derived_from": null,
+                    "transformations": [
+                        "manual-digitization",
+                        "spectral-resampling",
+                        "model-balancing"
+                    ],
+                    "notes": "Final values retain a manufacturer-graph basis but are processed runtime data."
+                },
+                "channel_density": {
+                    "origin": "manufacturer-graph",
+                    "status": "source-derived",
+                    "sources": [
+                        "FUJI_CRYSTAL_ARCHIVE_TYPE_II"
+                    ],
+                    "derived_from": null,
+                    "transformations": [
+                        "manual-digitization",
+                        "spectral-resampling",
+                        "densitometer-normalization"
+                    ],
+                    "notes": "Same-stock separated CMY graph used as the starting shape; final amplitudes are processed."
+                },
+                "base_density": {
+                    "origin": "related-profile",
+                    "status": "reconstructed",
+                    "sources": [
+                        "KODAK_SUPRA_ENDURA_HISTORICAL"
+                    ],
+                    "derived_from": "kodak_supra_endura.data.density_curves",
+                    "transformations": [
+                        "density-curve-minimum-interpolation",
+                        "20-nm-gaussian-smoothing"
+                    ],
+                    "notes": "Generated from the donated Supra Endura sensitometric minima."
+                },
+                "midscale_neutral_density": {
+                    "origin": "related-profile",
+                    "status": "reconstructed",
+                    "sources": [
+                        "FUJI_CRYSTAL_ARCHIVE_TYPE_II",
+                        "KODAK_SUPRA_ENDURA_HISTORICAL"
+                    ],
+                    "derived_from": "kodak_supra_endura.data.density_curves",
+                    "transformations": [
+                        "d50-metameric-neutral-fit"
+                    ],
+                    "notes": "Combines Type II CMY source shapes with a base reconstructed from donor curves."
+                },
+                "density_curves": {
+                    "origin": "related-profile",
+                    "status": "optimized",
+                    "sources": [
+                        "KODAK_SUPRA_ENDURA_HISTORICAL",
+                        "FUJI_CRYSTAL_ARCHIVE_TYPE_II"
+                    ],
+                    "derived_from": "kodak_supra_endura.data.density_curves",
+                    "transformations": [
+                        "related-profile-curve-donor",
+                        "resampling",
+                        "density-minimum-removal",
+                        "density-unmixing",
+                        "neutral-ramp-refinement",
+                        "parametric-refit"
+                    ],
+                    "notes": "The historical recipe explicitly uses Supra Endura as density-curve donor."
+                }
+            },
+            "notes": "Source graphs were manually digitized in the historical profile creator. Bundled arrays were subsequently processed and refitted; these labels do not claim exact-roll measurements. Historical recipe evidence: git commit 91ce0f7a."
+        }
     },
     "info": {
         "stock": "fujifilm_crystal_archive_typeii",
