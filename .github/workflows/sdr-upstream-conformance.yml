@@ -1,5 +1,11 @@
 name: SDR Upstream Conformance
 
+# Never let uv re-resolve or rewrite the committed uv.lock on CI: the
+# alignment contract treats the committed lockfile as authoritative, and
+# uv run would otherwise re-lock implicitly before every step.
+env:
+  UV_FROZEN: "1"
+
 on:
   pull_request:
   workflow_dispatch:
@@ -44,7 +50,7 @@ jobs:
       - name: Install uv
         run: python -m pip install --upgrade uv
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --frozen --extra dev
       - name: Run alignment contract schema
         run: uv run python -m pytest -q tests/alignment/test_alignment_contract_schema.py
       - name: Run quick CPU upstream conformance
@@ -68,7 +74,7 @@ jobs:
       - name: Install uv
         run: python -m pip install --upgrade uv
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --frozen --extra dev
       - name: Run full CPU upstream conformance
         run: uv run python -m tools.sdr_alignment.run_alignment --mode upstream_compat --suite full --backend cpu --output-dir artifacts/sdr_alignment/full-cpu
       - uses: actions/upload-artifact@v4
@@ -84,7 +90,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
-        run: uv sync --extra dev --extra gpu-apple
+        run: uv sync --frozen --extra dev --extra gpu-apple
       - name: Run MLX/Metal upstream conformance
         run: uv run python -m tools.sdr_alignment.run_alignment --mode upstream_compat --suite quick --backend mlx --output-dir artifacts/sdr_alignment/apple-mlx
       - uses: actions/upload-artifact@v4

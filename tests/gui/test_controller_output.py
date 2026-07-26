@@ -502,8 +502,7 @@ def test_save_output_layer_passes_paper_hdr_config(monkeypatch) -> None:
     gui_state = make_test_controller_gui_state()
     gui_state.hdr.hdr_heic_gain_map_enabled = True
     gui_state.hdr.hdr_mapping_mode = 'paper'
-    gui_state.hdr.hdr_diffuse_white_target = 0.9
-    gui_state.hdr.hdr_output_diffuse_white = 1.25
+    gui_state.hdr.hdr_reference_white_ev = 1.0
     gui_state.hdr.hdr_peak_headroom = 6.0
     gui_state.hdr.gain_map_mode = 'rgb'
     gui_state.hdr.heic_quality = 0.95
@@ -546,9 +545,10 @@ def test_save_output_layer_passes_paper_hdr_config(monkeypatch) -> None:
 
     config = heic_export['config']
     assert config.max_headroom == 6.0
-    assert config.paper_white == 0.9
-    assert config.diffuse_white_scene_anchor == 0.9
-    assert config.output_diffuse_white == 1.25
+    # Anchor is fixed at scene 1.0 and trimmed only by the reference-white EV.
+    assert config.reference_white_ev == 1.0
+    assert config.diffuse_white_scene_anchor == 2.0
+    assert config.output_diffuse_white == 1.0
     assert config.gain_map_mode == 'rgb'
 
 
@@ -744,64 +744,6 @@ def test_save_output_layer_ignores_cached_route_master_when_mode_differs(monkeyp
 
     assert captured['heic_export']['hdr_mode'] == 'paper'
     assert captured['heic_export']['master'] is None
-
-
-@pytest.mark.parametrize(
-    ("field", "value", "expected_message"),
-    [
-        ("preserve_sdr_base", False, "preserve_sdr_base=False is not supported"),
-        ("hdr_scene_source", "embedded_scene_rgb", "unknown HDR scene source"),
-        ("hdr_headroom_mode", "modern_recovery_peak_budget", "content_percentile headroom mode"),
-    ],
-)
-def test_save_output_layer_rejects_unsupported_routemaster_hdr_settings(
-    monkeypatch,
-    field: str,
-    value: object,
-    expected_message: str,
-) -> None:
-    float_image = np.full((1, 2, 3), 1.4, dtype=np.float32)
-    output_layer = _make_output_layer(
-        float_image,
-        output_color_space='Display P3',
-        output_cctf_encoding=False,
-    )
-    controller = GuiController(viewer=object(), widgets=object())
-    controller._current_input_image = float_image
-    captured: dict[str, object] = {}
-    gui_state = make_test_controller_gui_state()
-    gui_state.hdr.hdr_heic_gain_map_enabled = True
-    gui_state.hdr.hdr_mapping_mode = 'paper'
-    setattr(gui_state.hdr, field, value)
-    gui_state.simulation.workflow.saving_color_space = 'Display P3'
-    gui_state.simulation.workflow.saving_cctf_encoding = False
-
-    _configure_save_output(monkeypatch, controller, output_layer, gui_state, captured)
-    monkeypatch.setattr(
-        controller_module.QFileDialog,
-        'getSaveFileName',
-        staticmethod(lambda *args, **kwargs: ('output.heic', 'Images (*.heic)')),
-    )
-    monkeypatch.setattr(
-        controller_module.QMessageBox,
-        'critical',
-        staticmethod(lambda parent, title, message: captured.setdefault('critical', (title, message))),
-    )
-
-    from spektrafilm.hdr import routemaster_export
-
-    monkeypatch.setattr(
-        routemaster_export,
-        'export_hdr_heic_from_simulator',
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("HDR export should not run")),
-    )
-
-    controller.save_output_layer()
-
-    assert 'saved' not in captured
-    title, message = captured['critical']
-    assert title == 'Save output'
-    assert expected_message in message
 
 
 def test_save_output_layer_passes_light_table_hdr_mode(monkeypatch) -> None:

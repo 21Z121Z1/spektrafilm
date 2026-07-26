@@ -20,41 +20,31 @@ def normalize_hdr_mapping_mode(mode: str | None) -> str:
 def hdr_projection_config_from_settings(settings: "HDRExportSettings"):
     from spektrafilm.hdr.projection import HDRProjectionConfig
 
-    if not bool(settings.preserve_sdr_base):
-        raise ValueError("RouteMaster HDR export always preserves the authored SDR base; preserve_sdr_base=False is not supported.")
-    if str(settings.hdr_scene_source) != "output_layer_metadata":
-        raise ValueError("RouteMaster HDR export derives scene authority from the RouteMaster pipeline; unknown HDR scene source.")
-    if str(settings.hdr_headroom_mode) != "content_percentile":
-        raise ValueError("RouteMaster HDR export currently supports only content_percentile headroom mode.")
-
     return HDRProjectionConfig(
         max_headroom=float(settings.hdr_peak_headroom),
         headroom_percentile=float(settings.headroom_percentile),
-        diffuse_white_scene_anchor=float(settings.hdr_diffuse_white_target),
-        reference_white_mode=str(settings.hdr_reference_white_mode),
         reference_white_ev=float(settings.hdr_reference_white_ev),
-        output_diffuse_white=float(settings.hdr_output_diffuse_white),
-        display_reference_white_nits=float(settings.hdr_display_reference_white_nits),
         gain_map_mode=settings.gain_map_mode,
     )
 
 
 @dataclass(slots=True)
 class HDRExportSettings:
-    """GUI-owned settings for explicit HDR photo export paths."""
+    """GUI-owned settings for explicit HDR photo export paths.
+
+    Only the degrees of freedom the RouteMaster projection actually has
+    are exposed. The rest of the contract is fixed: the authored SDR
+    look is always the preserved base rendition, scene authority comes
+    from the film pipeline, the diffuse-white anchor sits at scene 1.0
+    (trimmed by ``hdr_reference_white_ev``), and the HDR delta above the
+    SDR base is encoded 1:1 (no output diffuse-white rescaling).
+    """
 
     hdr_mapping_mode: str = "paper"
     hdr_heic_gain_map_enabled: bool = False
-    hdr_scene_source: str = "output_layer_metadata"
-    hdr_diffuse_white_target: float = 1.0
-    hdr_reference_white_mode: str = "manual_scene_anchor"
     hdr_reference_white_ev: float = 0.0
-    hdr_output_diffuse_white: float = 1.0
-    hdr_display_reference_white_nits: float = 203.0
     hdr_peak_headroom: float = 8.0
-    hdr_headroom_mode: str = "content_percentile"
     headroom_percentile: float = 99.9
-    preserve_sdr_base: bool = True
     gain_map_mode: str = "rgb"
     heic_quality: float = 0.95
 

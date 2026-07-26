@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import dataclasses
 import json
 import logging
 import math
@@ -109,14 +110,30 @@ def _interp_log_domain(scene_y: np.ndarray, source_scene_y: np.ndarray, values: 
 
 
 def _classify_polarity(y: np.ndarray) -> tuple[str, int]:
-    diffs = np.diff(np.asarray(y, dtype=np.float32))
+    values = np.asarray(y, dtype=np.float32)
+    diffs = np.diff(values)
     tol = np.float32(1e-5)
     increasing_violations = int(np.count_nonzero(diffs < -tol))
     decreasing_violations = int(np.count_nonzero(diffs > tol))
     allowed = max(1, int(math.ceil(0.02 * max(len(diffs), 1))))
-    if y[-1] >= y[0] and increasing_violations <= allowed:
+    # A violation-count budget alone lets one large reversal pass as monotone,
+    # so the tolerated violations must also be numeric noise in aggregate:
+    # their summed magnitude may not exceed 0.1% of the curve span.
+    span = float(np.max(values) - np.min(values)) if values.size else 0.0
+    magnitude_budget = max(span, float(_EPS)) * 1e-3
+    increasing_magnitude = float(-np.sum(diffs[diffs < -tol])) if increasing_violations else 0.0
+    decreasing_magnitude = float(np.sum(diffs[diffs > tol])) if decreasing_violations else 0.0
+    if (
+        y[-1] >= y[0]
+        and increasing_violations <= allowed
+        and increasing_magnitude <= magnitude_budget
+    ):
         return "increasing", increasing_violations
-    if y[-1] <= y[0] and decreasing_violations <= allowed:
+    if (
+        y[-1] <= y[0]
+        and decreasing_violations <= allowed
+        and decreasing_magnitude <= magnitude_budget
+    ):
         return "decreasing", decreasing_violations
     return "nonmonotonic", min(increasing_violations, decreasing_violations)
 
@@ -585,6 +602,57 @@ def sample_runtime_curve_profile(
     )
 
 
+def sample_runtime_print_curve_profile(
+    *,
+    params,
+    ev_min: float = -10.0,
+    ev_max: float = 6.0,
+    ev_step: float = 0.5,
+) -> dict[str, object]:
+    """Sample the print route with the caller's current tone parameters.
+
+    Unlike ``sample_runtime_curve_profile`` (which samples factory defaults
+    for the bundled database), this keeps the caller's tone-shaping
+    parameters — density curve gamma, print exposure, enlarger filters,
+    print curve morph, preflash — so the sampled shoulder metrics follow the
+    user's adjustments. Exposure is normalized to EV 0 by the shared
+    sampling-params helper because the HDR projection queries the profile
+    with an exposure-included scene ratio.
+    """
+
+    from spektrafilm.runtime.process import Simulator
+
+    film_info = getattr(getattr(params, "film", None), "info", None)
+    film = getattr(film_info, "stock", None)
+    print_info = getattr(getattr(params, "print", None), "info", None)
+    paper = getattr(print_info, "stock", None)
+    if not film or str(film) == "None":
+        raise ValueError("print-route curve sampling requires a film identifier.")
+    if not paper or str(paper) == "None":
+        raise ValueError("print-route curve sampling requires a paper identifier.")
+
+    sampled_params = copy.deepcopy(params)
+    # Deterministic sampling: keep the tiny ramp render off the GPU so the
+    # profile metrics do not vary with backend float behavior or device state.
+    sampled_params.settings.compute_backend = "cpu"
+    sampled_params = _prepare_profile_sampling_params(
+        sampled_params,
+        scan_film=False,
+        unclipped_scan_output=False,
+    )
+
+    scene_y = neutral_scene_y_samples(ev_min=ev_min, ev_max=ev_max, ev_step=ev_step)
+    ramp_rgb = np.repeat(scene_y.reshape(1, -1, 1), 3, axis=2).astype(np.float64)
+    output_rgb = np.asarray(Simulator(sampled_params).process(ramp_rgb)[0], dtype=np.float32)
+    return build_curve_profile_sample(
+        film=str(film),
+        paper=str(paper),
+        route="print_scan",
+        scene_y=scene_y,
+        output_rgb=output_rgb,
+    )
+
+
 def sample_runtime_film_scan_curve_profile(
     *,
     params=None,
@@ -688,6 +756,60 @@ def sample_runtime_film_scan_curve_profile(
         scene_y=scene_y,
         output_rgb=output_rgb,
     )
+
+
+def sample_runtime_negative_scan_render_metadata(
+    *,
+    params,
+    ev_min: float = -10.0,
+    ev_max: float = 6.0,
+    ev_step: float = 0.5,
+) -> dict[str, object]:
+    """Calibrate negative->positive render references from a neutral ramp.
+
+    Runs a deterministic neutral scene ramp through the caller's film-scan
+    route (current film-side tone parameters kept, exposure normalized) and
+    derives the film-base / per-channel density-range references from the
+    ramp instead of image content. This keeps the light-table positive
+    render composition-independent while still following user adjustments
+    such as density curve gamma.
+
+    The sampled domain matches the runtime input of the positive render
+    exactly: raw pre-compression scanner RGB (``route_linear_rgb``) — output
+    gamut compression, scanner blur/unsharp, CCTF, and clipping are all
+    disabled for the ramp.
+    """
+
+    from spektrafilm.runtime.process import Simulator
+
+    film_info = getattr(getattr(params, "film", None), "info", None)
+    film = getattr(film_info, "stock", None)
+    if not film or str(film) == "None":
+        raise ValueError("negative-scan render sampling requires a film identifier.")
+    if getattr(film_info, "type", None) != "negative":
+        raise ValueError("negative-scan render sampling requires a negative film profile.")
+
+    sampled_params = copy.deepcopy(params)
+    # Deterministic sampling: keep the tiny ramp render off the GPU so the
+    # calibration does not vary with backend float behavior or device state.
+    sampled_params.settings.compute_backend = "cpu"
+    # The runtime positive render consumes scan_master.route_linear_rgb, i.e.
+    # raw scanner RGB before output gamut compression and scanner sharpening.
+    sampled_params.io.output_gamut_compress = dataclasses.replace(
+        sampled_params.io.output_gamut_compress, algorithm="off"
+    )
+    sampled_params.scanner.lens_blur = 0.0
+    sampled_params.scanner.unsharp_mask = (0.0, 0.0)
+    sampled_params = _prepare_profile_sampling_params(
+        sampled_params,
+        scan_film=True,
+        unclipped_scan_output=True,
+    )
+
+    scene_y = neutral_scene_y_samples(ev_min=ev_min, ev_max=ev_max, ev_step=ev_step)
+    ramp_rgb = np.repeat(scene_y.reshape(1, -1, 1), 3, axis=2).astype(np.float64)
+    raw_output_rgb = np.asarray(Simulator(sampled_params).process(ramp_rgb)[0], dtype=np.float32)
+    return _build_negative_scan_render_metadata(raw_output_rgb.reshape(-1, 3), scene_y)
 
 
 def _defaults_from_mapping(values: dict[str, object]) -> HDRCurveDefaults:

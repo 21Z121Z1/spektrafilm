@@ -703,12 +703,25 @@ class SimulationPipeline:
             )
             diagnostics.update(scan_master.diagnostics)
             diagnostics["profile_kind"] = "positive_film_scan"
+            display_sdr = sdr_legacy_rgb
             if getattr(self.film, "is_negative", False):
                 scan_master, sdr_legacy_rgb, render_diagnostics = self._positive_render_negative_scan_master(
                     scan_master,
                     exposure.scene_y_raw,
                 )
                 diagnostics.update(render_diagnostics)
+                display_sdr = sdr_legacy_rgb
+                # The positive render is host-resident; re-upload the master
+                # fields so the HDR projection can stay on the backend. Values
+                # are unchanged (lossless float32 upload); the display image
+                # below keeps consuming the original host array.
+                if (
+                    getattr(self.settings, "materialize_policy", "numpy_float64") == "backend"
+                    and getattr(self._backend, "supports_gpu", False)
+                ):
+                    scan_master.route_linear_rgb = self._backend.asarray(scan_master.route_linear_rgb)
+                    scan_master.route_luminance_y = self._backend.asarray(scan_master.route_luminance_y)
+                    sdr_legacy_rgb = self._backend.asarray(sdr_legacy_rgb)
             route_master = self._build_route_master(
                 hdr_mode=hdr_mode,
                 route_kind="film_scan",
@@ -721,7 +734,7 @@ class SimulationPipeline:
             scan_master.density_cmy = None
             del cmy_film
             return SimulationPipelineResult(
-                image=self._materialize_output(sdr_legacy_rgb),
+                image=self._materialize_output(display_sdr),
                 hdr_scene_energy=hdr_scene_energy,
                 route_master=route_master,
             )
@@ -1116,21 +1129,36 @@ class SimulationPipeline:
         scan_master: ScanMasterResult,
         scene_y_raw,
     ) -> tuple[ScanMasterResult, np.ndarray, dict[str, object]]:
+        from spektrafilm.hdr.profile_cache import get_dynamic_negative_scan_render_metadata
+
         raw_rgb = self._materialize_sidecar_array(
             scan_master.route_linear_rgb,
             dtype=np.float32,
             label="SimulationPipeline.route_master_materialize",
         )
-        scene_y = self._materialize_sidecar_array(
-            scene_y_raw,
-            dtype=np.float32,
-            label="SimulationPipeline.route_master_materialize",
-        )
-        positive_rgb, render_metadata = render_negative_scan_positive_rgb(
-            raw_rgb,
-            scene_y=scene_y.reshape(-1),
-            return_metadata=True,
-        )
+        # Film-base and density-range references come from a deterministic
+        # neutral-ramp calibration of the current film params, not from image
+        # content, so the positive render is composition-independent. The
+        # legacy content-statistics estimate remains only as a fail-safe.
+        calibration_metadata, render_origin = get_dynamic_negative_scan_render_metadata(self._params)
+        if calibration_metadata is not None:
+            positive_rgb, render_metadata = render_negative_scan_positive_rgb(
+                raw_rgb,
+                render_metadata=calibration_metadata,
+                return_metadata=True,
+            )
+        else:
+            scene_y = self._materialize_sidecar_array(
+                scene_y_raw,
+                dtype=np.float32,
+                label="SimulationPipeline.route_master_materialize",
+            )
+            render_origin = f"content_statistics_fallback:{render_origin}"
+            positive_rgb, render_metadata = render_negative_scan_positive_rgb(
+                raw_rgb,
+                scene_y=scene_y.reshape(-1),
+                return_metadata=True,
+            )
         positive_xyz = np.asarray(
             colour.RGB_to_XYZ(
                 positive_rgb,
@@ -1154,6 +1182,7 @@ class SimulationPipeline:
         diagnostics = {
             "profile_kind": "positive_negative_scan",
             "negative_scan_render": render_metadata,
+            "negative_scan_render_origin": render_origin,
             "negative_scan_positive_rendering": True,
             "route_linear_xyz_source": "positive_render_rgb_to_xyz",
         }

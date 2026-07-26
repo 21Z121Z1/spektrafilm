@@ -36,19 +36,6 @@ class HDRMappingModes(Enum):
     paper = "paper"
 
 
-class HDRSceneSources(Enum):
-    output_layer_metadata = "output_layer_metadata"
-
-
-class HDRReferenceWhiteModes(Enum):
-    manual_scene_anchor = "manual_scene_anchor"
-
-
-class HDRHeadroomModes(Enum):
-    content_percentile = "content_percentile"
-    modern_recovery_peak_budget = "modern_recovery_peak_budget"
-
-
 class HDRGainMapModes(Enum):
     rgb = "rgb"
     luma = "luma"

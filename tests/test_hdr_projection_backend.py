@@ -99,7 +99,9 @@ def test_backend_projection_profile_reports_percentile_sort_costs(monkeypatch) -
     calls = profile["percentile_calls"]
     labels = {call["label"] for call in calls}
 
-    assert labels == {"extension_gain", "headroom"}
+    # The extension gain uses a fixed span (no content percentile) since the
+    # crop-stability fix, so only the final content-headroom sort remains.
+    assert labels == {"headroom"}
     assert all(call["operation"] == "mx.sort_percentile" for call in calls)
     assert all(call["size"] == 4 for call in calls)
     assert all(call["sort_to_scalar_ms"] >= 0.0 for call in calls)
@@ -122,12 +124,31 @@ def test_generic_paper_projection_keeps_mlx_arrays_when_no_chemical_profile() ->
     np.testing.assert_allclose(np.asarray(actual.hdr_rgb), expected.hdr_rgb, rtol=1e-5, atol=1e-6)
 
 
-def test_projection_falls_back_to_numpy_when_sdr_base_needs_cctf_decode() -> None:
+def test_projection_decodes_cctf_encoded_sdr_base_on_backend() -> None:
     backend = _mlx_available_or_skip()
     config = HDRProjectionConfig(max_headroom=5.0, headroom_percentile=100.0)
+    expected = project_hdr_light_table(
+        _master(mode="light_table", output_cctf_encoding=True), config
+    )
 
     result = project_hdr_light_table(
         _master(backend=backend, mode="light_table", output_cctf_encoding=True),
+        config,
+    )
+
+    assert backend._is_mlx_array(result.sdr_rgb)
+    assert backend._is_mlx_array(result.hdr_rgb)
+    assert result.diagnostics["projection_backend"] == "mlx"
+    np.testing.assert_allclose(np.asarray(result.sdr_rgb), expected.sdr_rgb, rtol=1e-5, atol=1e-6)
+    np.testing.assert_allclose(np.asarray(result.hdr_rgb), expected.hdr_rgb, rtol=1e-5, atol=1e-6)
+    np.testing.assert_allclose(np.asarray(result.gain_map), expected.gain_map, rtol=1e-5, atol=1e-6)
+
+
+def test_projection_falls_back_to_numpy_for_host_resident_masters() -> None:
+    config = HDRProjectionConfig(max_headroom=5.0, headroom_percentile=100.0)
+
+    result = project_hdr_light_table(
+        _master(mode="light_table", output_cctf_encoding=True),
         config,
     )
 

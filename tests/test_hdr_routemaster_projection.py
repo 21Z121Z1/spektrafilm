@@ -281,7 +281,10 @@ def test_paper_white_anchor_changes_hdr_join() -> None:
     above = project_hdr_ideal_paper(master, HDRProjectionConfig(max_headroom=4.0, paper_white=0.8))
 
     np.testing.assert_allclose(below.hdr_rgb, below.sdr_rgb, rtol=0.0, atol=1e-7)
-    assert float(np.max(above.hdr_rgb - above.sdr_rgb)) > 1e-3
+    # The extension span is fixed at max_headroom (content-independent), so a
+    # pixel 0.125 ratio above the anchor receives a small but strictly
+    # positive extension; the join moving is the property under test.
+    assert float(np.max(above.hdr_rgb - above.sdr_rgb)) > 5e-5
 
 
 def test_diffuse_white_scene_anchor_replaces_paper_white_alias() -> None:
@@ -607,3 +610,80 @@ def test_grain_shared_between_sdr_and_hdr_projection() -> None:
     corr = float(np.corrcoef(sdr_texture.reshape(-1), hdr_texture.reshape(-1))[0, 1])
 
     assert corr > 0.98
+
+
+def _negative_scene(*, cast: tuple[float, float, float] = (1.0, 1.0, 1.0), highlight: bool = True) -> np.ndarray:
+    height, width = 12, 12
+    ramp = np.linspace(0.05, 0.9, height, dtype=np.float64).reshape(-1, 1, 1)
+    image = np.repeat(np.repeat(ramp, width, axis=1), 3, axis=2)
+    image[2:5, 2:5] = [0.45, 0.10, 0.08]
+    image[2:5, 6:9] = [0.08, 0.12, 0.55]
+    if highlight:
+        image[8:11, 8:11] = 5.0
+    return np.ascontiguousarray(image * np.asarray(cast, dtype=np.float64))
+
+
+def test_light_table_negative_positive_render_is_composition_independent() -> None:
+    params = make_fast_test_params()
+    full = _negative_scene()
+    m_full = Simulator(copy.deepcopy(params)).process_master(full, hdr_mode="light_table")
+    assert m_full.diagnostics["negative_scan_render_origin"] in (
+        "dynamic_resample",
+        "dynamic_resample_cached",
+    )
+
+    crop = np.ascontiguousarray(full[4:10, :8])
+    m_crop = Simulator(copy.deepcopy(params)).process_master(crop, hdr_mode="light_table")
+
+    # The calibration comes from the film profile, not from image content,
+    # so reframing the same scene must not change the rendered pixels.
+    np.testing.assert_allclose(
+        np.asarray(m_full.sdr_legacy_rgb, dtype=np.float32)[4:10, :8],
+        np.asarray(m_crop.sdr_legacy_rgb, dtype=np.float32),
+        rtol=0.0,
+        atol=1e-5,
+    )
+
+
+def test_light_table_negative_positive_render_preserves_scene_cast() -> None:
+    params = make_fast_test_params()
+    neutral_scene = _negative_scene(cast=(1.0, 1.0, 1.0), highlight=False)
+    warm_scene = _negative_scene(cast=(1.3, 1.0, 0.6), highlight=False)
+    neutral = Simulator(copy.deepcopy(params)).process_master(neutral_scene, hdr_mode="light_table")
+    warm = Simulator(copy.deepcopy(params)).process_master(warm_scene, hdr_mode="light_table")
+
+    probe = np.s_[6:8, 2:10]
+
+    def red_blue_ratio(master: RouteMaster) -> float:
+        rgb = np.asarray(master.sdr_legacy_rgb, dtype=np.float32)[probe].reshape(-1, 3).mean(axis=0)
+        return float(rgb[0]) / max(float(rgb[2]), 1e-6)
+
+    # A global illuminant cast must survive the positive render instead of
+    # being auto-white-balanced away by content statistics.
+    assert red_blue_ratio(warm) / red_blue_ratio(neutral) > 1.25
+
+
+def test_light_table_preserves_sdr_base_below_anchor() -> None:
+    for film in ("kodak_portra_400", "fujifilm_provia_100f"):
+        params = make_fast_test_params(film_profile=film)
+        master = Simulator(params).process_master(_negative_scene(), hdr_mode="light_table")
+        result = project_hdr_light_table(master, HDRProjectionConfig(max_headroom=8.0, headroom_percentile=100.0))
+
+        authority = np.asarray(master.post_halation_y, dtype=np.float32)
+        below = authority <= np.float32(1.0)
+        assert below.any(), film
+        np.testing.assert_allclose(
+            np.asarray(result.hdr_rgb, dtype=np.float32)[below],
+            np.asarray(result.sdr_rgb, dtype=np.float32)[below],
+            rtol=0.0,
+            atol=1e-6,
+            err_msg=film,
+        )
+
+
+def test_light_table_path_to_white_is_active() -> None:
+    master = _synthetic_master()
+    result = project_hdr_light_table(master, HDRProjectionConfig(max_headroom=4.0, headroom_percentile=100.0))
+
+    assert float(result.diagnostics["path_to_white_strength_input"]) > 0.0
+    assert float(result.diagnostics["path_to_white_strength_effective"]) > 0.0

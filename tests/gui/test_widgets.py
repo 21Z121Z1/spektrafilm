@@ -456,15 +456,19 @@ def test_hdr_export_manifest_is_independent_from_compute_settings() -> None:
     assert HDR_EXPORT_MANIFEST in ALL_MANIFESTS
     assert HDR_EXPORT_MANIFEST.title == 'HDR Export'
     assert HDR_EXPORT_MANIFEST.group_path == 'hdr'
-    assert {spec.leaf for spec in HDR_EXPORT_MANIFEST.fields} >= {
+    assert {spec.leaf for spec in HDR_EXPORT_MANIFEST.fields} == {
         'hdr_mapping_mode',
         'hdr_heic_gain_map_enabled',
-        'hdr_scene_source',
-        'hdr_diffuse_white_target',
+        'hdr_reference_white_ev',
         'hdr_peak_headroom',
-        'hdr_headroom_mode',
-        'gain_map_mode',
         'heic_quality',
+        'headroom_percentile',
+        'gain_map_mode',
+    }
+    # Robustness/compatibility knobs live in the collapsed Advanced area.
+    assert {spec.leaf for spec in HDR_EXPORT_MANIFEST.fields if spec.advanced} == {
+        'headroom_percentile',
+        'gain_map_mode',
     }
     # compute backend settings are now path-based fields merged into INPUT_IMAGE_FIELDS
     compute_leaves = {spec.leaf for spec in COMPUTE_PANEL_FIELDS}

@@ -43,49 +43,58 @@ def test_default_hdr_state_is_sdr_safe() -> None:
     assert PROJECT_DEFAULT_GUI_STATE.hdr.hdr_heic_gain_map_enabled is False
 
 
-def test_hdr_reference_white_fields_persist_and_old_state_loads() -> None:
+def test_hdr_reference_white_ev_persists_and_legacy_state_loads() -> None:
     state = make_test_gui_state()
-    state.hdr.hdr_diffuse_white_target = 1.25
-    state.hdr.hdr_reference_white_mode = 'manual_scene_anchor'
     state.hdr.hdr_reference_white_ev = 0.5
-    state.hdr.hdr_output_diffuse_white = 1.5
-    state.hdr.hdr_display_reference_white_nits = 203.0
 
     data = gui_state_to_dict(state)
 
-    assert data['hdr']['hdr_reference_white_mode'] == 'manual_scene_anchor'
     assert data['hdr']['hdr_reference_white_ev'] == 0.5
-    assert data['hdr']['hdr_output_diffuse_white'] == 1.5
-    assert data['hdr']['hdr_display_reference_white_nits'] == 203.0
+    # Fields removed in the panel slim-down never round-trip again.
+    removed = {
+        'hdr_scene_source',
+        'hdr_diffuse_white_target',
+        'hdr_reference_white_mode',
+        'hdr_output_diffuse_white',
+        'hdr_display_reference_white_nits',
+        'hdr_headroom_mode',
+        'preserve_sdr_base',
+    }
+    assert removed.isdisjoint(data['hdr'])
 
-    old_style = {'hdr': {'hdr_diffuse_white_target': 1.25}}
+    old_style = {
+        'hdr': {
+            'hdr_reference_white_ev': 0.5,
+            'hdr_diffuse_white_target': 1.25,
+            'hdr_output_diffuse_white': 1.5,
+            'hdr_headroom_mode': 'modern_recovery_peak_budget',
+            'preserve_sdr_base': False,
+        }
+    }
     restored = gui_state_from_dict(old_style)
-    assert restored.hdr.hdr_diffuse_white_target == 1.25
-    assert restored.hdr.hdr_reference_white_mode == PROJECT_DEFAULT_GUI_STATE.hdr.hdr_reference_white_mode
-    assert restored.hdr.hdr_reference_white_ev == PROJECT_DEFAULT_GUI_STATE.hdr.hdr_reference_white_ev
-    assert restored.hdr.hdr_output_diffuse_white == PROJECT_DEFAULT_GUI_STATE.hdr.hdr_output_diffuse_white
-    assert restored.hdr.hdr_display_reference_white_nits == PROJECT_DEFAULT_GUI_STATE.hdr.hdr_display_reference_white_nits
+    assert restored.hdr.hdr_reference_white_ev == 0.5
+    assert restored.hdr.hdr_mapping_mode == PROJECT_DEFAULT_GUI_STATE.hdr.hdr_mapping_mode
 
 
-def test_hdr_projection_config_from_settings_decouples_reference_and_output_white() -> None:
+def test_hdr_projection_config_from_settings_fixes_routemaster_contract() -> None:
     settings = HDRExportSettings(
-        hdr_diffuse_white_target=1.25,
         hdr_reference_white_ev=1.0,
-        hdr_output_diffuse_white=0.5,
-        hdr_display_reference_white_nits=250.0,
         hdr_peak_headroom=6.0,
         headroom_percentile=98.0,
+        gain_map_mode='luma',
     )
 
     config = hdr_projection_config_from_settings(settings)
 
-    assert config.diffuse_white_scene_anchor == 2.5
+    # The anchor sits at scene 1.0 and is trimmed only by the EV control.
+    assert config.diffuse_white_scene_anchor == 2.0
     assert config.reference_white_mode == 'manual_scene_anchor'
     assert config.reference_white_ev == 1.0
-    assert config.output_diffuse_white == 0.5
-    assert config.display_reference_white_nits == 250.0
+    # Fixed by the RouteMaster contract, no longer user-tunable.
+    assert config.output_diffuse_white == 1.0
     assert config.max_headroom == 6.0
     assert config.headroom_percentile == 98.0
+    assert config.gain_map_mode == 'luma'
 
 
 def test_legacy_hdr_modes_restore_to_public_modes() -> None:
