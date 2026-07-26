@@ -6,9 +6,13 @@ import inspect
 
 from spektrafilm.model import stocks
 from spektrafilm.profiles.io import (
+    PROFILE_PROVENANCE_FIELDS,
     Profile,
     ProfileData,
+    ProfileFieldProvenance,
+    ProfileProvenance,
     _json_safe,
+    list_profiles,
     load_profile,
     profile_to_dict,
     profile_from_dict,
@@ -19,6 +23,7 @@ from spektrafilm.profiles.io import (
 class TestLoadProfile:
     def test_profile_has_required_fields(self, portra_400_profile):
         p = portra_400_profile
+        assert hasattr(p.metadata, 'provenance')
         assert hasattr(p, 'info')
         assert hasattr(p, 'data')
         assert hasattr(p.data, 'log_sensitivity')
@@ -80,6 +85,164 @@ class TestLoadProfile:
             np.array(profile_rt.data.hanatos2025_adaptation_surface_params).shape
             == portra_400_profile.data.hanatos2025_adaptation_surface_params.shape
         )
+        assert (
+            profile_to_dict(profile_rt.metadata.provenance)
+            == profile_to_dict(portra_400_profile.metadata.provenance)
+        )
+
+    def test_legacy_profile_without_provenance_remains_loadable(self, portra_400_profile):
+        profile_dict = profile_to_dict(portra_400_profile)
+        profile_dict['metadata'].pop('provenance')
+
+        profile_rt = profile_from_dict(profile_dict)
+
+        assert profile_rt.metadata.provenance.measurement_status == 'unknown'
+        assert profile_rt.metadata.provenance.fields == {}
+
+    def test_field_provenance_rejects_unknown_origin(self):
+        with pytest.raises(ValueError, match='origin'):
+            ProfileFieldProvenance(origin='manufacturer-direct')
+
+    def test_profile_provenance_rejects_undefined_source_reference(self):
+        with pytest.raises(ValueError, match='undefined sources'):
+            ProfileProvenance(fields={
+                'channel_density': {
+                    'origin': 'generic-reference',
+                    'status': 'reconstructed',
+                    'sources': ['MISSING_SOURCE'],
+                },
+            })
+
+    def test_instrument_measured_field_requires_retained_measurement_status(self):
+        with pytest.raises(ValueError, match='retained or partial instrument data'):
+            ProfileProvenance(fields={
+                'channel_density': {
+                    'origin': 'instrument-measurement',
+                    'status': 'instrument-measured',
+                },
+            })
+
+    def test_all_bundled_profiles_have_complete_field_provenance(self):
+        for stock in list_profiles():
+            provenance = load_profile(stock).metadata.provenance
+
+            assert provenance.measurement_status == 'no-raw-instrument-data', stock
+            assert set(provenance.fields) == PROFILE_PROVENANCE_FIELDS, stock
+            assert all(
+                field.status != 'instrument-measured'
+                for field in provenance.fields.values()
+            ), stock
+
+    @pytest.mark.parametrize(
+        'stock',
+        [
+            'fujifilm_c200',
+            'fujifilm_pro_400h',
+            'fujifilm_xtra_400',
+            'kodak_ektar_100',
+            'kodak_gold_200',
+            'kodak_portra_160',
+            'kodak_portra_400',
+            'kodak_portra_800',
+            'kodak_ultramax_400',
+        ],
+    )
+    def test_generic_negative_cmy_basis_is_labeled_as_reconstruction(self, stock):
+        provenance = load_profile(stock).metadata.provenance.fields['channel_density']
+
+        assert provenance.origin == 'generic-reference'
+        assert provenance.status == 'reconstructed'
+        assert 'DIGITAL_COLOR_MANAGEMENT_FILM_A' in provenance.sources
+
+    @pytest.mark.parametrize(
+        ('stock', 'source_id'),
+        [
+            (
+                'fujifilm_velvia_100',
+                'AVIAN_ROCHESTER_MICROCALT24_VELVIA100',
+            ),
+            ('kodak_kodachrome_64', 'SCARPACE_FRIEDERICHS_1978_K64'),
+            ('kodak_gold_200', 'WANG_ET_AL_2014_GOLD_200'),
+            ('kodak_vision3_500t', 'PLUTINO_ET_AL_2024_VISION3_500T'),
+        ],
+    )
+    def test_validation_only_references_do_not_claim_field_derivation(
+        self,
+        stock,
+        source_id,
+    ):
+        provenance = load_profile(stock).metadata.provenance
+
+        assert source_id in provenance.source_references
+        assert all(
+            source_id not in field.sources
+            for field in provenance.fields.values()
+        )
+
+    @pytest.mark.parametrize('stock', ['kodak_portra_800_push1', 'kodak_portra_800_push2'])
+    def test_push_profile_spectral_fields_are_labeled_as_inherited(self, stock):
+        fields = load_profile(stock).metadata.provenance.fields
+
+        for field_name in (
+            'log_sensitivity',
+            'channel_density',
+            'base_density',
+            'midscale_neutral_density',
+        ):
+            field = fields[field_name]
+            assert field.origin == 'related-profile'
+            assert field.status == 'inherited'
+            assert field.derived_from == f'kodak_portra_800.data.{field_name}'
+
+    def test_cross_profile_donors_are_labeled_explicitly(self):
+        verita = load_profile('kodak_verita_200d').metadata.provenance.fields
+        crystal = load_profile(
+            'fujifilm_crystal_archive_typeii'
+        ).metadata.provenance.fields
+        supra = load_profile('kodak_supra_endura').metadata.provenance.fields
+
+        assert verita['channel_density'].derived_from == (
+            'kodak_vision3_50d.data.channel_density'
+        )
+        assert crystal['density_curves'].derived_from == (
+            'kodak_supra_endura.data.density_curves'
+        )
+        assert supra['log_sensitivity'].derived_from == (
+            'kodak_portra_endura.data.log_sensitivity'
+        )
+        assert supra['channel_density'].derived_from == (
+            'kodak_portra_endura.data.channel_density'
+        )
+
+    def test_normalized_and_reduced_source_graphs_keep_semantic_caveats(self):
+        pro_400h = load_profile('fujifilm_pro_400h').metadata.provenance.fields
+        assert pro_400h['log_sensitivity'].status == 'reconstructed'
+        assert 'three-channel-reduction' in pro_400h['log_sensitivity'].transformations
+
+        for stock in (
+            'kodak_vision3_50d',
+            'kodak_vision3_250d',
+            'kodak_vision3_200t',
+            'kodak_vision3_500t',
+        ):
+            channel = load_profile(stock).metadata.provenance.fields['channel_density']
+            assert channel.status == 'reconstructed'
+            assert 'peak-normalized' in channel.notes
+
+        for stock in ('kodak_ektachrome_100', 'kodak_kodachrome_64'):
+            channel = load_profile(stock).metadata.provenance.fields['channel_density']
+            assert channel.status == 'source-derived'
+            assert 'visual neutral' in channel.notes
+
+    def test_positive_and_printing_base_neutral_fields_are_labeled_reconstructed(self):
+        for stock in list_profiles():
+            profile = load_profile(stock)
+            if profile.info.type != 'positive' and profile.info.stage != 'printing':
+                continue
+
+            fields = profile.metadata.provenance.fields
+            assert fields['base_density'].status == 'reconstructed', stock
+            assert fields['midscale_neutral_density'].status == 'reconstructed', stock
 
     def test_profile_json_payload_converts_nan_to_null(self, portra_400_profile):
         profile = portra_400_profile.clone()
@@ -223,4 +386,3 @@ class TestDependencyBoundaries:
         tree = ast.parse(inspect.getsource(stocks))
         for node in tree.body:
             assert not isinstance(node, ast.If)
-
