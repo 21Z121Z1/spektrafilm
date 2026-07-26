@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+from spektrafilm.gpu.mlx_cache import maybe_clear_cache
+
 
 def _is_backend_array(value: Any, backend: Any) -> bool:
     """Return True if ``value`` is already an array native to ``backend``."""
@@ -248,10 +250,17 @@ def _write_tile(output, tile_out, y0, y1, backend):
 
 
 def _maybe_clear_backend_cache(backend) -> None:
-    """Clear non-essential backend cache between tiles to bound memory."""
+    """Clear non-essential backend cache between tiles to bound memory.
+
+    Goes through ``spektrafilm.gpu.mlx_cache.maybe_clear_cache``: the default
+    budget (0) preserves the clear-every-tile cadence; a positive
+    ``SPEKTRAFILM_MLX_CACHE_CLEAR_BUDGET_MB`` gates the clears on cache size.
+    """
     clear = getattr(backend, "clear_cache", None)
     if callable(clear):
         try:
             clear()
         except Exception:
             pass
+        return
+    maybe_clear_cache(backend)

@@ -9,6 +9,7 @@ from spektrafilm.gpu.kernels.tile_utils import (
     process_spatial_rows_tiled,
     resolve_spatial_tile_rows,
 )
+from spektrafilm.gpu.mlx_cache import maybe_clear_cache
 
 
 _LARGE_GRAIN_STATE_PIXELS = 24_000_000
@@ -19,10 +20,7 @@ def _materialize_large_grain_state(value, backend) -> None:
     if len(shape) < 2 or int(shape[0]) * int(shape[1]) < _LARGE_GRAIN_STATE_PIXELS:
         return
     backend.eval(value)
-    mx = getattr(backend, "mx", None)
-    clear_cache = getattr(mx, "clear_cache", None)
-    if callable(clear_cache):
-        clear_cache()
+    maybe_clear_cache(backend)
 
 
 def _backend_supports_gpu(backend) -> bool:

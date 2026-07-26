@@ -191,6 +191,72 @@ def test_mlx_compiled_elementwise_cache_distinguishes_different_functions_same_n
     np.testing.assert_allclose(backend.to_numpy(compiled_b(image)), np.full((2, 3), 3.0))
 
 
+def test_mlx_compiled_elementwise_cache_hits_for_recreated_closures(monkeypatch) -> None:
+    """Per-call re-created closures with identical code, constants, and
+    captured values must reuse one compiled entry (the historical id()-based
+    key only hit when CPython happened to reuse the freed address)."""
+    try:
+        backend = select_backend("mlx")
+    except BackendUnavailableError as exc:
+        pytest.skip(str(exc))
+
+    compile_calls = []
+
+    def fake_compile(function):
+        compile_calls.append(function)
+
+        def wrapped(*args):
+            return function(*args)
+
+        return wrapped
+
+    monkeypatch.setattr(backend.mx, "compile", fake_compile, raising=False)
+    image = backend.asarray(np.ones((2, 3), dtype=np.float32))
+
+    def make_chain(threshold):
+        def chain(value):
+            return value + threshold
+
+        return chain
+
+    keep_alive = []
+    for _ in range(3):
+        chain = make_chain(1.0)
+        keep_alive.append(chain)  # defeat address reuse to exercise the key
+        backend.compiled_elementwise("tests.recreated", chain, image)
+
+    assert len(compile_calls) == 1
+
+    changed_capture = make_chain(2.0)
+    backend.compiled_elementwise("tests.recreated", changed_capture, image)
+    assert len(compile_calls) == 2
+
+
+def test_mlx_fmax_scalar_fast_path_matches_general_form() -> None:
+    try:
+        backend = select_backend("mlx")
+    except BackendUnavailableError as exc:
+        pytest.skip(str(exc))
+
+    values = backend.asarray(
+        np.array([np.nan, 1.0, -1.0, np.inf, -np.inf, -0.0, 0.0], dtype=np.float32)
+    )
+    for floor in (0.0, 1e-10, -5.0):
+        fast = backend.to_numpy(backend.fmax(values, floor))
+        general = backend.to_numpy(
+            backend.mx.where(
+                backend.mx.isnan(values),
+                floor,
+                backend.mx.where(
+                    backend.mx.isnan(floor), values, backend.mx.maximum(values, floor)
+                ),
+            )
+        )
+        assert np.array_equal(
+            fast.view(np.uint32), general.view(np.uint32)
+        ), f"fmax fast path diverged for floor={floor}"
+
+
 def test_mlx_fmax_ignores_nan() -> None:
     try:
         backend = select_backend("mlx")

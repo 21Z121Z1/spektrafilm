@@ -653,29 +653,19 @@ def _get_jzazbz_chroma_mlx_kernel(mx):
     return _JZAZBZ_CHROMA_MLX_KERNEL
 
 
-def _compress_rgb_jzazbz_chroma_mlx_kernel(
-    rgb,
-    output_color_space: str,
-    *,
-    threshold: float,
-    limit: float,
-    power: float,
-    lightness_compression: tuple[float, float, float] | None,
-    backend,
-):
-    mx = backend.mx
+@lru_cache(maxsize=8)
+def _jzazbz_kernel_constants_numpy(output_color_space: str) -> tuple[np.ndarray, ...]:
+    """CPU-side constant preparation for the JzAzBz DS kernel, cached.
+
+    Every input is deterministic for a given output color space (module
+    constants plus the lru-cached ``_get_output_c_max_table``), so re-running
+    the float64 hi/lo splits on each frame produced identical arrays.
+    """
     from spektrafilm.gpu.kernels.color import (
         precompute_rgb_to_xyz_matrix,
         precompute_xyz_to_rgb_matrix,
     )
-    from spektrafilm.utils.gamut_compression import (
-        _get_output_c_max_table,
-        _jzazbz_white_Jz,
-    )
-
-    rgb = backend.asarray(rgb)
-    orig_shape = tuple(int(dim) for dim in rgb.shape)
-    rgb_flat = mx.reshape(rgb, (-1, 3))
+    from spektrafilm.utils.gamut_compression import _get_output_c_max_table
 
     matrix_rgb_to_xyz_hi, matrix_rgb_to_xyz_lo = _split_float32_hi_lo(
         precompute_rgb_to_xyz_matrix(output_color_space)
@@ -699,6 +689,48 @@ def _compress_rgb_jzazbz_chroma_mlx_kernel(
         dtype=np.float64,
     )
     cmax_grid_hi, cmax_grid_lo = _split_float32_hi_lo(cmax_grid_constants)
+    return (
+        matrix_rgb_to_xyz_hi,
+        matrix_rgb_to_xyz_lo,
+        matrix_xyz_to_rgb_hi,
+        matrix_xyz_to_rgb_lo,
+        np.asarray(L_grid, dtype=np.float32),
+        np.asarray(h_grid, dtype=np.float32),
+        c_max_table_hi,
+        c_max_table_lo,
+        cmax_grid_hi,
+        cmax_grid_lo,
+        jz_constants_hi,
+        jz_constants_lo,
+        jz_xyz_to_lms_hi,
+        jz_xyz_to_lms_lo,
+        jz_lmsp_to_izazbz_hi,
+        jz_lmsp_to_izazbz_lo,
+        jz_izazbz_to_lmsp_hi,
+        jz_izazbz_to_lmsp_lo,
+        jz_lms_to_xyz_hi,
+        jz_lms_to_xyz_lo,
+    )
+
+
+def _compress_rgb_jzazbz_chroma_mlx_kernel(
+    rgb,
+    output_color_space: str,
+    *,
+    threshold: float,
+    limit: float,
+    power: float,
+    lightness_compression: tuple[float, float, float] | None,
+    backend,
+):
+    mx = backend.mx
+    from spektrafilm.utils.gamut_compression import _jzazbz_white_Jz
+
+    rgb = backend.asarray(rgb)
+    orig_shape = tuple(int(dim) for dim in rgb.shape)
+    rgb_flat = mx.reshape(rgb, (-1, 3))
+
+    constant_arrays = _jzazbz_kernel_constants_numpy(output_color_space)
 
     if lightness_compression is None:
         lt, ll, lp = 0.0, 1.0, 1.0
@@ -713,6 +745,29 @@ def _compress_rgb_jzazbz_chroma_mlx_kernel(
         dtype=np.float32,
     )
 
+    (
+        matrix_rgb_to_xyz_hi,
+        matrix_rgb_to_xyz_lo,
+        matrix_xyz_to_rgb_hi,
+        matrix_xyz_to_rgb_lo,
+        l_grid_f32,
+        h_grid_f32,
+        c_max_table_hi,
+        c_max_table_lo,
+        cmax_grid_hi,
+        cmax_grid_lo,
+        jz_constants_hi,
+        jz_constants_lo,
+        jz_xyz_to_lms_hi,
+        jz_xyz_to_lms_lo,
+        jz_lmsp_to_izazbz_hi,
+        jz_lmsp_to_izazbz_lo,
+        jz_izazbz_to_lmsp_hi,
+        jz_izazbz_to_lmsp_lo,
+        jz_lms_to_xyz_hi,
+        jz_lms_to_xyz_lo,
+    ) = constant_arrays
+
     kernel = _get_jzazbz_chroma_mlx_kernel(mx)
     outputs = kernel(
         inputs=[
@@ -721,8 +776,8 @@ def _compress_rgb_jzazbz_chroma_mlx_kernel(
             backend.asarray(matrix_rgb_to_xyz_lo),
             backend.asarray(matrix_xyz_to_rgb_hi),
             backend.asarray(matrix_xyz_to_rgb_lo),
-            backend.asarray(np.asarray(L_grid, dtype=np.float32)),
-            backend.asarray(np.asarray(h_grid, dtype=np.float32)),
+            backend.asarray(l_grid_f32),
+            backend.asarray(h_grid_f32),
             backend.asarray(c_max_table_hi),
             backend.asarray(c_max_table_lo),
             backend.asarray(cmax_grid_hi),

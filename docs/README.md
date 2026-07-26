@@ -51,7 +51,19 @@ The spectral_film_simulations.md (English) and spectral_film_simulations_zh.md (
 
 | Path | Notes |
 | --- | --- |
+| [`profile-provenance.md`](profile-provenance.md) | Field-level origin, final-array status, donor, reconstruction, and measurement-evidence labels for bundled profiles. |
+| [`reports/metal-mlx-exactness-preserving-optimization-20260726.md`](reports/metal-mlx-exactness-preserving-optimization-20260726.md) | Bit-exactness-preserving MLX/Metal optimization pass: measured hot spots, landed host-side changes, rejected candidates with evidence, the cache-clear budget knob decision, and the 2026-07-27 HDR projection path assessment (numpy-vs-MLX gates, measured ledger, tiered candidates). |
+| [`reports/profile-measurement-evidence-refit-plan-20260711.md`](reports/profile-measurement-evidence-refit-plan-20260711.md) | Physical-film evidence audit, operational CMY definition, held-out same-stock basis checks, ISO gaps, and profile replacement decisions. |
+| [`reports/profile-measurement-basis-evaluation.py`](reports/profile-measurement-basis-evaluation.py) | Same-stock IT8 cross-validation, optional local GS0 Dmin candidate generation, deterministic light-table runtime/interpolation QA, and the Kodachrome 64 figure comparison. Bundled profiles are never overwritten. |
+| [`reports/profile-closed-evidence-optimization-20260713.md`](reports/profile-closed-evidence-optimization-20260713.md) | Closed-evidence public-source audit, exact-stock identity decisions, grouped validation results, candidate/rejection ledger, ISO gaps, and next authenticity steps. |
+| [`reports/profile-public-batch-validation.py`](reports/profile-public-batch-validation.py) | Exact-material ColorReference cache audit, complete-`PROD_DATE`-group holdout, conservative base/effective-basis candidate gates, authoritative manifest generation, and runtime QA. Bundled profiles are never overwritten. |
+| [`reports/profile-source-curve-digitization.py`](reports/profile-source-curve-digitization.py) | Reproducible axis-calibrated extraction of Provia 100F and Velvia 100 manufacturer-published normalized Y/M/C graphs, including repeat methods and source-revision envelopes. |
+| [`reports/profile-manufacturer-curve-validation.py`](reports/profile-manufacturer-curve-validation.py) | Same-stock grouped patch validation of fixed manufacturer-normalized channel shapes and local Provia GS0-base-plus-source-curve candidate emission. Defaults are never overwritten. |
+| [`reports/profile-k64-figure5-digitization.py`](reports/profile-k64-figure5-digitization.py) | Multi-render digitization and validation-only comparison of the 1978 Kodachrome 64 Figure 5 normalized Y/M/C curves. |
+| [`reports/profile-velvia-microcal-validation.py`](reports/profile-velvia-microcal-validation.py) | Independent exact-stock MicroCalT24 graph digitization and fail-closed external-source stress for Velvia 100 base and effective-basis candidates. |
+| [`reports/profile-reflection-williams-clapper-validation.py`](reports/profile-reflection-williams-clapper-validation.py) | Diagnostic black-backed 45/0 Williams--Clapper inversion, grouped reflection reconstruction, refractive-index sensitivity, and fail-closed candidate gates. |
 | [`reports/public-surface-hygiene-report-20260622.md`](reports/public-surface-hygiene-report-20260622.md) | Repository Public Surface Hygiene Report. |
+| [`reports/spektrafilm-thread-inventory-20260630.md`](reports/spektrafilm-thread-inventory-20260630.md) | Local Codex thread inventory for this repository, with grouped history and attention queue. |
 | [`sdr-upstream-conformance.md`](sdr-upstream-conformance.md) | Locked-upstream SDR conformance harness, commands, thresholds, allowlist, and refresh process. |
 | [`issue_positive_film_print_exposure.md`](issue_positive_film_print_exposure.md) | Issue draft for positive-film print-exposure behavior. Bug still exists in `state.py:342`. [中文](issue_positive_film_print_exposure_zh.md) |
 

@@ -14,6 +14,7 @@ from typing import Any
 
 import numpy as np
 
+from spektrafilm.gpu.mlx_cache import maybe_clear_cache
 from spektrafilm.utils.fast_stats import (
     fast_binomial as _cpu_fast_binomial,
     fast_lognormal_from_mean_std as _cpu_fast_lognormal_from_mean_std,
@@ -234,9 +235,7 @@ def fast_poisson_backend(
         # and iteration sequence while bounding the live graph for 50 MP data.
         if _POISSON_EVAL_INTERVAL > 0 and (iteration + 1) % _POISSON_EVAL_INTERVAL == 0:
             _mx.eval(knuth_product, knuth_count)
-            clear_cache = getattr(_mx, "clear_cache", None)
-            if callable(clear_cache):
-                clear_cache()
+            maybe_clear_cache(_mx)
 
     if knuth_only:
         return knuth_count

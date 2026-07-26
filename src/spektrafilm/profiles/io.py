@@ -19,6 +19,44 @@ PROFILE_STAGES = frozenset({'filming', 'printing'})
 PROFILE_USES = frozenset({'still', 'cine'})
 PROFILE_ANTIHALATION = frozenset({'strong', 'weak', 'no'})
 PROFILE_CHANNEL_MODELS = frozenset({'color', 'bw'})
+PROFILE_PROVENANCE_SCHEMA_VERSION = 1
+PROFILE_PROVENANCE_ORIGINS = frozenset({
+    'generated',
+    'generic-reference',
+    'instrument-measurement',
+    'manufacturer-composite-graph',
+    'manufacturer-graph',
+    'published-measurement',
+    'related-profile',
+})
+PROFILE_PROVENANCE_STATUSES = frozenset({
+    'generated',
+    'inherited',
+    'instrument-measured',
+    'optimized',
+    'reconstructed',
+    'source-derived',
+})
+PROFILE_MEASUREMENT_STATUSES = frozenset({
+    'instrument-raw-data-retained',
+    'no-raw-instrument-data',
+    'partial-instrument-data',
+    'unknown',
+})
+PROFILE_PROVENANCE_FIELDS = frozenset({
+    'wavelengths',
+    'log_sensitivity',
+    'bandpass_hanatos2025',
+    'hanatos2025_adaptation_window_params',
+    'hanatos2025_adaptation_surface_params',
+    'channel_density',
+    'base_density',
+    'midscale_neutral_density',
+    'log_exposure',
+    'density_curves',
+    'density_curves_layers',
+    'density_curves_model',
+})
 LEGACY_PROFILE_INFO_KEYS = frozenset({
     'fitted_cmy_midscale_neutral_density',
     'log_exposure_midscale_neutral',
@@ -121,6 +159,142 @@ class DensityCurvesModel:
 
 
 @dataclass
+class ProfileFieldProvenance:
+    """Provenance of one final bundled profile field.
+
+    ``origin`` describes the starting evidence while ``status`` describes the
+    current array after profile-creator processing. Keeping these separate
+    prevents a digitized manufacturer graph from being mistaken for retained
+    raw instrument measurements or an untouched runtime array.
+    """
+
+    origin: str = 'generated'
+    status: str = 'generated'
+    sources: tuple[str, ...] = ()
+    derived_from: str | None = None
+    transformations: tuple[str, ...] = ()
+    notes: str = ''
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.origin, str) or self.origin not in PROFILE_PROVENANCE_ORIGINS:
+            raise ValueError(f'Unsupported profile provenance origin: {self.origin!r}')
+        if not isinstance(self.status, str) or self.status not in PROFILE_PROVENANCE_STATUSES:
+            raise ValueError(f'Unsupported profile provenance status: {self.status!r}')
+        if isinstance(self.sources, str):
+            raise TypeError('Profile provenance sources must be a sequence of source identifiers')
+        if isinstance(self.transformations, str):
+            raise TypeError('Profile provenance transformations must be a sequence of labels')
+        self.sources = tuple(self.sources)
+        self.transformations = tuple(self.transformations)
+        if not all(isinstance(value, str) and value for value in self.sources):
+            raise ValueError('Profile provenance source identifiers must be non-empty strings')
+        if not all(isinstance(value, str) and value for value in self.transformations):
+            raise ValueError('Profile provenance transformation labels must be non-empty strings')
+        if len(set(self.sources)) != len(self.sources):
+            raise ValueError('Profile provenance sources must not contain duplicates')
+        if len(set(self.transformations)) != len(self.transformations):
+            raise ValueError('Profile provenance transformations must not contain duplicates')
+        if self.derived_from is not None and (
+            not isinstance(self.derived_from, str) or not self.derived_from
+        ):
+            raise ValueError('Profile provenance derived_from must be a non-empty string or None')
+        if not isinstance(self.notes, str):
+            raise TypeError('Profile provenance notes must be a string')
+
+
+@dataclass
+class ProfileProvenance:
+    """Versioned source and processing labels for a processed profile."""
+
+    schema_version: int = PROFILE_PROVENANCE_SCHEMA_VERSION
+    measurement_status: str = 'unknown'
+    source_references: dict[str, str] = field(default_factory=dict)
+    fields: dict[str, ProfileFieldProvenance] = field(default_factory=dict)
+    notes: str = ''
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.schema_version, int)
+            or isinstance(self.schema_version, bool)
+            or self.schema_version != PROFILE_PROVENANCE_SCHEMA_VERSION
+        ):
+            raise ValueError(
+                'Unsupported profile provenance schema_version '
+                f'{self.schema_version!r}'
+            )
+        if (
+            not isinstance(self.measurement_status, str)
+            or self.measurement_status not in PROFILE_MEASUREMENT_STATUSES
+        ):
+            raise ValueError(
+                f'Unsupported profile measurement status: {self.measurement_status!r}'
+            )
+        if not isinstance(self.source_references, Mapping):
+            raise TypeError('Profile provenance source_references must be a mapping')
+        source_references = dict(self.source_references)
+        if not all(
+            isinstance(source_id, str)
+            and source_id
+            and isinstance(reference, str)
+            and reference
+            for source_id, reference in source_references.items()
+        ):
+            raise ValueError(
+                'Profile provenance source_references must map non-empty strings '
+                'to non-empty strings'
+            )
+        if not isinstance(self.fields, Mapping):
+            raise TypeError('Profile provenance fields must be a mapping')
+
+        normalized_fields: dict[str, ProfileFieldProvenance] = {}
+        known_field_keys = ProfileFieldProvenance.__dataclass_fields__
+        for field_name, field_provenance in self.fields.items():
+            if field_name not in PROFILE_PROVENANCE_FIELDS:
+                raise ValueError(f'Unsupported profile provenance field {field_name!r}')
+            if isinstance(field_provenance, Mapping):
+                field_provenance = ProfileFieldProvenance(**{
+                    key: value
+                    for key, value in field_provenance.items()
+                    if key in known_field_keys
+                })
+            elif not isinstance(field_provenance, ProfileFieldProvenance):
+                raise TypeError(
+                    f'Provenance for {field_name!r} must be a mapping or '
+                    'ProfileFieldProvenance'
+                )
+            missing_sources = set(field_provenance.sources) - set(source_references)
+            if missing_sources:
+                raise ValueError(
+                    f'Profile provenance field {field_name!r} references undefined '
+                    f'sources: {sorted(missing_sources)}'
+                )
+            if (
+                field_provenance.status == 'instrument-measured'
+                and field_provenance.origin != 'instrument-measurement'
+            ):
+                raise ValueError(
+                    f'Instrument-measured provenance for {field_name!r} must use '
+                    "origin='instrument-measurement'"
+                )
+            normalized_fields[field_name] = field_provenance
+        has_instrument_measured_field = any(
+            value.status == 'instrument-measured'
+            for value in normalized_fields.values()
+        )
+        if has_instrument_measured_field and self.measurement_status not in {
+            'instrument-raw-data-retained',
+            'partial-instrument-data',
+        }:
+            raise ValueError(
+                'instrument-measured fields require retained or partial instrument data'
+            )
+        if not isinstance(self.notes, str):
+            raise TypeError('Profile provenance notes must be a string')
+        self.source_references = source_references
+        self.fields = normalized_fields
+
+
+@dataclass
 class ProfileMetadata:
     version: str = field(default_factory=_package_version)
     copyright: str = field(default_factory=_copyright_statement)
@@ -137,12 +311,26 @@ class ProfileMetadata:
         "If you use this profile in your work, please cite the spektrafilm "
         f"project: {_PROJECT_URL}, see CITATION.cff for details."
     )
-    datasource: str = """
-    This profile was created by processing raw measurement data from data-sheets and/or scientific papers. Original data are property of the respective holders.
-    Film/photo-paper: Kodak and Fujifilm data-sheets, scientific publications, and technical material.
-    Reflectance: Otsu (https://github.com/enneract/otsu2018), Munsell (https://zenodo.org/records/3269912), human skin (https://www.nist.gov/programs-projects/reflectance-measurements-human-skin), forest colors (https://zenodo.org/records/3269920), Japan colors (https://zenodo.org/records/5217752).
-    All data publicly available.
-    """.strip()
+    datasource: str = (
+        "This processed profile may combine digitized manufacturer graphs, scientific "
+        "references, generic priors, related-profile donors, reconstructions, and runtime "
+        "optimization. See metadata.provenance for each field's origin and final-array "
+        "status. A published graph is not retained raw instrument data, and this profile "
+        "must not be treated as an exact-roll measurement unless provenance explicitly "
+        "states otherwise."
+    )
+    provenance: ProfileProvenance = field(default_factory=ProfileProvenance)
+
+    def __post_init__(self) -> None:
+        if isinstance(self.provenance, Mapping):
+            known = ProfileProvenance.__dataclass_fields__
+            self.provenance = ProfileProvenance(**{
+                key: value
+                for key, value in self.provenance.items()
+                if key in known
+            })
+        elif not isinstance(self.provenance, ProfileProvenance):
+            raise TypeError('provenance must be a ProfileProvenance or Mapping')
 
 @dataclass
 class ProfileInfo:
@@ -255,6 +443,10 @@ class Profile:
     def clone(self) -> 'Profile':
         return copy.deepcopy(self)
 
+    def update_metadata(self, **changes) -> 'Profile':
+        self.metadata = replace(self.metadata, **changes)
+        return self
+
     def update_info(self, **changes) -> 'Profile':
         self.info = replace(self.info, **changes)
         return self
@@ -263,7 +455,9 @@ class Profile:
         self.data = replace(self.data, **changes)
         return self
 
-    def update(self, *, info=None, data=None) -> 'Profile':
+    def update(self, *, metadata=None, info=None, data=None) -> 'Profile':
+        if metadata:
+            self.update_metadata(**metadata)
         if info:
             self.update_info(**info)
         if data:
@@ -466,9 +660,17 @@ __all__ = [
     "DensityCurvesModel",
     "Profile",
     "ProfileData",
+    "ProfileFieldProvenance",
     "ProfileInfo",
+    "ProfileMetadata",
+    "ProfileProvenance",
     "PROFILE_ANTIHALATION",
     "PROFILE_CHANNEL_MODELS",
+    "PROFILE_MEASUREMENT_STATUSES",
+    "PROFILE_PROVENANCE_FIELDS",
+    "PROFILE_PROVENANCE_ORIGINS",
+    "PROFILE_PROVENANCE_SCHEMA_VERSION",
+    "PROFILE_PROVENANCE_STATUSES",
     "PROFILE_STAGES",
     "PROFILE_SUPPORTS",
     "PROFILE_TYPES",
