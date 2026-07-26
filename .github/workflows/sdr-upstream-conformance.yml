@@ -1,5 +1,11 @@
 name: SDR Upstream Conformance
 
+# Never let uv re-resolve or rewrite the committed uv.lock on CI: the
+# alignment contract treats the committed lockfile as authoritative, and
+# uv run would otherwise re-lock implicitly before every step.
+env:
+  UV_FROZEN: "1"
+
 on:
   pull_request:
   workflow_dispatch:
