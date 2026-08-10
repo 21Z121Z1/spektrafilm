@@ -157,6 +157,14 @@ def normalize_special_dict(data: dict[str, Any]) -> dict[str, Any]:
         'print_channel_swap': data.get('print_channel_swap', (0, 1, 2)),
         'film_render': {
             'density_curve_gamma': data.get('film_gamma_factor', PROJECT_DEFAULT_GUI_STATE.special.film_render.density_curve_gamma),
+            'base': {
+                'active': data.get('film_base_active', PROJECT_DEFAULT_GUI_STATE.special.film_render.base.active),
+                'scale': data.get('film_base_scale', PROJECT_DEFAULT_GUI_STATE.special.film_render.base.scale),
+                'cyan': data.get('film_base_cyan', PROJECT_DEFAULT_GUI_STATE.special.film_render.base.cyan),
+                'magenta': data.get('film_base_magenta', PROJECT_DEFAULT_GUI_STATE.special.film_render.base.magenta),
+                'yellow': data.get('film_base_yellow', PROJECT_DEFAULT_GUI_STATE.special.film_render.base.yellow),
+                'tilt': data.get('film_base_tilt', PROJECT_DEFAULT_GUI_STATE.special.film_render.base.tilt),
+            },
         },
     }
 
@@ -287,7 +295,13 @@ def clone_state_section(section: StateSection) -> StateSection:
     if isinstance(section, InputImageState):
         return replace(section, io=replace(section.io), settings=replace(section.settings))
     if isinstance(section, SpecialState):
-        return replace(section, film_render=replace(section.film_render))
+        return replace(
+            section,
+            film_render=replace(
+                section.film_render,
+                base=replace(section.film_render.base),
+            ),
+        )
     if isinstance(section, SimulationState):
         return replace(
             section,
@@ -356,7 +370,10 @@ def gui_state_from_params(
         special=SpecialState(
             film_channel_swap=(0, 1, 2),
             print_channel_swap=(0, 1, 2),
-            film_render=FilmRenderingParams(density_curve_gamma=params.film_render.density_curve_gamma),
+            film_render=FilmRenderingParams(
+                density_curve_gamma=params.film_render.density_curve_gamma,
+                base=replace(params.film_render.base),
+            ),
         ),
         simulation=SimulationState(
             selection=SelectionState(

@@ -16,7 +16,7 @@ from spektrafilm.gpu.kernels.tile_utils import (
     process_rows_tiled,
 )
 from spektrafilm.model.diffusion import apply_gaussian_blur, apply_unsharp_mask
-from spektrafilm.model.develop import compute_density_spectral
+from spektrafilm.model.develop import base_film_density_tuning, compute_density_spectral
 from spektrafilm.model.glare import add_glare
 from spektrafilm.model.illuminants import standard_illuminant
 from spektrafilm.utils.conversions import density_to_light
@@ -179,7 +179,10 @@ class ScanningStage:
     def _return_callable_cmy_to_log_xyz(self):
         if self._io.scan_film:
             channel_density = self._film.data.channel_density
-            base_density = self._film.data.base_density
+            base_density = base_film_density_tuning(
+                self._film.data.base_density,
+                self._film_render.base,
+            )
             scan_illuminant = standard_illuminant(self._film.info.viewing_illuminant)
         else:
             channel_density = self._print.data.channel_density
