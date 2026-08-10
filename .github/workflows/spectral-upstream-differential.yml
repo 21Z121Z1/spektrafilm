@@ -55,6 +55,10 @@ jobs:
           uv run python -m tools.spectral_conformance.run_upstream_diff
           --upstream-ref 28bf883e1672e884307edc75852549376e13644e
           --output-dir artifacts/spectral_upstream_diff/${{ matrix.os }}
+      - name: Measure real-profile midgray exposure scale
+        run: >-
+          uv run python -m tools.spectral_conformance.probe_runtime_midgray
+          --output artifacts/spectral_upstream_diff/${{ matrix.os }}/runtime-midgray.json
       - name: Validate reflectance MLX fallback and Mallett backend parity
         if: matrix.os == 'macos-26'
         run: >-
