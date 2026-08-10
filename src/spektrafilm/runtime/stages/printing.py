@@ -4,7 +4,11 @@ import numpy as np
 from opt_einsum import contract
 
 from spektrafilm.model.diffusion import apply_diffusion_filter_um
-from spektrafilm.model.develop import compute_density_spectral, develop_print_morph
+from spektrafilm.model.develop import (
+    base_film_density_tuning,
+    compute_density_spectral,
+    develop_print_morph,
+)
 from spektrafilm.model.illuminants import standard_illuminant
 from spektrafilm.utils.conversions import density_to_light
 from spektrafilm.utils.timings import timeit
@@ -50,12 +54,18 @@ class PrintingStage:
         self._color_reference_service = color_reference_service
         self._backend = backend
 
-        # Pre-compute static spectral tables for GPU to avoid
-        # repeated numpy→backend transfers on every _film_cmy_to_print_log_raw call.
+        # Pre-compute the tuned film base on the host. CPU and accelerated
+        # spectral paths then consume the exact same spectrum; no GPU-specific
+        # implementation of film-base shaping is required.
         self._precompute_spectral_tables()
 
     def _precompute_spectral_tables(self) -> None:
-        """Pre-convert static spectral arrays to backend arrays once."""
+        """Precompute tuned film base and static backend spectral arrays."""
+        self._film_base_density = base_film_density_tuning(
+            self._film.data.base_density,
+            self._film_render.base,
+        )
+
         _gpu = self._backend is not None and getattr(self._backend, "supports_gpu", False)
         if not _gpu:
             self._backend_channel_density = None
@@ -70,10 +80,9 @@ class PrintingStage:
         print_illuminant = self._enlarger_service.enlarger_filtered_illuminant(enlarger_light_source)
 
         channel_density = self._film.data.channel_density
-        base_density = self._film.data.base_density
 
         self._backend_channel_density = self._backend.asarray(channel_density)
-        self._backend_base_density = self._backend.asarray(base_density)
+        self._backend_base_density = self._backend.asarray(self._film_base_density)
         self._backend_print_illuminant = self._backend.asarray(print_illuminant)
         self._backend_sensitivity = self._backend.asarray(sensitivity)
 
@@ -105,7 +114,7 @@ class PrintingStage:
     # public methods
 
     def refresh_backend_spectral_tables(self) -> None:
-        """Refresh backend-cached spectral tables after mutable inputs change."""
+        """Refresh cached spectral tables after mutable inputs change."""
         self._precompute_spectral_tables()
 
     @timeit("expose")
@@ -269,7 +278,7 @@ class PrintingStage:
             density_spectral = compute_density_spectral(
                 self._film.data.channel_density,
                 cmy_film_density,
-                base_density=self._film.data.base_density,
+                base_density=self._film_base_density,
             )
             print_illuminant = self._enlarger_service.enlarger_filtered_illuminant(enlarger_light_source)
             light = density_to_light(density_spectral, print_illuminant)
@@ -281,7 +290,7 @@ class PrintingStage:
     def _compute_raw_preflash(self, light_source, sensitivity):
         if self._enlarger.preflash_exposure > 0:
             preflash_illuminant = self._enlarger_service.preflash_filtered_illuminant(light_source)
-            density_base = np.asarray(self._film.data.base_density)[None, None, :]
+            density_base = np.asarray(self._film_base_density)[None, None, :]
             light_preflash = density_to_light(density_base, preflash_illuminant)
             raw_preflash = contract("ijk, kl->ijl", light_preflash, sensitivity)
             return raw_preflash * self._enlarger.preflash_exposure

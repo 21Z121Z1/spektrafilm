@@ -159,12 +159,31 @@ class GlareParams:
 
 
 @dataclass
+class FilmBaseParams:
+    """Film base + fog / orange-mask spectral tuning.
+
+    ``cyan``, ``magenta`` and ``yellow`` are multiplicative density-shape
+    controls around the Status-M regions. Neutral values are 1.0; ``tilt=0``
+    and ``scale=1`` make the transform an exact identity. ``scale`` is applied
+    exactly once by the model even when chromatic shaping is active.
+    """
+
+    active: bool = True
+    scale: float = 1.0
+    tilt: float = 0.0
+    cyan: float = 1.0
+    magenta: float = 1.0
+    yellow: float = 1.0
+
+
+@dataclass
 class FilmRenderingParams:
     density_curve_gamma: float = 1.0
     grain: GrainParams = field(default_factory=GrainParams)
     halation: HalationParams = field(default_factory=HalationParams)
     dir_couplers: DirCouplersParams = field(default_factory=DirCouplersParams)
     glare: GlareParams = field(default_factory=GlareParams)
+    base: FilmBaseParams = field(default_factory=FilmBaseParams)
 
 
 @dataclass

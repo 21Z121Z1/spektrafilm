@@ -37,6 +37,7 @@ def _apply_special(params: RuntimePhotoParams, state: GuiState) -> None:
         params.print = swap_channels(params.print, state.special.print_channel_swap)
 
     params.film_render.density_curve_gamma = state.special.film_render.density_curve_gamma
+    params.film_render.base = replace(state.special.film_render.base)
 
 
 def _apply_glare(params: RuntimePhotoParams, state: GuiState) -> None:

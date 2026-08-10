@@ -345,5 +345,7 @@ class FilmingStage:
             self._film.data.channel_density,
             density_cmy,
             base_density=self._film.data.base_density,
+            base_density_params=getattr(self._film_render, "base", None),
+            is_film=True,
         )
         return density_spectral

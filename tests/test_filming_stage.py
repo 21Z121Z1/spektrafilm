@@ -111,7 +111,11 @@ def test_simple_midgray_density_uses_active_input_encoding(monkeypatch) -> None:
 
     monkeypatch.setattr(stage, '_rgb_to_film_raw', fake_rgb_to_film_raw)
     monkeypatch.setattr(filming_module, 'develop_simple', lambda log_raw, *args, **kwargs: log_raw)
-    monkeypatch.setattr(filming_module, 'compute_density_spectral', lambda channel_density, density_cmy, *, base_density: density_cmy)
+    monkeypatch.setattr(
+        filming_module,
+        'compute_density_spectral',
+        lambda channel_density, density_cmy, *, base_density, **kwargs: density_cmy,
+    )
 
     getattr(stage, '_simple_rgb_to_density_spectral')(np.full((1, 1, 3), 0.184, dtype=float))
 

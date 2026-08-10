@@ -382,8 +382,19 @@ def test_numeric_field_specs_define_minimum_and_step() -> None:
             missing.append(f'simulation.{field_name}: missing step')
 
     special_specs = {spec.leaf: spec for spec in SPECIAL_FIELDS}
+    special_field_annotations = {
+        'film_channel_swap': tuple[int, int, int],
+        'print_channel_swap': tuple[int, int, int],
+        'film_gamma_factor': float,
+        'film_base_active': bool,
+        'film_base_scale': float,
+        'film_base_cyan': float,
+        'film_base_magenta': float,
+        'film_base_yellow': float,
+        'film_base_tilt': float,
+    }
     for field_name in tuple(spec.leaf for spec in SPECIAL_FIELDS):
-        annotation = float if field_name == 'film_gamma_factor' else tuple[int, int, int]
+        annotation = special_field_annotations[field_name]
         is_numeric = annotation in (int, float) or get_origin(annotation) is tuple
         if not is_numeric:
             continue
@@ -391,7 +402,9 @@ def test_numeric_field_specs_define_minimum_and_step() -> None:
         if spec is None:
             missing.append(f'special.{field_name}: missing spec')
             continue
-        if spec.min is None:
+        # Spectral tilt is signed around a neutral 0.0 pivot and is
+        # intentionally unbounded below in the upstream control model.
+        if spec.min is None and field_name != 'film_base_tilt':
             missing.append(f'special.{field_name}: missing min')
         if spec.step is None:
             missing.append(f'special.{field_name}: missing step')
