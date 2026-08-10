@@ -11,6 +11,9 @@ from pathlib import Path
 
 import numpy as np
 
+from spektrafilm.utils.spectral_lut_registry import spectral_lut_descriptor
+from spektrafilm.utils.spectral_upsampling import _illuminant_to_xy
+
 
 ROOT = Path(__file__).resolve().parents[2]
 PROBE = ROOT / "tools" / "spectral_conformance" / "probe_core.py"
@@ -18,6 +21,12 @@ UPSTREAM_URL = "https://github.com/andreavolpato/spektrafilm.git"
 DEFAULT_UPSTREAM_REF = "28bf883e1672e884307edc75852549376e13644e"
 STRICT_ATOL = 1e-12
 STRICT_RTOL = 1e-12
+REFLECTANCE_METHODS = {
+    "arctic2026beta04",
+    "jakob2019",
+    "otsu2018",
+    "gauss-lasers",
+}
 
 
 def _run(cmd: list[str], *, cwd: Path, env: dict[str, str] | None = None) -> None:
@@ -70,6 +79,24 @@ def _strict_pass(metrics: dict[str, float | int | bool]) -> bool:
         and float(metrics["max_abs"]) <= STRICT_ATOL
         and float(metrics["max_rel"]) <= STRICT_RTOL
     )
+
+
+def _expected_upstream_scale(key: str) -> float:
+    """Return the one deliberate delta from current upstream experimental.
+
+    Upstream's 2026-07-02 B&W normalization refactor kept the per-channel
+    neutral/chroma correction but dropped the descriptor midgray exposure
+    anchor. For generic reflectance arrays our corrected implementation must
+    therefore equal current upstream multiplied by y_scene / midgray. Fixture
+    arrays and every non-reflectance array remain exact 1:1 comparisons.
+    """
+    method = key.split("__", 1)[0]
+    if method not in REFLECTANCE_METHODS:
+        return 1.0
+    descriptor = spectral_lut_descriptor(method)
+    reflectance = descriptor["reflectance"]
+    scene_xy = _illuminant_to_xy(reflectance["scene_illuminant"])
+    return float(scene_xy[1]) / float(reflectance["midgray"])
 
 
 def _jsonable(value):
@@ -140,23 +167,30 @@ def run_diff(*, upstream_ref: str, output_dir: Path, keep_checkout: bool = False
         upstream = np.load(upstream_path)
         common_keys = sorted(set(local.files) & set(upstream.files))
         # Mallett is intentionally reported separately because the user fork
-        # retained its pre-registry direct/GPU path. The strict parity gate is
-        # for the four generic reflectance methods that were actually ported.
+        # retained its pre-registry direct/GPU path. The strict gate covers the
+        # four generic reflectance methods that were actually ported, with only
+        # the analytically defined midgray exposure-anchor correction allowed.
         core_keys = [key for key in common_keys if not key.startswith("mallett_direct__")]
         comparisons: dict[str, dict] = {}
         failures: list[str] = []
-        exact_count = 0
+        exact_expected_count = 0
         for key in core_keys:
-            metrics = _metrics(upstream[key], local[key])
+            expected_scale = _expected_upstream_scale(key)
+            expected = upstream[key] * expected_scale
+            metrics = _metrics(expected, local[key])
             passed = _strict_pass(metrics)
-            comparisons[key] = {"status": "ok" if passed else "failed", **metrics}
+            comparisons[key] = {
+                "status": "ok" if passed else "failed",
+                "expected_upstream_scale": expected_scale,
+                **metrics,
+            }
             if bool(metrics["exact"]):
-                exact_count += 1
+                exact_expected_count += 1
             if not passed:
                 failures.append(key)
 
         report = {
-            "schema": "spektrafilm.spectral_upstream_diff.v2",
+            "schema": "spektrafilm.spectral_upstream_diff.v3",
             "status": "failed" if failures else "ok",
             "upstream_url": UPSTREAM_URL,
             "upstream_ref": upstream_ref,
@@ -164,8 +198,9 @@ def run_diff(*, upstream_ref: str, output_dir: Path, keep_checkout: bool = False
             "strict_rtol": STRICT_RTOL,
             "common_arrays": len(common_keys),
             "core_arrays": len(core_keys),
-            "exact_core_arrays": exact_count,
+            "exact_expected_core_arrays": exact_expected_count,
             "failed_core_arrays": failures,
+            "deliberate_delta": "reflectance arrays = upstream * (scene_y / descriptor_midgray)",
             "comparisons": comparisons,
             "mallett": _mallett_reports(local, upstream),
         }
@@ -209,8 +244,9 @@ def _format_markdown(report: dict) -> str:
         f"- status: **{report['status']}**",
         f"- upstream ref: `{report['upstream_ref']}`",
         f"- strict core arrays: {report['core_arrays']}",
-        f"- bit-identical core arrays: {report['exact_core_arrays']}",
+        f"- bit-identical to corrected expectation: {report['exact_expected_core_arrays']}",
         f"- strict tolerance: atol={report['strict_atol']}, rtol={report['strict_rtol']}",
+        f"- deliberate delta: {report['deliberate_delta']}",
         "",
         "## Generic reflectance core",
         "",
@@ -221,13 +257,17 @@ def _format_markdown(report: dict) -> str:
         if not value["exact"]
     ]
     if not nonexact:
-        lines.append("All generic reflectance core arrays are bit-identical to upstream.")
+        lines.append(
+            "All generic reflectance core arrays exactly match current upstream after applying "
+            "only the analytically defined midgray exposure-anchor correction."
+        )
     else:
-        lines.append("| key | status | max abs | max rel |")
-        lines.append("|---|---:|---:|---:|")
+        lines.append("| key | status | expected scale | max abs | max rel |")
+        lines.append("|---|---:|---:|---:|---:|")
         for key, value in nonexact:
             lines.append(
-                f"| `{key}` | {value['status']} | {value['max_abs']:.6g} | {value['max_rel']:.6g} |"
+                f"| `{key}` | {value['status']} | {value['expected_upstream_scale']:.9g} | "
+                f"{value['max_abs']:.6g} | {value['max_rel']:.6g} |"
             )
 
     lines += ["", "## Mallett compatibility analysis"]
