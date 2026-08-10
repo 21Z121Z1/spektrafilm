@@ -14,65 +14,8 @@ on:
       - "tools/spectral_conformance/**"
       - ".github/workflows/spectral-upstream-differential.yml"
 
-permissions:
-  contents: write
-
 jobs:
-  apply-source-patch:
-    if: github.event_name == 'push' && github.event.head_commit.message == 'audit: embed spectral source patch'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: audit/spectral-upstream-conformance
-      - name: Apply exact source patches
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-
-          def replace_once(path, old, new):
-              p = Path(path)
-              text = p.read_text()
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f"expected one match in {path}, got {count}")
-              p.write_text(text.replace(old, new, 1))
-
-          replace_once(
-              "src/spektrafilm/utils/spectral_upsampling.py",
-              "    return raw / raw_midgray[1] # normalize with green channel\n",
-              "    return raw / raw_midgray # per-channel neutral normalization, matching upstream reflectance semantics\n",
-          )
-          replace_once(
-              "src/spektrafilm/gpu/kernels/color.py",
-              "    return raw / float(raw_midgray[1])\n",
-              "    return raw / backend.asarray(raw_midgray, dtype=dtype)\n",
-          )
-          replace_once(
-              "src/spektrafilm_gui/options.py",
-              "    arctic2026beta04 = \"arctic2026beta04\"\n    jakob2019 = \"jakob2019\"\n    otsu2018 = \"otsu2018\"\n    gauss_lasers = \"gauss-lasers\"\n    mallett2019 = \"mallett2019\"\n",
-              "    arctic2026beta04 = \"arctic2026beta04\"\n    # Research reflectance methods remain available through the runtime registry\n    # but stay out of the production GUI until upstream exposes them.\n    mallett2019 = \"mallett2019\"\n",
-          )
-          replace_once(
-              "tests/test_spectral_runtime.py",
-              "    assert RGBtoRAWMethod.arctic2026beta04.value == \"arctic2026beta04\"\n    assert RGBtoRAWMethod.jakob2019.value == \"jakob2019\"\n    assert RGBtoRAWMethod.otsu2018.value == \"otsu2018\"\n    assert RGBtoRAWMethod.gauss_lasers.value == \"gauss-lasers\"\n    assert RGBtoRAWMethod.mallett2019.value == \"mallett2019\"\n",
-              "    assert RGBtoRAWMethod.arctic2026beta04.value == \"arctic2026beta04\"\n    assert RGBtoRAWMethod.mallett2019.value == \"mallett2019\"\n    assert not hasattr(RGBtoRAWMethod, \"jakob2019\")\n    assert not hasattr(RGBtoRAWMethod, \"otsu2018\")\n    assert not hasattr(RGBtoRAWMethod, \"gauss_lasers\")\n",
-          )
-          PY
-      - name: Commit source patches
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add src/spektrafilm/utils/spectral_upsampling.py src/spektrafilm/gpu/kernels/color.py src/spektrafilm_gui/options.py tests/test_spectral_runtime.py
-          git commit -m "fix: align Mallett neutral normalization with upstream"
-          git push origin HEAD:audit/spectral-upstream-conformance
-
   differential:
-    if: github.event_name != 'push' || github.event.head_commit.message != 'audit: embed spectral source patch'
     strategy:
       fail-fast: false
       matrix:
