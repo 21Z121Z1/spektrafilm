@@ -60,9 +60,10 @@ def compute_reflectance_tc_lut(
 
     The reconstruction is defined under the descriptor's scene illuminant.
     At build time it is relit by the film reference illuminant, integrated
-    against the film sensitivity, and normalized on the method's own neutral.
-    The per-pixel runtime remains the same tc lookup plus linear brightness
-    scale used by the existing Hanatos path.
+    against the film sensitivity, white-balanced on the method's own emitted
+    neutral, and exposure-normalized so the descriptor's linear-RGB midgray
+    maps to raw 1 in every channel. The per-pixel runtime remains the same tc
+    lookup plus linear brightness scale used by the existing Hanatos path.
     """
     descriptor = spectral_lut_descriptor(identifier)
     if descriptor.get("kind") != "reflectance":
@@ -77,8 +78,16 @@ def compute_reflectance_tc_lut(
     relit = spectra_lut * reference_spd[None, None, :]
     raw_lut = contract("ijl,lm->ijm", relit, sensitivity)
 
-    scene_illuminant = descriptor["reflectance"]["scene_illuminant"]
-    white_tc = _tri2quad(_illuminant_to_xy(scene_illuminant))
+    reflectance = descriptor["reflectance"]
+    scene_illuminant = reflectance["scene_illuminant"]
+    midgray = float(reflectance["midgray"])
+    if not np.isfinite(midgray) or midgray <= 0.0:
+        raise ValueError(
+            f"spectral LUT {identifier!r} has invalid reflectance midgray {midgray!r}"
+        )
+
+    scene_xy = _illuminant_to_xy(scene_illuminant)
+    white_tc = _tri2quad(scene_xy)
     neutral_reflectance = apply_lut_cubic_2d(
         spectra_lut,
         np.asarray(white_tc).reshape(1, 1, 2),
@@ -90,12 +99,21 @@ def compute_reflectance_tc_lut(
     )
     if np.any(np.abs(raw_neutral) < 1e-12):
         raise ValueError(f"spectral LUT {identifier!r} produced a zero neutral response")
+
+    # First remove the reconstructed neutral's per-channel chroma.  This is
+    # channel-generic (C=1 works for B&W) and keeps the scene-white tc cell
+    # achromatic.  Then restore the exposure convention that was accidentally
+    # dropped by upstream's 2026-07-02 B&W normalization refactor: for a linear
+    # RGB neutral at value m, RGB->XYZ adapted to the scene white has Y=m and
+    # brightness b=X+Y+Z=m/y_scene.  Therefore the neutral tc-LUT value must be
+    # y_scene/m for runtime `lut(tc) * b` to produce raw=(1,...,1).
     raw_lut = raw_lut / raw_neutral
+    exposure_anchor = float(scene_xy[1]) / midgray
+    raw_lut = raw_lut * exposure_anchor
 
     if gamut_compress is not None and gamut_compress.active:
         from spektrafilm.utils.gamut_compression import remap_tc_lut_for_compression
 
-        scene_xy = _illuminant_to_xy(scene_illuminant)
         raw_lut = remap_tc_lut_for_compression(raw_lut, scene_xy, gamut_compress)
 
     return raw_lut
