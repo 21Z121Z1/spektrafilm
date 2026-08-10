@@ -78,29 +78,49 @@ def _jsonable(value):
     return value
 
 
-def _mallett_report(local, upstream) -> dict[str, dict]:
+def _mallett_pair_report(reference, candidate, rgb: np.ndarray) -> dict[str, dict]:
     report: dict[str, dict] = {}
-    rgb = local["fixture__rgb"].reshape(-1, 3)
     in_cube = np.all((rgb >= 0.0) & (rgb <= 1.0), axis=1)
-
-    for key in sorted(upstream.files):
-        if not key.startswith("mallett_lut__") or key.endswith("__tc_lut"):
-            continue
-        suffix = key.removeprefix("mallett_lut__")
-        direct_key = "mallett_direct__" + suffix
-        if direct_key not in local.files:
-            continue
-        lut_raw = upstream[key].reshape(-1, 3)
-        direct_raw = local[direct_key].reshape(-1, 3)
-        all_metrics = _metrics(direct_raw, lut_raw)
-        cube_metrics = _metrics(direct_raw[in_cube], lut_raw[in_cube])
+    for suffix in sorted(set(reference) & set(candidate)):
+        ref_raw = reference[suffix].reshape(-1, 3)
+        cand_raw = candidate[suffix].reshape(-1, 3)
         report[suffix] = {
-            "all_fixture": all_metrics,
-            "input_rgb_cube_only": cube_metrics,
+            "all_fixture": _metrics(ref_raw, cand_raw),
+            "input_rgb_cube_only": _metrics(ref_raw[in_cube], cand_raw[in_cube]),
             "input_rgb_cube_samples": int(np.count_nonzero(in_cube)),
             "stress_samples": int(np.count_nonzero(~in_cube)),
         }
     return report
+
+
+def _mallett_reports(local, upstream) -> dict[str, dict]:
+    rgb = local["fixture__rgb"].reshape(-1, 3)
+    local_direct = {
+        key.removeprefix("mallett_direct__"): local[key]
+        for key in local.files
+        if key.startswith("mallett_direct__")
+    }
+    upstream_direct = {
+        key.removeprefix("mallett_direct__"): upstream[key]
+        for key in upstream.files
+        if key.startswith("mallett_direct__")
+    }
+    upstream_lut = {
+        key.removeprefix("mallett_lut__"): upstream[key]
+        for key in upstream.files
+        if key.startswith("mallett_lut__") and not key.endswith("__tc_lut")
+    }
+    return {
+        "local_direct_vs_upstream_direct": _mallett_pair_report(
+            upstream_direct, local_direct, rgb
+        ),
+        "upstream_direct_vs_upstream_lut": _mallett_pair_report(
+            upstream_direct, upstream_lut, rgb
+        ),
+        "local_direct_vs_upstream_lut": _mallett_pair_report(
+            upstream_lut, local_direct, rgb
+        ),
+    }
 
 
 def run_diff(*, upstream_ref: str, output_dir: Path, keep_checkout: bool = False) -> dict:
@@ -119,10 +139,14 @@ def run_diff(*, upstream_ref: str, output_dir: Path, keep_checkout: bool = False
         local = np.load(local_path)
         upstream = np.load(upstream_path)
         common_keys = sorted(set(local.files) & set(upstream.files))
+        # Mallett is intentionally reported separately because the user fork
+        # retained its pre-registry direct/GPU path. The strict parity gate is
+        # for the four generic reflectance methods that were actually ported.
+        core_keys = [key for key in common_keys if not key.startswith("mallett_direct__")]
         comparisons: dict[str, dict] = {}
         failures: list[str] = []
         exact_count = 0
-        for key in common_keys:
+        for key in core_keys:
             metrics = _metrics(upstream[key], local[key])
             passed = _strict_pass(metrics)
             comparisons[key] = {"status": "ok" if passed else "failed", **metrics}
@@ -132,17 +156,18 @@ def run_diff(*, upstream_ref: str, output_dir: Path, keep_checkout: bool = False
                 failures.append(key)
 
         report = {
-            "schema": "spektrafilm.spectral_upstream_diff.v1",
+            "schema": "spektrafilm.spectral_upstream_diff.v2",
             "status": "failed" if failures else "ok",
             "upstream_url": UPSTREAM_URL,
             "upstream_ref": upstream_ref,
             "strict_atol": STRICT_ATOL,
             "strict_rtol": STRICT_RTOL,
             "common_arrays": len(common_keys),
-            "exact_arrays": exact_count,
-            "failed_arrays": failures,
+            "core_arrays": len(core_keys),
+            "exact_core_arrays": exact_count,
+            "failed_core_arrays": failures,
             "comparisons": comparisons,
-            "mallett_direct_vs_upstream_lut": _mallett_report(local, upstream),
+            "mallett": _mallett_reports(local, upstream),
         }
         (output_dir / "report.json").write_text(
             json.dumps(report, indent=2, sort_keys=True, default=_jsonable),
@@ -161,17 +186,33 @@ def run_diff(*, upstream_ref: str, output_dir: Path, keep_checkout: bool = False
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
+def _format_mallett_table(lines: list[str], title: str, values: dict[str, dict]) -> None:
+    lines += ["", f"### {title}", ""]
+    if not values:
+        lines.append("No comparable arrays were produced.")
+        return
+    lines.append("| case | cube max abs | cube max rel | all max abs | all max rel |")
+    lines.append("|---|---:|---:|---:|---:|")
+    for case, value in sorted(values.items()):
+        cube = value["input_rgb_cube_only"]
+        all_ = value["all_fixture"]
+        lines.append(
+            f"| `{case}` | {cube['max_abs']:.6g} | {cube['max_rel']:.6g} | "
+            f"{all_['max_abs']:.6g} | {all_['max_rel']:.6g} |"
+        )
+
+
 def _format_markdown(report: dict) -> str:
     lines = [
         "# Spectral upstream differential conformance",
         "",
         f"- status: **{report['status']}**",
         f"- upstream ref: `{report['upstream_ref']}`",
-        f"- common arrays: {report['common_arrays']}",
-        f"- exact arrays: {report['exact_arrays']}",
+        f"- strict core arrays: {report['core_arrays']}",
+        f"- bit-identical core arrays: {report['exact_core_arrays']}",
         f"- strict tolerance: atol={report['strict_atol']}, rtol={report['strict_rtol']}",
         "",
-        "## Non-exact / failed common arrays",
+        "## Generic reflectance core",
         "",
     ]
     nonexact = [
@@ -180,7 +221,7 @@ def _format_markdown(report: dict) -> str:
         if not value["exact"]
     ]
     if not nonexact:
-        lines.append("All common arrays are bit-identical.")
+        lines.append("All generic reflectance core arrays are bit-identical to upstream.")
     else:
         lines.append("| key | status | max abs | max rel |")
         lines.append("|---|---:|---:|---:|")
@@ -189,20 +230,22 @@ def _format_markdown(report: dict) -> str:
                 f"| `{key}` | {value['status']} | {value['max_abs']:.6g} | {value['max_rel']:.6g} |"
             )
 
-    lines += ["", "## Mallett: local direct path vs upstream reflectance LUT", ""]
-    mallett = report["mallett_direct_vs_upstream_lut"]
-    if not mallett:
-        lines.append("Upstream probe did not expose a Mallett reflectance LUT.")
-    else:
-        lines.append("| case | cube max abs | cube max rel | all max abs | all max rel |")
-        lines.append("|---|---:|---:|---:|---:|")
-        for case, value in sorted(mallett.items()):
-            cube = value["input_rgb_cube_only"]
-            all_ = value["all_fixture"]
-            lines.append(
-                f"| `{case}` | {cube['max_abs']:.6g} | {cube['max_rel']:.6g} | "
-                f"{all_['max_abs']:.6g} | {all_['max_rel']:.6g} |"
-            )
+    lines += ["", "## Mallett compatibility analysis"]
+    _format_mallett_table(
+        lines,
+        "Local direct vs upstream direct",
+        report["mallett"]["local_direct_vs_upstream_direct"],
+    )
+    _format_mallett_table(
+        lines,
+        "Upstream direct vs upstream reflectance LUT",
+        report["mallett"]["upstream_direct_vs_upstream_lut"],
+    )
+    _format_mallett_table(
+        lines,
+        "Local direct vs upstream reflectance LUT",
+        report["mallett"]["local_direct_vs_upstream_lut"],
+    )
     lines.append("")
     return "\n".join(lines)
 
