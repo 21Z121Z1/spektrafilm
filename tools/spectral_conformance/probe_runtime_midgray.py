@@ -18,7 +18,14 @@ METHODS = (
     "gauss-lasers",
     "mallett2019",
 )
+REFLECTANCE_METHODS = (
+    "arctic2026beta04",
+    "jakob2019",
+    "otsu2018",
+    "gauss-lasers",
+)
 LEVELS = (0.018, 0.184, 0.5, 1.0)
+MIDGRAY_TOLERANCE = 5e-4
 
 
 def _raw_for(method: str, level: float) -> np.ndarray:
@@ -56,6 +63,7 @@ def build_report() -> dict:
             "midgray_raw": midgray.tolist(),
             "midgray_log10": np.log10(np.maximum(midgray, 1e-30)).tolist(),
             "midgray_ev_vs_raw1": np.log2(np.maximum(midgray, 1e-30)).tolist(),
+            "midgray_max_abs_error_from_raw1": float(np.max(np.abs(midgray - 1.0))),
         }
 
     hanatos_mid = np.asarray(methods["hanatos2025"]["midgray_raw"], dtype=np.float64)
@@ -65,12 +73,20 @@ def build_report() -> dict:
             np.maximum(midgray, 1e-30) / np.maximum(hanatos_mid, 1e-30)
         ).tolist()
 
+    failures = [
+        method
+        for method in REFLECTANCE_METHODS
+        if methods[method]["midgray_max_abs_error_from_raw1"] > MIDGRAY_TOLERANCE
+    ]
     return {
-        "schema": "spektrafilm.spectral_runtime_midgray.v1",
+        "schema": "spektrafilm.spectral_runtime_midgray.v2",
+        "status": "failed" if failures else "ok",
         "film": "kodak_portra_400",
         "print": "kodak_portra_endura",
         "input": "linear sRGB neutral",
         "auto_exposure": False,
+        "reflectance_midgray_tolerance": MIDGRAY_TOLERANCE,
+        "failed_reflectance_methods": failures,
         "methods": methods,
     }
 
@@ -83,6 +99,11 @@ def main() -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
     print(json.dumps(report, indent=2, sort_keys=True))
+    if report["status"] != "ok":
+        raise SystemExit(
+            "reflectance midgray exposure contract failed for: "
+            + ", ".join(report["failed_reflectance_methods"])
+        )
 
 
 if __name__ == "__main__":
