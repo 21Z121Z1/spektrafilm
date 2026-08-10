@@ -11,7 +11,6 @@ on:
       - "src/spektrafilm/runtime/stages/filming.py"
       - "src/spektrafilm/runtime/services/spectral_lut_compute.py"
       - "src/spektrafilm/data/luts/spectral_upsampling/**"
-      - "src/spektrafilm_gui/options.py"
       - "tests/test_spectral_*.py"
       - "tools/spectral_conformance/**"
       - ".github/workflows/spectral-upstream-differential.yml"
@@ -50,12 +49,18 @@ jobs:
           print("MLX default device:", mx.default_device())
           assert "gpu" in str(mx.default_device()).lower()
           PY
+      - name: Run spectral CPU contract tests
+        run: >-
+          uv run python -m pytest -q
+          tests/test_spectral_lut_registry.py
+          tests/test_spectral_reflectance.py
+          tests/test_spectral_runtime.py
       - name: Compare merged spectral core with upstream experimental
         run: >-
           uv run python -m tools.spectral_conformance.run_upstream_diff
           --upstream-ref 28bf883e1672e884307edc75852549376e13644e
           --output-dir artifacts/spectral_upstream_diff/${{ matrix.os }}
-      - name: Measure real-profile midgray exposure scale
+      - name: Enforce real-profile midgray exposure scale
         run: >-
           uv run python -m tools.spectral_conformance.probe_runtime_midgray
           --output artifacts/spectral_upstream_diff/${{ matrix.os }}/runtime-midgray.json
