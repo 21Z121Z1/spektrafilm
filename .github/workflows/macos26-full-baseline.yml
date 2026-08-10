@@ -1,0 +1,56 @@
+name: macOS 26 Full Baseline
+
+on:
+  pull_request:
+    branches:
+      - develop
+
+jobs:
+  baseline:
+    if: github.head_ref == 'ci/macos26-full-baseline'
+    runs-on: macos-26
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe macOS 26 Apple Silicon runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          uname -a
+          sw_vers
+          system_profiler SPHardwareDataType SPDisplaysDataType || true
+          test "$(uname -m)" = "arm64"
+          test "$(sw_vers -productVersion | cut -d. -f1)" = "26"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install uv
+        run: python -m pip install --upgrade uv
+      - name: Install dependencies
+        run: uv sync --extra dev --extra gpu-apple
+      - name: Smoke-test MLX Metal backend
+        run: |
+          uv run python - <<'PY'
+          import mlx.core as mx
+          print("MLX default device:", mx.default_device())
+          x = mx.arange(4096, dtype=mx.float32)
+          y = mx.sum(x * x)
+          mx.eval(y)
+          assert "gpu" in str(mx.default_device()).lower()
+          print("MLX Metal smoke result:", y.item())
+          PY
+      - name: Run complete pytest suite
+        run: uv run python -m pytest -q
+      - name: Run full CPU upstream conformance
+        run: uv run python -m tools.sdr_alignment.run_alignment --mode upstream_compat --suite full --backend cpu --output-dir artifacts/sdr_alignment/baseline-cpu-full
+      - name: Run full MLX upstream conformance
+        run: uv run python -m tools.sdr_alignment.run_alignment --mode upstream_compat --suite full --backend mlx --output-dir artifacts/sdr_alignment/baseline-mlx-full
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos26-develop-baseline
+          path: |
+            artifacts/sdr_alignment/baseline-cpu-full/
+            artifacts/sdr_alignment/baseline-mlx-full/
+          if-no-files-found: error
