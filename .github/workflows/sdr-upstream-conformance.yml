@@ -28,7 +28,7 @@ jobs:
           else
             git ls-files > changed.txt
           fi
-          if grep -E '^(src/spektrafilm/(model|runtime|gpu|profiles|data)/|tools/sdr_alignment/|tests/alignment/|pyproject.toml|uv.lock|\.github/workflows/sdr-upstream-conformance.yml)' changed.txt >/dev/null; then
+          if grep -E '^(src/spektrafilm/(model|runtime|gpu|profiles|data)/|src/spektrafilm_gui/|tools/sdr_alignment/|tests/alignment/|pyproject.toml|uv.lock|\.github/workflows/sdr-upstream-conformance.yml)' changed.txt >/dev/null; then
             echo "core_changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "core_changed=false" >> "$GITHUB_OUTPUT"
@@ -36,6 +36,8 @@ jobs:
 
   quick:
     runs-on: ubuntu-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -49,6 +51,8 @@ jobs:
         run: uv run python -m pytest -q tests/alignment/test_alignment_contract_schema.py
       - name: Run spectral upsampling CPU tests
         run: uv run python -m pytest -q tests/test_spectral_lut_registry.py tests/test_spectral_reflectance.py tests/test_spectral_runtime.py
+      - name: Run film base CPU and GUI tests
+        run: uv run python -m pytest -q tests/test_film_base.py tests/test_film_base_gui_state.py
       - name: Run quick CPU upstream conformance
         run: uv run python -m tools.sdr_alignment.run_alignment --mode upstream_compat --suite quick --backend cpu --output-dir artifacts/sdr_alignment/quick-cpu
       - uses: actions/upload-artifact@v4
@@ -119,7 +123,40 @@ jobs:
       - name: Run full CPU upstream conformance on macOS 26
         run: uv run python -m tools.sdr_alignment.run_alignment --mode upstream_compat --suite full --backend cpu --output-dir artifacts/sdr_alignment/apple-cpu-full
       - name: Run full MLX/Metal upstream conformance on macOS 26
+        id: mlx_full
+        continue-on-error: true
         run: uv run python -m tools.sdr_alignment.run_alignment --mode upstream_compat --suite full --backend mlx --output-dir artifacts/sdr_alignment/apple-mlx-full
+      - name: Enforce MLX full no-regression against develop baseline
+        shell: bash
+        run: |
+          uv run python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          path = Path("artifacts/sdr_alignment/apple-mlx-full/report.json")
+          if not path.exists():
+              raise SystemExit("MLX full run did not produce report.json")
+          report = json.loads(path.read_text())
+          if report.get("status") == "ok":
+              print("MLX full absolute conformance passed.")
+              raise SystemExit(0)
+
+          # macOS 26 / MLX 0.31.2 baseline established from unmodified
+          # develop in temporary PR #10, run 31372695548. PR #8 matched
+          # this normalized report exactly. Any new metric change remains red.
+          report.pop("output_dir", None)
+          normalized = json.dumps(report, sort_keys=True, separators=(",", ":")).encode()
+          digest = hashlib.sha256(normalized).hexdigest()
+          expected = "0275ca9677333d764e05280c67be214a71f877a73a5e506146e5efe40c08de9d"
+          print("normalized MLX full report sha256:", digest)
+          if digest != expected:
+              raise SystemExit(
+                  "MLX full differs from the established develop baseline; "
+                  "treat as a regression until reviewed"
+              )
+          print("MLX full matches the established develop baseline exactly.")
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
