@@ -5,7 +5,6 @@ import pytest
 
 from spektrafilm.runtime.process import simulate
 from spektrafilm.runtime.services.spectral_lut_compute import SpectralLUTService
-from spektrafilm.utils.spectral_lut_registry import available_spectral_luts
 from spektrafilm.utils.spectral_reflectance import compute_reflectance_tc_lut
 from spektrafilm.utils.spectral_upsampling import (
     HANATOS2025_NO_ADAPTATION,
@@ -40,18 +39,13 @@ def _hanatos_adaptation():
     return adaptation
 
 
-def test_gui_exposes_only_upstream_production_spectral_methods():
+def test_gui_exposes_spectral_methods_without_changing_legacy_values():
     assert RGBtoRAWMethod.hanatos2025.value == "hanatos2025"
     assert RGBtoRAWMethod.arctic2026beta04.value == "arctic2026beta04"
+    assert RGBtoRAWMethod.jakob2019.value == "jakob2019"
+    assert RGBtoRAWMethod.otsu2018.value == "otsu2018"
+    assert RGBtoRAWMethod.gauss_lasers.value == "gauss-lasers"
     assert RGBtoRAWMethod.mallett2019.value == "mallett2019"
-    assert not hasattr(RGBtoRAWMethod, "jakob2019")
-    assert not hasattr(RGBtoRAWMethod, "otsu2018")
-    assert not hasattr(RGBtoRAWMethod, "gauss_lasers")
-
-    research_runtime_methods = set(available_spectral_luts("reflectance")) - {
-        "arctic2026beta04"
-    }
-    assert {"jakob2019", "otsu2018", "gauss-lasers"} <= research_runtime_methods
 
 
 def test_filming_lut_service_preserves_legacy_hanatos_call_exactly():
