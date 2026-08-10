@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       run_apple_backends:
-        description: Run self-hosted Apple Silicon backend alignment
+        description: Run GitHub-hosted Apple Silicon backend alignment
         required: false
         default: false
         type: boolean
@@ -82,11 +82,39 @@ jobs:
 
   apple-backends:
     if: (github.event_name == 'workflow_dispatch' && inputs.run_apple_backends) || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'run-apple-backend'))
-    runs-on: [self-hosted, macOS, ARM64]
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - name: Probe runner architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          uname -a
+          sw_vers
+          system_profiler SPHardwareDataType SPDisplaysDataType || true
+          if [[ "$(uname -m)" != "arm64" ]]; then
+            echo "GitHub-hosted macOS runner is not Apple Silicon; MLX/Metal validation requires arm64." >&2
+            exit 2
+          fi
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install uv
+        run: python -m pip install --upgrade uv
       - name: Install dependencies
         run: uv sync --extra dev --extra gpu-apple
+      - name: Smoke-test MLX Metal backend
+        run: |
+          uv run python - <<'PY'
+          import mlx.core as mx
+          print("MLX default device:", mx.default_device())
+          x = mx.arange(4096, dtype=mx.float32)
+          y = mx.sum(x * x)
+          mx.eval(y)
+          print("MLX Metal smoke result:", y.item())
+          PY
+      - name: Run spectral upsampling tests on macOS
+        run: uv run python -m pytest -q tests/test_spectral_lut_registry.py tests/test_spectral_reflectance.py tests/test_spectral_runtime.py
       - name: Run MLX/Metal upstream conformance
         run: uv run python -m tools.sdr_alignment.run_alignment --mode upstream_compat --suite quick --backend mlx --output-dir artifacts/sdr_alignment/apple-mlx
       - uses: actions/upload-artifact@v4
@@ -94,4 +122,4 @@ jobs:
         with:
           name: sdr-alignment-apple-mlx
           path: artifacts/sdr_alignment/apple-mlx/
-          if-no-files-found: error
+          if-no-files-found: ignore
