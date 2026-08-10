@@ -1,6 +1,7 @@
 from copy import deepcopy
 
 import numpy as np
+import pytest
 
 from spektrafilm.runtime.process import simulate
 from spektrafilm.runtime.services.spectral_lut_compute import SpectralLUTService
@@ -10,6 +11,14 @@ from spektrafilm.utils.spectral_upsampling import (
     compute_hanatos2025_tc_lut,
 )
 from spektrafilm_gui.options import RGBtoRAWMethod
+
+
+_REFLECTANCE_METHODS = (
+    "arctic2026beta04",
+    "jakob2019",
+    "otsu2018",
+    "gauss-lasers",
+)
 
 
 def _synthetic_sensitivity():
@@ -30,9 +39,12 @@ def _hanatos_adaptation():
     return adaptation
 
 
-def test_gui_exposes_arctic_without_changing_default_enum_order_contract():
+def test_gui_exposes_spectral_methods_without_changing_legacy_values():
     assert RGBtoRAWMethod.hanatos2025.value == "hanatos2025"
     assert RGBtoRAWMethod.arctic2026beta04.value == "arctic2026beta04"
+    assert RGBtoRAWMethod.jakob2019.value == "jakob2019"
+    assert RGBtoRAWMethod.otsu2018.value == "otsu2018"
+    assert RGBtoRAWMethod.gauss_lasers.value == "gauss-lasers"
     assert RGBtoRAWMethod.mallett2019.value == "mallett2019"
 
 
@@ -102,8 +114,9 @@ def test_switching_spectral_methods_does_not_reuse_wrong_cached_lut():
     np.testing.assert_array_equal(hanatos_after, hanatos_before)
 
 
-def test_arctic_runs_end_to_end_on_cpu(default_params, small_rgb_image):
-    default_params.settings.rgb_to_raw_method = "arctic2026beta04"
+@pytest.mark.parametrize("method", _REFLECTANCE_METHODS)
+def test_reflectance_methods_run_end_to_end_on_cpu(method, default_params, small_rgb_image):
+    default_params.settings.rgb_to_raw_method = method
     default_params.settings.compute_backend = "cpu"
 
     output = simulate(
