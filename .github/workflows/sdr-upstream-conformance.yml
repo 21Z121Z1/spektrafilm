@@ -48,7 +48,7 @@ jobs:
       - name: Run alignment contract schema
         run: uv run python -m pytest -q tests/alignment/test_alignment_contract_schema.py
       - name: Run spectral upsampling CPU tests
-        run: uv run python -m pytest -q tests/test_spectral_lut_registry.py tests/test_spectral_reflectance.py
+        run: uv run python -m pytest -q tests/test_spectral_lut_registry.py tests/test_spectral_reflectance.py tests/test_spectral_runtime.py
       - name: Run quick CPU upstream conformance
         run: uv run python -m tools.sdr_alignment.run_alignment --mode upstream_compat --suite quick --backend cpu --output-dir artifacts/sdr_alignment/quick-cpu
       - uses: actions/upload-artifact@v4
