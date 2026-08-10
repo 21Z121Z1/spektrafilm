@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       run_apple_backends:
-        description: Run self-hosted Apple Silicon backend alignment
+        description: Run GitHub-hosted macOS 26 Apple Silicon full validation
         required: false
         default: false
         type: boolean
@@ -47,6 +47,8 @@ jobs:
         run: uv sync --extra dev
       - name: Run alignment contract schema
         run: uv run python -m pytest -q tests/alignment/test_alignment_contract_schema.py
+      - name: Run spectral upsampling CPU tests
+        run: uv run python -m pytest -q tests/test_spectral_lut_registry.py tests/test_spectral_reflectance.py tests/test_spectral_runtime.py
       - name: Run quick CPU upstream conformance
         run: uv run python -m tools.sdr_alignment.run_alignment --mode upstream_compat --suite quick --backend cpu --output-dir artifacts/sdr_alignment/quick-cpu
       - uses: actions/upload-artifact@v4
@@ -80,16 +82,49 @@ jobs:
 
   apple-backends:
     if: (github.event_name == 'workflow_dispatch' && inputs.run_apple_backends) || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'run-apple-backend'))
-    runs-on: [self-hosted, macOS, ARM64]
+    runs-on: macos-26
+    env:
+      QT_QPA_PLATFORM: offscreen
     steps:
       - uses: actions/checkout@v4
+      - name: Probe macOS 26 Apple Silicon runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          uname -a
+          sw_vers
+          system_profiler SPHardwareDataType SPDisplaysDataType || true
+          test "$(uname -m)" = "arm64"
+          test "$(sw_vers -productVersion | cut -d. -f1)" = "26"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install uv
+        run: python -m pip install --upgrade uv
       - name: Install dependencies
         run: uv sync --extra dev --extra gpu-apple
-      - name: Run MLX/Metal upstream conformance
-        run: uv run python -m tools.sdr_alignment.run_alignment --mode upstream_compat --suite quick --backend mlx --output-dir artifacts/sdr_alignment/apple-mlx
+      - name: Smoke-test MLX Metal backend
+        run: |
+          uv run python - <<'PY'
+          import mlx.core as mx
+          print("MLX default device:", mx.default_device())
+          x = mx.arange(4096, dtype=mx.float32)
+          y = mx.sum(x * x)
+          mx.eval(y)
+          print("MLX Metal smoke result:", y.item())
+          assert "gpu" in str(mx.default_device()).lower()
+          PY
+      - name: Run complete pytest suite on macOS 26
+        run: uv run python -m pytest -q
+      - name: Run full CPU upstream conformance on macOS 26
+        run: uv run python -m tools.sdr_alignment.run_alignment --mode upstream_compat --suite full --backend cpu --output-dir artifacts/sdr_alignment/apple-cpu-full
+      - name: Run full MLX/Metal upstream conformance on macOS 26
+        run: uv run python -m tools.sdr_alignment.run_alignment --mode upstream_compat --suite full --backend mlx --output-dir artifacts/sdr_alignment/apple-mlx-full
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: sdr-alignment-apple-mlx
-          path: artifacts/sdr_alignment/apple-mlx/
+          name: sdr-alignment-macos26-full
+          path: |
+            artifacts/sdr_alignment/apple-cpu-full/
+            artifacts/sdr_alignment/apple-mlx-full/
           if-no-files-found: error

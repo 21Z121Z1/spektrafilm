@@ -21,6 +21,10 @@ class ColorManagementWorkflows(Enum):
 
 class RGBtoRAWMethod(Enum):
     hanatos2025 = "hanatos2025"
+    arctic2026beta04 = "arctic2026beta04"
+    jakob2019 = "jakob2019"
+    otsu2018 = "otsu2018"
+    gauss_lasers = "gauss-lasers"
     mallett2019 = "mallett2019"
 
 

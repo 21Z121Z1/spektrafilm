@@ -31,6 +31,8 @@ from spektrafilm.utils.spectral_upsampling import (
     rgb_to_raw_mallett2019,
     _rgb_to_tc_b,
 )
+from spektrafilm.utils.spectral_lut_registry import available_spectral_luts
+from spektrafilm.utils.spectral_reflectance import rgb_to_raw_reflectance
 from spektrafilm.runtime.route_master import FilmingExposureResult
 from spektrafilm.utils.timings import timeit
 
@@ -243,6 +245,33 @@ class FilmingStage:
                     reference_illuminant=self._film.info.reference_illuminant,
                     tc_lut=tc_lut,
                 )
+        elif (
+            self._settings.rgb_to_raw_method != "mallett2019"
+            and self._settings.rgb_to_raw_method in available_spectral_luts("reflectance")
+        ):
+            # Experimental reflectance-family methods deliberately stay on the
+            # CPU spectral path until the corresponding Apple backend path is
+            # validated on real Metal/MLX hardware. Hanatos and the legacy
+            # Mallett implementation retain their existing accelerated paths.
+            method = self._settings.rgb_to_raw_method
+            tc_lut = self._lut_service.get_filming_tc_lut(
+                sensitivity,
+                method=method,
+                reference_illuminant=self._film.info.reference_illuminant,
+            )
+            _backend = getattr(self, '_backend', None)
+            _gpu = use_backend and _backend is not None and getattr(_backend, 'supports_gpu', False)
+            if _gpu:
+                rgb = _backend.to_numpy(rgb)
+            raw = rgb_to_raw_reflectance(
+                method,
+                rgb,
+                sensitivity,
+                color_space=color_space,
+                apply_cctf_decoding=apply_cctf_decoding,
+                reference_illuminant=self._film.info.reference_illuminant,
+                tc_lut=tc_lut,
+            )
         elif self._settings.rgb_to_raw_method == "mallett2019":
             _backend = getattr(self, '_backend', None)
             _gpu = use_backend and _backend is not None and getattr(_backend, 'supports_gpu', False)

@@ -1,0 +1,23 @@
+# Spectral-upsampling LUT descriptor.
+# This is the compatibility descriptor for the existing Hanatos 2025 LUT in
+# our develop branch. The binary is intentionally not renamed in this commit so
+# the current CPU/MLX runtime remains bit-for-bit on its existing asset path.
+
+identifier = "hanatos2025"
+file = "irradiance_xy_tc.npy"
+kind = "irradiance"
+title = "Hanatos 2025 — smooth irradiance reconstruction"
+
+[array]
+lut_size = 192
+bands = 81
+spectral_shape = [380, 780, 5]
+dtype = "float16"
+observer = "CIE 1931 2 Degree Standard Observer"
+
+[irradiance]
+reference_illuminant = "D55"
+
+[meta]
+source = "andreavolpato/spektrafilm experimental spectral LUT registry; adapted to the existing asset name in 21Z121Z1/spektrafilm"
+notes = "Compatibility descriptor only. Runtime wiring and additional reflectance reconstruction methods are integrated in subsequent commits."
