@@ -7,6 +7,8 @@ from spektrafilm.profiles.io import Hanatos2025SensitivityAdaptation
 from spektrafilm.utils.gamut_compression import InputGamutCompressSpec
 from spektrafilm.utils.lut import _as_channel_bounds, _create_lut_3d, compute_with_lut
 from spektrafilm.utils.spectral_upsampling import compute_hanatos2025_tc_lut
+from spektrafilm.utils.spectral_reflectance import compute_reflectance_tc_lut
+from spektrafilm.utils.spectral_lut_registry import spectral_lut_descriptor
 from spektrafilm.utils.timings import timeit
 from spektrafilm.gpu.kernels.lut import apply_lut_trilinear_3d_backend
 
@@ -30,7 +32,7 @@ class SpectralLUTService:
 
         # local memory
         self._film_sensitivity = None # to track if tc_lut needs to be recomputed when film sensitivity changes
-        self._film_tc_lut_key = None # cache key for tc_lut
+        self._film_tc_lut_key = None # method/reference-illuminant cache key for tc_lut
         self._cached_filming_adaptation = None # full adaptation state for which the cached tc_lut was computed
         self._cached_input_gamut_compress: InputGamutCompressSpec | None = None
         self._enlarger_test_results_memory = None # to test if enlarger LUTs are identical for same input
@@ -73,14 +75,19 @@ class SpectralLUTService:
             'scanner_lut': _nbytes(self.scanner_lut_memory),
         }
 
+    def _invalidate_filming_tc_lut(self) -> None:
+        self.filming_tc_lut_memory = None
+        self._film_sensitivity = None
+        self._film_tc_lut_key = None
+        self._cached_filming_adaptation = None
+        self._cached_input_gamut_compress = None
+        self._tc_lut_backend = None
+
     def set_hanatos2025_adaptation(self, adaptation: Hanatos2025SensitivityAdaptation) -> None:
         adaptation_copy = self._copy_hanatos2025_adaptation(adaptation)
         self.hanatos2025_adaptation = adaptation_copy
         if not self._same_hanatos2025_adaptation(self._cached_filming_adaptation, adaptation_copy):
-            self.filming_tc_lut_memory = None
-            self._film_sensitivity = None
-            self._cached_filming_adaptation = None
-            self._tc_lut_backend = None
+            self._invalidate_filming_tc_lut()
 
     def set_input_gamut_compress(self, spec: InputGamutCompressSpec) -> None:
         """Set the input-gamut-compression spec used when baking the
@@ -88,11 +95,7 @@ class SpectralLUTService:
         """
         if spec != self.input_gamut_compress:
             self.input_gamut_compress = spec
-            # Force a rebuild of the filming tc_lut on the next call.
-            self.filming_tc_lut_memory = None
-            self._film_sensitivity = None
-            self._cached_filming_adaptation = None
-            self._cached_input_gamut_compress = None
+            self._invalidate_filming_tc_lut()
 
     @staticmethod
     def _copy_hanatos2025_adaptation(
@@ -261,37 +264,94 @@ class SpectralLUTService:
         )
 
     @timeit("get_filming_tc_lut")
-    def get_filming_tc_lut(self, sensitivity):
+    def get_filming_tc_lut(
+        self,
+        sensitivity,
+        *,
+        method: str = "hanatos2025",
+        reference_illuminant: str | None = None,
+    ):
+        """Return a cached filming tc LUT for the selected spectral method.
+
+        The default call remains the historical Hanatos 2025 path. Reflectance
+        methods additionally key the cache by the film reference illuminant,
+        because their spectra must be relit before sensitivity integration.
+        """
         sensitivity = np.asarray(sensitivity)
+        descriptor = spectral_lut_descriptor(method)
+        kind = descriptor.get("kind")
+        if kind == "reflectance" and reference_illuminant is None:
+            raise ValueError("reference_illuminant is required for reflectance spectral LUTs")
+
+        method_key = (
+            method,
+            reference_illuminant if kind == "reflectance" else None,
+        )
+        adaptation_matches = (
+            kind != "irradiance"
+            or self._same_hanatos2025_adaptation(
+                self._cached_filming_adaptation,
+                self.hanatos2025_adaptation,
+            )
+        )
         if (
             self.filming_tc_lut_memory is not None
             and self._film_sensitivity is not None
-            and self._same_hanatos2025_adaptation(self._cached_filming_adaptation, self.hanatos2025_adaptation)
+            and self._film_tc_lut_key == method_key
+            and adaptation_matches
             and self._cached_input_gamut_compress == self.input_gamut_compress
             and np.array_equal(self._film_sensitivity, sensitivity)
         ):
             return self.filming_tc_lut_memory
 
         self._film_sensitivity = np.array(sensitivity, copy=True)
-        self._cached_filming_adaptation = self._copy_hanatos2025_adaptation(self.hanatos2025_adaptation)
+        self._film_tc_lut_key = method_key
         self._cached_input_gamut_compress = self.input_gamut_compress
-        self.filming_tc_lut_memory = compute_hanatos2025_tc_lut(
-            sensitivity,
-            self.hanatos2025_adaptation,
-            gamut_compress=self.input_gamut_compress,
-        )
+
+        if kind == "irradiance":
+            if method != "hanatos2025":
+                raise ValueError(f"Unsupported irradiance spectral method: {method}")
+            self._cached_filming_adaptation = self._copy_hanatos2025_adaptation(
+                self.hanatos2025_adaptation
+            )
+            self.filming_tc_lut_memory = compute_hanatos2025_tc_lut(
+                sensitivity,
+                self.hanatos2025_adaptation,
+                gamut_compress=self.input_gamut_compress,
+            )
+        elif kind == "reflectance":
+            self._cached_filming_adaptation = None
+            self.filming_tc_lut_memory = compute_reflectance_tc_lut(
+                method,
+                sensitivity,
+                reference_illuminant,
+                gamut_compress=self.input_gamut_compress,
+            )
+        else:
+            raise ValueError(f"Unsupported spectral LUT kind for {method!r}: {kind!r}")
+
         # Invalidate backend cache when numpy tc_lut changes.
         self._tc_lut_backend = None
         return self.filming_tc_lut_memory
 
     @timeit("get_filming_tc_lut_backend")
-    def get_filming_tc_lut_backend(self, sensitivity):
+    def get_filming_tc_lut_backend(
+        self,
+        sensitivity,
+        *,
+        method: str = "hanatos2025",
+        reference_illuminant: str | None = None,
+    ):
         """Return the tc_lut as a backend array, using the cached version when available.
 
         Ensures the numpy tc_lut is up-to-date first, then converts to backend
         only when the backend cache is empty.
         """
-        tc_lut = self.get_filming_tc_lut(sensitivity)
+        tc_lut = self.get_filming_tc_lut(
+            sensitivity,
+            method=method,
+            reference_illuminant=reference_illuminant,
+        )
         _gpu = self._backend is not None and getattr(self._backend, 'supports_gpu', False)
         if _gpu:
             if self._tc_lut_backend is None:
