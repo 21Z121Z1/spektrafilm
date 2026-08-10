@@ -104,6 +104,7 @@ def _mallett_report(local, upstream) -> dict[str, dict]:
 
 
 def run_diff(*, upstream_ref: str, output_dir: Path, keep_checkout: bool = False) -> dict:
+    output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     local_path = output_dir / "local.npz"
     upstream_path = output_dir / "upstream.npz"
