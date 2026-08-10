@@ -1,0 +1,44 @@
+name: Apply Film Base Final Once
+
+on:
+  push:
+    branches:
+      - integration/upstream-film-base-final
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: integration/upstream-film-base-final
+          fetch-depth: 0
+      - name: Apply film base changes onto latest develop
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin feature/upstream-film-base
+          git diff --binary 55887b3c1b894b20080d3662f834c5edec31b448..origin/feature/upstream-film-base -- \
+            . \
+            ':(exclude).github/workflows/**' \
+            ':(exclude)tests/alignment/upstream_lock.json' \
+            ':(exclude)tools/patch_film_base_gui.py' \
+            ':(exclude)tools/patch_film_base_validation.py' \
+            > /tmp/film-base.patch
+          echo "Film-base patch files:"
+          git diff --name-only 55887b3c1b894b20080d3662f834c5edec31b448..origin/feature/upstream-film-base -- \
+            . \
+            ':(exclude).github/workflows/**' \
+            ':(exclude)tests/alignment/upstream_lock.json' \
+            ':(exclude)tools/patch_film_base_gui.py' \
+            ':(exclude)tools/patch_film_base_validation.py'
+          git apply --3way /tmp/film-base.patch
+          git status --short
+          git add src tests
+          git commit -m "Integrate upstream film base tuning onto spectral v2"
+          git push origin HEAD:integration/upstream-film-base-final
