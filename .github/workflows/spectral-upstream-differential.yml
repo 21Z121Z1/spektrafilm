@@ -1,0 +1,78 @@
+name: Spectral upstream differential
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - audit/spectral-upstream-conformance
+  pull_request:
+    paths:
+      - "src/spektrafilm/utils/spectral_*.py"
+      - "src/spektrafilm/runtime/stages/filming.py"
+      - "src/spektrafilm/runtime/services/spectral_lut_compute.py"
+      - "src/spektrafilm/data/luts/spectral_upsampling/**"
+      - "tests/test_spectral_*.py"
+      - "tools/spectral_conformance/**"
+      - ".github/workflows/spectral-upstream-differential.yml"
+
+jobs:
+  differential:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-26]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install uv
+        run: python -m pip install --upgrade uv
+      - name: Install CPU dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: uv sync --extra dev
+      - name: Install Apple GPU dependencies
+        if: matrix.os == 'macos-26'
+        run: uv sync --extra dev --extra gpu-apple
+      - name: Verify Apple Silicon runner and MLX device
+        if: matrix.os == 'macos-26'
+        shell: bash
+        run: |
+          set -euo pipefail
+          uname -a
+          sw_vers
+          test "$(uname -m)" = "arm64"
+          test "$(sw_vers -productVersion | cut -d. -f1)" = "26"
+          uv run python - <<'PY'
+          import mlx.core as mx
+          print("MLX default device:", mx.default_device())
+          assert "gpu" in str(mx.default_device()).lower()
+          PY
+      - name: Run spectral CPU contract tests
+        run: >-
+          uv run python -m pytest -q
+          tests/test_spectral_lut_registry.py
+          tests/test_spectral_reflectance.py
+          tests/test_spectral_runtime.py
+      - name: Compare merged spectral core with upstream experimental
+        run: >-
+          uv run python -m tools.spectral_conformance.run_upstream_diff
+          --upstream-ref 28bf883e1672e884307edc75852549376e13644e
+          --output-dir artifacts/spectral_upstream_diff/${{ matrix.os }}
+      - name: Enforce real-profile midgray exposure scale
+        run: >-
+          uv run python -m tools.spectral_conformance.probe_runtime_midgray
+          --output artifacts/spectral_upstream_diff/${{ matrix.os }}/runtime-midgray.json
+      - name: Validate reflectance MLX fallback and Mallett backend parity
+        if: matrix.os == 'macos-26'
+        run: >-
+          uv run python -m pytest -q
+          tests/test_spectral_mlx_fallback.py
+          tests/test_spectral_mallett_alignment.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spectral-upstream-diff-${{ matrix.os }}
+          path: artifacts/spectral_upstream_diff/${{ matrix.os }}/
+          if-no-files-found: error

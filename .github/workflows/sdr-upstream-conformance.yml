@@ -28,7 +28,7 @@ jobs:
           else
             git ls-files > changed.txt
           fi
-          if grep -E '^(src/spektrafilm/(model|runtime|gpu|profiles|data)/|src/spektrafilm_gui/|tools/sdr_alignment/|tests/alignment/|pyproject.toml|uv.lock|\.github/workflows/sdr-upstream-conformance.yml)' changed.txt >/dev/null; then
+          if grep -E '^(src/spektrafilm/(model|runtime|gpu|profiles|data)/|src/spektrafilm/utils/spectral_|src/spektrafilm_gui/|tools/sdr_alignment/|tests/alignment/|pyproject.toml|uv.lock|\.github/workflows/sdr-upstream-conformance.yml)' changed.txt >/dev/null; then
             echo "core_changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "core_changed=false" >> "$GITHUB_OUTPUT"
