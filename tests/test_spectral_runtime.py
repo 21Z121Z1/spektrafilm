@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 import numpy as np
 
 from spektrafilm.runtime.services.spectral_lut_compute import SpectralLUTService
@@ -21,6 +23,12 @@ def _synthetic_sensitivity():
     )
 
 
+def _hanatos_adaptation():
+    adaptation = deepcopy(HANATOS2025_NO_ADAPTATION)
+    adaptation.reference_illuminant = "D55"
+    return adaptation
+
+
 def test_gui_exposes_arctic_without_changing_default_enum_order_contract():
     assert RGBtoRAWMethod.hanatos2025.value == "hanatos2025"
     assert RGBtoRAWMethod.arctic2026beta04.value == "arctic2026beta04"
@@ -29,12 +37,14 @@ def test_gui_exposes_arctic_without_changing_default_enum_order_contract():
 
 def test_filming_lut_service_preserves_legacy_hanatos_call_exactly():
     sensitivity = _synthetic_sensitivity()
+    adaptation = _hanatos_adaptation()
     service = SpectralLUTService(lut_resolution=17)
-    service.set_hanatos2025_adaptation(HANATOS2025_NO_ADAPTATION)
+    service.set_hanatos2025_adaptation(adaptation)
 
     expected = compute_hanatos2025_tc_lut(
         sensitivity,
-        HANATOS2025_NO_ADAPTATION,
+        adaptation,
+        gamut_compress=service.input_gamut_compress,
     )
     actual = service.get_filming_tc_lut(sensitivity)
     np.testing.assert_array_equal(actual, expected)
@@ -43,7 +53,7 @@ def test_filming_lut_service_preserves_legacy_hanatos_call_exactly():
 def test_filming_lut_service_builds_and_caches_arctic_by_reference_illuminant():
     sensitivity = _synthetic_sensitivity()
     service = SpectralLUTService(lut_resolution=17)
-    service.set_hanatos2025_adaptation(HANATOS2025_NO_ADAPTATION)
+    service.set_hanatos2025_adaptation(_hanatos_adaptation())
 
     d55 = service.get_filming_tc_lut(
         sensitivity,
@@ -54,6 +64,7 @@ def test_filming_lut_service_builds_and_caches_arctic_by_reference_illuminant():
         "arctic2026beta04",
         sensitivity,
         "D55",
+        gamut_compress=service.input_gamut_compress,
     )
     np.testing.assert_array_equal(d55, expected_d55)
 
@@ -76,7 +87,7 @@ def test_filming_lut_service_builds_and_caches_arctic_by_reference_illuminant():
 def test_switching_spectral_methods_does_not_reuse_wrong_cached_lut():
     sensitivity = _synthetic_sensitivity()
     service = SpectralLUTService(lut_resolution=17)
-    service.set_hanatos2025_adaptation(HANATOS2025_NO_ADAPTATION)
+    service.set_hanatos2025_adaptation(_hanatos_adaptation())
 
     hanatos_before = service.get_filming_tc_lut(sensitivity)
     arctic = service.get_filming_tc_lut(
