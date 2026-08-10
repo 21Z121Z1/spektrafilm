@@ -2,6 +2,7 @@ from copy import deepcopy
 
 import numpy as np
 
+from spektrafilm.runtime.process import simulate
 from spektrafilm.runtime.services.spectral_lut_compute import SpectralLUTService
 from spektrafilm.utils.spectral_reflectance import compute_reflectance_tc_lut
 from spektrafilm.utils.spectral_upsampling import (
@@ -99,3 +100,17 @@ def test_switching_spectral_methods_does_not_reuse_wrong_cached_lut():
 
     assert arctic is not hanatos_before
     np.testing.assert_array_equal(hanatos_after, hanatos_before)
+
+
+def test_arctic_runs_end_to_end_on_cpu(default_params, small_rgb_image):
+    default_params.settings.rgb_to_raw_method = "arctic2026beta04"
+    default_params.settings.compute_backend = "cpu"
+
+    output = simulate(
+        small_rgb_image,
+        default_params,
+        digest_params_first=False,
+    )
+
+    assert output.shape == small_rgb_image.shape
+    assert np.isfinite(output).all()
