@@ -21,6 +21,8 @@ The spectral_film_simulations.md (English) and spectral_film_simulations_zh.md (
 
 | Path | Notes |
 | --- | --- |
+| [`gpu/native-metal-execution.md`](gpu/native-metal-execution.md) | Experimental resident executor, spatial/development/grain programs, negative cache, texture leases, and CPU-model compatibility limits. [中文](gpu/native-metal-execution_zh.md) |
+| [`gpu/native-metal-spatial.md`](gpu/native-metal-spatial.md) | Experimental independent native Metal Gaussian executor, ownership and numerical contracts, build/test commands, and promotion gates. No production backend change. [中文](gpu/native-metal-spatial_zh.md) |
 | [`halide-mlx-parity-plan-20260531.md`](halide-mlx-parity-plan-20260531.md) | Current Halide/MLX parity plan, benchmark contract, acceptance standards, and self-audit questions. [中文](halide-mlx-parity-plan-20260531_zh.md) |
 | [`upstream-sync-plan-20260602.md`](upstream-sync-plan-20260602.md) | Current upstream sync plan. [中文](upstream-sync-plan-20260602_zh.md) |
 

@@ -10,11 +10,15 @@ on:
         default: false
         type: boolean
 
+env:
+  UV_FROZEN: '1'
+
 jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
       core_changed: ${{ steps.diff.outputs.core_changed }}
+      native_changed: ${{ steps.diff.outputs.native_changed }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -28,10 +32,15 @@ jobs:
           else
             git ls-files > changed.txt
           fi
-          if grep -E '^(src/spektrafilm/(model|runtime|gpu|profiles|data)/|src/spektrafilm/utils/spectral_|src/spektrafilm_gui/|tools/sdr_alignment/|tests/alignment/|pyproject.toml|uv.lock|\.github/workflows/sdr-upstream-conformance.yml)' changed.txt >/dev/null; then
+          if grep -E '^(src/spektrafilm/(model|runtime|gpu|profiles|data)/|src/spektrafilm/utils/(spectral_|fast_gaussian_filter.py)|src/spektrafilm_gui/|tools/sdr_alignment/|tests/alignment/|pyproject.toml|uv.lock|\.github/workflows/sdr-upstream-conformance.yml)' changed.txt >/dev/null; then
             echo "core_changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "core_changed=false" >> "$GITHUB_OUTPUT"
+          fi
+          if grep -E '^(src/spektrafilm/gpu/native_metal/|src/spektrafilm/utils/fast_gaussian_filter.py|tests/native_metal/|pyproject.toml|uv.lock|\.github/workflows/sdr-upstream-conformance.yml)' changed.txt >/dev/null; then
+            echo "native_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "native_changed=false" >> "$GITHUB_OUTPUT"
           fi
 
   quick:
@@ -44,9 +53,9 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install uv
-        run: python -m pip install --upgrade uv
+        run: python -m pip install uv==0.8.22
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --frozen --extra dev
       - name: Run alignment contract schema
         run: uv run python -m pytest -q tests/alignment/test_alignment_contract_schema.py
       - name: Run spectral upsampling CPU tests
@@ -72,9 +81,9 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install uv
-        run: python -m pip install --upgrade uv
+        run: python -m pip install uv==0.8.22
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --frozen --extra dev
       - name: Run full CPU upstream conformance
         run: uv run python -m tools.sdr_alignment.run_alignment --mode upstream_compat --suite full --backend cpu --output-dir artifacts/sdr_alignment/full-cpu
       - uses: actions/upload-artifact@v4
@@ -104,9 +113,9 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install uv
-        run: python -m pip install --upgrade uv
+        run: python -m pip install uv==0.8.22
       - name: Install dependencies
-        run: uv sync --extra dev --extra gpu-apple
+        run: uv sync --frozen --extra dev --extra gpu-apple
       - name: Smoke-test MLX Metal backend
         run: |
           uv run python - <<'PY'
@@ -164,4 +173,82 @@ jobs:
           path: |
             artifacts/sdr_alignment/apple-cpu-full/
             artifacts/sdr_alignment/apple-mlx-full/
+          if-no-files-found: error
+
+  native-spatial:
+    needs: changes
+    if: needs.changes.outputs.native_changed == 'true'
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-26]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    env:
+      QT_QPA_PLATFORM: offscreen
+      NUMBA_NUM_THREADS: '2'
+      OPENBLAS_NUM_THREADS: '1'
+      UV_FROZEN: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install uv and frozen dependencies
+        run: |
+          python -m pip install uv==0.8.22
+          uv sync --frozen --extra dev
+      - name: Prepare Apple toolchain
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          uname -a
+          xcodebuild -version
+          system_profiler SPHardwareDataType SPDisplaysDataType
+          test "$(uname -m)" = "arm64"
+          if ! xcrun --sdk macosx --find metal; then
+            xcodebuild -downloadComponent MetalToolchain
+          fi
+      - name: Native arithmetic and actual-device tests
+        run: uv run --frozen python -m pytest tests/native_metal -q --junitxml=artifacts/native-spatial/tests.xml
+      - name: Synchronized Gaussian microbenchmark (not full pipeline)
+        if: runner.os == 'macOS'
+        run: |
+          uv run --frozen python -m spektrafilm.gpu.native_metal.build --output artifacts/native-spatial/build
+          uv run --frozen python tests/native_metal/benchmark.py --bundle artifacts/native-spatial/build --output artifacts/native-spatial/gaussian.json
+      - name: Complete non-GUI regression suite on its required Apple platform
+        if: runner.os == 'macOS'
+        run: |
+          uv sync --frozen --extra dev --extra gpu-apple
+          uv run --frozen --extra dev --extra gpu-apple python -m pytest --ignore=tests/gui -q --junitxml=artifacts/native-spatial/regression.xml
+      - name: Matched native film-stage benchmarks (not RAW-to-RGB)
+        if: runner.os == 'macOS'
+        run: |
+          uv run --frozen --extra dev --extra gpu-apple python tests/native_metal/benchmark_execution.py --bundle artifacts/native-spatial/build --output artifacts/native-spatial/execution-1mp.json
+          uv run --frozen --extra dev --extra gpu-apple python tests/native_metal/benchmark_execution.py --bundle artifacts/native-spatial/build --width 4000 --height 3000 --output artifacts/native-spatial/execution-12mp.json
+      - name: Verify wheel carries native sources and the lock stayed unchanged
+        if: runner.os == 'Linux'
+        run: |
+          uv build --wheel --out-dir artifacts/native-spatial/wheel
+          uv run --frozen python - <<'PY'
+          from pathlib import Path
+          import zipfile
+          from spektrafilm.gpu.native_metal import SOURCE_FILES
+          wheels = list(Path("artifacts/native-spatial/wheel").glob("*.whl"))
+          assert len(wheels) == 1, wheels
+          with zipfile.ZipFile(wheels[0]) as wheel:
+              for name in SOURCE_FILES:
+                  key = "spektrafilm/gpu/native_metal/" + name
+                  assert wheel.read(key) == (Path("src") / key).read_bytes(), key
+          PY
+          git diff --exit-code -- uv.lock
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-spatial-${{ matrix.os }}
+          path: artifacts/native-spatial/
           if-no-files-found: error
