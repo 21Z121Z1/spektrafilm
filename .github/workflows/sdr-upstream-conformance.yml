@@ -225,6 +225,11 @@ jobs:
         run: |
           uv sync --frozen --extra dev --extra gpu-apple
           uv run --frozen --extra dev --extra gpu-apple python -m pytest --ignore=tests/gui -q --junitxml=artifacts/native-spatial/regression.xml
+      - name: Matched native film-stage benchmarks (not RAW-to-RGB)
+        if: runner.os == 'macOS'
+        run: |
+          uv run --frozen --extra dev --extra gpu-apple python tests/native_metal/benchmark_execution.py --bundle artifacts/native-spatial/build --output artifacts/native-spatial/execution-1mp.json
+          uv run --frozen --extra dev --extra gpu-apple python tests/native_metal/benchmark_execution.py --bundle artifacts/native-spatial/build --width 4000 --height 3000 --output artifacts/native-spatial/execution-12mp.json
       - name: Verify wheel carries native sources and the lock stayed unchanged
         if: runner.os == 'Linux'
         run: |

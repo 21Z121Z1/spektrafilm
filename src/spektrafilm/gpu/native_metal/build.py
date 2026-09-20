@@ -25,11 +25,15 @@ def build(output: Path) -> Path:
              "-mmacosx-version-min=15.0", "-fmetal-math-mode=safe",
              "-fmetal-math-fp32-functions=precise", "-ffp-contract=off",
              "-I", str(source), "-c", str(source / "spatial.metal"), "-o", str(root / "spatial.air")],
-            ["xcrun", "--sdk", "macosx", "metallib", str(root / "spatial.air"),
+            ["xcrun", "--sdk", "macosx", "metal", "-std=metal3.0",
+             "-mmacosx-version-min=15.0", "-fmetal-math-mode=safe",
+             "-fmetal-math-fp32-functions=precise", "-ffp-contract=off",
+             "-I", str(source), "-c", str(source / "execution.metal"), "-o", str(root / "execution.air")],
+            ["xcrun", "--sdk", "macosx", "metallib", str(root / "spatial.air"), str(root / "execution.air"),
              "-o", str(root / "sfm_spatial.metallib")],
             ["xcrun", "--sdk", "macosx", "clang++", "-std=c++17", "-O2", "-fobjc-arc",
              "-fno-fast-math", "-ffp-contract=off", "-mmacosx-version-min=15.0",
-             "-Wall", "-Wextra", "-Werror", "-dynamiclib", str(source / "spatial.mm"),
+             "-Wall", "-Wextra", "-Werror", "-dynamiclib", str(source / "spatial.mm"), str(source / "execution.mm"),
              "-framework", "Foundation", "-framework", "Metal", "-o", str(root / "libsfm_spatial.dylib")],
         ]
         for command in commands:

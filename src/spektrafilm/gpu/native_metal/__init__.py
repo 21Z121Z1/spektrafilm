@@ -14,7 +14,7 @@ import weakref
 import numpy as np
 
 ABI_VERSION = 1
-SOURCE_FILES = ("spatial.h", "spatial_math.h", "spatial.metal", "spatial.mm", "build.py")
+SOURCE_FILES = ("spatial.h", "spatial_math.h", "spatial.metal", "spatial.mm", "execution.h", "execution.mm", "execution.metal", "philox.h", "build.py")
 
 
 @dataclass(frozen=True)
