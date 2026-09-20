@@ -15,6 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       core_changed: ${{ steps.diff.outputs.core_changed }}
+      native_changed: ${{ steps.diff.outputs.native_changed }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,6 +33,11 @@ jobs:
             echo "core_changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "core_changed=false" >> "$GITHUB_OUTPUT"
+          fi
+          if grep -E '^(src/spektrafilm/gpu/native_metal/|tests/native_metal/|pyproject.toml|uv.lock|\.github/workflows/sdr-upstream-conformance.yml)' changed.txt >/dev/null; then
+            echo "native_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "native_changed=false" >> "$GITHUB_OUTPUT"
           fi
 
   quick:
@@ -164,4 +170,59 @@ jobs:
           path: |
             artifacts/sdr_alignment/apple-cpu-full/
             artifacts/sdr_alignment/apple-mlx-full/
+          if-no-files-found: error
+
+  native-spatial:
+    needs: changes
+    if: needs.changes.outputs.native_changed == 'true'
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-26]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    env:
+      QT_QPA_PLATFORM: offscreen
+      NUMBA_NUM_THREADS: '2'
+      OPENBLAS_NUM_THREADS: '1'
+      UV_FROZEN: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install uv and frozen dependencies
+        run: |
+          python -m pip install uv==0.8.22
+          uv sync --frozen --extra dev
+      - name: Prepare Apple toolchain
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          uname -a
+          xcodebuild -version
+          system_profiler SPHardwareDataType SPDisplaysDataType
+          test "$(uname -m)" = "arm64"
+          if ! xcrun --sdk macosx --find metal; then
+            xcodebuild -downloadComponent MetalToolchain
+          fi
+      - name: Native arithmetic and actual-device tests
+        run: uv run --frozen python -m pytest tests/native_metal -q --junitxml=artifacts/native-spatial/tests.xml
+      - name: Complete non-GUI regression suite
+        if: runner.os == 'Linux'
+        run: uv run --frozen python -m pytest --ignore=tests/gui -q --junitxml=artifacts/native-spatial/regression.xml
+      - name: Synchronized Gaussian microbenchmark (not full pipeline)
+        if: runner.os == 'macOS'
+        run: |
+          uv run --frozen python -m spektrafilm.gpu.native_metal.build --output artifacts/native-spatial/build
+          uv run --frozen python tests/native_metal/benchmark.py --bundle artifacts/native-spatial/build --output artifacts/native-spatial/gaussian.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-spatial-${{ matrix.os }}
+          path: artifacts/native-spatial/
           if-no-files-found: error

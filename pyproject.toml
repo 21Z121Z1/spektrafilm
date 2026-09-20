@@ -74,6 +74,9 @@ include = [
 [tool.setuptools.package-data]
 spektrafilm = [
     "data/**/*",
+    "gpu/native_metal/*.h",
+    "gpu/native_metal/*.metal",
+    "gpu/native_metal/*.mm",
 ]
 spektrafilm_gui = [
     "assets/*",
