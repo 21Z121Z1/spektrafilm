@@ -6,12 +6,17 @@ import hashlib
 import math
 import operator
 import struct
+import warnings
 
 import numpy as np
 
 EXECUTION_VERSION = 1
 GRAIN_VERSION = "philox4x32-10-thinned-poisson-v1"
 GAUSSIAN, AFFINE, MIX, CURVE, SPECTRAL, GRAIN, LOGNORMAL, MULTIPLY, LOG10, EXP10, GAUSSIAN_MIX, MATRIX = range(1, 13)
+
+
+class CanonicalModelWarning(RuntimeWarning):
+    """Reference behavior is preserved outside its intended monotonic domain."""
 
 
 def integer(value, *, maximum=0xFFFFFFFF):
@@ -306,7 +311,11 @@ def prepare_grain(density_curves, density_curves_layers, grain, pixel_size_um,
         raise ValueError("invalid grain maximum or uniformity")
     axis = -axis if positive else axis.copy()
     if np.any(np.diff(axis, axis=0) < 0):
-        raise ValueError("non-monotonic grain density axis")
+        warnings.warn(
+            "fitted grain density axis is non-monotonic; preserving the CPU "
+            "fast_interp binary search without sorting or changing profile values",
+            CanonicalModelWarning, stacklevel=2,
+        )
     constants = pairs(np.r_[axis.ravel(), layers.ravel(), np.stack((minimum, maximum, particles, uniformity), axis=-1).ravel()])
     args = [len(axis), int(positive), seed & 0xFFFFFFFF, seed >> 32, 0,
             origin & 0xFFFFFFFF, origin >> 32, 0]
@@ -381,8 +390,9 @@ def prepare_development(log_exposure, density_curves, density_curves_layers,
     """Real film log exposure -> negative CMY, using canonical setup functions.
 
     This is a callable optical stage, not a replacement RGB-in/RGB-out API.
-    CPU setup owns the DIR inverse and donor/receiver matrix. Reject an invalid
-    inverse exposure axis instead of relying on np.interp's undefined search.
+    CPU setup owns the DIR inverse and donor/receiver matrix, including its
+    legacy handling of non-monotonic inverse axes. Report that source-model
+    condition; do not replace or repair its prepared curves in this backend.
     """
     from spektrafilm.model.couplers import (
         compute_dir_couplers_matrix, compute_density_curves_before_dir_couplers,
@@ -403,7 +413,11 @@ def prepare_development(log_exposure, density_curves, density_curves_layers,
         silver_curves = maximum-curves if positive else curves
         inverse_axis = axis[:, None] - silver_curves @ matrix
         if np.any(np.diff(inverse_axis, axis=0) <= 0):
-            raise ValueError("DIR inverse exposure axis is not strictly increasing")
+            warnings.warn(
+                "canonical DIR inverse exposure axis is non-monotonic; using "
+                "the CPU-prepared curve, not claiming a valid physical inverse",
+                CanonicalModelWarning, stacklevel=2,
+            )
         before = compute_density_curves_before_dir_couplers(curves, axis, matrix, positive=positive)
         silver = b.affine(density, -1, maximum) if positive else density
         correction = b.matrix(silver, matrix.T)

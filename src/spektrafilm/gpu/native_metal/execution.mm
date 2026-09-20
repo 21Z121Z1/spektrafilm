@@ -128,7 +128,10 @@ void check_operation(const sfm_operation& o,const float* constants,size_t count,
     } else if(o.code==7) needed=2;
     else if(o.code==12){require(channels==3,"matrix operation requires RGB");needed=18;}
     require(needed==0 || needed==o.count,"incorrect prepared constant count");
-    if(o.code==4 || o.code==6) check_axis(d,uint32_t(n),channels);
+    if(o.code==4) check_axis(d,uint32_t(n),channels);
+    // Grain deliberately uses the canonical fast_interp binary search even
+    // on fitted shoulder/toe reversals. Its endpoint guards bound every index.
+    // The Python preparation reports this model condition; never sort the data.
     if(o.code==6) for(unsigned j=0;j<9;++j) {
         const float* p=d+24*n;
         require(pair(p,4*j+1)>0 && pair(p,4*j+2)>0 && pair(p,4*j+3)>=0 && pair(p,4*j+3)<=1,"invalid grain particle constants");

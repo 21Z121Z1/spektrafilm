@@ -39,7 +39,8 @@ imported. The numerical authorities are our CPU model and the published algorith
   allocation. Missing density bands are neutralized as whole bands, not dyes.
 - `prepare_spatial` implements serial CPU lens/scatter/bounce semantics.
   `prepare_development` implements real film log-exposure -> negative CMY,
-  including canonical DIR setup and optional grain. Invalid inverse axes fail.
+  including canonical DIR setup and optional grain. Canonical setup retains
+  authority over fitted inverse curves; see the model-domain warning below.
 - `NativeSession` retains one source and one negative at any admitted resolution.
   Print-only program changes reuse the negative. Film constants, seed or source
   changes invalidate it. A failed film/print transaction cannot publish a new
@@ -56,6 +57,16 @@ Serial CPU spatial filtering is **not** the existing MLX fused-FFT algorithm.
 For example, the CPU exponential-fit amplitudes sum to 0.9999. The MLX FFT path
 renormalizes them. Replacing that path cannot be called a bit-identical change.
 Keep the old path until a separately reviewed compatibility decision is made.
+
+The first actual-device run exposed two overly strict preparation guards:
+Provia's default DIR inverse is non-monotonic, and Portra's fitted grain density
+axis has shoulder reversals. The CPU already processes both. Native preparation
+now emits `CanonicalModelWarning`, leaves every profile value unchanged, and
+uses the CPU's DIR setup / grain binary-search behavior. It does **not** sort,
+monotonize or claim a mathematically valid inverse. Generic user-supplied curve
+operators still reject non-monotonic axes. A dedicated actual-device test compares
+non-monotonic grain against the real CPU interpolator. Repairing those source-model
+curves is separate from an execution backend migration.
 
 The new RNG contract is `philox4x32-10-thinned-poisson-v1`. Its key is the
 64-bit seed; its counter is `(pixel-low, pixel-high, stream, block)`. Streams

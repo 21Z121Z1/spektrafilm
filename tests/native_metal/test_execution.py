@@ -19,7 +19,7 @@ from spektrafilm.gpu.native_metal.build import build
 from spektrafilm.gpu.native_metal.executor import NativeExecutor, NativeSession
 from spektrafilm.gpu.native_metal.program import (
     AFFINE, EXP10, GRAIN, LOG10, Builder, Node, Program, pairs, prepare_spatial,
-    prepare_grain, prepare_development,
+    prepare_grain, prepare_development, CanonicalModelWarning,
 )
 
 ATOL = RTOL = 1e-6
@@ -407,3 +407,47 @@ def test_actual_scalar_chain_is_not_cpu_fallback(engine):
     actual, stats = run_numpy(engine, b.finish(), image)
     np.testing.assert_allclose(actual, image, atol=ATOL, rtol=RTOL)
     assert stats.dispatches == 3 and stats.submissions == 1
+
+
+@pytest.mark.parametrize("positive", (False, True))
+def test_actual_grain_nonmonotonic_reference_search(engine, positive):
+    from spektrafilm.model.density_curves import interp_density_cmy_layers
+    from spektrafilm.runtime.params_schema import GrainParams
+    # Deliberate local reversal: sorting the axis or monotonizing the curves
+    # gives a different mean. This exercises the real CPU search, not np.interp
+    # on a fabricated sorted stand-in. No spatial operators obscure the moments.
+    axis = np.repeat(np.array((0., 1.8, 1.2, 3.))[:, None], 3, axis=1)
+    curves = -axis if positive else axis
+    layers = np.broadcast_to(np.array((0., .1, .6, 1.))[:, None, None], (4, 3, 3)).copy()
+    grain = GrainParams(blur=0, blur_dye_clouds_um=0, micro_structure=(0, 0))
+    patch = np.array((1.3, 1.7, 1.9), dtype=np.float32) * (-1 if positive else 1)
+    image = np.broadcast_to(patch, (512, 512, 3)).copy()
+    with pytest.warns(CanonicalModelWarning, match="fitted grain density axis"):
+        program = prepare_grain(curves, layers, grain, 5, positive=positive, seed=711)
+    actual, _ = run_numpy(engine, program, image)
+    sublayers = interp_density_cmy_layers(patch.reshape(1, 1, 3).astype(float), curves, layers, positive)[0, 0]
+    # Analytic thinning moments, using the CPU interpolator's actual outputs.
+    maximum = layers.max(axis=0)
+    fractions = maximum/maximum.sum(axis=0)
+    minimum = fractions * np.asarray(grain.density_min)
+    maximum += minimum
+    area = grain.agx_particle_area_um2 * np.asarray(grain.agx_particle_scale_layers)[:, None] * np.asarray(grain.agx_particle_scale)
+    particles = 25*fractions/area
+    probability = np.clip((sublayers+minimum)/maximum, 1e-6, 1-1e-6)
+    saturation = 1-probability*np.asarray(grain.uniformity)*(1-1e-6)
+    mean = np.sum(maximum*probability, axis=0)-grain.density_min
+    variance = np.sum(maximum**2/particles*probability*saturation, axis=0)
+    samples = image.shape[0]*image.shape[1]
+    measured = actual.astype(np.float64).mean(axis=(0, 1))
+    assert np.all(np.abs(measured-mean) <= 7*np.sqrt(variance/samples))
+
+
+def test_actual_nonmonotonic_generic_curve_stays_rejected(engine):
+    axis = np.array((0., 2., 1., 3.))
+    data = np.repeat(axis[:, None], 3, axis=1)
+    with pytest.raises(ValueError, match="non-monotonic"):
+        Builder().curve(0, data, data)
+    # Direct C ABI validation must enforce the same rule for untrusted plans.
+    program = Program(3, (Node(4, (0,), pairs(np.r_[data.ravel(), data.ravel()]), (4,)),), 1)
+    with pytest.raises(RuntimeError, match="non-monotonic"):
+        engine.prepare(program)
