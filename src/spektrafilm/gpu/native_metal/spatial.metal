@@ -34,7 +34,10 @@ kernel void sfm_probe(device const float* source [[buffer(0)]],
                       device float* result [[buffer(1)]], uint i [[thread_position_in_grid]]) {
     if (i != 0) return;
     sfm::Pair sum = sfm::add({source[0], 0.0f}, {source[1], 0.0f});
-    sfm::Pair difference = sfm::add(sum, {-source[0], 0.0f});
-    result[0] = difference.high + difference.low;
+    // Inspect the error term, not a recombined cancellation. Under unsafe
+    // reassociation the latter can simplify to source[1] and falsely pass.
+    // For (2^24, 1), TwoSum must retain 1 in the low word; erasing it breaks
+    // the same compensation used by FIR accumulation and the IIR state.
+    result[0] = sum.low;
     result[1] = 1.0f; // shader ABI epoch
 }

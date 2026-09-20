@@ -42,9 +42,9 @@ def host(tmp_path_factory):
     fp = ct.POINTER(ct.c_float)
     lib.sfm_host.argtypes = [fp, fp, ct.c_uint, ct.c_uint, ct.c_uint, ct.POINTER(_Channel), fp]
     lib.sfm_host.restype = None
-    lib.sfm_host_probe.argtypes = []
+    lib.sfm_host_probe.argtypes = [ct.c_float, ct.c_float]
     lib.sfm_host_probe.restype = ct.c_float
-    assert lib.sfm_host_probe() == 1.0
+    assert lib.sfm_host_probe(16777216.0, 1.0) == 1.0
 
     def run(image, sigma, truncate=3.0):
         h, w, c = _validate_image(image)
@@ -56,6 +56,27 @@ def host(tmp_path_factory):
                      entries, constants.ctypes.data_as(fp))
         return out
     return run
+
+
+def test_host_fast_math_negative_control(tmp_path):
+    compiler = shutil.which("clang++") or shutil.which("g++")
+    assert compiler, "a C++ compiler is required"
+    library = tmp_path / ("fast.dylib" if sys.platform == "darwin" else "fast.so")
+    subprocess.run([
+        compiler, "-std=c++17", "-O2", "-ffast-math", "-shared", "-fPIC",
+        "-I", str(SOURCES), str(Path(__file__).with_name("host_probe.cpp")),
+        "-o", str(library),
+    ], check=True)
+    # Some toolchains give fast-math libraries an FTZ/DAZ initializer. Keep
+    # that process-wide state out of the reference/parity test process.
+    subprocess.run([sys.executable, "-c", """
+import ctypes as ct
+import sys
+lib = ct.CDLL(sys.argv[1])
+lib.sfm_host_probe.argtypes = [ct.c_float, ct.c_float]
+lib.sfm_host_probe.restype = ct.c_float
+assert lib.sfm_host_probe(16777216.0, 1.0) == 0.0
+""", str(library)], check=True)
 
 
 def check_reference(actual, image, sigma, truncate=3.0):
@@ -247,3 +268,11 @@ def test_actual_metal_fast_math_negative_control(metal_bundle, tmp_path):
     (bad / "manifest.json").write_text(json.dumps(manifest))
     _check_bundle(bad)  # Correct hashes do not prove correct compiler semantics.
     with pytest.raises(RuntimeError, match="probe failed"): NativeMetalSpatial(bad)
+
+
+@pytest.mark.parametrize("channels", (1, 2, 4))
+def test_actual_metal_channel_counts(metal_bundle, channels):
+    image = np.random.default_rng(29).uniform(-1, 8, (17, 23, channels)).astype(np.float32)
+    sigmas = np.array((0.0, 0.75, 3.0, 130.0)[:channels])
+    with NativeMetalSpatial(metal_bundle) as engine:
+        check_reference(engine.gaussian(image, sigmas), image, sigmas)

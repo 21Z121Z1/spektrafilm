@@ -34,8 +34,6 @@ extern "C" void sfm_host(const float* input, float* output,
         }
     }
 }
-extern "C" float sfm_host_probe(void) {
-    sfm::Pair sum = sfm::add({16777216.0f, 0.0f}, {1.0f, 0.0f});
-    sfm::Pair result = sfm::add(sum, {-16777216.0f, 0.0f});
-    return result.high + result.low;
+extern "C" float sfm_host_probe(float a, float b) {
+    return sfm::add({a, 0.0f}, {b, 0.0f}).low;
 }

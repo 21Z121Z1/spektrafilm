@@ -80,16 +80,26 @@ uv run --frozen python tests/native_metal/benchmark.py \
 ```
 
 The build uses safe/precise Metal math and disables implicit contraction.
-A runtime two-word arithmetic probe rejects incompatible compiler semantics.
-The macOS tests also compile a deliberately unsafe library and require refusal.
-Source and artifact hashes reject stale or partially replaced bundles.
+A runtime probe checks the low word of `TwoSum(2^24, 1)`. It must retain 1;
+unsafe reassociation can erase the compensation. Checking the recombined
+`(a + b) - a` was insufficient: both compensated arithmetic and reassociated
+real algebra returned `b` on Xcode 26.6. The macOS tests compile a deliberately
+unsafe library and require refusal. The host test carries the same negative
+control. This is a targeted arithmetic check, not universal compiler certification.
+Native sources, the build script, and artifact hashes reject stale or
+partially replaced bundles.
 Compilation is explicit, never a first-render side effect.
 
 The existing SDR workflow adds a change-gated Linux/macOS native lane. Linux
-runs host arithmetic and contract tests only. macOS must compile and execute
-Metal; a missing compiler/device is an error, not a successful skip. Both lanes
-use frozen dependencies and upload JUnit evidence. Existing conformance lanes
-remain in place. The benchmark is a synchronized Gaussian microbenchmark, not
+runs host arithmetic, contract and wheel-content checks. macOS first compiles
+and executes Metal without MLX installed, then runs the complete non-GUI suite
+with MLX installed: that existing suite includes unguarded MLX/CoreImage tests
+and is not Linux-portable. A missing native compiler/device is an error, not a
+successful skip. Both lanes use frozen dependencies and upload JUnit evidence.
+Existing conformance lanes remain in place, now frozen too. Their candidate
+fingerprint records the unchanged committed `uv.lock`; the old fingerprint
+did not match those bytes and failed under the first frozen CI run.
+The benchmark is a synchronized Gaussian microbenchmark, not
 RAW-to-film time. Its allocated-byte count is not process peak memory.
 
 ## Promotion gates and next work
